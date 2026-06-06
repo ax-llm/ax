@@ -1633,7 +1633,7 @@ class AxAIService:
         raise NotImplementedError
 
     def get_model_list(self):
-        return None
+        return []
 
     def get_metrics(self) -> dict[str, Any]:
         raise NotImplementedError
@@ -1666,10 +1666,10 @@ class AxAIService:
         raise NotImplementedError
 
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        raise AxUnsupportedCapabilityError("transcribe is not supported by this generated AxAI beta provider")
+        raise NotImplementedError
 
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        raise AxUnsupportedCapabilityError("speak is not supported by this generated AxAI beta provider")
+        raise NotImplementedError
 
     def get_estimated_cost(self, model_usage: dict[str, Any] | None = None) -> float:
         return 0.0
@@ -1721,6 +1721,14 @@ class AxBaseAI(AIClient):
 
     def get_features(self, model: str | None = None) -> dict[str, Any]:
         return copy.deepcopy(self.features)
+
+    def get_model_list(self):
+        models = []
+        if self.model:
+            models.append({"key": self.model, "description": f"{self.name} chat model", "model": self.model})
+        if self.embed_model:
+            models.append({"key": self.embed_model, "description": f"{self.name} embed model", "embedModel": self.embed_model})
+        return models
 
     def get_metrics(self) -> dict[str, Any]:
         return copy.deepcopy(self.metrics)
@@ -1879,12 +1887,18 @@ class ProviderOperationClient(AxBaseAI):
 
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         payload = provider_build_transcribe_request(self.profile, request)
-        raw = self._request_json(self._operation_path("transcribe"), payload, stream=False, body_key="data")
+        model = request.get("model") or self.model
+        descriptor = provider_operation_descriptor(self.profile, "transcribe")
+        body_key = "data" if descriptor.get("body") == "multipart" else "json"
+        raw = self._request_json(self._operation_path("transcribe", model), payload, stream=False, body_key=body_key)
         return provider_normalize_transcribe_response(self.profile, raw)
 
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         payload = provider_build_speak_request(self.profile, request)
-        raw = self._request_json(self._operation_path("speak"), payload, stream=False)
+        model = request.get("model") or self.model
+        descriptor = provider_operation_descriptor(self.profile, "speak")
+        body_key = "data" if descriptor.get("body") == "multipart" else "json"
+        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key)
         return provider_normalize_speak_response(self.profile, raw, request)
 
     def realtime(self, events: Iterable[dict[str, Any]], model: str | None = None):
@@ -2648,13 +2662,33 @@ class ProviderRouter:
     def get_routing_stats(self):
         return provider_routing_stats(self._provider_records())
 
-    def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+    def _selected_provider(self, request: dict[str, Any]):
         rec = self.get_routing_recommendation(request)
         provider = rec.get("provider")
         if provider is None:
             raise AxUnsupportedCapabilityError("No provider selected")
+        return rec, provider
+
+    def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        rec, provider = self._selected_provider(request)
         response = provider.chat(request, options)
         return {"response": response, "routing": rec}
+
+    def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        _rec, provider = self._selected_provider(request)
+        return provider.stream(request, options)
+
+    def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        _rec, provider = self._selected_provider(request)
+        return provider.embed(request, options)
+
+    def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        _rec, provider = self._selected_provider(request)
+        return provider.transcribe(request, options)
+
+    def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        _rec, provider = self._selected_provider(request)
+        return provider.speak(request, options)
 
 
 def _core_not(value): return not value
@@ -3186,7 +3220,7 @@ class AxGen:
         opts = options or {}
         engine = opts.get("engine") or opts.get("optimizer")
         if engine is None:
-            raise NotImplementedError("AxIR generated runtimes require an OptimizerEngine for optimize()")
+            raise ValueError("options.engine must implement OptimizerEngine for optimize()")
         return self.optimize_with(engine, dataset or [], opts)
 
     def get_traces(self):
@@ -3947,7 +3981,7 @@ class AxFlow(AxProgram):
         opts = options or {}
         engine = opts.get("engine") or opts.get("optimizer")
         if engine is None:
-            raise NotImplementedError("AxIR generated runtimes require an OptimizerEngine for optimize()")
+            raise ValueError("options.engine must implement OptimizerEngine for optimize()")
         return self.optimize_with(engine, dataset or [], opts)
 
     def forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
@@ -4847,7 +4881,7 @@ class AxAgent:
         opts = options or {}
         engine = opts.get("engine") or opts.get("optimizer")
         if engine is None:
-            raise NotImplementedError("AxIR generated runtimes require an OptimizerEngine for optimize()")
+            raise ValueError("options.engine must implement OptimizerEngine for optimize()")
         return self.optimize_with(engine, dataset or [], opts)
 
 

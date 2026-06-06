@@ -1,9 +1,0 @@
-{
-  "name": "unsupported-transcribe",
-  "kind": "ai_unsupported",
-  "method": "transcribe",
-  "request": {
-    "audio": "..."
-  },
-  "expected_error_contains": "transcribe is not supported"
-}

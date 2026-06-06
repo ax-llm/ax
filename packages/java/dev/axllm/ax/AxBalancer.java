@@ -305,7 +305,9 @@ public final class AxBalancer implements AxAIService {
     }
   }
 
+  public Map<String, Object> transcribe(Map<String, Object> request) throws Exception { return transcribe(request, Map.of()); }
   public Map<String, Object> transcribe(Map<String, Object> request, Map<String, Object> options) throws Exception { return currentService.transcribe(request, options); }
+  public Map<String, Object> speak(Map<String, Object> request) throws Exception { return speak(request, Map.of()); }
   public Map<String, Object> speak(Map<String, Object> request, Map<String, Object> options) throws Exception { return currentService.speak(request, options); }
   public Consumer<String> getLogger() { return currentService.getLogger(); }
   public double getEstimatedCost(Map<String, Object> modelUsage) { return currentService.getEstimatedCost(modelUsage); }

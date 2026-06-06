@@ -2792,7 +2792,7 @@ for commit guidelines.
   ([e04b257](https://github.com/ax-llm/ax/commit/e04b25797676bced2ecdc10c7368983d54ca2e19))
 - gpt-4o added
   ([a388219](https://github.com/ax-llm/ax/commit/a388219ec52cfcef132199453f55ecb7c489156e))
-- huggingface data loader
+- external dataset loader
   ([47c6c0e](https://github.com/ax-llm/ax/commit/47c6c0efcfa468466dc54af2c92cc970821d30e2))
 - improve trace logging
   ([12776be](https://github.com/ax-llm/ax/commit/12776be18d2d4795a018ff3e2bf710288586b589))
@@ -2842,7 +2842,7 @@ for commit guidelines.
   ([65839a9](https://github.com/ax-llm/ax/commit/65839a9fc041853af10971474bb2f1417919d0d3))
 - support for google vertex
   ([49ee383](https://github.com/ax-llm/ax/commit/49ee3833e5f2fc423ca8c059670157b20acc8ac6))
-- support for Hugging Face and other updates
+- support for additional provider updates
   ([8f64432](https://github.com/ax-llm/ax/commit/8f644328ab10fcd409b98b02807a96fdccbc79e7))
 - support for remote tracing
   ([033a67a](https://github.com/ax-llm/ax/commit/033a67ab5f6e1f2778ec435fa0e6f181223b6728))

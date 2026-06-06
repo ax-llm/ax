@@ -15,7 +15,7 @@ Factory function to create an AI provider instance.
 
 ```typescript
 const llm = ai({
-  name: "openai" | "openai-responses" | "anthropic" | "google-gemini" | "mistral" | "cohere" | "deepseek" | "huggingface" | "azure-openai" | "reka" | "grok",
+  name: "openai" | "openai-responses" | "anthropic" | "google-gemini" | "mistral" | "cohere" | "deepseek" | "azure-openai" | "reka" | "grok",
   apiKey?: string,
   apiURL?: string,
   models?: Array<{ key: string; model: string; description?: string }>,
@@ -557,7 +557,6 @@ Common environment variables:
 - `GOOGLE_APIKEY` - Google API key
 - `MISTRAL_APIKEY` - Mistral API key
 - `DEEPSEEK_APIKEY` - DeepSeek API key
-- `HUGGINGFACE_APIKEY` - Hugging Face API key
 
 ---
 

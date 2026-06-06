@@ -38,9 +38,9 @@ const providers: Provider[] = [
     color: 'text-amber-600 dark:text-amber-400',
   },
   {
-    name: 'HuggingFace',
-    code: `ai({ name: 'huggingface' })`,
-    color: 'text-yellow-600 dark:text-yellow-400',
+    name: 'Grok',
+    code: `ai({ name: 'grok' })`,
+    color: 'text-neutral-600 dark:text-neutral-300',
   },
   {
     name: 'Reka',

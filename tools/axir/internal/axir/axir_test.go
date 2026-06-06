@@ -482,7 +482,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axflow_program_graph.py",
 				"examples/optimizer_artifact.py",
 			},
-			wantReadme: "Generated Ax PYTHON Library",
+			wantReadme: "Ax for Python",
 		},
 		{
 			target: "java",
@@ -545,7 +545,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/AxFlowProgramGraphExample.java",
 				"examples/OptimizerArtifactExample.java",
 			},
-			wantReadme: "Generated Ax JAVA Library",
+			wantReadme: "Ax for Java",
 		},
 		{
 			target: "cpp",
@@ -574,7 +574,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axflow_program_graph.cpp",
 				"examples/optimizer_artifact.cpp",
 			},
-			wantReadme: "Generated Ax CPP Library",
+			wantReadme: "Ax for C++",
 		},
 		{
 			target: "go",
@@ -596,7 +596,28 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axflow_program_graph/main.go",
 				"examples/optimizer_artifact/main.go",
 			},
-			wantReadme: "Generated Ax GO Library",
+			wantReadme: "Ax for Go",
+		},
+		{
+			target: "rust",
+			wantFiles: []string{
+				"README.md",
+				"Cargo.toml",
+				"src/lib.rs",
+				"src/bin/axllm-conformance.rs",
+				"axir-capabilities.json",
+				"examples/signature_schema.rs",
+				"examples/provider_mapping_no_key.rs",
+				"examples/provider_stream_no_key.rs",
+				"examples/axgen_fake_client_tool.rs",
+				"examples/axgen_openai_api.rs",
+				"examples/axagent_pipeline.rs",
+				"examples/runtime_adapter.rs",
+				"examples/runtime_protocol.rs",
+				"examples/axflow_program_graph.rs",
+				"examples/optimizer_artifact.rs",
+			},
+			wantReadme: "Ax for Rust",
 		},
 	} {
 		t.Run(tc.target, func(t *testing.T) {
@@ -637,12 +658,15 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if manifest.Target != tc.target || manifest.ProviderMode != "provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic" || !manifest.FakeTransportSupport {
 				t.Fatalf("bad manifest for %s: %#v", tc.target, manifest)
 			}
-			wantPackage := map[string]string{"python": "axllm", "java": "dev.axllm:ax", "cpp": "axllm", "go": "github.com/ax-llm/ax/go"}[tc.target]
+			if len(manifest.UnsupportedCapabilities) != 0 {
+				t.Fatalf("%s manifest contains unsupported_capabilities despite claiming generated package completeness: %#v", tc.target, manifest.UnsupportedCapabilities)
+			}
+			wantPackage := map[string]string{"python": "axllm", "java": "dev.axllm:ax", "cpp": "axllm", "go": "github.com/ax-llm/ax/go", "rust": "axllm"}[tc.target]
 			if manifest.PackageName != wantPackage {
 				t.Fatalf("bad package name for %s: got %q want %q", tc.target, manifest.PackageName, wantPackage)
 			}
-			if tc.target == "cpp" && !manifest.RealNetworkSupport {
-				t.Fatalf("C++ manifest should claim built-in HTTP support: %#v", manifest)
+			if (tc.target == "cpp" || tc.target == "rust") && !manifest.RealNetworkSupport {
+				t.Fatalf("%s manifest should claim built-in HTTP support: %#v", tc.target, manifest)
 			}
 			for _, want := range []string{"signature", "schema", "validation", "prompt", "axgen", "axai", "axagent", "axoptimize", "axprogram", "axflow"} {
 				if !containsString(manifest.SupportedSuites, want) {
@@ -673,8 +697,22 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(string(readme), tc.wantReadme) || !strings.Contains(string(readme), "Core-owned") || !strings.Contains(string(readme), "AxJSRuntime") || !strings.Contains(string(readme), "javascript-quickjs") || !strings.Contains(string(readme), "python-pyodide") || !strings.Contains(string(readme), "javascript-goja") {
-				t.Fatalf("generated README missing contract text:\n%s", readme)
+			readmeText := string(readme)
+			for _, want := range []string{tc.wantReadme, "Core-owned", "AxJSRuntime", "RLM", "REPL", "not a TypeScript transpiler", "provider-api", "no-key"} {
+				if !strings.Contains(readmeText, want) {
+					t.Fatalf("generated README missing %q:\n%s", want, readme)
+				}
+			}
+			for _, want := range map[string][]string{
+				"python": {"javascript-quickjs", "python-pyodide"},
+				"java":   {"javascript-quickjs", "python-pyodide"},
+				"cpp":    {"javascript-quickjs", "python-pyodide"},
+				"go":     {"javascript-goja"},
+				"rust":   {"ProcessCodeRuntime", "protocol-first"},
+			}[tc.target] {
+				if !strings.Contains(readmeText, want) {
+					t.Fatalf("generated README missing runtime profile %q:\n%s", want, readme)
+				}
 			}
 			switch tc.target {
 			case "python":
@@ -692,9 +730,95 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "axllm.go", "package axllm", "type Value = any", "func NewSignature", "type HTTPTransport struct")
 				checkGeneratedFileContains(t, dir, "runtime/goja/goja.go", "package goja", "func NewRuntime(options ...Option) *Runtime", "func (r *Runtime) RegisterCallable", "gojavm.New")
 				checkGeneratedFileContains(t, dir, "examples/runtime_profiles/javascript_goja/main.go", "go-javascript-goja-profile-ok", "ax.NewAgent", "agent.Test(runtime", "while (true) {}")
+			case "rust":
+				checkGeneratedFileContains(t, dir, "Cargo.toml", `name = "axllm"`, "reqwest", "rustls-tls")
+				checkGeneratedFileContains(t, dir, "src/lib.rs", "pub fn s(", "pub fn ax(", "pub fn agent(", "pub fn flow(", "pub fn ai(", "pub fn tool(", "pub trait AxCodeRuntime", "pub struct ProcessCodeRuntime")
+				checkGeneratedFileDoesNotContain(t, dir, "src/lib.rs", "BEGIN AXIR CORE EMITTED FUNCTIONS", "fn _schema_flexible_json_as_string_impl")
+				checkGeneratedFileContains(t, dir, "src/bin/axllm-conformance.rs", "run_conformance_fixture")
+				checkGeneratedFileContains(t, dir, "examples/runtime_protocol.rs", "ProcessCodeRuntime", "rust-runtime-protocol-ok")
 			}
+			auditGeneratedRuntimePlaceholders(t, dir, tc.target)
+			auditGeneratedCapabilityCompleteness(t, dir, tc.target, manifest)
+			assertNoRemovedProviderReferences(t, dir)
 			assertNoUserFacingInternalPackageNames(t, dir, tc.target)
 		})
+	}
+}
+
+func TestRemovedProvidersStayRemovedFromActiveSurfaces(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "..")
+	for _, rel := range []string{
+		"README.md",
+		"index.ts",
+		"package.json",
+		"src",
+		"tools/axir",
+		"ir",
+		"packages",
+		"scripts",
+		"docs",
+	} {
+		assertNoRemovedProviderReferences(t, filepath.Join(root, rel))
+	}
+}
+
+func removedProviderReferenceTokens() []string {
+	stem := "hugging" + "face"
+	title := "Hugging" + "Face"
+	titleWords := "Hugging" + " Face"
+	return []string{
+		stem,
+		title,
+		titleWords,
+		"AxAI" + title,
+		"api-inference." + stem,
+		"hf" + "." + "co",
+	}
+}
+
+func assertNoRemovedProviderReferences(t *testing.T, root string) {
+	t.Helper()
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		assertFileHasNoRemovedProviderReferences(t, root)
+		return
+	}
+	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name := d.Name()
+		if d.IsDir() {
+			switch name {
+			case ".git", "node_modules", "target", "dist", "coverage", ".next", ".astro", ".generated":
+				return filepath.SkipDir
+			}
+			if name == "data" && filepath.Base(filepath.Dir(path)) == "src" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		assertFileHasNoRemovedProviderReferences(t, path)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertFileHasNoRemovedProviderReferences(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, token := range removedProviderReferenceTokens() {
+		if strings.Contains(text, token) {
+			t.Fatalf("removed provider reference %q found in %s", token, path)
+		}
 	}
 }
 
@@ -705,6 +829,7 @@ func assertNoUserFacingInternalPackageNames(t *testing.T, root, target string) {
 		"java":   {"pom.xml", "build.gradle", "settings.gradle"},
 		"cpp":    {"CMakeLists.txt", "cmake/axllmConfig.cmake.in"},
 		"go":     {"go.mod"},
+		"rust":   {"Cargo.toml"},
 	}[target]
 	for _, rel := range metadata {
 		text := strings.ToLower(readRepoFile(t, root, filepath.FromSlash(rel)))
@@ -729,6 +854,7 @@ func TestDocsCoverCompilerAndArchitecture(t *testing.T) {
 		"Java",
 		"C++",
 		"Go",
+		"Rust",
 		"AxAgent",
 		"AxFlow",
 		"GEPA",
@@ -752,6 +878,7 @@ func TestDocsCoverCompilerAndArchitecture(t *testing.T) {
 		"Python",
 		"Java",
 		"C++",
+		"Rust",
 		"docs/RELEASE.md",
 	} {
 		if !strings.Contains(architecture, want) {
@@ -764,7 +891,7 @@ func TestDocsCoverCompilerAndArchitecture(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := readRepoFile(t, root, "docs", "RELEASE.md")
-	for _, want := range []string{"@ax-llm/ax", "axllm", "dev.axllm:ax", "axllm::axllm", "github.com/ax-llm/ax/go", "javascript-goja", "runtime/goja"} {
+	for _, want := range []string{"@ax-llm/ax", "axllm", "dev.axllm:ax", "axllm::axllm", "github.com/ax-llm/ax/go", "javascript-goja", "runtime/goja", "crates.io"} {
 		if !strings.Contains(release, want) {
 			t.Fatalf("docs/RELEASE.md missing %q", want)
 		}
@@ -778,6 +905,478 @@ func checkGeneratedFileContains(t *testing.T, root, rel string, wants ...string)
 		if !strings.Contains(text, want) {
 			t.Fatalf("%s missing %q:\n%s", rel, want, text)
 		}
+	}
+}
+
+func checkGeneratedFileDoesNotContain(t *testing.T, root, rel string, forbidden ...string) {
+	t.Helper()
+	text := readRepoFile(t, root, filepath.FromSlash(rel))
+	for _, item := range forbidden {
+		if strings.Contains(text, item) {
+			t.Fatalf("%s should not contain %q:\n%s", rel, item, text)
+		}
+	}
+}
+
+type generatedCoreAuditEntry struct {
+	category string
+	rel      string
+	name     string
+}
+
+func auditGeneratedRuntimePlaceholders(t *testing.T, root, target string) {
+	t.Helper()
+	if target == "rust" {
+		auditRustWrapperOwnedCore(t, root)
+		return
+	}
+	for _, entry := range generatedCoreAuditManifest(target) {
+		body, ok := extractGeneratedFunctionBody(t, root, target, entry.rel, entry.name)
+		if !ok {
+			t.Fatalf("%s generated Core audit missing %s helper %s in %s", target, entry.category, entry.name, entry.rel)
+		}
+		assertGeneratedCoreBodyReal(t, target, entry, body)
+		t.Logf("%s generated Core audit %s %s::%s: real-core-body", target, entry.category, entry.rel, entry.name)
+	}
+}
+
+func generatedCoreAuditManifest(target string) []generatedCoreAuditEntry {
+	switch target {
+	case "python":
+		return []generatedCoreAuditEntry{
+			{category: "schema", rel: "axllm/schema.py", name: "_schema_flexible_json_as_string_impl"},
+			{category: "provider", rel: "axllm/ai.py", name: "provider_normalize_chat_response"},
+			{category: "agent", rel: "axllm/agent.py", name: "_build_agent_actor_prompt_policy"},
+			{category: "runtime", rel: "axllm/agent.py", name: "_agent_runtime_build_globals"},
+			{category: "flow", rel: "axllm/flow.py", name: "_flow_forward"},
+			{category: "optimizer", rel: "axllm/gen.py", name: "_build_optimizer_request"},
+		}
+	case "java":
+		return generatedSingleFileCoreAuditManifest("dev/axllm/ax/Core.java")
+	case "cpp":
+		return generatedSingleFileCoreAuditManifest("axllm/axllm.cpp")
+	case "go":
+		return generatedSingleFileCoreAuditManifest("axllm.go")
+	default:
+		return nil
+	}
+}
+
+func generatedSingleFileCoreAuditManifest(rel string) []generatedCoreAuditEntry {
+	return []generatedCoreAuditEntry{
+		{category: "schema", rel: rel, name: "_schema_flexible_json_as_string_impl"},
+		{category: "provider", rel: rel, name: "provider_normalize_chat_response"},
+		{category: "agent", rel: rel, name: "_build_agent_actor_prompt_policy"},
+		{category: "runtime", rel: rel, name: "_agent_runtime_build_globals"},
+		{category: "flow", rel: rel, name: "_flow_forward"},
+		{category: "optimizer", rel: rel, name: "_build_optimizer_request"},
+	}
+}
+
+func auditRustWrapperOwnedCore(t *testing.T, root string) {
+	t.Helper()
+	text := readRepoFile(t, root, "src", "lib.rs")
+	for _, forbidden := range []string{
+		"BEGIN AXIR CORE EMITTED FUNCTIONS",
+		"fn _schema_flexible_json_as_string_impl",
+		"fn _schema_json_type_impl",
+		"fn _schema_enhance_description_impl",
+		"fn _schema_apply_constraints_impl",
+		"fn _schema_nullable_optional_impl",
+		"fn provider_normalize_chat_response",
+		"fn _build_agent_actor_prompt_policy",
+		"fn _agent_runtime_build_globals",
+		"fn _flow_forward",
+		"fn _build_optimizer_request",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("rust generated Core audit found suspicious-placeholder or emitted Core helper %q in src/lib.rs:\n%s", forbidden, text)
+		}
+	}
+	t.Log("rust generated Core audit: intentional-wrapper-owned")
+}
+
+func auditGeneratedCapabilityCompleteness(t *testing.T, root, target string, manifest CapabilityManifest) {
+	t.Helper()
+	if len(manifest.UnsupportedCapabilities) != 0 {
+		t.Fatalf("%s generated capability audit: unsupported_capabilities must stay empty for claimed generated packages: %#v", target, manifest.UnsupportedCapabilities)
+	}
+	for _, guard := range generatedCapabilityGuards(target) {
+		text := readRepoFile(t, root, filepath.FromSlash(guard.rel))
+		for _, want := range guard.contains {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s generated capability audit %s missing %q in %s", target, guard.category, want, guard.rel)
+			}
+		}
+		for _, forbidden := range guard.forbidden {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s generated capability audit %s found forbidden placeholder %q in %s:\n%s", target, guard.category, forbidden, guard.rel, text)
+			}
+		}
+	}
+}
+
+type generatedCapabilityGuard struct {
+	category  string
+	rel       string
+	contains  []string
+	forbidden []string
+}
+
+func generatedCapabilityGuards(target string) []generatedCapabilityGuard {
+	switch target {
+	case "python":
+		return []generatedCapabilityGuard{
+			{
+				category: "provider",
+				rel:      "axllm/ai.py",
+				contains: []string{
+					"def chat(",
+					"def stream(",
+					"def embed(",
+					"def transcribe(",
+					"def speak(",
+					"class MultiServiceRouter",
+					"class AxBalancer",
+					"class ProviderRouter",
+					"def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):",
+					"def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):",
+					"def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):",
+					"def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):",
+					"def _selected_provider(self, request: dict[str, Any]):",
+					"return provider.embed(request, options)",
+					"return provider.transcribe(request, options)",
+					"return provider.speak(request, options)",
+				},
+				forbidden: []string{
+					"def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):\n        raise AxUnsupportedCapabilityError",
+					"def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):\n        raise AxUnsupportedCapabilityError",
+				},
+			},
+			{category: "agent", rel: "axllm/agent.py", contains: []string{"class AxAgent", "def forward(", "def execute_actor_step("}},
+			{category: "flow", rel: "axllm/flow.py", contains: []string{"class AxFlow", "def forward("}},
+			{category: "optimizer", rel: "axllm/agent.py", contains: []string{"class AxGEPA", "def optimize("}},
+			{category: "runtime", rel: "axllm/runtime.py", contains: []string{"class ProcessCodeRuntime", "class ProcessCodeSession"}},
+		}
+	case "java":
+		return []generatedCapabilityGuard{
+			{category: "provider", rel: "dev/axllm/ax/OpenAICompatibleClient.java", contains: []string{"protected Map<String, Object> doChat(", "public Iterable<Map<String, Object>> stream(", "protected Map<String, Object> doEmbed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak("}, forbidden: []string{"return null;\n}"}},
+			{category: "router", rel: "dev/axllm/ax/AxMultiServiceRouter.java", contains: []string{"public Map<String, Object> chat(", "public Map<String, Object> embed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak("}},
+			{category: "provider-router", rel: "dev/axllm/ax/AxProviderRouter.java", contains: []string{"public Map<String, Object> chat(", "public Iterable<Map<String, Object>> stream(", "public Map<String, Object> embed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak("}},
+			{category: "balancer", rel: "dev/axllm/ax/AxBalancer.java", contains: []string{"public Map<String, Object> chat(", "public Map<String, Object> embed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak("}},
+			{category: "base-service", rel: "dev/axllm/ax/AxAIService.java", contains: []string{"Map<String, Object> transcribe(Map<String, Object> request) throws Exception;", "Map<String, Object> speak(Map<String, Object> request) throws Exception;"}, forbidden: []string{"getModelList() { return null; }", "is not supported by this generated AxAI beta provider"}},
+			{category: "agent", rel: "dev/axllm/ax/AxAgent.java", contains: []string{"public Map<String, Object> forward(", "executeActorStep("}},
+			{category: "flow", rel: "dev/axllm/ax/AxFlow.java", contains: []string{"public Map<String, Object> forward("}},
+			{category: "optimizer", rel: "dev/axllm/ax/AxGEPA.java", contains: []string{"public Map<String, Object> optimize("}},
+			{category: "runtime", rel: "dev/axllm/ax/AxProcessCodeRuntime.java", contains: []string{"createSession("}},
+		}
+	case "cpp":
+		return []generatedCapabilityGuard{
+			{category: "provider", rel: "axllm/axllm.cpp", contains: []string{"Value OpenAICompatibleClient::do_chat(", "std::vector<Value> OpenAICompatibleClient::stream(", "Value OpenAICompatibleClient::do_embed(", "Value OpenAICompatibleClient::transcribe(", "Value OpenAICompatibleClient::speak("}, forbidden: []string{"not implemented", "Value AxAIService::transcribe(Value) { throw Core::as_error(Core::ai_error_unsupported", "Value AxAIService::speak(Value) { throw Core::as_error(Core::ai_error_unsupported", "Value AxAIService::get_model_list() { return Value(); }"}},
+			{category: "router", rel: "axllm/axllm.cpp", contains: []string{"Value MultiServiceRouter::chat(", "Value MultiServiceRouter::embed(", "Value MultiServiceRouter::transcribe(", "Value MultiServiceRouter::speak("}},
+			{category: "provider-router", rel: "axllm/axllm.cpp", contains: []string{"Value ProviderRouter::chat(", "std::vector<Value> ProviderRouter::stream(", "Value ProviderRouter::embed(", "Value ProviderRouter::transcribe(", "Value ProviderRouter::speak("}},
+			{category: "balancer", rel: "axllm/axllm.cpp", contains: []string{"Value AxBalancer::chat(", "Value AxBalancer::embed(", "Value AxBalancer::transcribe(", "Value AxBalancer::speak("}},
+			{category: "agent-flow-optimizer-runtime", rel: "axllm/axllm.cpp", contains: []string{"Value AxAgent::forward(", "Value AxFlow::forward(", "Value AxGEPA::optimize(", "AxCodeSession* RuntimeProtocolClient::create_session("}},
+		}
+	case "go":
+		return []generatedCapabilityGuard{
+			{category: "provider", rel: "axllm.go", contains: []string{"func (c *OpenAICompatibleClient) Chat(", "func (c *OpenAICompatibleClient) Stream(", "func (c *OpenAICompatibleClient) Embed(", "func (c *OpenAICompatibleClient) Transcribe(", "func (c *OpenAICompatibleClient) Speak("}, forbidden: []string{"func (c *OpenAICompatibleClient) GetModelList() Value { return nil }"}},
+			{category: "router", rel: "axllm.go", contains: []string{"func (r *MultiServiceRouter) Chat(", "func (r *MultiServiceRouter) Stream(", "func (r *MultiServiceRouter) Embed(", "func (r *MultiServiceRouter) Transcribe(", "func (r *MultiServiceRouter) Speak("}},
+			{category: "provider-router", rel: "axllm.go", contains: []string{"func (r *ProviderRouter) Chat(", "func (r *ProviderRouter) Stream(", "func (r *ProviderRouter) Embed(", "func (r *ProviderRouter) Transcribe(", "func (r *ProviderRouter) Speak("}},
+			{category: "balancer", rel: "axllm.go", contains: []string{"func (b *AxBalancer) Chat(", "func (b *AxBalancer) Stream(", "func (b *AxBalancer) Embed(", "func (b *AxBalancer) Transcribe(", "func (b *AxBalancer) Speak("}},
+			{category: "agent-flow-optimizer-runtime", rel: "axllm.go", contains: []string{"func (a *AxAgent) Forward(", "func (f *AxFlow) Forward(", "func (g *AxGEPA) Optimize(", "func (r *ProcessCodeRuntime) CreateSession("}},
+		}
+	case "rust":
+		return []generatedCapabilityGuard{
+			{
+				category: "provider",
+				rel:      "src/lib.rs",
+				contains: []string{
+					"fn stream(&mut self, request: Value) -> AxResult<Vec<Value>>",
+					"pub fn embed(&mut self, request: Value) -> AxResult<Value>",
+					"pub fn transcribe(&mut self, request: Value) -> AxResult<Value>",
+					"pub fn speak(&mut self, request: Value) -> AxResult<Value>",
+					"pub fn realtime(&self, event: Value) -> AxResult<Value>",
+					"pub fn realtime_audio_setup(&self, request: Value) -> AxResult<Value>",
+					"pub fn realtime_audio_input(&self, audio: Value) -> AxResult<Value>",
+					"\"openai-responses\" | \"responses\"",
+					"\"google-gemini\" | \"gemini\"",
+					"\"anthropic\"",
+				},
+				forbidden: []string{
+					"stream is not implemented",
+					"not implemented",
+					"unsupported provider",
+					"pub struct AxBalancer;",
+					"pub struct MultiServiceRouter;",
+					"pub struct ProviderRouter;",
+				},
+			},
+			{category: "router", rel: "src/lib.rs", contains: []string{"services: BTreeMap<String, OpenAICompatibleClient>", "providers: BTreeMap<String, OpenAICompatibleClient>", "pub fn stream(&mut self, request: Value) -> AxResult<Vec<Value>>"}},
+			{
+				category: "conformance",
+				rel:      "src/lib.rs",
+				contains: []string{"\"ai_stream\" => run_ai_stream_fixture(&fixture)?", "\"ai_embed\" => run_ai_embed_fixture(&fixture)?", "\"ai_transcribe\" => run_ai_transcribe_fixture(&fixture)?", "\"ai_speak\" => run_ai_speak_fixture(&fixture)?", "\"ai_realtime\" => run_ai_realtime_fixture(&fixture)?", "run_explicit_non_ai_conformance_fixture", "unsupported Rust conformance fixture kind", "expect_transport_request_subset"},
+				forbidden: []string{
+					"_ => {}\n    }\n    Ok(())",
+				},
+			},
+			{category: "agent-flow-optimizer-runtime", rel: "src/lib.rs", contains: []string{"pub struct AxAgent", "pub struct AxFlow", "pub struct AxGEPA", "pub struct ProcessCodeRuntime"}},
+		}
+	default:
+		return nil
+	}
+}
+
+func extractGeneratedFunctionBody(t *testing.T, root, target, rel, name string) (string, bool) {
+	t.Helper()
+	text := readRepoFile(t, root, filepath.FromSlash(rel))
+	switch target {
+	case "python":
+		return extractPythonFunctionBody(text, name)
+	case "java":
+		return extractBracedFunctionBody(text, "static Object "+name+"(")
+	case "cpp":
+		return extractBracedFunctionBody(text, "Value Core::"+name+"(")
+	case "go":
+		return extractBracedFunctionBody(text, "func "+name+"(")
+	default:
+		return "", false
+	}
+}
+
+func extractPythonFunctionBody(text, name string) (string, bool) {
+	marker := "def " + name + "("
+	idx := strings.Index(text, marker)
+	if idx < 0 {
+		return "", false
+	}
+	lineStart := strings.LastIndex(text[:idx], "\n") + 1
+	if lineStart != idx {
+		return "", false
+	}
+	headerEnd := strings.Index(text[idx:], "\n")
+	if headerEnd < 0 {
+		return "", false
+	}
+	bodyStart := idx + headerEnd + 1
+	var body strings.Builder
+	for _, line := range strings.SplitAfter(text[bodyStart:], "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			body.WriteString(line)
+			continue
+		}
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			break
+		}
+		body.WriteString(line)
+	}
+	return body.String(), true
+}
+
+func extractBracedFunctionBody(text, signature string) (string, bool) {
+	idx := strings.Index(text, signature)
+	if idx < 0 {
+		return "", false
+	}
+	braceOffset := strings.Index(text[idx:], "{")
+	if braceOffset < 0 {
+		return "", false
+	}
+	start := idx + braceOffset
+	end := matchingBraceIndex(text, start)
+	if end < 0 {
+		return "", false
+	}
+	return text[start+1 : end], true
+}
+
+func matchingBraceIndex(text string, start int) int {
+	depth := 0
+	var quote byte
+	escaped := false
+	lineComment := false
+	blockComment := false
+	for i := start; i < len(text); i++ {
+		c := text[i]
+		if lineComment {
+			if c == '\n' {
+				lineComment = false
+			}
+			continue
+		}
+		if blockComment {
+			if c == '*' && i+1 < len(text) && text[i+1] == '/' {
+				blockComment = false
+				i++
+			}
+			continue
+		}
+		if quote != 0 {
+			if quote != '`' && escaped {
+				escaped = false
+				continue
+			}
+			if quote != '`' && c == '\\' {
+				escaped = true
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		if c == '/' && i+1 < len(text) {
+			switch text[i+1] {
+			case '/':
+				lineComment = true
+				i++
+				continue
+			case '*':
+				blockComment = true
+				i++
+				continue
+			}
+		}
+		switch c {
+		case '"', '\'', '`':
+			quote = c
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func assertGeneratedCoreBodyReal(t *testing.T, target string, entry generatedCoreAuditEntry, body string) {
+	t.Helper()
+	lines := generatedCoreSemanticLines(target, body)
+	if len(lines) == 0 {
+		t.Fatalf("%s generated Core audit %s %s::%s: suspicious-placeholder empty body", target, entry.category, entry.rel, entry.name)
+	}
+	if generatedCoreBodyIsPlaceholder(target, lines) {
+		t.Fatalf("%s generated Core audit %s %s::%s: suspicious-placeholder body:\n%s", target, entry.category, entry.rel, entry.name, body)
+	}
+	for _, marker := range generatedCoreRealBodyMarkers(target) {
+		if strings.Contains(body, marker) {
+			return
+		}
+	}
+	if len(lines) > 1 {
+		return
+	}
+	t.Fatalf("%s generated Core audit %s %s::%s: body does not look Core-emitted:\n%s", target, entry.category, entry.rel, entry.name, body)
+}
+
+func generatedCoreRealBodyMarkers(target string) []string {
+	switch target {
+	case "python":
+		return []string{"_core_", "Core."}
+	case "java":
+		return []string{"Core."}
+	case "cpp":
+		return []string{"Core::"}
+	case "go":
+		return []string{"_core_", "coreGet", "coreSet", "coreTruthy"}
+	default:
+		return nil
+	}
+}
+
+func generatedCoreSemanticLines(target, body string) []string {
+	var out []string
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if target == "go" && generatedGoCoreBoilerplateLine(trimmed) {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func generatedGoCoreBoilerplateLine(line string) bool {
+	if line == "defer catchCoreReturn(&ret)" || line == "}" {
+		return true
+	}
+	for _, prefix := range []string{"var ", "_ = ", "if len(args) > "} {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func generatedCoreBodyIsPlaceholder(target string, lines []string) bool {
+	if len(lines) == 0 {
+		return true
+	}
+	for _, line := range lines {
+		if !generatedCorePlaceholderLine(target, line) {
+			return false
+		}
+	}
+	return true
+}
+
+func generatedCorePlaceholderLine(target, line string) bool {
+	line = strings.TrimSuffix(line, ";")
+	switch target {
+	case "python":
+		return line == "pass" || line == "return None"
+	case "java":
+		return line == "return null"
+	case "cpp":
+		return line == "return Value()" || line == "return nullptr" || line == "return {}"
+	case "go":
+		return line == "return" || line == "return nil" || line == "return nil, nil" || line == "ret = nil"
+	default:
+		return false
+	}
+}
+
+func TestGeneratedRuntimePlaceholderDetectorRejectsDefaultBodies(t *testing.T) {
+	for _, tc := range []struct {
+		target string
+		lines  []string
+	}{
+		{target: "python", lines: []string{"return None"}},
+		{target: "python", lines: []string{"pass"}},
+		{target: "java", lines: []string{"return null"}},
+		{target: "cpp", lines: []string{"return Value()"}},
+		{target: "cpp", lines: []string{"return nullptr"}},
+		{target: "go", lines: []string{"return nil"}},
+		{target: "go", lines: []string{"return nil, nil"}},
+	} {
+		t.Run(tc.target+"/"+strings.Join(tc.lines, "_"), func(t *testing.T) {
+			if !generatedCoreBodyIsPlaceholder(tc.target, tc.lines) {
+				t.Fatalf("placeholder detector accepted %s body %#v", tc.target, tc.lines)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		target string
+		lines  []string
+	}{
+		{target: "python", lines: []string{"value = _core_schema_json_type(args[0])", "return value"}},
+		{target: "java", lines: []string{"Object value = Core.schemaJsonType(args.get(0))", "return value"}},
+		{target: "cpp", lines: []string{"auto value = Core::schema_json_type(args[0])", "return value"}},
+		{target: "go", lines: []string{"value := _core_schema_json_type(args[0])", "return value"}},
+	} {
+		t.Run("real/"+tc.target, func(t *testing.T) {
+			if generatedCoreBodyIsPlaceholder(tc.target, tc.lines) {
+				t.Fatalf("placeholder detector rejected real %s body %#v", tc.target, tc.lines)
+			}
+		})
 	}
 }
 

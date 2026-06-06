@@ -384,6 +384,12 @@ struct Core {
   static Value _gemini_extract_citations_impl(Value candidate);
   static Value _gemini_usage_impl(Value usage);
   static Value gemini_normalize_embed_response(Value raw, Value ai_name, Value model);
+  static Value _grok_build_transcribe_request(Value request);
+  static Value _grok_build_speak_request(Value request);
+  static Value _gemini_build_transcribe_request(Value request);
+  static Value _gemini_build_speak_request(Value request);
+  static Value _gemini_normalize_transcribe_response(Value raw);
+  static Value _gemini_normalize_speak_response(Value raw, Value request);
   static Value anthropic_build_chat_request(Value request);
   static Value _anthropic_apply_model_config_impl(Value payload, Value model_config, Value model);
   static Value _anthropic_thinking_config_impl(Value model, Value level);
@@ -579,9 +585,9 @@ class AxAIService : public AIClient {
   virtual std::vector<Value> stream(Value request);
   virtual Value embed(Value request, Value options);
   virtual Value embed(Value request) = 0;
-  virtual Value transcribe(Value request);
+  virtual Value transcribe(Value request) = 0;
   virtual Value transcribe(Value request, Value options);
-  virtual Value speak(Value request);
+  virtual Value speak(Value request) = 0;
   virtual Value speak(Value request, Value options);
   virtual Value get_features(Value model = Value());
   virtual Value get_model_list();
@@ -604,6 +610,7 @@ class AxBaseAI : public AxAIService {
   Value complete(Value request) override;
   Value embed(Value request) override;
   Value embed(Value request, Value options) override;
+  Value get_model_list() override;
   Value get_features(Value model = Value()) override;
   std::string get_id() override;
   std::string get_name() override;
@@ -722,6 +729,10 @@ class ProviderRouter {
   Value validate_request(Value request);
   Value get_routing_stats();
   Value chat(Value request, Value options = Value::object());
+  std::vector<Value> stream(Value request);
+  Value embed(Value request, Value options = Value::object());
+  Value transcribe(Value request, Value options = Value::object());
+  Value speak(Value request, Value options = Value::object());
 
  private:
   std::vector<std::shared_ptr<AxAIService>> providers_;
@@ -2943,14 +2954,12 @@ Value AxAIService::chat(Value request) { return AIClient::chat(std::move(request
 Value AxAIService::chat(Value request, Value) { return chat(std::move(request)); }
 std::vector<Value> AxAIService::stream(Value request) { return {chat(std::move(request))}; }
 Value AxAIService::embed(Value request, Value) { return embed(std::move(request)); }
-Value AxAIService::transcribe(Value) { throw Core::as_error(Core::ai_error_unsupported("transcribe is not supported by this generated AxAI beta provider")); }
 Value AxAIService::transcribe(Value request, Value) { return transcribe(std::move(request)); }
-Value AxAIService::speak(Value) { throw Core::as_error(Core::ai_error_unsupported("speak is not supported by this generated AxAI beta provider")); }
 Value AxAIService::speak(Value request, Value) { return speak(std::move(request)); }
 Value AxAIService::get_features(Value) {
   return Value(Object{{"functions", true}, {"streaming", true}, {"structured_outputs", true}, {"multi_turn", true}});
 }
-Value AxAIService::get_model_list() { return Value(); }
+Value AxAIService::get_model_list() { return Value::array(); }
 Value AxAIService::get_metrics() { return Value::object(); }
 std::function<void(std::string)> AxAIService::get_logger() { return [](std::string) {}; }
 double AxAIService::get_estimated_cost(Value) { return 0.0; }
@@ -3010,6 +3019,12 @@ Value AxBaseAI::embed(Value request, Value call_options) {
 Value AxBaseAI::get_features(Value) { return AxAIService::get_features(Value()); }
 std::string AxBaseAI::get_id() { return name_ + "-id"; }
 std::string AxBaseAI::get_name() { return name_; }
+Value AxBaseAI::get_model_list() {
+  Value out = Value::array();
+  if (!model_.empty()) Core::append(out, object({{"key", model_}, {"description", name_ + " chat model"}, {"model", model_}}));
+  if (!embed_model_.empty()) Core::append(out, object({{"key", embed_model_}, {"description", name_ + " embed model"}, {"embedModel", embed_model_}}));
+  return out;
+}
 Value AxBaseAI::get_metrics() { return Value::object(); }
 Value AxBaseAI::get_options() { return options_; }
 void AxBaseAI::set_options(Value options) { options_ = std::move(options); }
@@ -3198,13 +3213,17 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
 
 Value OpenAICompatibleClient::transcribe(Value request) {
   Value payload = Core::provider_build_transcribe_request(profile_, request);
-  Value raw = request_json(operation_path("transcribe"), payload, false, "data");
+  Value model = Core::get(request, "model", model_);
+  std::string body_key = str(Core::get(Core::provider_operation_descriptor(profile_, "transcribe"), "body", "json")) == "multipart" ? "data" : "json";
+  Value raw = request_json(operation_path("transcribe", model), payload, false, body_key);
   return Core::provider_normalize_transcribe_response(profile_, raw);
 }
 
 Value OpenAICompatibleClient::speak(Value request) {
   Value payload = Core::provider_build_speak_request(profile_, request);
-  Value raw = request_json(operation_path("speak"), payload, false);
+  Value model = Core::get(request, "model", model_);
+  std::string body_key = str(Core::get(Core::provider_operation_descriptor(profile_, "speak"), "body", "json")) == "multipart" ? "data" : "json";
+  Value raw = request_json(operation_path("speak", model), payload, false, body_key);
   return Core::provider_normalize_speak_response(profile_, raw, request);
 }
 
@@ -4510,7 +4529,7 @@ Value AxAgent::optimize_with(OptimizerEngine& engine, AIClient& client, Value da
   return artifact;
 }
 Value AxAgent::optimize(Value dataset, Value options) {
-  throw AxError("unsupported", "AxIR generated runtimes require an OptimizerEngine for optimize()");
+  throw AxError("validation", "options.engine must implement OptimizerEngine for optimize()");
 }
 
 Value object(std::initializer_list<std::pair<std::string, Value>> items) {
@@ -5213,6 +5232,34 @@ Value ProviderRouter::chat(Value request, Value options) {
   return object({{"response", provider->chat(request, options)}, {"routing", rec}});
 }
 
+std::vector<Value> ProviderRouter::stream(Value request) {
+  Value rec = get_routing_recommendation(request);
+  auto provider = service_for_name(Core::get(rec, "providerName"));
+  if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
+  return provider->stream(std::move(request));
+}
+
+Value ProviderRouter::embed(Value request, Value options) {
+  Value rec = get_routing_recommendation(request);
+  auto provider = service_for_name(Core::get(rec, "providerName"));
+  if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
+  return provider->embed(std::move(request), std::move(options));
+}
+
+Value ProviderRouter::transcribe(Value request, Value options) {
+  Value rec = get_routing_recommendation(request);
+  auto provider = service_for_name(Core::get(rec, "providerName"));
+  if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
+  return provider->transcribe(std::move(request), std::move(options));
+}
+
+Value ProviderRouter::speak(Value request, Value options) {
+  Value rec = get_routing_recommendation(request);
+  auto provider = service_for_name(Core::get(rec, "providerName"));
+  if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
+  return provider->speak(std::move(request), std::move(options));
+}
+
 Value to_json_schema(Value fields, const std::string& title, Value options) { return Core::to_json_schema(fields, title, options); }
 Value validate_output(Value fields, Value values) { return Core::validate_output(fields, values); }
 Value strip_internal(Value fields, Value values) { return Core::strip_internal(fields, values); }
@@ -5352,9 +5399,17 @@ struct RouterFixtureService : AxBaseAI {
   }
 
  public:
+  Value transcribe(Value request) override {
+    return transcribe(std::move(request), Value::object());
+  }
+
   Value transcribe(Value request, Value options) override {
     requests.push_back(object({{"method", "transcribe"}, {"opt", options}}));
     return object({{"text", name_ + " transcript"}});
+  }
+
+  Value speak(Value request) override {
+    return speak(std::move(request), Value::object());
   }
 
   Value speak(Value request, Value options) override {

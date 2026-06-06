@@ -30,6 +30,12 @@ public abstract class AxBaseAI implements AxAIService {
   public String getName() { return name; }
   public Map<String, Object> getFeatures(String model) { return Core.defaultFeatures(); }
   public Map<String, Object> getMetrics() { return new LinkedHashMap<>(); }
+  public java.util.List<Map<String, Object>> getModelList() {
+    java.util.List<Map<String, Object>> models = new java.util.ArrayList<>();
+    if (model != null && !model.isBlank()) models.add(Map.of("key", model, "description", name + " chat model", "model", model));
+    if (embedModel != null && !embedModel.isBlank()) models.add(Map.of("key", embedModel, "description", name + " embed model", "embedModel", embedModel));
+    return models;
+  }
   public String getLastUsedChatModel() { return lastUsedChatModel; }
   public String getLastUsedEmbedModel() { return lastUsedEmbedModel; }
   public Map<String, Object> getLastUsedModelConfig() { return lastUsedModelConfig == null ? null : new LinkedHashMap<>(lastUsedModelConfig); }

@@ -3771,19 +3771,12 @@
         "isDynamic": true,
         "models": [],
         "name": "azure-openai"
-      },
-      {
-        "defaultModel": "meta-llama/Llama-2-70b-chat-hf",
-        "displayName": "Hugging Face",
-        "isDynamic": true,
-        "models": [],
-        "name": "huggingface"
       }
     ],
     "modelCount": 154,
     "openaiFirstModel": "gpt-5-nano",
     "openaiModelTypes": ["code", "text"],
-    "providerCount": 11,
+    "providerCount": 10,
     "providerNames": [
       "google-gemini",
       "mistral",
@@ -3794,8 +3787,7 @@
       "cohere",
       "reka",
       "anthropic",
-      "azure-openai",
-      "huggingface"
+      "azure-openai"
     ]
   },
   "kind": "ai_model_catalog_runtime",

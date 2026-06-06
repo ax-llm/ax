@@ -19,11 +19,6 @@ import type {
   AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiModel,
 } from './google-gemini/types.js';
-import {
-  AxAIHuggingFace,
-  type AxAIHuggingFaceArgs,
-} from './huggingface/api.js';
-import type { AxAIHuggingFaceModel } from './huggingface/types.js';
 import { AxAIMistral, type AxAIMistralArgs } from './mistral/api.js';
 import type { AxAIMistralModel } from './mistral/types.js';
 import { AxAIOpenAI, type AxAIOpenAIArgs } from './openai/api.js';
@@ -68,7 +63,6 @@ export type AxAIArgs<TModelKey> =
   | AxAIAnthropicArgs<TModelKey>
   | AxAIGoogleGeminiArgs<TModelKey>
   | AxAICohereArgs<TModelKey>
-  | AxAIHuggingFaceArgs<TModelKey>
   | AxAIMistralArgs<TModelKey>
   | AxAIDeepSeekArgs<TModelKey>
   | AxAIRekaArgs<TModelKey>
@@ -79,7 +73,6 @@ export type AxAIModels =
   | AxAIAnthropicModel
   | AxAIGoogleGeminiModel
   | AxAICohereModel
-  | AxAIHuggingFaceModel
   | AxAIMistralModel
   | AxAIDeepSeekModel
   | AxAIGrokModel;
@@ -118,7 +111,6 @@ type InferTModelKey<T> = T extends { models: infer M }
  * - `'cohere'` - Cohere (Command R+, embeddings)
  * - `'mistral'` - Mistral AI (Mistral Large, Codestral)
  * - `'deepseek'` - DeepSeek (DeepSeek-V4-Flash, DeepSeek-V4-Pro)
- * - `'huggingface'` - Hugging Face Inference API
  * - `'reka'` - Reka AI
  * - `'grok'` - xAI Grok
  *
@@ -208,9 +200,6 @@ export class AxAI<TModelKey = string>
         break;
       case 'grok':
         this.ai = new AxAIGrok<TModelKey>(options);
-        break;
-      case 'huggingface':
-        this.ai = new AxAIHuggingFace<TModelKey>(options);
         break;
       case 'cohere':
         this.ai = new AxAICohere<TModelKey>(options);

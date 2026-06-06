@@ -329,6 +329,13 @@ func BuildRuntimeModel(core Module) (AxRuntimeModel, error) {
 				CollectionPolicy: "map-slice-at-dynamic-boundaries",
 				ErrorPolicy:      "error-return-public-boundary",
 			},
+			"rust": {
+				ModuleNaming:     "crate-modules",
+				MethodNaming:     "snake_case",
+				AsyncPolicy:      "blocking-first-with-async-extension",
+				CollectionPolicy: "serde-json-at-dynamic-boundaries",
+				ErrorPolicy:      "result-error-public-boundary",
+			},
 		},
 	}, nil
 }

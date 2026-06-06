@@ -1,6 +1,6 @@
 ---
 name: ax-ai
-description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/HuggingFace/Reka/Grok with @ax-llm/ax.
+description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
 version: "__VERSION__"
 ---
 
@@ -20,7 +20,12 @@ const azure = ai({ name: 'azure-openai', apiKey: 'your-key', resourceName: 'your
 const deepseek = ai({ name: 'deepseek', apiKey: 'sk-...' });
 const mistral = ai({ name: 'mistral', apiKey: 'your-key' });
 const cohere = ai({ name: 'cohere', apiKey: 'your-key' });
-const hf = ai({ name: 'huggingface', apiKey: 'hf_...' });
+const custom = ai({
+  name: 'openai',
+  apiKey: process.env.PROVIDER_API_KEY,
+  apiURL: 'https://example.com/v1',
+  config: { model: 'provider/model-name' },
+});
 const reka = ai({ name: 'reka', apiKey: 'your-key' });
 const grok = ai({ name: 'grok', apiKey: 'your-key' });
 const compatible = ai({ name: 'openai', apiKey: 'key', apiURL: 'https://api.example.com/v1', config: { model: 'provider/model' } });
@@ -61,7 +66,7 @@ Use `axGetSupportedAIModels()` to build provider/model selectors before creating
 
 Filter with `{ type: 'all' | 'text' | 'embeddings' | 'code' | 'audio' }` or an array of those values. The `'text'` filter includes code-capable models; use `'code'` to show only code-first models.
 
-Dynamic providers such as Azure OpenAI deployments and Hugging Face are marked with `isDynamic: true` and may have an empty or static-limited model list.
+Dynamic providers such as Azure OpenAI deployments are marked with `isDynamic: true` and may have an empty or static-limited model list.
 
 ## Chat
 
@@ -314,7 +319,7 @@ const client = new AxMCPClient(transport);
 ## Critical Rules
 
 - Use `ai()` factory for all providers.
-- Provider names: `'openai'`, `'openai-responses'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'mistral'`, `'cohere'`, `'deepseek'`, `'huggingface'`, `'reka'`, `'grok'`
+- Provider names: `'openai'`, `'openai-responses'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'mistral'`, `'cohere'`, `'deepseek'`, `'reka'`, `'grok'`
 - Thinking constraints on Anthropic: Opus 4.8/4.7 omit `temperature`, `topP`,
   and `topK`; older thinking models ignore `temperature` and `topK`, with
   `topP` only sent if >= 0.95.

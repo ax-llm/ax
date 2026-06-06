@@ -96,13 +96,19 @@ public class OpenAICompatibleClient extends AxBaseAI {
 
   public Map<String, Object> transcribe(Map<String, Object> request) throws Exception {
     Map<String, Object> payload = Core.asMap(Core.provider_build_transcribe_request(profile, request));
-    Object raw = requestJson(operationPath("transcribe"), payload, false, "data");
+    Object modelName = request.getOrDefault("model", model);
+    Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "transcribe"));
+    String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
+    Object raw = requestJson(operationPath("transcribe", modelName), payload, false, bodyKey);
     return Core.asMap(Core.provider_normalize_transcribe_response(profile, raw));
   }
 
   public Map<String, Object> speak(Map<String, Object> request) throws Exception {
     Map<String, Object> payload = Core.asMap(Core.provider_build_speak_request(profile, request));
-    Object raw = requestJson(operationPath("speak"), payload, false);
+    Object modelName = request.getOrDefault("model", model);
+    Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "speak"));
+    String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
+    Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey);
     return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request));
   }
 

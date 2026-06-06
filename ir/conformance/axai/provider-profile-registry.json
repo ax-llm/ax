@@ -24,7 +24,7 @@
     "xai": "grok"
   },
   "expected_output": {
-    "deferredCatalogProviderIds": ["huggingface"],
+    "deferredCatalogProviderIds": [],
     "profiles": {
       "anthropic": {
         "aliases": ["anthropic", "claude"],

@@ -1,7 +1,7 @@
 {
   "expected_output": {
     "catalogVersion": "provider-model-catalog-audit-v1",
-    "deferredProviderIds": ["huggingface"],
+    "deferredProviderIds": [],
     "descriptorCoveredProviderIds": [
       "openai-compatible",
       "openai-responses",
@@ -15,20 +15,19 @@
       "grok"
     ],
     "filterOptions": ["all", "text", "embeddings", "code", "audio"],
-    "nextMilestone": "Additional catalog provider clients complete except Hugging Face",
-    "providerCount": 11,
+    "nextMilestone": "Generated catalog provider clients match the active catalog",
+    "providerCount": 10,
     "providerNames": [
-      "openai",
-      "openai-responses",
-      "azure-openai",
-      "anthropic",
       "google-gemini",
+      "openai",
       "cohere",
-      "deepseek",
       "mistral",
-      "huggingface",
+      "deepseek",
+      "openai-responses",
+      "grok",
       "reka",
-      "grok"
+      "anthropic",
+      "azure-openai"
     ],
     "semantics": {
       "codeMatchesTextFilter": true,
@@ -54,19 +53,18 @@
     },
     "openaiDefaultModel": "gpt-5-mini",
     "openaiFirstModel": "text-embedding-3-small",
-    "providerCount": 11,
+    "providerCount": 10,
     "providerNames": [
-      "openai",
-      "openai-responses",
-      "azure-openai",
-      "anthropic",
       "google-gemini",
+      "openai",
       "cohere",
-      "deepseek",
       "mistral",
-      "huggingface",
+      "deepseek",
+      "openai-responses",
+      "grok",
       "reka",
-      "grok"
+      "anthropic",
+      "azure-openai"
     ],
     "returnedProviderNames": [
       "google-gemini",
@@ -78,8 +76,7 @@
       "grok",
       "reka",
       "anthropic",
-      "azure-openai",
-      "huggingface"
+      "azure-openai"
     ],
     "textFilterIncludesCode": true,
     "textOpenAIFirstModel": "gpt-5-nano"

@@ -325,19 +325,6 @@ import {
   type AxAIGoogleVertexBatchEmbedRequest,
   type AxAIGoogleVertexBatchEmbedResponse,
 } from './ai/google-gemini/types.js';
-import {
-  AxAIHuggingFace,
-  type AxAIHuggingFaceArgs,
-  axAIHuggingFaceCreativeConfig,
-  axAIHuggingFaceDefaultConfig,
-} from './ai/huggingface/api.js';
-import { axModelInfoHuggingFace } from './ai/huggingface/info.js';
-import {
-  type AxAIHuggingFaceConfig,
-  AxAIHuggingFaceModel,
-  type AxAIHuggingFaceRequest,
-  type AxAIHuggingFaceResponse,
-} from './ai/huggingface/types.js';
 import type { AxAIMetricsInstruments } from './ai/metrics.js';
 import {
   AxAIMistral,
@@ -907,8 +894,6 @@ export { AxAIGoogleGeminiSafetyThreshold };
 export { AxAIGrok };
 export { AxAIGrokEmbedModels };
 export { AxAIGrokModel };
-export { AxAIHuggingFace };
-export { AxAIHuggingFaceModel };
 export { AxAIMistral };
 export { AxAIMistralEmbedModels };
 export { AxAIMistralModel };
@@ -996,8 +981,6 @@ export { axAIGoogleGeminiLiveAudioDefaultConfig };
 export { axAIGrokBestConfig };
 export { axAIGrokDefaultConfig };
 export { axAIGrokVoiceDefaultConfig };
-export { axAIHuggingFaceCreativeConfig };
-export { axAIHuggingFaceDefaultConfig };
 export { axAIMistralBestConfig };
 export { axAIMistralDefaultConfig };
 export { axAIOpenAIAudioDefaultConfig };
@@ -1069,7 +1052,6 @@ export { axModelInfoCohere };
 export { axModelInfoDeepSeek };
 export { axModelInfoGoogleGemini };
 export { axModelInfoGrok };
-export { axModelInfoHuggingFace };
 export { axModelInfoMistral };
 export { axModelInfoOpenAI };
 export { axModelInfoOpenAIResponses };
@@ -1179,10 +1161,6 @@ export type { AxAIGrokArgs };
 export type { AxAIGrokChatRequest };
 export type { AxAIGrokOptionsTools };
 export type { AxAIGrokSearchSource };
-export type { AxAIHuggingFaceArgs };
-export type { AxAIHuggingFaceConfig };
-export type { AxAIHuggingFaceRequest };
-export type { AxAIHuggingFaceResponse };
 export type { AxAIInputModelList };
 export type { AxAIMemory };
 export type { AxAIMetricsInstruments };

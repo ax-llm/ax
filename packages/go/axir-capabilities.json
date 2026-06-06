@@ -17,11 +17,6 @@
   "provider_mode": "provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic",
   "fake_transport_support": true,
   "real_network_support": true,
-  "unsupported_capabilities": [
-    "OpenTelemetry",
-    "built-in realtime transport",
-    "real multipart audio upload transport"
-  ],
   "core_owned_feature_groups": [
     "signature",
     "schema",

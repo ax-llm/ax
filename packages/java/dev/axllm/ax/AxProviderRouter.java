@@ -52,13 +52,35 @@ public final class AxProviderRouter {
     return Core.asMap(Core.provider_routing_stats(providerRecords()));
   }
 
-  public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> options) throws Exception {
+  private AxAIService selectedProvider(Map<String, Object> request) throws Exception {
     Map<String, Object> rec = getRoutingRecommendation(request);
     AxAIService provider = (AxAIService) rec.get("provider");
     if (provider == null) throw new AxUnsupportedCapabilityError("No provider selected");
+    return provider;
+  }
+
+  public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    Map<String, Object> rec = getRoutingRecommendation(request);
+    AxAIService provider = selectedProvider(request);
     Map<String, Object> out = new LinkedHashMap<>();
-    out.put("response", provider.chat(request));
+    out.put("response", provider.chat(request, options));
     out.put("routing", rec);
     return out;
+  }
+
+  public Iterable<Map<String, Object>> stream(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    return selectedProvider(request).stream(request);
+  }
+
+  public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    return selectedProvider(request).embed(request, options);
+  }
+
+  public Map<String, Object> transcribe(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    return selectedProvider(request).transcribe(request, options);
+  }
+
+  public Map<String, Object> speak(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    return selectedProvider(request).speak(request, options);
   }
 }

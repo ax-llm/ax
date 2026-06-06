@@ -483,7 +483,7 @@ public interface AxAIService extends AiClient {
   String getId();
   String getName();
   Map<String, Object> getFeatures(String model);
-  default java.util.List<Map<String, Object>> getModelList() { return null; }
+  default java.util.List<Map<String, Object>> getModelList() { return java.util.List.of(); }
   Map<String, Object> getMetrics();
   default java.util.function.Consumer<String> getLogger() { return ignored -> {}; }
   String getLastUsedChatModel();
@@ -497,14 +497,10 @@ public interface AxAIService extends AiClient {
 
   default Map<String, Object> chat(Map<String, Object> request, Map<String, Object> options) throws Exception { return chat(request); }
 
-  default Map<String, Object> transcribe(Map<String, Object> request) throws Exception {
-    throw new AxUnsupportedCapabilityError("transcribe is not supported by this generated AxAI beta provider");
-  }
+  Map<String, Object> transcribe(Map<String, Object> request) throws Exception;
   default Map<String, Object> transcribe(Map<String, Object> request, Map<String, Object> options) throws Exception { return transcribe(request); }
 
-  default Map<String, Object> speak(Map<String, Object> request) throws Exception {
-    throw new AxUnsupportedCapabilityError("speak is not supported by this generated AxAI beta provider");
-  }
+  Map<String, Object> speak(Map<String, Object> request) throws Exception;
   default Map<String, Object> speak(Map<String, Object> request, Map<String, Object> options) throws Exception { return speak(request); }
 }
 `
@@ -1010,7 +1006,9 @@ public final class AxBalancer implements AxAIService {
     }
   }
 
+  public Map<String, Object> transcribe(Map<String, Object> request) throws Exception { return transcribe(request, Map.of()); }
   public Map<String, Object> transcribe(Map<String, Object> request, Map<String, Object> options) throws Exception { return currentService.transcribe(request, options); }
+  public Map<String, Object> speak(Map<String, Object> request) throws Exception { return speak(request, Map.of()); }
   public Map<String, Object> speak(Map<String, Object> request, Map<String, Object> options) throws Exception { return currentService.speak(request, options); }
   public Consumer<String> getLogger() { return currentService.getLogger(); }
   public double getEstimatedCost(Map<String, Object> modelUsage) { return currentService.getEstimatedCost(modelUsage); }
@@ -1077,14 +1075,36 @@ public final class AxProviderRouter {
     return Core.asMap(Core.provider_routing_stats(providerRecords()));
   }
 
-  public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> options) throws Exception {
+  private AxAIService selectedProvider(Map<String, Object> request) throws Exception {
     Map<String, Object> rec = getRoutingRecommendation(request);
     AxAIService provider = (AxAIService) rec.get("provider");
     if (provider == null) throw new AxUnsupportedCapabilityError("No provider selected");
+    return provider;
+  }
+
+  public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    Map<String, Object> rec = getRoutingRecommendation(request);
+    AxAIService provider = selectedProvider(request);
     Map<String, Object> out = new LinkedHashMap<>();
-    out.put("response", provider.chat(request));
+    out.put("response", provider.chat(request, options));
     out.put("routing", rec);
     return out;
+  }
+
+  public Iterable<Map<String, Object>> stream(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    return selectedProvider(request).stream(request);
+  }
+
+  public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    return selectedProvider(request).embed(request, options);
+  }
+
+  public Map<String, Object> transcribe(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    return selectedProvider(request).transcribe(request, options);
+  }
+
+  public Map<String, Object> speak(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    return selectedProvider(request).speak(request, options);
   }
 }
 `
@@ -1121,6 +1141,12 @@ public abstract class AxBaseAI implements AxAIService {
   public String getName() { return name; }
   public Map<String, Object> getFeatures(String model) { return Core.defaultFeatures(); }
   public Map<String, Object> getMetrics() { return new LinkedHashMap<>(); }
+  public java.util.List<Map<String, Object>> getModelList() {
+    java.util.List<Map<String, Object>> models = new java.util.ArrayList<>();
+    if (model != null && !model.isBlank()) models.add(Map.of("key", model, "description", name + " chat model", "model", model));
+    if (embedModel != null && !embedModel.isBlank()) models.add(Map.of("key", embedModel, "description", name + " embed model", "embedModel", embedModel));
+    return models;
+  }
   public String getLastUsedChatModel() { return lastUsedChatModel; }
   public String getLastUsedEmbedModel() { return lastUsedEmbedModel; }
   public Map<String, Object> getLastUsedModelConfig() { return lastUsedModelConfig == null ? null : new LinkedHashMap<>(lastUsedModelConfig); }
@@ -1411,13 +1437,19 @@ public class OpenAICompatibleClient extends AxBaseAI {
 
   public Map<String, Object> transcribe(Map<String, Object> request) throws Exception {
     Map<String, Object> payload = Core.asMap(Core.provider_build_transcribe_request(profile, request));
-    Object raw = requestJson(operationPath("transcribe"), payload, false, "data");
+    Object modelName = request.getOrDefault("model", model);
+    Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "transcribe"));
+    String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
+    Object raw = requestJson(operationPath("transcribe", modelName), payload, false, bodyKey);
     return Core.asMap(Core.provider_normalize_transcribe_response(profile, raw));
   }
 
   public Map<String, Object> speak(Map<String, Object> request) throws Exception {
     Map<String, Object> payload = Core.asMap(Core.provider_build_speak_request(profile, request));
-    Object raw = requestJson(operationPath("speak"), payload, false);
+    Object modelName = request.getOrDefault("model", model);
+    Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "speak"));
+    String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
+    Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey);
     return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request));
   }
 
@@ -2060,7 +2092,7 @@ public final class AxGen implements AxProgram {
 
   public Map<String, Object> optimize(List<Map<String, Object>> dataset, Map<String, Object> options) {
     Object engine = options == null ? null : options.getOrDefault("engine", options.get("optimizer"));
-    if (!(engine instanceof OptimizerEngine optimizer)) throw new UnsupportedOperationException("AxIR generated runtimes require an OptimizerEngine for optimize()");
+    if (!(engine instanceof OptimizerEngine optimizer)) throw new IllegalArgumentException("options.engine must implement OptimizerEngine for optimize()");
     return optimizeWith(optimizer, dataset, options);
   }
 
@@ -2291,7 +2323,7 @@ public final class AxFlow implements AxProgram {
 
   public Map<String, Object> optimize(List<Map<String, Object>> dataset, Map<String, Object> options) {
     Object engine = options == null ? null : options.getOrDefault("engine", options.get("optimizer"));
-    if (!(engine instanceof OptimizerEngine optimizer)) throw new UnsupportedOperationException("AxIR generated runtimes require an OptimizerEngine for optimize()");
+    if (!(engine instanceof OptimizerEngine optimizer)) throw new IllegalArgumentException("options.engine must implement OptimizerEngine for optimize()");
     return optimizeWith(optimizer, dataset, options);
   }
 
@@ -3150,7 +3182,7 @@ public final class AxAgent implements AxProgram {
 
   public Map<String, Object> optimize(List<Map<String, Object>> dataset, Map<String, Object> options) {
     Object engine = options == null ? null : options.getOrDefault("engine", options.get("optimizer"));
-    if (!(engine instanceof OptimizerEngine optimizer)) throw new UnsupportedOperationException("AxIR generated runtimes require an OptimizerEngine for optimize()");
+    if (!(engine instanceof OptimizerEngine optimizer)) throw new IllegalArgumentException("options.engine must implement OptimizerEngine for optimize()");
     return optimizeWith(optimizer, dataset, options);
   }
 }
@@ -4483,6 +4515,16 @@ public final class Conformance {
       for (Object event : streamEvents) out.add(Core.asMap(event));
       return out;
     }
+
+    public Map<String, Object> transcribe(Map<String, Object> request) {
+      requests.add(new LinkedHashMap<>(request));
+      return Map.of("text", "fake transcript");
+    }
+
+    public Map<String, Object> speak(Map<String, Object> request) {
+      requests.add(new LinkedHashMap<>(request));
+      return Map.of("audio", "pcm");
+    }
   }
 
   static final class FakeTransport implements OpenAICompatibleClient.Transport {
@@ -4550,9 +4592,17 @@ public final class Conformance {
       return Map.of("embeddings", List.of(List.of(1, 2)), "modelUsage", Map.of("ai", name));
     }
 
+    public Map<String, Object> transcribe(Map<String, Object> request) {
+      return transcribe(request, Map.of());
+    }
+
     public Map<String, Object> transcribe(Map<String, Object> request, Map<String, Object> options) {
       requests.add(Map.of("method", "transcribe", "opt", new LinkedHashMap<>(options)));
       return Map.of("text", name + " transcript");
+    }
+
+    public Map<String, Object> speak(Map<String, Object> request) {
+      return speak(request, Map.of());
     }
 
     public Map<String, Object> speak(Map<String, Object> request, Map<String, Object> options) {

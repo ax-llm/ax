@@ -2,7 +2,7 @@
 
 Ax is a TypeScript-first framework for building typed AI programs, agents,
 flows, and optimizers. The same runtime semantics are also compiled through
-AxIR into language-agnostic Python, Java, C++, and Go libraries.
+AxIR into language-agnostic Python, Java, C++, Go, and Rust libraries.
 
 For compiler and IR details, see [`docs/COMPILER.md`](./COMPILER.md). For
 audio and realtime usage, see [`docs/AUDIO.md`](./AUDIO.md). For reward-scored
@@ -28,7 +28,7 @@ Ax has six main runtime surfaces:
    caching, merge semantics, and `.returns()` output projection.
 5. **AxOptimize**: optimizable component inventory, evaluator rollouts,
    serialized artifacts, and optimizer engines including GEPA.
-6. **AxIR generated libraries**: Python, Java, C++, and Go packages emitted from
+6. **AxIR generated libraries**: Python, Java, C++, Go, and Rust packages emitted from
    the shared portable semantics.
 
 These surfaces are connected by the shared Ax program contract: `forward`,
@@ -129,6 +129,8 @@ Generated AxIR libraries also include optional runtime profiles:
 - goja for Go-native JavaScript actor code through the generated
   `runtime/goja` package
 - Pyodide for Python actor code
+- Rust uses the shared JSONL process protocol through `ProcessCodeRuntime`;
+  embedded Rust QuickJS/V8-style profiles are deferred.
 
 Those profiles are supportable adapters, not a replacement for the TypeScript
 runtime.
@@ -178,6 +180,7 @@ source-to-source transpiler. The compiler emits:
 - Java package `dev.axllm.ax`
 - C++ namespace `axllm` and CMake target `axllm::axllm`
 - Go module `github.com/ax-llm/ax/go` and package `axllm`
+- Rust crate `axllm`
 
 Generated libraries include package metadata, examples, capability manifests,
 and conformance runners. They preserve Core-owned Ax semantics while using each

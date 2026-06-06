@@ -1,12 +1,11 @@
-# Ax — DSPy for TypeScript / Python / Java / C++ / Go and more
+# Ax — DSPy for TypeScript / Python / Java / C++ / Go / Rust and more
 
 One programming model for building with LLMs across TypeScript, Python, Java,
-C++, and Go.
+C++, Go, and Rust.
 
 Ax is TypeScript-first and ships today as `@ax-llm/ax`. The same signatures,
 provider mappings, agents, flows, runtime contracts, and optimizers are also
-compiled into verified generated Python, Java, C++, and Go libraries. Rust is a
-planned backend target, not a separate product fork.
+compiled into verified generated Python, Java, C++, Go, and Rust libraries.
 
 [![NPM](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=222&label=npm)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Discord](https://img.shields.io/discord/1078454354849304667?style=for-the-badge&color=5865F2&label=discord)](https://discord.gg/DSHg3dU7dW)
@@ -25,8 +24,9 @@ planned backend target, not a separate product fork.
   behavior, parallel execution, and `.returns(...)` projection.
 - **Optimizers** including GEPA, few-shot bootstrapping, portable optimizer
   artifacts, and evaluation/apply flows.
-- **One semantic core** compiled into TypeScript, Python, Java, C++, and Go library
-  shapes, so the same Ax program model can move across runtime stacks.
+- **One semantic core** compiled into TypeScript, Python, Java, C++, Go, and
+  Rust library shapes, so the same Ax program model can move across runtime
+  stacks.
 
 ## Language Matrix
 
@@ -37,7 +37,7 @@ planned backend target, not a separate product fork.
 | Java | `dev.axllm:ax`<br>`import dev.axllm.ax.*` | Generated and verified in repo; prepared for Maven Central |
 | C++ | `axllm::axllm`<br>`#include <axllm/axllm.hpp>` | Generated and verified in repo; prepared for CMake/GitHub Release |
 | Go | `github.com/ax-llm/ax/go`<br>`import ax "github.com/ax-llm/ax/go"` | Generated in repo with conformance checks and opt-in `runtime/goja` JavaScript actor runtime |
-| Rust | TBD | Future generated backend |
+| Rust | `axllm`<br>`use axllm::{ai, ax, agent, flow};` | Generated in repo with conformance checks, blocking HTTP/TLS transport, and protocol-first code runtime |
 
 ```mermaid
 flowchart LR
@@ -51,6 +51,7 @@ flowchart LR
   C --> JV["Java"]
   C --> CP["C++"]
   C --> GO["Go"]
+  C --> RS["Rust"]
 ```
 
 ## 30 seconds
@@ -77,7 +78,7 @@ No prompt engineering. Switch `name: "openai"` to `"anthropic"`, `"google-gemini
 
 ## Same idea in every language
 
-The generated Python, Java, C++, and Go libraries expose the same top-level Ax
+The generated Python, Java, C++, Go, and Rust libraries expose the same top-level Ax
 ideas in native package shapes. Their generated source is checked in under
 `packages/<language>` so the supported APIs are easy to inspect. The repo
 runner uses those committed packages and runs examples without asking you to
@@ -88,6 +89,7 @@ npm run example -- python signature_schema.py
 npm run example -- java SignatureSchemaExample.java
 npm run example -- cpp signature_schema.cpp
 npm run example -- go signature_schema.go
+npm run example -- rust signature_schema.rs
 ```
 
 See [`src/examples/README.md`](src/examples/README.md) for runnable examples,
@@ -458,7 +460,7 @@ const result = await optimizer.compile(
 | Skills | `onSkillsSearch`, `consult(...)` | on-demand prompt-section loader |
 | Sandboxed JS runtime | `AxJSRuntime`, `AxJSRuntimePermission` | TypeScript runtime for Node, Bun, Deno, browser |
 | Recursive runtime (RLM) | `agent({ runtime, contextFields })` | long-context REPL with checkpointed replay |
-| Providers | `ai({ name: ... })` | OpenAI, OpenAI Responses, Azure OpenAI, Anthropic, Gemini, Mistral, Cohere, Reka, DeepSeek, Grok/xAI, HuggingFace, Bedrock (separate pkg) |
+| Providers | `ai({ name: ... })` | OpenAI, OpenAI Responses, Azure OpenAI, Anthropic, Gemini, Mistral, Cohere, Reka, DeepSeek, Grok/xAI, Bedrock (separate pkg) |
 | OpenAI-compatible endpoints | `ai({ name: "openai", apiURL, apiKey, models })` | one path for custom OpenAI-compatible gateways |
 | Observability | OpenTelemetry, `actorTurnCallback`, `onFunctionCall` | per-turn telemetry, tool-call tracing |
 | MCP | `AxMCPClient`, `AxMCPHTTPSSETransport`, `AxMCPStreambleHTTPTransport` | use any MCP server as a tool source |
@@ -471,9 +473,10 @@ The current published package is TypeScript / JavaScript:
 npm install @ax-llm/ax
 ```
 
-Generated Python, Java, C++, and Go libraries are checked in under `packages/`
+Generated Python, Java, C++, Go, and Rust libraries are checked in under `packages/`
 and verified in this repo. They are prepared for ecosystem release as `axllm`,
-`dev.axllm:ax`, `axllm::axllm`, and `github.com/ax-llm/ax/go`. Until those
+`dev.axllm:ax`, `axllm::axllm`, `github.com/ax-llm/ax/go`, and the Rust crate
+`axllm`. Until those
 registry lanes are enabled, use the repo runner to smoke-test the committed
 packages locally.
 
@@ -512,14 +515,16 @@ npm run example -- python agent_pipeline.py
 npm run example -- java FlowProgramGraphExample.java
 npm run example -- cpp realtime_audio_events.cpp
 npm run example -- go signature_schema.go
+npm run example -- rust signature_schema.rs
 npm run example -- python axgen_openai_api.py
 npm run example -- java AxGenOpenAIExample.java
 npm run example -- cpp axgen_openai_api.cpp
 npm run example -- go axgen_openai_api.go
+npm run example -- rust axgen_openai_api.rs
 ```
 
 `npm run example -- list` shows `no-key` and `provider-api` examples for
-TypeScript, Python, Java, C++, and Go. No-key examples cover signatures,
+TypeScript, Python, Java, C++, Go, and Rust. No-key examples cover signatures,
 AxAgent, AxFlow, audio/realtime mapping, runtime adapters, optimizer artifacts,
 and GEPA with deterministic local clients. Provider API examples call real
 provider HTTP and read `OPENAI_API_KEY` or `OPENAI_APIKEY` from `.env`.

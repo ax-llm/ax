@@ -195,13 +195,13 @@ func runExplain(args []string) error {
 func runCompile(args []string) error {
 	fs := flag.NewFlagSet("compile", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	target := fs.String("target", "", "compile target: python, java, cpp, or go")
+	target := fs.String("target", "", "compile target: python, java, cpp, go, or rust")
 	outDir := fs.String("out", "", "output directory")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *target == "" {
-		return fmt.Errorf("compile requires --target python|java|cpp|go")
+		return fmt.Errorf("compile requires --target python|java|cpp|go|rust")
 	}
 	if *outDir == "" {
 		return fmt.Errorf("compile requires --out <dir>")
@@ -223,7 +223,7 @@ func runCompile(args []string) error {
 func runVerify(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	targetsText := fs.String("targets", "python,java,cpp,go", "comma-separated targets: python,java,cpp,go")
+	targetsText := fs.String("targets", "python,java,cpp,go,rust", "comma-separated targets: python,java,cpp,go,rust")
 	workDir := fs.String("workdir", "", "optional verification output directory")
 	runtimeProfilesText := fs.String("runtime-profiles", "", "comma-separated optional runtime profiles, e.g. javascript-quickjs,javascript-goja")
 	if err := fs.Parse(args); err != nil {
@@ -276,7 +276,7 @@ commands:
   lower --to core <root>                 lower Ax dialects to Core IR
   lint [--profile llm-core] <roots...>   lint for the LLM authoring profile
   explain --symbol NAME <root>           explain a lowered symbol
-  compile --target python|java|cpp|go --out DIR <file>
-  verify [--targets python,java,cpp,go] [--workdir DIR] [--runtime-profiles javascript-quickjs,javascript-goja] <root>
+  compile --target python|java|cpp|go|rust --out DIR <file>
+  verify [--targets python,java,cpp,go,rust] [--workdir DIR] [--runtime-profiles javascript-quickjs,javascript-goja] <root>
 `
 }

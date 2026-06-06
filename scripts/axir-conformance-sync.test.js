@@ -3,7 +3,11 @@ import {
   compareValues,
   normalizeCatalog,
   parseAxirProviderCatalog,
+  parseAxirProviderCatalogSummary,
+  parseAxirProviderProfileRegistry,
   replaceAxirProviderCatalog,
+  replaceAxirProviderCatalogSummary,
+  replaceAxirProviderProfileRegistry,
 } from './axir-conformance-sync.mjs';
 
 describe('axir-conformance-sync helpers', () => {
@@ -52,5 +56,28 @@ describe('axir-conformance-sync helpers', () => {
 
     const updated = replaceAxirProviderCatalog(source, catalog);
     expect(parseAxirProviderCatalog(updated)).toEqual(catalog);
+  });
+
+  it('round-trips the embedded provider profile registry and summary', () => {
+    const registry = normalizeCatalog({
+      registryVersion: 'provider-profile-registry-v1',
+      supportedProfileIds: ['openai-compatible'],
+      deferredCatalogProviderIds: [],
+    });
+    const summary = normalizeCatalog({
+      catalogVersion: 'provider-model-catalog-audit-v1',
+      providerCount: 1,
+      providerNames: ['openai'],
+      deferredProviderIds: [],
+    });
+    const source =
+      'body @entry() {\n      %registry = core.call intrinsic.json.parse("{}")\n      %summary = core.call intrinsic.json.parse("{}")\n      core.return %summary\n    }';
+
+    const updated = replaceAxirProviderCatalogSummary(
+      replaceAxirProviderProfileRegistry(source, registry),
+      summary
+    );
+    expect(parseAxirProviderProfileRegistry(updated)).toEqual(registry);
+    expect(parseAxirProviderCatalogSummary(updated)).toEqual(summary);
   });
 });

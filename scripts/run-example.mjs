@@ -24,6 +24,8 @@ const languageAliases = new Map([
   ['c++', 'cpp'],
   ['cc', 'cpp'],
   ['go', 'go'],
+  ['rust', 'rust'],
+  ['rs', 'rust'],
 ]);
 
 const defaultExt = {
@@ -32,6 +34,7 @@ const defaultExt = {
   java: '.java',
   cpp: '.cpp',
   go: '.go',
+  rust: '.rs',
 };
 
 const languageDir = {
@@ -40,6 +43,7 @@ const languageDir = {
   java: 'java',
   cpp: 'cpp',
   go: 'go',
+  rust: 'rust',
 };
 
 const exampleCatalog = {
@@ -129,10 +133,36 @@ const exampleCatalog = {
     ['no-key', 'provider_mapping_no_key.go', 'OpenAI-compatible mapping smoke'],
     ['provider-api', 'axgen_openai_api.go', 'AxGen OpenAI API run'],
   ],
+  rust: [
+    ['no-key', 'signature_schema.rs', 'Signature and schema smoke'],
+    ['no-key', 'provider_mapping_no_key.rs', 'OpenAI-compatible mapping smoke'],
+    [
+      'no-key',
+      'provider_stream_no_key.rs',
+      'OpenAI-compatible streaming smoke',
+    ],
+    ['no-key', 'axgen_fake_client_tool.rs', 'AxGen fake client and tool'],
+    ['no-key', 'axagent_pipeline.rs', 'Deterministic AxAgent forward and logs'],
+    ['no-key', 'axflow_program_graph.rs', 'Deterministic AxFlow graph'],
+    ['no-key', 'runtime_adapter.rs', 'Custom AxCodeRuntime session'],
+    ['no-key', 'runtime_protocol.rs', 'Process AxCodeRuntime protocol'],
+    ['no-key', 'optimizer_artifact.rs', 'Optimizer artifact smoke'],
+    ['provider-api', 'axgen_openai_api.rs', 'AxGen OpenAI API run'],
+  ],
 };
 
 const env = loadDotEnv();
 if (!env.GOCACHE) env.GOCACHE = path.join(generatedRoot, 'go-build');
+if (!env.AXIR_REPO_ROOT) env.AXIR_REPO_ROOT = repoRoot;
+if (!env.AXIR_AXJS_RUNTIME_SERVER) {
+  env.AXIR_AXJS_RUNTIME_SERVER = path.join(
+    repoRoot,
+    'tools',
+    'axir',
+    'adapters',
+    'axjs-runtime-server.ts'
+  );
+}
 const args = process.argv.slice(2);
 
 if (args.length === 0) usage(1);
@@ -171,6 +201,9 @@ switch (language) {
   case 'go':
     await runGo(example, exampleArgs);
     break;
+  case 'rust':
+    await runRust(example, exampleArgs);
+    break;
   default:
     usage(1);
 }
@@ -183,6 +216,7 @@ function usage(code) {
   npm run example -- cpp axgen_openai_api.cpp
   npm run example -- go axgen_openai_api.go
   npm run example -- go signature_schema.go
+  npm run example -- rust signature_schema.rs
   npm run example -- list
 
 You can also pass a full example path and let the runner infer the language.`);
@@ -236,6 +270,7 @@ function inferLanguage(examplePath) {
   if (ext === '.java') return 'java';
   if (ext === '.cpp' || ext === '.cc' || ext === '.cxx') return 'cpp';
   if (ext === '.go') return 'go';
+  if (ext === '.rs') return 'rust';
   return null;
 }
 
@@ -414,6 +449,45 @@ replace github.com/ax-llm/ax/go => ${escapeGoModPath(outDir)}
 
 function escapeGoModPath(value) {
   return value.replace(/\\/g, '/');
+}
+
+async function runRust(examplePath, rest) {
+  const outDir = languagePackageDir('rust');
+  const stem = path.basename(examplePath, path.extname(examplePath));
+  const scratchDir = path.join(generatedRoot, 'rust-run', stem);
+  await rm(scratchDir, { recursive: true, force: true });
+  await mkdir(path.join(scratchDir, 'src'), { recursive: true });
+  await writeFile(
+    path.join(scratchDir, 'Cargo.toml'),
+    `[package]
+name = "axllm_example_${stem.replace(/[^A-Za-z0-9_]/g, '_')}"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+axllm = { path = "${escapeCargoTomlPath(outDir)}" }
+serde_json = "1"
+`
+  );
+  await writeFile(
+    path.join(scratchDir, 'src', 'main.rs'),
+    await readFile(examplePath)
+  );
+  run(
+    'cargo',
+    [
+      'run',
+      '--quiet',
+      '--manifest-path',
+      path.join(scratchDir, 'Cargo.toml'),
+      ...rest,
+    ],
+    { cwd: scratchDir, env }
+  );
+}
+
+function escapeCargoTomlPath(value) {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 function languagePackageDir(target) {

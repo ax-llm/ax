@@ -360,13 +360,6 @@
         "name": "deepseek"
       },
       {
-        "defaultModel": "meta-llama/Llama-2-70b-chat-hf",
-        "displayName": "Hugging Face",
-        "isDynamic": true,
-        "models": [],
-        "name": "huggingface"
-      },
-      {
         "defaultModel": "reka-core",
         "displayName": "Reka",
         "isDynamic": false,
@@ -384,7 +377,7 @@
     "modelCount": 12,
     "openaiFirstModel": "gpt-5.1-codex-mini",
     "openaiModelTypes": ["code"],
-    "providerCount": 11,
+    "providerCount": 10,
     "providerNames": [
       "mistral",
       "openai",
@@ -394,7 +387,6 @@
       "google-gemini",
       "cohere",
       "deepseek",
-      "huggingface",
       "reka",
       "grok"
     ]

@@ -80,19 +80,7 @@ const catalogText = axGetSupportedAIModels({ type: 'text' });
 const catalogEmbeddings = axGetSupportedAIModels({ type: 'embeddings' });
 const catalogCode = axGetSupportedAIModels({ type: 'code' });
 const catalogAudio = axGetSupportedAIModels({ type: 'audio' });
-const catalogProviderNames = [
-  'openai',
-  'openai-responses',
-  'azure-openai',
-  'anthropic',
-  'google-gemini',
-  'cohere',
-  'deepseek',
-  'mistral',
-  'huggingface',
-  'reka',
-  'grok',
-];
+const catalogProviderNames = catalogAll.map((provider) => provider.name);
 const descriptorCoveredProviderIds = [
   'openai-compatible',
   'openai-responses',
@@ -105,7 +93,7 @@ const descriptorCoveredProviderIds = [
   'cohere',
   'grok',
 ];
-const deferredProviderIds = ['huggingface'];
+const deferredProviderIds: string[] = [];
 const openAIProvider = catalogAll.find(
   (provider) => provider.name === 'openai'
 );
@@ -468,7 +456,7 @@ writeFixture('model-catalog-audit', {
   expected_output: {
     catalogVersion: 'provider-model-catalog-audit-v1',
     source: 'src/ax/ai/catalog.ts',
-    providerCount: 11,
+    providerCount: catalogProviderNames.length,
     providerNames: catalogProviderNames,
     descriptorCoveredProviderIds,
     deferredProviderIds,
@@ -481,7 +469,7 @@ writeFixture('model-catalog-audit', {
       dynamicProvidersMayHaveEmptyModels: true,
     },
     nextMilestone:
-      'Additional catalog provider clients complete except Hugging Face',
+      'Generated catalog provider clients match the active catalog',
   },
 });
 

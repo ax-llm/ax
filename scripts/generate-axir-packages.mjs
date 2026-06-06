@@ -11,7 +11,7 @@ const repoRoot = path.resolve(scriptDir, '..');
 const axirDir = path.join(repoRoot, 'tools', 'axir');
 const rootAxir = path.join(repoRoot, 'ir', 'axcore', 'root.axir');
 const packagesRoot = path.join(repoRoot, 'packages');
-const targets = ['python', 'java', 'cpp', 'go'];
+const targets = ['python', 'java', 'cpp', 'go', 'rust'];
 const cacheRoot = process.env.GOCACHE || path.join(tmpdir(), 'go-build');
 const env = { ...process.env, GOCACHE: cacheRoot };
 
@@ -68,6 +68,7 @@ function isGeneratedCachePath(name) {
       'go-run',
       'java-classes',
       'node_modules',
+      'target',
     ].includes(name)
   ) {
     return true;

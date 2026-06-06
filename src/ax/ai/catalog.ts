@@ -9,8 +9,6 @@ import {
   AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiModel,
 } from './google-gemini/types.js';
-import { axModelInfoHuggingFace } from './huggingface/info.js';
-import { AxAIHuggingFaceModel } from './huggingface/types.js';
 import { axModelInfoMistral } from './mistral/info.js';
 import { AxAIMistralModel } from './mistral/types.js';
 import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './openai/chat_types.js';
@@ -134,12 +132,6 @@ const axAIModelCatalogProviderDefinitions = {
     defaultModel: AxAIMistralModel.MistralSmall,
     isDynamic: false,
     modelInfo: axModelInfoMistral,
-  },
-  huggingface: {
-    displayName: 'Hugging Face',
-    defaultModel: AxAIHuggingFaceModel.MetaLlama270BChatHF,
-    isDynamic: true,
-    modelInfo: axModelInfoHuggingFace,
   },
   reka: {
     displayName: 'Reka',

@@ -53,7 +53,7 @@ const gateway = ai({
 ```
 
 Kept providers include OpenAI, OpenAI Responses, Azure OpenAI, Anthropic,
-Gemini, Mistral, Cohere, Reka, DeepSeek, Grok/xAI, and HuggingFace.
+Gemini, Mistral, Cohere, Reka, DeepSeek, and Grok/xAI.
 
 ## Removed Subsystems
 

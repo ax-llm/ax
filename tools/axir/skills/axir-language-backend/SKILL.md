@@ -20,6 +20,11 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 - Prefer standard-library dependencies for base packages. Optional runtime profiles may remain dependency-bearing and opt-in.
 - Use deterministic ordering for generated output, JSON/string rendering, prompt fields, snapshots, catalogs, action logs, and conformance output.
 - Public APIs should feel native in the target language while preserving Ax concepts. Document unavoidable naming differences in generated README/examples.
+- Capability manifests must be truthful. Do not list `unsupported_capabilities` for a generated package that is included in default verification; either implement the surface or remove the public/manifest claim.
+- Concrete public generated methods must never be placeholder-only bodies such as `pass`, `return None`, `return null`, `return nil`, `Value::Null`, empty vectors, or generic "not implemented"/"unsupported" fallbacks. Validation errors remain acceptable for invalid inputs, unknown provider names, and unknown runtime protocol ops.
+- Abstract/base interfaces may describe fallible boundaries, but every concrete generated class/struct that is advertised by the manifest must implement claimed provider, router, balancer, runtime session, AxGen, AxAgent, AxFlow, and optimizer operations.
+- Conformance dispatch must be explicit for all claimed feature groups. Do not add a silent catch-all that makes unsupported fixture kinds pass without executing an implementation path.
+- Provider API and no-key examples must cover every claimed public surface class: chat, stream, embeddings, audio/realtime mapping helpers when claimed, routers/balancers, runtime protocol, AxGen, AxAgent, AxFlow, and optimizer artifacts.
 
 ## Required Touchpoints
 
@@ -36,6 +41,7 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 - `axir verify --targets python,java,cpp,<new-target>` passes for all default suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, and axflow.
 - Generated package metadata is shippable for the ecosystem and uses the Ax product namespace.
 - User-facing examples are honest: no-key examples are deterministic, provider API examples use real provider transport and require explicit environment keys.
+- Generated-output audits pass for the target: no unsupported manifest entries, no placeholder concrete public methods, no dead Core helper stubs, and explicit conformance/example guards for every claimed Core-owned feature group.
 
 ## Avoid
 
@@ -43,3 +49,4 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 - Do not implement provider or Agent semantics directly in target templates when a Core descriptor/helper exists.
 - Do not present fake/no-key examples as provider API examples or claim registry publishing before workflows and credentials exist.
 - Do not widen runtime profile semantics while adding a language backend unless a concrete conformance gap proves it is necessary.
+- Do not ship a thinner v1 target by leaving stream/audio/realtime/router/runtime/optimizer methods as placeholders while the manifest or README claims full AxIR support.

@@ -1,10 +1,11 @@
 # Ax Multi-Language Releases
 
 Ax ships first as the TypeScript/JavaScript package `@ax-llm/ax`. The same
-portable Ax semantics can also be emitted as generated Python, Java, C++, and
-Go libraries. AxIR is the compiler implementation detail behind those libraries;
+portable Ax semantics can also be emitted as generated Python, Java, C++, Go,
+and Rust libraries. AxIR is the compiler implementation detail behind those libraries;
 it is not a package name. The generated package sources are checked in under
-`packages/python`, `packages/java`, `packages/cpp`, and `packages/go`.
+`packages/python`, `packages/java`, `packages/cpp`, `packages/go`, and
+`packages/rust`.
 
 ## Package Names
 
@@ -13,6 +14,7 @@ it is not a package name. The generated package sources are checked in under
 - Java: Maven coordinate `dev.axllm:ax`, Java package `dev.axllm.ax`
 - C++: CMake package `axllm`, target `axllm::axllm`, namespace `axllm`
 - Go: module `github.com/ax-llm/ax/go`, package `axllm`
+- Rust: crate `axllm`
 
 Do not publish generated packages as `axir`, `ax-go`, or other compiler/backend
 names. User-facing libraries should read as Ax libraries in each ecosystem.
@@ -31,7 +33,7 @@ The default verification path remains dependency-light:
 ```bash
 cd tools/axir
 GOCACHE=/private/tmp/go-build go run . verify \
-  --targets python,java,cpp,go \
+  --targets python,java,cpp,go,rust \
   --workdir /private/tmp/axir-verify-release \
   ../../ir/axcore/root.axir
 ```
@@ -43,11 +45,16 @@ That gate emits the generated libraries and smoke-tests package consumption:
 - Java base jar compile and example execution from the jar classpath
 - C++ static library build, CMake configure/build/install, and a downstream
   `find_package(axllm CONFIG REQUIRED)` consumer linked to `axllm::axllm`
+- Go module build, examples, conformance, and downstream local-module consumer
+- Rust `cargo fmt --check`, `cargo test --all-targets`, examples, conformance,
+  and downstream local path-dependency consumer
 
 Optional QuickJS, Pyodide, and Go goja runtime profile checks stay opt-in and
-are not base Python/Java/C++ package dependencies. Go's built-in JavaScript
-actor runtime is dependency-bearing in the generated `runtime/goja` package and
-is verified explicitly with:
+are not base Python/Java/C++ package dependencies. Rust uses the process JSONL
+runtime boundary in the base crate; embedded QuickJS/V8 Rust runtime profiles
+are intentionally deferred. Go's built-in JavaScript actor runtime is
+dependency-bearing in the generated `runtime/goja` package and is verified
+explicitly with:
 
 ```bash
 cd tools/axir
@@ -73,10 +80,12 @@ npm run example -- python agent_pipeline.py
 npm run example -- java FlowProgramGraphExample.java
 npm run example -- cpp realtime_audio_events.cpp
 npm run example -- go signature_schema.go
+npm run example -- rust signature_schema.rs
 npm run example -- python axgen_openai_api.py
 npm run example -- java AxGenOpenAIExample.java
 npm run example -- cpp axgen_openai_api.cpp
 npm run example -- go axgen_openai_api.go
+npm run example -- rust axgen_openai_api.rs
 ```
 
 The runner loads `.env`, uses the committed package source under
@@ -98,9 +107,13 @@ Publishing is secret-gated per ecosystem:
   Central credentials and signing setup.
 - C++ should start as GitHub Release source/CMake artifacts. Conan or vcpkg can
   be added later if product demand justifies maintaining package-manager recipes.
+- Rust publishing should upload the generated `axllm` crate to crates.io only
+  after rechecking the crate name, because crate names are first-come and
+  permanent.
 
 The release gate should run `axir verify` and `npm run axir:check-packages`
 before upload, and keep generated runtime-profile dependencies out of the base
 Python, Java, and C++ packages. For Go, keep vendor-specific runtime
 constructors in opt-in subpackages such as `runtime/goja` rather than in the
-root `axllm` package.
+root `axllm` package. For Rust, keep embedded runtime engines additive and
+behind the existing `AxCodeRuntime` / `AxCodeSession` traits.

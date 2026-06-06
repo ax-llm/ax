@@ -49,6 +49,16 @@ public final class Conformance {
       for (Object event : streamEvents) out.add(Core.asMap(event));
       return out;
     }
+
+    public Map<String, Object> transcribe(Map<String, Object> request) {
+      requests.add(new LinkedHashMap<>(request));
+      return Map.of("text", "fake transcript");
+    }
+
+    public Map<String, Object> speak(Map<String, Object> request) {
+      requests.add(new LinkedHashMap<>(request));
+      return Map.of("audio", "pcm");
+    }
   }
 
   static final class FakeTransport implements OpenAICompatibleClient.Transport {
@@ -116,9 +126,17 @@ public final class Conformance {
       return Map.of("embeddings", List.of(List.of(1, 2)), "modelUsage", Map.of("ai", name));
     }
 
+    public Map<String, Object> transcribe(Map<String, Object> request) {
+      return transcribe(request, Map.of());
+    }
+
     public Map<String, Object> transcribe(Map<String, Object> request, Map<String, Object> options) {
       requests.add(Map.of("method", "transcribe", "opt", new LinkedHashMap<>(options)));
       return Map.of("text", name + " transcript");
+    }
+
+    public Map<String, Object> speak(Map<String, Object> request) {
+      return speak(request, Map.of());
     }
 
     public Map<String, Object> speak(Map<String, Object> request, Map<String, Object> options) {

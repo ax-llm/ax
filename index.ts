@@ -223,19 +223,6 @@ import {
 import { AxAIGroq, type AxAIGroqArgs } from './src/ax/ai/groq/api.js';
 import { axModelInfoGroq } from './src/ax/ai/groq/info.js';
 import { AxAIGroqModel } from './src/ax/ai/groq/types.js';
-import {
-  AxAIHuggingFace,
-  type AxAIHuggingFaceArgs,
-  axAIHuggingFaceCreativeConfig,
-  axAIHuggingFaceDefaultConfig,
-} from './src/ax/ai/huggingface/api.js';
-import { axModelInfoHuggingFace } from './src/ax/ai/huggingface/info.js';
-import {
-  type AxAIHuggingFaceConfig,
-  AxAIHuggingFaceModel,
-  type AxAIHuggingFaceRequest,
-  type AxAIHuggingFaceResponse,
-} from './src/ax/ai/huggingface/types.js';
 import type { AxAIMetricsInstruments } from './src/ax/ai/metrics.js';
 import {
   AxAIMistral,
@@ -926,8 +913,6 @@ export { AxAIGrokEmbedModels };
 export { AxAIGrokModel };
 export { AxAIGroq };
 export { AxAIGroqModel };
-export { AxAIHuggingFace };
-export { AxAIHuggingFaceModel };
 export { AxAIMistral };
 export { AxAIMistralEmbedModels };
 export { AxAIMistralModel };
@@ -1041,8 +1026,6 @@ export { axAIGoogleGeminiDefaultConfig };
 export { axAIGoogleGeminiDefaultCreativeConfig };
 export { axAIGrokBestConfig };
 export { axAIGrokDefaultConfig };
-export { axAIHuggingFaceCreativeConfig };
-export { axAIHuggingFaceDefaultConfig };
 export { axAIMistralBestConfig };
 export { axAIMistralDefaultConfig };
 export { axAIOllamaDefaultConfig };
@@ -1094,7 +1077,6 @@ export { axModelInfoDeepSeek };
 export { axModelInfoGoogleGemini };
 export { axModelInfoGrok };
 export { axModelInfoGroq };
-export { axModelInfoHuggingFace };
 export { axModelInfoMistral };
 export { axModelInfoOpenAI };
 export { axModelInfoOpenAIResponses };
@@ -1201,10 +1183,6 @@ export type { AxAIGrokChatRequest };
 export type { AxAIGrokOptionsTools };
 export type { AxAIGrokSearchSource };
 export type { AxAIGroqArgs };
-export type { AxAIHuggingFaceArgs };
-export type { AxAIHuggingFaceConfig };
-export type { AxAIHuggingFaceRequest };
-export type { AxAIHuggingFaceResponse };
 export type { AxAIInputModelList };
 export type { AxAIMemory };
 export type { AxAIMetricsInstruments };

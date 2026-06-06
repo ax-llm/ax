@@ -17,6 +17,10 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = path.resolve(scriptDir, '..');
 const providerCatalogPattern =
   /%catalog = core\.call intrinsic\.json\.parse\("((?:\\.|[^"\\])*)"\)/;
+const providerProfileRegistryPattern =
+  /%registry = core\.call intrinsic\.json\.parse\("((?:\\.|[^"\\])*)"\)/;
+const providerCatalogSummaryPattern =
+  /%summary = core\.call intrinsic\.json\.parse\("((?:\\.|[^"\\])*)"\)/;
 
 function usage(code = 0) {
   const out = code === 0 ? console.log : console.error;
@@ -94,25 +98,81 @@ export async function buildTypeScriptCatalog() {
 }
 
 export function parseAxirProviderCatalog(providerAxirText) {
-  const match = providerAxirText.match(providerCatalogPattern);
+  return parseAxirEmbeddedJson(
+    providerAxirText,
+    providerCatalogPattern,
+    'provider_model_catalog_registry'
+  );
+}
+
+export function parseAxirProviderProfileRegistry(providerAxirText) {
+  return parseAxirEmbeddedJson(
+    providerAxirText,
+    providerProfileRegistryPattern,
+    'provider_profile_registry'
+  );
+}
+
+export function parseAxirProviderCatalogSummary(providerAxirText) {
+  return parseAxirEmbeddedJson(
+    providerAxirText,
+    providerCatalogSummaryPattern,
+    'provider_model_catalog_summary'
+  );
+}
+
+function parseAxirEmbeddedJson(providerAxirText, pattern, label) {
+  const match = providerAxirText.match(pattern);
   if (!match) {
-    throw new Error(
-      'could not find provider_model_catalog_registry JSON in provider.axir'
-    );
+    throw new Error(`could not find ${label} JSON in provider.axir`);
   }
   return normalizeCatalog(JSON.parse(JSON.parse(`"${match[1]}"`)));
 }
 
 export function replaceAxirProviderCatalog(providerAxirText, catalog) {
-  const jsonLiteral = JSON.stringify(JSON.stringify(catalog));
-  if (!providerCatalogPattern.test(providerAxirText)) {
-    throw new Error(
-      'could not find provider_model_catalog_registry JSON in provider.axir'
-    );
+  return replaceAxirEmbeddedJson(
+    providerAxirText,
+    providerCatalogPattern,
+    'catalog',
+    'provider_model_catalog_registry',
+    catalog
+  );
+}
+
+export function replaceAxirProviderProfileRegistry(providerAxirText, registry) {
+  return replaceAxirEmbeddedJson(
+    providerAxirText,
+    providerProfileRegistryPattern,
+    'registry',
+    'provider_profile_registry',
+    registry
+  );
+}
+
+export function replaceAxirProviderCatalogSummary(providerAxirText, summary) {
+  return replaceAxirEmbeddedJson(
+    providerAxirText,
+    providerCatalogSummaryPattern,
+    'summary',
+    'provider_model_catalog_summary',
+    summary
+  );
+}
+
+function replaceAxirEmbeddedJson(
+  providerAxirText,
+  pattern,
+  variableName,
+  label,
+  value
+) {
+  const jsonLiteral = JSON.stringify(JSON.stringify(normalizeCatalog(value)));
+  if (!pattern.test(providerAxirText)) {
+    throw new Error(`could not find ${label} JSON in provider.axir`);
   }
   return providerAxirText.replace(
-    providerCatalogPattern,
-    `%catalog = core.call intrinsic.json.parse(${jsonLiteral})`
+    pattern,
+    `%${variableName} = core.call intrinsic.json.parse(${jsonLiteral})`
   );
 }
 
@@ -243,23 +303,62 @@ function compareGeneratedFixtures(repoRoot, generatedRoot, write) {
   return failures;
 }
 
-async function checkProviderCatalog(repoRoot, write) {
+function readGeneratedFixtureExpected(generatedRoot, fixtureName) {
+  const fixturePath = path.join(
+    generatedRoot,
+    'ir',
+    'conformance',
+    'axai',
+    `${fixtureName}.json`
+  );
+  return normalizeCatalog(
+    JSON.parse(readFileSync(fixturePath, 'utf8')).expected_output
+  );
+}
+
+async function checkProviderCatalog(repoRoot, generatedRoot, write) {
   const tsCatalog = await buildTypeScriptCatalog();
+  const tsProfileRegistry = readGeneratedFixtureExpected(
+    generatedRoot,
+    'provider-profile-registry'
+  );
+  const tsCatalogSummary = readGeneratedFixtureExpected(
+    generatedRoot,
+    'model-catalog-audit'
+  );
   const providerPath = path.join(repoRoot, 'ir', 'axcore', 'provider.axir');
   const providerText = readFileSync(providerPath, 'utf8');
   if (write) {
-    writeFileSync(
-      providerPath,
-      replaceAxirProviderCatalog(providerText, tsCatalog)
+    const updated = replaceAxirProviderCatalog(
+      replaceAxirProviderCatalogSummary(
+        replaceAxirProviderProfileRegistry(providerText, tsProfileRegistry),
+        tsCatalogSummary
+      ),
+      tsCatalog
     );
+    writeFileSync(providerPath, updated);
     return [];
   }
   const axirCatalog = parseAxirProviderCatalog(providerText);
-  return compareValues(
-    axirCatalog,
-    tsCatalog,
-    'provider_model_catalog_registry'
-  ).map((diff) => `AxIR provider catalog drift: ${diff}`);
+  const axirProfileRegistry = parseAxirProviderProfileRegistry(providerText);
+  const axirCatalogSummary = parseAxirProviderCatalogSummary(providerText);
+  return [
+    ...compareValues(
+      axirCatalog,
+      tsCatalog,
+      'provider_model_catalog_registry'
+    ).map((diff) => `AxIR provider catalog drift: ${diff}`),
+    ...compareValues(
+      axirProfileRegistry,
+      tsProfileRegistry,
+      'provider_profile_registry'
+    ).map((diff) => `AxIR provider profile registry drift: ${diff}`),
+    ...compareValues(
+      axirCatalogSummary,
+      tsCatalogSummary,
+      'provider_model_catalog_summary'
+    ).map((diff) => `AxIR provider catalog summary drift: ${diff}`),
+  ];
 }
 
 async function runSync({ repoRoot, write }) {
@@ -268,7 +367,7 @@ async function runSync({ repoRoot, write }) {
     runAxaiExtractor(repoRoot, tempRoot);
     const failures = [
       ...compareGeneratedFixtures(repoRoot, tempRoot, write),
-      ...(await checkProviderCatalog(repoRoot, write)),
+      ...(await checkProviderCatalog(repoRoot, tempRoot, write)),
     ];
     if (failures.length > 0) {
       throw new Error(

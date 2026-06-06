@@ -6,7 +6,7 @@ public interface AxAIService extends AiClient {
   String getId();
   String getName();
   Map<String, Object> getFeatures(String model);
-  default java.util.List<Map<String, Object>> getModelList() { return null; }
+  default java.util.List<Map<String, Object>> getModelList() { return java.util.List.of(); }
   Map<String, Object> getMetrics();
   default java.util.function.Consumer<String> getLogger() { return ignored -> {}; }
   String getLastUsedChatModel();
@@ -20,13 +20,9 @@ public interface AxAIService extends AiClient {
 
   default Map<String, Object> chat(Map<String, Object> request, Map<String, Object> options) throws Exception { return chat(request); }
 
-  default Map<String, Object> transcribe(Map<String, Object> request) throws Exception {
-    throw new AxUnsupportedCapabilityError("transcribe is not supported by this generated AxAI beta provider");
-  }
+  Map<String, Object> transcribe(Map<String, Object> request) throws Exception;
   default Map<String, Object> transcribe(Map<String, Object> request, Map<String, Object> options) throws Exception { return transcribe(request); }
 
-  default Map<String, Object> speak(Map<String, Object> request) throws Exception {
-    throw new AxUnsupportedCapabilityError("speak is not supported by this generated AxAI beta provider");
-  }
+  Map<String, Object> speak(Map<String, Object> request) throws Exception;
   default Map<String, Object> speak(Map<String, Object> request, Map<String, Object> options) throws Exception { return speak(request); }
 }

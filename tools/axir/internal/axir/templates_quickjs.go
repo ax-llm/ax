@@ -860,9 +860,15 @@ const quickJSRuntimePolicyJSON = `{
 
 const javaQuickJSProfileReadme = `# JavaScript QuickJS Runtime Profile
 
-This optional profile runs JavaScript actor code in QuickJS4J. It is not part of
-the base generated Java compile path; compile it only when you want the
-` + "`javascript-quickjs`" + ` runtime profile.
+This optional profile is a Java adapter for the AxAgent RLM actor-code REPL.
+The agent's executor loop sends one actor-code step at a time into an
+` + "`AxCodeRuntime`" + ` session, observes envelopes such as ` + "`final(...)`" + `,
+` + "`discover(...)`" + `, and ` + "`recall(...)`" + `, then continues from the result.
+
+It runs JavaScript actor code in QuickJS4J. It is not a TypeScript transpiler,
+not a way to run your original Ax TypeScript application in Java, and not part
+of the base generated Java compile path. Compile it only when you want the
+` + "`javascript-quickjs`" + ` runtime profile for RLM agent sessions.
 
 QuickJS4J dependency metadata is provided in both ` + "`quickjs4j-pom.xml`" + ` and
 ` + "`quickjs4j-build.gradle`" + `. To resolve the classpath with Maven:
@@ -1445,8 +1451,15 @@ int main() {
 
 const cppQuickJSProfileReadme = `# JavaScript QuickJS Runtime Profile
 
-This optional profile compiles only when QuickJS headers and libraries are supplied.
-On Homebrew systems, ` + "`axir verify`" + ` auto-detects the usual QuickJS prefix when
+This optional profile is a C++ adapter for the AxAgent RLM actor-code REPL.
+The agent's executor loop sends one actor-code step at a time into an
+` + "`AxCodeRuntime`" + ` session, observes envelopes such as ` + "`final(...)`" + `,
+` + "`discover(...)`" + `, and ` + "`recall(...)`" + `, then continues from the result.
+
+It runs JavaScript actor code through the QuickJS C API. It is not a TypeScript
+transpiler and not a way to run your original Ax TypeScript application in C++.
+This profile compiles only when QuickJS headers and libraries are supplied. On
+Homebrew systems, ` + "`axir verify`" + ` auto-detects the usual QuickJS prefix when
 ` + "`AXIR_QUICKJS_CFLAGS`" + ` and ` + "`AXIR_QUICKJS_LDFLAGS`" + ` are not set.
 Host callbacks are registered with ` + "`QuickJsCodeRuntime::register_callable`" + `
 and are exposed to actor JavaScript as ordinary functions returning

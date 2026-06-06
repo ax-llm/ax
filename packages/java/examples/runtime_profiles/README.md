@@ -1,8 +1,14 @@
 # JavaScript QuickJS Runtime Profile
 
-This optional profile runs JavaScript actor code in QuickJS4J. It is not part of
-the base generated Java compile path; compile it only when you want the
-`javascript-quickjs` runtime profile.
+This optional profile is a Java adapter for the AxAgent RLM actor-code REPL.
+The agent's executor loop sends one actor-code step at a time into an
+`AxCodeRuntime` session, observes envelopes such as `final(...)`,
+`discover(...)`, and `recall(...)`, then continues from the result.
+
+It runs JavaScript actor code in QuickJS4J. It is not a TypeScript transpiler,
+not a way to run your original Ax TypeScript application in Java, and not part
+of the base generated Java compile path. Compile it only when you want the
+`javascript-quickjs` runtime profile for RLM agent sessions.
 
 QuickJS4J dependency metadata is provided in both `quickjs4j-pom.xml` and
 `quickjs4j-build.gradle`. To resolve the classpath with Maven:
@@ -48,8 +54,14 @@ inspect/snapshot/patch, runtime errors, and session-closed normalization.
 
 # Python Pyodide Runtime Profile
 
-This optional profile runs Python actor code through a Pyodide JSONL protocol
-server. It is not part of the base generated package compile path.
+This optional profile is an adapter for the AxAgent RLM actor-code REPL. The
+agent's executor loop sends one actor-code step at a time into an
+`AxCodeRuntime` session, observes envelopes such as `final(...)`,
+`discover(...)`, and `recall(...)`, then continues from the result.
+
+It runs Python actor code through a Pyodide JSONL protocol server. It is not a
+TypeScript transpiler, not a way to run your original Ax TypeScript application
+in Python, and not part of the base generated package compile path.
 
 Resolve the runtime server command with:
 

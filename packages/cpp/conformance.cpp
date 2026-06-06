@@ -128,9 +128,17 @@ struct RouterFixtureService : AxBaseAI {
   }
 
  public:
+  Value transcribe(Value request) override {
+    return transcribe(std::move(request), Value::object());
+  }
+
   Value transcribe(Value request, Value options) override {
     requests.push_back(object({{"method", "transcribe"}, {"opt", options}}));
     return object({{"text", name_ + " transcript"}});
+  }
+
+  Value speak(Value request) override {
+    return speak(std::move(request), Value::object());
   }
 
   Value speak(Value request, Value options) override {

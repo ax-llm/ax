@@ -382,6 +382,12 @@ struct Core {
   static Value _gemini_extract_citations_impl(Value candidate);
   static Value _gemini_usage_impl(Value usage);
   static Value gemini_normalize_embed_response(Value raw, Value ai_name, Value model);
+  static Value _grok_build_transcribe_request(Value request);
+  static Value _grok_build_speak_request(Value request);
+  static Value _gemini_build_transcribe_request(Value request);
+  static Value _gemini_build_speak_request(Value request);
+  static Value _gemini_normalize_transcribe_response(Value raw);
+  static Value _gemini_normalize_speak_response(Value raw, Value request);
   static Value anthropic_build_chat_request(Value request);
   static Value _anthropic_apply_model_config_impl(Value payload, Value model_config, Value model);
   static Value _anthropic_thinking_config_impl(Value model, Value level);
@@ -577,9 +583,9 @@ class AxAIService : public AIClient {
   virtual std::vector<Value> stream(Value request);
   virtual Value embed(Value request, Value options);
   virtual Value embed(Value request) = 0;
-  virtual Value transcribe(Value request);
+  virtual Value transcribe(Value request) = 0;
   virtual Value transcribe(Value request, Value options);
-  virtual Value speak(Value request);
+  virtual Value speak(Value request) = 0;
   virtual Value speak(Value request, Value options);
   virtual Value get_features(Value model = Value());
   virtual Value get_model_list();
@@ -602,6 +608,7 @@ class AxBaseAI : public AxAIService {
   Value complete(Value request) override;
   Value embed(Value request) override;
   Value embed(Value request, Value options) override;
+  Value get_model_list() override;
   Value get_features(Value model = Value()) override;
   std::string get_id() override;
   std::string get_name() override;
@@ -720,6 +727,10 @@ class ProviderRouter {
   Value validate_request(Value request);
   Value get_routing_stats();
   Value chat(Value request, Value options = Value::object());
+  std::vector<Value> stream(Value request);
+  Value embed(Value request, Value options = Value::object());
+  Value transcribe(Value request, Value options = Value::object());
+  Value speak(Value request, Value options = Value::object());
 
  private:
   std::vector<std::shared_ptr<AxAIService>> providers_;

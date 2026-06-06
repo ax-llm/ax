@@ -43,6 +43,7 @@
     "example:java": "node scripts/run-example.mjs java",
     "example:cpp": "node scripts/run-example.mjs cpp",
     "example:go": "node scripts/run-example.mjs go",
+    "example:rust": "node scripts/run-example.mjs rust",
     "fix:format": "biome format --write .",
     "fix:lint": "biome lint --write .",
     "fix:check": "biome check --write .",

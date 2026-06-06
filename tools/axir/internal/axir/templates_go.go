@@ -1240,7 +1240,7 @@ func (c *OpenAICompatibleClient) requestJSON(operation string, request map[strin
 	for _, key := range orderedKeys(asMap(coreGet(descriptor, "headers", Object()))) {
 		coreSet(headers, key, display(coreGet(coreGet(descriptor, "headers", Object()), key, nil)))
 	}
-	pathModel := coreGet(request, "model", coreGet(request, "embed_model", coreGet(request, "embedModel", nil)))
+	pathModel := coreGet(request, "model", coreGet(request, "embed_model", coreGet(request, "embedModel", coreGet(opts, "model", nil))))
 	if pathModel != nil {
 		path = strings.ReplaceAll(path, "{model}", url.PathEscape(display(pathModel)))
 	}
@@ -1257,7 +1257,9 @@ func (c *OpenAICompatibleClient) requestJSON(operation string, request map[strin
 		requestURL += sep + "api-version=" + url.QueryEscape(strings.TrimPrefix(apiVersion, "api-version="))
 	}
 	out := Object("method","POST","url", requestURL, "headers", headers, "stream", stream)
-	if operation == "transcribe" { coreSet(out, "data", payload) } else { coreSet(out, "json", payload) }
+	bodyKey := "json"
+	if display(coreGet(operationDescriptor, "body", "json")) == "multipart" { bodyKey = "data" }
+	coreSet(out, bodyKey, payload)
 	return out
 }
 
@@ -1270,7 +1272,17 @@ func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]V
 func (c *OpenAICompatibleClient) GetID() string { if c.ID != "" { return c.ID }; return c.Name+"-id" }
 func (c *OpenAICompatibleClient) GetName() string { return c.Name }
 func (c *OpenAICompatibleClient) GetFeatures(model string) map[string]Value { return asMap(coreGet(provider_descriptor(c.Profile), "features", routerDefaultFeatures())) }
-func (c *OpenAICompatibleClient) GetModelList() Value { return nil }
+func (c *OpenAICompatibleClient) GetModelList() Value {
+	opts := c.optionsSnapshot()
+	out := Array()
+	if model := display(coreGet(opts, "model", "")); model != "" {
+		out = append(out, Object("key", model, "description", c.Name+" chat model", "model", model))
+	}
+	if embedModel := display(coreGet(opts, "embed_model", coreGet(opts, "embedModel", ""))); embedModel != "" {
+		out = append(out, Object("key", embedModel, "description", c.Name+" embed model", "embedModel", embedModel))
+	}
+	return out
+}
 func (c *OpenAICompatibleClient) GetMetrics() map[string]Value { c.mu.Lock(); defer c.mu.Unlock(); if c.Metrics == nil { c.Metrics = balancerBaseMetrics() }; return cloneMap(c.Metrics) }
 func (c *OpenAICompatibleClient) SetOptions(options map[string]Value) { c.mu.Lock(); defer c.mu.Unlock(); c.Options = cloneMap(options) }
 func (c *OpenAICompatibleClient) GetOptions() map[string]Value { return c.optionsSnapshot() }
@@ -1781,13 +1793,38 @@ func (r *ProviderRouter) ValidateRequest(request map[string]Value) map[string]Va
 	return asMap(provider_route_validation(r.providerRecords(), request, r.processing, r.routing))
 }
 func (r *ProviderRouter) GetRoutingStats() map[string]Value { return asMap(provider_routing_stats(r.providerRecords())) }
-func (r *ProviderRouter) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+func (r *ProviderRouter) selectedService(request map[string]Value) (map[string]Value, AxAIService, error) {
 	rec := r.GetRoutingRecommendation(request)
 	service, _ := coreGet(rec, "provider", nil).(AxAIService)
-	if service == nil { return nil, AxError{Category:"runtime", Message:"No provider selected"} }
+	if service == nil { return nil, nil, AxError{Category:"runtime", Message:"No provider selected"} }
+	return rec, service, nil
+}
+func (r *ProviderRouter) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	rec, service, err := r.selectedService(request)
+	if err != nil { return nil, err }
 	response, err := service.Chat(ctx, request, options)
 	if err != nil { return nil, err }
 	return Object("response", response, "routing", rec), nil
+}
+func (r *ProviderRouter) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
+	_, service, err := r.selectedService(request)
+	if err != nil { return nil, err }
+	return service.Stream(ctx, request, options)
+}
+func (r *ProviderRouter) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	_, service, err := r.selectedService(request)
+	if err != nil { return nil, err }
+	return service.Embed(ctx, request, options)
+}
+func (r *ProviderRouter) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	_, service, err := r.selectedService(request)
+	if err != nil { return nil, err }
+	return service.Transcribe(ctx, request, options)
+}
+func (r *ProviderRouter) Speak(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	_, service, err := r.selectedService(request)
+	if err != nil { return nil, err }
+	return service.Speak(ctx, request, options)
 }
 
 // AxGen, Agent, Flow, optimizer, and runtime boundaries.

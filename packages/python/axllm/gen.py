@@ -296,7 +296,7 @@ class AxGen:
         opts = options or {}
         engine = opts.get("engine") or opts.get("optimizer")
         if engine is None:
-            raise NotImplementedError("AxIR generated runtimes require an OptimizerEngine for optimize()")
+            raise ValueError("options.engine must implement OptimizerEngine for optimize()")
         return self.optimize_with(engine, dataset or [], opts)
 
     def get_traces(self):

@@ -274,13 +274,6 @@
         "name": "mistral"
       },
       {
-        "defaultModel": "meta-llama/Llama-2-70b-chat-hf",
-        "displayName": "Hugging Face",
-        "isDynamic": true,
-        "models": [],
-        "name": "huggingface"
-      },
-      {
         "defaultModel": "reka-core",
         "displayName": "Reka",
         "isDynamic": false,
@@ -331,7 +324,7 @@
     "modelCount": 12,
     "openaiFirstModel": "gpt-audio",
     "openaiModelTypes": ["audio"],
-    "providerCount": 11,
+    "providerCount": 10,
     "providerNames": [
       "google-gemini",
       "openai",
@@ -341,7 +334,6 @@
       "cohere",
       "deepseek",
       "mistral",
-      "huggingface",
       "reka",
       "grok"
     ]

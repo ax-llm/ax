@@ -85,6 +85,8 @@ func Verify(rootFile string, opts VerifyOptions) (VerifyReport, error) {
 			targetReport, targetErr = verifyCppTarget(targetReport, conformanceRoot)
 		case "go":
 			targetReport, targetErr = verifyGoTarget(targetReport, conformanceRoot)
+		case "rust":
+			targetReport, targetErr = verifyRustTarget(targetReport, conformanceRoot)
 		default:
 			targetErr = fmt.Errorf("unknown verify target %q", target)
 		}
@@ -120,6 +122,8 @@ func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profi
 				report, err = verifyCppQuickJSProfile(report)
 			case "go":
 				report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "Go uses javascript-goja for built-in JavaScript actor execution; use ProcessCodeRuntime for external QuickJS protocol servers"})
+			case "rust":
+				report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "Rust uses ProcessCodeRuntime for external QuickJS protocol servers; embedded JavaScript runtime profiles are deferred"})
 			default:
 				err = fmt.Errorf("unknown target %q", target)
 			}
@@ -133,6 +137,8 @@ func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profi
 				if err != nil {
 					return report, err
 				}
+			} else if target == "rust" {
+				report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-goja", Status: "skip", Message: "javascript-goja is a Go-native runtime profile; Rust uses the process runtime boundary"})
 			} else {
 				report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-goja", Status: "skip", Message: "javascript-goja is a Go-native runtime profile"})
 			}
@@ -147,6 +153,8 @@ func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profi
 				report, err = verifyCppPyodideProfile(report)
 			case "go":
 				report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide", Status: "skip", Message: "Go uses the process runtime boundary; optional Pyodide profile verification is deferred"})
+			case "rust":
+				report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide", Status: "skip", Message: "Rust uses the process runtime boundary; optional Pyodide profile verification is deferred"})
 			default:
 				err = fmt.Errorf("unknown target %q", target)
 			}
@@ -174,7 +182,7 @@ func verifyGoGojaProfile(report VerifyTargetReport) (VerifyTargetReport, error) 
 
 func normalizeVerifyTargets(targets []string) []string {
 	if len(targets) == 0 {
-		return []string{"python", "java", "cpp", "go"}
+		return []string{"python", "java", "cpp", "go", "rust"}
 	}
 	out := make([]string, 0, len(targets))
 	seen := map[string]bool{}
@@ -260,6 +268,76 @@ func main() {
 		return err
 	}
 	return runVerifyCommand(report, "package go consumer", consumerDir, os.Environ(), goTool, "run", ".")
+}
+
+func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
+	cargo, err := exec.LookPath("cargo")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "cargo", Status: "skip", Message: "cargo not found"})
+		return report, nil
+	}
+	env := runtimeProtocolEnv(conformanceRoot, os.Environ())
+	if err := runVerifyCommand(&report, "cargo fmt", report.OutDir, env, cargo, "fmt", "--check", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml")); err != nil {
+		return report, err
+	}
+	if err := runVerifyCommand(&report, "cargo test", report.OutDir, env, cargo, "test", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--all-targets"); err != nil {
+		return report, err
+	}
+	for _, example := range []string{
+		"signature_schema",
+		"provider_mapping_no_key",
+		"axgen_fake_client_tool",
+		"axagent_pipeline",
+		"runtime_adapter",
+		"runtime_protocol",
+		"axflow_program_graph",
+		"optimizer_artifact",
+	} {
+		if err := runVerifyCommand(&report, "example "+example, report.OutDir, env, cargo, "run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--example", example); err != nil {
+			return report, err
+		}
+	}
+	args := append([]string{"run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--bin", "axllm-conformance", "--"}, conformanceSuitePaths(conformanceRoot)...)
+	if err := runVerifyCommand(&report, "conformance", report.OutDir, env, cargo, args...); err != nil {
+		return report, err
+	}
+	if err := verifyRustPackageSmoke(&report, cargo); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
+func verifyRustPackageSmoke(report *VerifyTargetReport, cargo string) error {
+	consumerDir := filepath.Join(report.OutDir, "_package_rust_consumer")
+	if err := os.RemoveAll(consumerDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(consumerDir, "src"), 0o755); err != nil {
+		return err
+	}
+	cargoToml := `[package]
+name = "axllm_consumer"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+axllm = { path = ".." }
+`
+	if err := os.WriteFile(filepath.Join(consumerDir, "Cargo.toml"), []byte(cargoToml), 0o644); err != nil {
+		return err
+	}
+	mainRs := `use axllm::{s, AxResult};
+
+fn main() -> AxResult<()> {
+    let sig = s("question:string -> answer:string")?;
+    println!("rust-package-consumer-ok {}", sig.get_output_fields()[0].name);
+    Ok(())
+}
+`
+	if err := os.WriteFile(filepath.Join(consumerDir, "src", "main.rs"), []byte(mainRs), 0o644); err != nil {
+		return err
+	}
+	return runVerifyCommand(report, "package rust consumer", consumerDir, os.Environ(), cargo, "run", "--quiet", "--manifest-path", filepath.Join(consumerDir, "Cargo.toml"))
 }
 
 func conformanceRootFor(rootFile string) string {

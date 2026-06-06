@@ -23,12 +23,11 @@ describe('axGetSupportedAIModels', () => {
         'cohere',
         'deepseek',
         'mistral',
-        'huggingface',
         'reka',
         'grok',
       ])
     );
-    expect(providerNames).toHaveLength(11);
+    expect(providerNames).toHaveLength(10);
   });
 
   it('returns provider grouped model metadata with pricing', () => {
@@ -268,7 +267,7 @@ describe('axGetSupportedAIModels', () => {
   it('marks dynamic providers without inventing static pricing', () => {
     const providers = axGetSupportedAIModels();
 
-    for (const providerName of ['azure-openai', 'huggingface'] as const) {
+    for (const providerName of ['azure-openai'] as const) {
       const provider = providers.find((item) => item.name === providerName);
 
       expect(provider?.isDynamic).toBe(true);

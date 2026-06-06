@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -27,6 +28,8 @@ func Compile(bundle Bundle, target, outDir string) error {
 		return EmitCpp(model, outDir)
 	case "go":
 		return EmitGo(model, outDir)
+	case "rust":
+		return EmitRust(model, outDir)
 	default:
 		return fmt.Errorf("unknown compile target %q", target)
 	}
@@ -261,6 +264,35 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 	return writeFiles(outDir, files)
 }
 
+func EmitRust(model AxRuntimeModel, outDir string) error {
+	version := generatedPackageVersion()
+	core, err := BuildRustCore(model)
+	if err != nil {
+		return err
+	}
+	files := map[string]string{
+		"Cargo.toml":                          renderPackageTemplate(rustCargoToml, version),
+		"src/lib.rs":                          renderPackageTemplate(core, version),
+		"src/bin/axllm-conformance.rs":        rustConformanceMain,
+		"axir-capabilities.json":              mustCapabilityManifest(model, "rust"),
+		"examples/signature_schema.rs":        rustSignatureSchemaExample,
+		"examples/provider_mapping_no_key.rs": rustProviderMappingNoKeyExample,
+		"examples/provider_stream_no_key.rs":  rustProviderStreamNoKeyExample,
+		"examples/axgen_fake_client_tool.rs":  rustAxGenFakeClientToolExample,
+		"examples/axgen_openai_api.rs":        rustAxGenOpenAIExample,
+		"examples/axagent_pipeline.rs":        rustAxAgentPipelineExample,
+		"examples/axflow_program_graph.rs":    rustAxFlowProgramGraphExample,
+		"examples/runtime_adapter.rs":         rustRuntimeAdapterExample,
+		"examples/runtime_protocol.rs":        rustRuntimeProtocolExample,
+		"examples/optimizer_artifact.rs":      rustOptimizerArtifactExample,
+		"README.md":                           packageREADME(model, "rust"),
+	}
+	if err := writeFiles(outDir, files); err != nil {
+		return err
+	}
+	return formatRustPackage(outDir)
+}
+
 func writeFiles(root string, files map[string]string) error {
 	for name, content := range files {
 		path := filepath.Join(root, filepath.FromSlash(name))
@@ -270,6 +302,18 @@ func writeFiles(root string, files map[string]string) error {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func formatRustPackage(outDir string) error {
+	cargo, err := exec.LookPath("cargo")
+	if err != nil {
+		return nil
+	}
+	cmd := exec.Command(cargo, "fmt", "--manifest-path", filepath.Join(outDir, "Cargo.toml"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("format rust package: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -332,7 +376,7 @@ type CapabilityManifest struct {
 	ProviderMode            string      `json:"provider_mode"`
 	FakeTransportSupport    bool        `json:"fake_transport_support"`
 	RealNetworkSupport      bool        `json:"real_network_support"`
-	UnsupportedCapabilities []string    `json:"unsupported_capabilities"`
+	UnsupportedCapabilities []string    `json:"unsupported_capabilities,omitempty"`
 	CoreOwnedFeatureGroups  []string    `json:"core_owned_feature_groups"`
 	PublicSymbols           []string    `json:"public_symbols"`
 	TargetIdiom             TargetIdiom `json:"target_idiom"`
@@ -343,12 +387,8 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 	if !ok {
 		return CapabilityManifest{}, fmt.Errorf("unknown target %q", target)
 	}
-	unsupported := []string{
-		"OpenTelemetry",
-		"built-in realtime transport",
-		"real multipart audio upload transport",
-	}
-	realNetwork := target == "python" || target == "java" || target == "cpp" || target == "go"
+	realNetwork := target == "python" || target == "java" || target == "cpp" || target == "go" || target == "rust"
+	publicSymbols := publicSymbolsForTarget(model, target)
 	return CapabilityManifest{
 		AxIRVersion:             "0.1",
 		Target:                  target,
@@ -357,7 +397,7 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 		ProviderMode:            "provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic",
 		FakeTransportSupport:    true,
 		RealNetworkSupport:      realNetwork,
-		UnsupportedCapabilities: unsupported,
+		UnsupportedCapabilities: nil,
 		CoreOwnedFeatureGroups: []string{
 			"signature",
 			"schema",
@@ -524,9 +564,34 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axflow-nested-component-paths",
 			"axflow-optimization-rollback",
 		},
-		PublicSymbols: append([]string(nil), model.PublicSymbols...),
+		PublicSymbols: publicSymbols,
 		TargetIdiom:   idiom,
 	}, nil
+}
+
+func publicSymbolsForTarget(model AxRuntimeModel, target string) []string {
+	symbols := append([]string(nil), model.PublicSymbols...)
+	if target != "rust" {
+		return symbols
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(symbols)+4)
+	for _, symbol := range symbols {
+		if symbol == "fn" {
+			symbol = "tool"
+		}
+		if seen[symbol] {
+			continue
+		}
+		seen[symbol] = true
+		out = append(out, symbol)
+	}
+	for _, symbol := range []string{"AxError", "AxResult", "FakeTransport"} {
+		if !seen[symbol] {
+			out = append(out, symbol)
+		}
+	}
+	return out
 }
 
 func CapabilityManifestJSON(model AxRuntimeModel, target string) (string, error) {
@@ -559,9 +624,23 @@ func packageNameForTarget(target string) string {
 		return "axllm"
 	case "go":
 		return "github.com/ax-llm/ax/go"
+	case "rust":
+		return "axllm"
 	default:
 		return target
 	}
+}
+
+type packageReadmeConfig struct {
+	Title            string
+	Language         string
+	Intro            string
+	Install          string
+	QuickStart       string
+	PackageFacts     string
+	NoKeyExamples    string
+	ProviderExamples string
+	RuntimeProfiles  string
 }
 
 func packageREADME(model AxRuntimeModel, target string) string {
@@ -575,88 +654,328 @@ func packageREADME(model AxRuntimeModel, target string) string {
 	} else if !manifest.RealNetworkSupport {
 		network = "not implemented; use the fake transport/Transport boundary"
 	}
-	return fmt.Sprintf(`# Generated Ax %s Library
+	cfg := packageReadmeConfigForTarget(target, network)
+	return readmeLines(
+		"# "+cfg.Title,
+		"",
+		cfg.Intro,
+		"",
+		"## Quick Start",
+		"",
+		cfg.Install,
+		"",
+		cfg.QuickStart,
+		"",
+		"## What You Can Build",
+		"",
+		"- Signatures and schemas: describe inputs and outputs once, then reuse that shape for validation, prompts, tools, and typed results.",
+		"- AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.",
+		"- AxAI: call OpenAI-compatible, OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients through one provider boundary.",
+		"- AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.",
+		"- AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.",
+		"- Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.",
+		"",
+		"## Package Shape",
+		"",
+		cfg.PackageFacts,
+		"",
+		"Shared Ax behavior is Core-owned. The generated target code stays focused on idiomatic wrappers, transports, dynamic value helpers, and host-runtime boundaries.",
+		"",
+		"## Examples",
+		"",
+		"`no-key` examples are deterministic local smokes. They are the fastest way to see the package work without any provider account:",
+		"",
+		cfg.NoKeyExamples,
+		"",
+		"`provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:",
+		"",
+		cfg.ProviderExamples,
+		"",
+		"## Runtime Profiles And RLM Agents",
+		"",
+		"AxAgent uses an RLM executor loop. On each turn, the model writes a small actor-code step, and Ax sends that step into an `AxCodeRuntime` session. Think of the runtime as the agent's REPL: it keeps session state, exposes safe host callbacks, returns envelopes such as `final(...)`, `askClarification(...)`, `discover(...)`, `recall(...)`, and `used(...)`, and lets the agent continue from the result.",
+		"",
+		"The TypeScript package ships `AxJSRuntime` as the reference JavaScript implementation of that REPL contract. Generated runtime profiles are adapters for the same `AxCodeRuntime` / `AxCodeSession` boundary. They exist so RLM agents can execute actor code in a host runtime that fits the target package.",
+		"",
+		"This package is not a TypeScript transpiler. AxIR compiles shared Ax semantics into native package code; it does not run your original Ax TypeScript application inside a "+cfg.Language+" runtime. Application code is still written in the language you are using here.",
+		"",
+		cfg.RuntimeProfiles,
+		"",
+		"Optional runtime profiles are dependency-bearing and opt-in. Adapter policy owns sandboxing, dependency loading, hard cancellation, process security, and host permissions. The shared Ax contract still owns envelopes, state, logs, traces, and the model-visible protocol.",
+		"",
+		"## Contract Snapshot",
+		"",
+		fmt.Sprintf("- Compiler contract version: %s", manifest.AxIRVersion),
+		fmt.Sprintf("- Package: %s", manifest.PackageName),
+		fmt.Sprintf("- Supported conformance suites: %s", strings.Join(manifest.SupportedSuites, ", ")),
+		fmt.Sprintf("- Provider mode: %s", manifest.ProviderMode),
+		fmt.Sprintf("- Fake transport support: %t", manifest.FakeTransportSupport),
+		fmt.Sprintf("- Real network support: %s", network),
+	) + "\n"
+}
 
-Generated from shared Ax compiler modules.
+func packageReadmeConfigForTarget(target string, network string) packageReadmeConfig {
+	switch target {
+	case "python":
+		return packageReadmeConfig{
+			Title:    "Ax for Python",
+			Language: "Python",
+			Intro:    "Build Ax programs from Python without giving up the Ax model: typed signatures, structured generation, provider routing, RLM agents, flows, and optimizer artifacts all come from the same shared compiler contract. The package feels like Python, but the behavior stays aligned with the main Ax implementation.",
+			Install: readmeLines(
+				"```bash",
+				"cd packages/python",
+				"python -m pip install -e .",
+				"PYTHONPATH=. python examples/signature_schema.py",
+				"```",
+			),
+			QuickStart: readmeLines(
+				"```python",
+				"from axllm import s",
+				"",
+				"sig = s(\"question:string -> answer:string\")",
+				"schema = sig.to_json_schema(\"outputs\")",
+				"assert \"answer\" in schema[\"properties\"]",
+				"```",
+			),
+			PackageFacts: readmeLines(
+				"- Import package: `axllm`",
+				"- Distribution metadata: `pyproject.toml`, `MANIFEST.in`, and `axllm/py.typed`",
+				"- Base dependencies: none",
+				"- Network support: "+network,
+			),
+			NoKeyExamples: readmeLines(
+				"- `python examples/signature_schema.py`: signature parsing and JSON schema generation",
+				"- `python examples/axgen_fake_client_tool.py`: AxGen with a fake client and tool",
+				"- `python examples/axai_fake_transport.py`: provider mapping through a fake transport",
+				"- `python examples/axagent_pipeline.py`: deterministic AxAgent pipeline",
+				"- `python examples/axflow_program_graph.py`: AxFlow program graph",
+				"- `python examples/runtime_adapter.py`: custom `AxCodeRuntime` session",
+				"- `python examples/runtime_protocol.py`: process runtime protocol against the AxJS reference adapter",
+				"- `python examples/optimizer_artifact.py`: optimizer artifact save/load/apply lifecycle",
+			),
+			ProviderExamples: "- `OPENAI_API_KEY=... python examples/axgen_openai_api.py`: AxGen with a real OpenAI-compatible provider API",
+			RuntimeProfiles: readmeLines(
+				"Optional profile files in this package:",
+				"",
+				"- `javascript-quickjs`: JavaScript actor code through a QuickJS protocol server via `ProcessCodeRuntime`.",
+				"- `python-pyodide`: Python actor code through a Pyodide JSONL protocol server.",
+				"",
+				"See `examples/runtime_profiles/README.md` for setup, policy, and verification details.",
+			),
+		}
+	case "java":
+		return packageReadmeConfig{
+			Title:    "Ax for Java",
+			Language: "Java",
+			Intro:    "Bring Ax into Java services and JVM applications with a small native API: signatures, structured generation, providers, RLM agents, flows, and optimizer artifacts are generated from the shared Ax compiler contract and exposed as ordinary Java classes.",
+			Install: readmeLines(
+				"```bash",
+				"cd packages/java",
+				"javac -cp . dev/axllm/ax/*.java examples/SignatureSchemaExample.java",
+				"java -cp .:examples SignatureSchemaExample",
+				"```",
+			),
+			QuickStart: readmeLines(
+				"```java",
+				"import dev.axllm.ax.*;",
+				"import java.util.*;",
+				"",
+				"AxSignature sig = Ax.s(\"question:string -> answer:string\");",
+				"Map<String, Object> schema = sig.toJsonSchema(\"outputs\", Map.of());",
+				"System.out.println(schema.get(\"properties\"));",
+				"```",
+			),
+			PackageFacts: readmeLines(
+				"- Java package: `dev.axllm.ax`",
+				"- Maven artifact metadata: `dev.axllm:ax`",
+				"- Build metadata: `pom.xml`, `build.gradle`, and `settings.gradle`",
+				"- Optional QuickJS4J metadata stays under `examples/runtime_profiles/`",
+				"- Network support: "+network,
+			),
+			NoKeyExamples: readmeLines(
+				"- `examples/SignatureSchemaExample.java`: signature parsing and JSON schema generation",
+				"- `examples/AxGenFakeClientToolExample.java`: AxGen with a fake client and tool",
+				"- `examples/AxAIFakeTransportExample.java`: provider mapping through a fake transport",
+				"- `examples/AxAgentPipelineExample.java`: deterministic AxAgent pipeline",
+				"- `examples/AxFlowProgramGraphExample.java`: AxFlow program graph",
+				"- `examples/RuntimeAdapterExample.java`: custom `AxCodeRuntime` session",
+				"- `examples/RuntimeProtocolExample.java`: process runtime protocol against the AxJS reference adapter",
+				"- `examples/OptimizerArtifactExample.java`: optimizer artifact save/load/apply lifecycle",
+			),
+			ProviderExamples: "- `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/AxGenOpenAIExample.java && java -cp .:examples AxGenOpenAIExample`: AxGen with a real OpenAI-compatible provider API",
+			RuntimeProfiles: readmeLines(
+				"Optional profile files in this package:",
+				"",
+				"- `javascript-quickjs`: JavaScript actor code in QuickJS4J.",
+				"- `python-pyodide`: Python actor code through a Pyodide JSONL protocol server.",
+				"",
+				"See `examples/runtime_profiles/README.md` for setup, policy, and verification details.",
+			),
+		}
+	case "cpp":
+		return packageReadmeConfig{
+			Title:    "Ax for C++",
+			Language: "C++",
+			Intro:    "Use Ax from C++ when you want structured LLM programs close to your runtime: signatures, typed dynamic values, provider transports, RLM agents, flows, and optimizer artifacts are generated into a compact C++17 library.",
+			Install: readmeLines(
+				"```bash",
+				"cd packages/cpp",
+				"cmake -S . -B build",
+				"cmake --build build",
+				"./build/signature_schema",
+				"```",
+			),
+			QuickStart: readmeLines(
+				"```cpp",
+				"#include \"axllm/axllm.hpp\"",
+				"",
+				"auto sig = axllm::s(\"question:string -> answer:string\");",
+				"auto schema = axllm::to_json_schema(axllm::Core::get(sig, \"outputs\"));",
+				"```",
+			),
+			PackageFacts: readmeLines(
+				"- Library target: `axllm::axllm`",
+				"- Public files: `axllm/axllm.hpp`, `axllm/axllm.cpp`, and `CMakeLists.txt`",
+				"- Built-in HTTP transport: enabled when CMake finds CURL; custom `Transport` remains supported",
+				"- Optional QuickJS sources are not part of the default CMake build",
+				"- Network support: "+network,
+			),
+			NoKeyExamples: readmeLines(
+				"- `examples/signature_schema.cpp`: signature parsing and JSON schema generation",
+				"- `examples/axgen_fake_client_tool.cpp`: AxGen with a fake client and tool",
+				"- `examples/axai_fake_transport.cpp`: provider mapping through a fake transport",
+				"- `examples/axagent_pipeline.cpp`: deterministic AxAgent pipeline",
+				"- `examples/axflow_program_graph.cpp`: AxFlow program graph",
+				"- `examples/runtime_adapter.cpp`: custom `AxCodeRuntime` session",
+				"- `examples/runtime_protocol.cpp`: process runtime protocol against the AxJS reference adapter",
+				"- `examples/optimizer_artifact.cpp`: optimizer artifact save/load/apply lifecycle",
+			),
+			ProviderExamples: "- `OPENAI_API_KEY=... ./build/axgen_openai_api`: AxGen with a real OpenAI-compatible provider API after building examples",
+			RuntimeProfiles: readmeLines(
+				"Optional profile files in this package:",
+				"",
+				"- `javascript-quickjs`: JavaScript actor code through the QuickJS C API.",
+				"- `python-pyodide`: Python actor code through a Pyodide JSONL protocol server.",
+				"",
+				"See `examples/runtime_profiles/README.md` for setup, policy, and verification details.",
+			),
+		}
+	case "go":
+		return packageReadmeConfig{
+			Title:    "Ax for Go",
+			Language: "Go",
+			Intro:    "Write Ax programs in Go with the same contract used by the main Ax library: signatures, structured generation, provider clients, RLM agents, flows, and optimizer artifacts compiled into a native Go module.",
+			Install: readmeLines(
+				"```bash",
+				"cd packages/go",
+				"go test ./...",
+				"go run ./examples/signature_schema",
+				"```",
+			),
+			QuickStart: readmeLines(
+				"```go",
+				"package main",
+				"",
+				"import ax \"github.com/ax-llm/ax/go\"",
+				"",
+				"func main() {",
+				"    sig := ax.NewSignature(\"question:string -> answer:string\")",
+				"    _ = sig.ToJSONSchema(nil)",
+				"}",
+				"```",
+			),
+			PackageFacts: readmeLines(
+				"- Module: `github.com/ax-llm/ax/go`",
+				"- Import alias used in examples: `ax`",
+				"- Base package uses the Go standard library for HTTP/process boundaries",
+				"- Optional JavaScript actor execution lives in `runtime/goja` and is opt-in by import",
+				"- Network support: "+network,
+			),
+			NoKeyExamples: readmeLines(
+				"- `go run ./examples/signature_schema`: signature parsing and JSON schema generation",
+				"- `go run ./examples/axgen_fake_client_tool`: AxGen with a fake client and tool",
+				"- `go run ./examples/axai_fake_transport`: provider mapping through a fake transport",
+				"- `go run ./examples/axagent_pipeline`: deterministic AxAgent pipeline",
+				"- `go run ./examples/axflow_program_graph`: AxFlow program graph",
+				"- `go run ./examples/runtime_adapter`: custom `AxCodeRuntime` session",
+				"- `go run ./examples/runtime_protocol`: process runtime protocol against the AxJS reference adapter",
+				"- `go run ./examples/optimizer_artifact`: optimizer artifact save/load/apply lifecycle",
+			),
+			ProviderExamples: "- From the repo root, `OPENAI_API_KEY=... npm run example -- go axgen_openai_api.go`: AxGen with a real OpenAI-compatible provider API",
+			RuntimeProfiles: readmeLines(
+				"Optional profile files in this package:",
+				"",
+				"- `javascript-goja`: Go-native JavaScript actor code through the generated `runtime/goja` package.",
+				"",
+				"Verify it with `axir verify --targets go --runtime-profiles javascript-goja` when the AxIR toolchain is available.",
+			),
+		}
+	case "rust":
+		return packageReadmeConfig{
+			Title:    "Ax for Rust",
+			Language: "Rust",
+			Intro:    "Write Ax programs in Rust with native Result-based errors, serde_json dynamic values at Ax boundaries, blocking provider transport, protocol-first RLM runtime sessions, and shared Ax semantics generated from the compiler contract.",
+			Install: readmeLines(
+				"```bash",
+				"cd packages/rust",
+				"cargo test --all-targets",
+				"cargo run --example signature_schema",
+				"```",
+			),
+			QuickStart: readmeLines(
+				"```rust",
+				"use axllm::{s, AxResult};",
+				"",
+				"fn main() -> AxResult<()> {",
+				"    let sig = s(\"question:string -> answer:string\")?;",
+				"    let schema = sig.to_json_schema(\"outputs\");",
+				"    assert!(schema[\"properties\"].get(\"answer\").is_some());",
+				"    Ok(())",
+				"}",
+				"```",
+			),
+			PackageFacts: readmeLines(
+				"- Crate: `axllm`",
+				"- Dynamic value boundary: `serde_json::Value`",
+				"- Error boundary: `Result<T, AxError>`",
+				"- Built-in HTTP transport: blocking `reqwest` with rustls TLS",
+				"- Runtime execution: process/JSONL protocol through `ProcessCodeRuntime`; no embedded JS engine in the base crate",
+				"- Network support: "+network,
+			),
+			NoKeyExamples: readmeLines(
+				"- `cargo run --example signature_schema`: signature parsing and JSON schema generation",
+				"- `cargo run --example provider_mapping_no_key`: provider mapping through a fake transport",
+				"- `cargo run --example provider_stream_no_key`: provider streaming through a fake SSE transport",
+				"- `cargo run --example axgen_fake_client_tool`: AxGen with a fake client and tool",
+				"- `cargo run --example axagent_pipeline`: deterministic AxAgent pipeline",
+				"- `cargo run --example axflow_program_graph`: AxFlow program graph",
+				"- `cargo run --example runtime_adapter`: custom `AxCodeRuntime` session",
+				"- `cargo run --example runtime_protocol`: process runtime protocol against the AxJS reference adapter",
+				"- `cargo run --example optimizer_artifact`: optimizer artifact lifecycle smoke",
+			),
+			ProviderExamples: "- `OPENAI_API_KEY=... cargo run --example axgen_openai_api`: AxGen with a real OpenAI-compatible provider API",
+			RuntimeProfiles: readmeLines(
+				"This package is protocol-first for RLM actor execution:",
+				"",
+				"- `ProcessCodeRuntime` speaks the shared AxCodeRuntime JSONL protocol.",
+				"- Embedded JavaScript engines such as QuickJS/V8 are intentionally deferred from the v1 Rust backend.",
+			),
+		}
+	default:
+		return packageReadmeConfig{
+			Title:            "Ax for " + target,
+			Language:         target,
+			Intro:            "Build Ax programs in this generated language package with shared Ax semantics.",
+			Install:          "",
+			QuickStart:       "",
+			PackageFacts:     "- Package: `" + packageNameForTarget(target) + "`\n- Network support: " + network,
+			NoKeyExamples:    "- See `examples/`.",
+			ProviderExamples: "- Set `OPENAI_API_KEY` before running provider API examples.",
+			RuntimeProfiles:  "- See `examples/runtime_profiles/` when present.",
+		}
+	}
+}
 
-## Contract
-
-- Compiler contract version: %s
-- Package: %s
-- Supported conformance suites: %s
-- Provider mode: %s
-- Fake transport support: %t
-- Real network support: %s
-
-The deterministic Ax runtime semantics are Core-owned. Target-owned code is
-limited to idiomatic wrappers, transport boundaries, and language primitives.
-
-## Packaging
-
-- Python emits `+"`pyproject.toml`"+`, `+"`MANIFEST.in`"+`, package import `+"`axllm`"+`, and
-  `+"`axllm/py.typed`"+`. The default distribution metadata name is
-  `+"`axllm`"+`.
-- Java emits package `+"`dev.axllm.ax`"+`, base Maven/Gradle metadata for
-  `+"`dev.axllm:ax`"+`, and keeps QuickJS4J metadata isolated under
-  `+"`examples/runtime_profiles/`"+`.
-- C++ emits `+"`axllm/axllm.hpp`"+`, `+"`axllm/axllm.cpp`"+`, and `+"`CMakeLists.txt`"+` with target
-  `+"`axllm::axllm`"+`. The generated CMake package enables a built-in libcurl
-  HTTP transport when CURL is available. Optional QuickJS sources are not part of
-  the default CMake build.
-- Go emits module `+"`github.com/ax-llm/ax/go`"+` and package `+"`axllm`"+`, using
-  the standard library for HTTP/process boundaries and an optional generated
-  `+"`runtime/goja`"+` package for built-in JavaScript actor execution.
-
-## Examples
-
-See the files in `+"`examples/`"+` for:
-
-- signature parsing and JSON schema generation
-- AxGen forward with a fake client and tool
-- AxGen forward with a real OpenAI-compatible provider API when `+"`OPENAI_API_KEY`"+` is set
-- AxAI/OpenAI-compatible mapping with a fake transport
-- AxAgent pipeline alpha with a fake service
-- Runtime adapter helpers and custom `+"`AxCodeRuntime`"+` implementation
-- Runtime protocol client against the AxJS reference adapter
-- Optional JavaScript QuickJS runtime profile files
-- Optional Python Pyodide runtime profile files
-- AxFlow program graph with child Ax programs
-- Optimizer artifact save/load/apply lifecycle
-
-## Optional Runtime Profiles
-
-The TypeScript `+"`AxJSRuntime`"+` remains the canonical JavaScript host runtime
-reference for AxAgent actor sessions. Generated runtime profiles are portability
-proofs against that same contract; the compiler does not emit separate Node, Deno, or
-Bun profiles because those are the existing TypeScript implementation surface.
-
-- `+"`javascript-quickjs`"+`: JavaScript actor code through QuickJS. Java uses
-  QuickJS4J (`+"`io.roastedroot:quickjs4j`"+`); C++ uses the QuickJS C API; Python
-  drives a QuickJS protocol server through `+"`ProcessCodeRuntime`"+`. This profile
-  is dependency-bearing and is verified only when its toolchain environment
-  variables are supplied. Java profile verification accepts
-  `+"`AXIR_QUICKJS4J_CP`"+`, `+"`AXIR_QUICKJS4J_CP_FILE`"+`, or
-  `+"`AXIR_QUICKJS4J_RESOLVE=1`"+` to resolve the classpath with the generated
-  Maven helper. Python profile verification accepts `+"`AXIR_QUICKJS_RUNTIME_SERVER`"+`
-  directly, or auto-starts the generated Java QuickJS4J protocol server when the
-  QuickJS4J classpath is available.
-- `+"`python-pyodide`"+`: Python actor code through a Pyodide JSONL protocol
-  server. Python, Java, and C++ generated runtimes all use the existing runtime
-  protocol boundary for this alpha; no host-native Python interpreter is
-  embedded in the generated packages. Verification accepts
-  `+"`AXIR_PYODIDE_RUNTIME_SERVER`"+` directly, or `+"`AXIR_PYODIDE_RESOLVE=1`"+`
-  to install/resolve Pyodide with the generated npm helper.
-- `+"`javascript-goja`"+`: Go-native JavaScript actor code through the generated
-  `+"`runtime/goja`"+` package. It is pure Go, dependency-bearing, opt-in by
-  import, and verified with `+"`axir verify --targets go --runtime-profiles javascript-goja`"+`.
-  The root `+"`axllm`"+` package stays free of vendor-specific constructors.
-
-Both optional profiles expose a JSON-compatible runtime policy surface. The
-generated `+"`quickjs-runtime-policy.json`"+` and `+"`pyodide-runtime-policy.json`"+`
-files document conservative defaults: filesystem, network, process/native host
-access, and package loading are disabled unless profile adapter code explicitly
-supports and enables them. The shared Ax compiler contract still owns envelopes,
-state, logs, and traces; adapter policy owns sandboxing, dependency loading,
-hard cancellation, and process security.
-`, strings.ToUpper(target), manifest.AxIRVersion, manifest.PackageName, strings.Join(manifest.SupportedSuites, ", "), manifest.ProviderMode, manifest.FakeTransportSupport, network)
+func readmeLines(lines ...string) string {
+	return strings.Join(lines, "\n")
 }

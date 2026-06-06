@@ -1,8 +1,76 @@
-# Generated Ax PYTHON Library
+# Ax for Python
 
-Generated from shared Ax compiler modules.
+Build Ax programs from Python without giving up the Ax model: typed signatures, structured generation, provider routing, RLM agents, flows, and optimizer artifacts all come from the same shared compiler contract. The package feels like Python, but the behavior stays aligned with the main Ax implementation.
 
-## Contract
+## Quick Start
+
+```bash
+cd packages/python
+python -m pip install -e .
+PYTHONPATH=. python examples/signature_schema.py
+```
+
+```python
+from axllm import s
+
+sig = s("question:string -> answer:string")
+schema = sig.to_json_schema("outputs")
+assert "answer" in schema["properties"]
+```
+
+## What You Can Build
+
+- Signatures and schemas: describe inputs and outputs once, then reuse that shape for validation, prompts, tools, and typed results.
+- AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.
+- AxAI: call OpenAI-compatible, OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients through one provider boundary.
+- AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
+- AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
+- Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.
+
+## Package Shape
+
+- Import package: `axllm`
+- Distribution metadata: `pyproject.toml`, `MANIFEST.in`, and `axllm/py.typed`
+- Base dependencies: none
+- Network support: available
+
+Shared Ax behavior is Core-owned. The generated target code stays focused on idiomatic wrappers, transports, dynamic value helpers, and host-runtime boundaries.
+
+## Examples
+
+`no-key` examples are deterministic local smokes. They are the fastest way to see the package work without any provider account:
+
+- `python examples/signature_schema.py`: signature parsing and JSON schema generation
+- `python examples/axgen_fake_client_tool.py`: AxGen with a fake client and tool
+- `python examples/axai_fake_transport.py`: provider mapping through a fake transport
+- `python examples/axagent_pipeline.py`: deterministic AxAgent pipeline
+- `python examples/axflow_program_graph.py`: AxFlow program graph
+- `python examples/runtime_adapter.py`: custom `AxCodeRuntime` session
+- `python examples/runtime_protocol.py`: process runtime protocol against the AxJS reference adapter
+- `python examples/optimizer_artifact.py`: optimizer artifact save/load/apply lifecycle
+
+`provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
+
+- `OPENAI_API_KEY=... python examples/axgen_openai_api.py`: AxGen with a real OpenAI-compatible provider API
+
+## Runtime Profiles And RLM Agents
+
+AxAgent uses an RLM executor loop. On each turn, the model writes a small actor-code step, and Ax sends that step into an `AxCodeRuntime` session. Think of the runtime as the agent's REPL: it keeps session state, exposes safe host callbacks, returns envelopes such as `final(...)`, `askClarification(...)`, `discover(...)`, `recall(...)`, and `used(...)`, and lets the agent continue from the result.
+
+The TypeScript package ships `AxJSRuntime` as the reference JavaScript implementation of that REPL contract. Generated runtime profiles are adapters for the same `AxCodeRuntime` / `AxCodeSession` boundary. They exist so RLM agents can execute actor code in a host runtime that fits the target package.
+
+This package is not a TypeScript transpiler. AxIR compiles shared Ax semantics into native package code; it does not run your original Ax TypeScript application inside a Python runtime. Application code is still written in the language you are using here.
+
+Optional profile files in this package:
+
+- `javascript-quickjs`: JavaScript actor code through a QuickJS protocol server via `ProcessCodeRuntime`.
+- `python-pyodide`: Python actor code through a Pyodide JSONL protocol server.
+
+See `examples/runtime_profiles/README.md` for setup, policy, and verification details.
+
+Optional runtime profiles are dependency-bearing and opt-in. Adapter policy owns sandboxing, dependency loading, hard cancellation, process security, and host permissions. The shared Ax contract still owns envelopes, state, logs, traces, and the model-visible protocol.
+
+## Contract Snapshot
 
 - Compiler contract version: 0.1
 - Package: axllm
@@ -10,74 +78,3 @@ Generated from shared Ax compiler modules.
 - Provider mode: provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic
 - Fake transport support: true
 - Real network support: available
-
-The deterministic Ax runtime semantics are Core-owned. Target-owned code is
-limited to idiomatic wrappers, transport boundaries, and language primitives.
-
-## Packaging
-
-- Python emits `pyproject.toml`, `MANIFEST.in`, package import `axllm`, and
-  `axllm/py.typed`. The default distribution metadata name is
-  `axllm`.
-- Java emits package `dev.axllm.ax`, base Maven/Gradle metadata for
-  `dev.axllm:ax`, and keeps QuickJS4J metadata isolated under
-  `examples/runtime_profiles/`.
-- C++ emits `axllm/axllm.hpp`, `axllm/axllm.cpp`, and `CMakeLists.txt` with target
-  `axllm::axllm`. The generated CMake package enables a built-in libcurl
-  HTTP transport when CURL is available. Optional QuickJS sources are not part of
-  the default CMake build.
-- Go emits module `github.com/ax-llm/ax/go` and package `axllm`, using
-  the standard library for HTTP/process boundaries and an optional generated
-  `runtime/goja` package for built-in JavaScript actor execution.
-
-## Examples
-
-See the files in `examples/` for:
-
-- signature parsing and JSON schema generation
-- AxGen forward with a fake client and tool
-- AxGen forward with a real OpenAI-compatible provider API when `OPENAI_API_KEY` is set
-- AxAI/OpenAI-compatible mapping with a fake transport
-- AxAgent pipeline alpha with a fake service
-- Runtime adapter helpers and custom `AxCodeRuntime` implementation
-- Runtime protocol client against the AxJS reference adapter
-- Optional JavaScript QuickJS runtime profile files
-- Optional Python Pyodide runtime profile files
-- AxFlow program graph with child Ax programs
-- Optimizer artifact save/load/apply lifecycle
-
-## Optional Runtime Profiles
-
-The TypeScript `AxJSRuntime` remains the canonical JavaScript host runtime
-reference for AxAgent actor sessions. Generated runtime profiles are portability
-proofs against that same contract; the compiler does not emit separate Node, Deno, or
-Bun profiles because those are the existing TypeScript implementation surface.
-
-- `javascript-quickjs`: JavaScript actor code through QuickJS. Java uses
-  QuickJS4J (`io.roastedroot:quickjs4j`); C++ uses the QuickJS C API; Python
-  drives a QuickJS protocol server through `ProcessCodeRuntime`. This profile
-  is dependency-bearing and is verified only when its toolchain environment
-  variables are supplied. Java profile verification accepts
-  `AXIR_QUICKJS4J_CP`, `AXIR_QUICKJS4J_CP_FILE`, or
-  `AXIR_QUICKJS4J_RESOLVE=1` to resolve the classpath with the generated
-  Maven helper. Python profile verification accepts `AXIR_QUICKJS_RUNTIME_SERVER`
-  directly, or auto-starts the generated Java QuickJS4J protocol server when the
-  QuickJS4J classpath is available.
-- `python-pyodide`: Python actor code through a Pyodide JSONL protocol
-  server. Python, Java, and C++ generated runtimes all use the existing runtime
-  protocol boundary for this alpha; no host-native Python interpreter is
-  embedded in the generated packages. Verification accepts
-  `AXIR_PYODIDE_RUNTIME_SERVER` directly, or `AXIR_PYODIDE_RESOLVE=1`
-  to install/resolve Pyodide with the generated npm helper.
-- `javascript-goja`: Go-native JavaScript actor code through the generated
-  `runtime/goja` package. It is pure Go, dependency-bearing, opt-in by
-  import, and verified with `axir verify --targets go --runtime-profiles javascript-goja`.
-  The root `axllm` package stays free of vendor-specific constructors.
-
-Both optional profiles expose a JSON-compatible runtime policy surface. The
-generated `quickjs-runtime-policy.json` and `pyodide-runtime-policy.json`
-files document conservative defaults: filesystem, network, process/native host
-access, and package loading are disabled unless profile adapter code explicitly
-supports and enables them. The shared Ax compiler contract still owns envelopes,
-state, logs, and traces; adapter policy owns sandboxing, dependency loading,
-hard cancellation, and process security.

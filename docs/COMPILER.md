@@ -1,7 +1,7 @@
 # AxIR Compiler
 
 AxIR is the compiler-owned portability layer for Ax. It turns the shared Ax
-runtime contract into native Python, Java, C++, and Go libraries without adding a
+runtime contract into native Python, Java, C++, Go, and Rust libraries without adding a
 public TypeScript AxIR API.
 
 TypeScript remains the behavioral reference implementation. Extractors read the
@@ -21,11 +21,13 @@ flowchart LR
   Model --> Java["generated Java package"]
   Model --> Cpp["generated C++ package"]
   Model --> Go["generated Go module"]
+  Model --> Rust["generated Rust crate"]
   Fixtures --> Verify["axir verify"]
   Python --> Verify
   Java --> Verify
   Cpp --> Verify
   Go --> Verify
+  Rust --> Verify
 ```
 
 The lowering stages are:
@@ -39,7 +41,7 @@ The lowering stages are:
 
 `axir verify` is the product gate. It compiles generated targets, runs examples,
 executes fixture conformance, validates capability manifests, and smoke-tests
-package metadata for Python, Java, C++, and Go.
+package metadata for Python, Java, C++, Go, and Rust.
 
 ## Layers
 
@@ -87,7 +89,7 @@ Core-owned behavior is deterministic and language-agnostic:
 
 Target-owned behavior is host integration:
 
-- Python, Java, C++, and Go naming, constructors, exceptions/errors, builders, callbacks,
+- Python, Java, C++, Go, and Rust naming, constructors, exceptions/errors, builders, callbacks,
   packaging, and examples
 - HTTP, SSE, WebSocket, auth, retries, binary upload, media conversion, clocks,
   timers, filesystem/process access, and live network execution
@@ -115,14 +117,19 @@ AxIR emits libraries, not one-off programs:
   `context.Context` on execution/client boundaries, standard `net/http`
   transport, and an opt-in generated `runtime/goja` package for built-in
   JavaScript actor execution.
+- Rust: crate `axllm`, Rust 1.74+, idiomatic `Result<T, AxError>` fallible
+  boundaries, `serde_json::Value` for dynamic Ax values, blocking
+  `reqwest`/rustls provider transport, and process-protocol code runtime
+  adapters. The public top-level tool constructor is `tool(...)` because `fn`
+  is reserved in Rust.
 
 Every generated package includes `axir-capabilities.json`, a README, runnable
 examples, and a conformance runner when the target is executable. The committed
 package output lives under `packages/python`, `packages/java`, `packages/cpp`,
-and `packages/go`; AxIR remains the source of truth.
+`packages/go`, and `packages/rust`; AxIR remains the source of truth.
 
 The checked-in examples under `src/examples/python`, `src/examples/java`,
-`src/examples/cpp`, and `src/examples/go` are run through
+`src/examples/cpp`, `src/examples/go`, and `src/examples/rust` are run through
 `npm run example -- <language> <file>`.
 `npm run example -- list` groups the examples by language and marks no-key
 deterministic examples separately from provider API examples. The runner uses
@@ -153,6 +160,10 @@ AxAgent. Generated runtime profiles are portability proofs behind the same
 - `javascript-goja`: Go-native JavaScript actor code runs through the generated
   `runtime/goja` package. The root Go package stays vendor-neutral; users opt
   in by importing `github.com/ax-llm/ax/go/runtime/goja`.
+- Rust uses the process JSONL runtime protocol through `ProcessCodeRuntime`.
+  Embedded QuickJS/V8-style runtime profiles are intentionally deferred and can
+  be added later without changing the public `AxCodeRuntime` /
+  `AxCodeSession` boundary.
 
 Runtime profiles are optional and dependency-bearing. Default package builds and
 default `axir verify` stay dependency-light.
@@ -191,7 +202,7 @@ New portable behavior should follow this loop:
 4. run `go test`, `check`, `lower`, and `axir verify`
 
 Do not add a public TypeScript AxIR API, do not hand-edit generated target
-output, and do not add provider/runtime logic directly to Python, Java, C++, or Go
+output, and do not add provider/runtime logic directly to Python, Java, C++, Go, or Rust
 templates when it belongs in Core descriptors or Core helpers.
 
 Most TypeScript feature PRs do not need to complete the AxIR migration

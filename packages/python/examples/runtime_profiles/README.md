@@ -1,7 +1,13 @@
 # Python Pyodide Runtime Profile
 
-This optional profile runs Python actor code through a Pyodide JSONL protocol
-server. It is not part of the base generated package compile path.
+This optional profile is an adapter for the AxAgent RLM actor-code REPL. The
+agent's executor loop sends one actor-code step at a time into an
+`AxCodeRuntime` session, observes envelopes such as `final(...)`,
+`discover(...)`, and `recall(...)`, then continues from the result.
+
+It runs Python actor code through a Pyodide JSONL protocol server. It is not a
+TypeScript transpiler, not a way to run your original Ax TypeScript application
+in Python, and not part of the base generated package compile path.
 
 Resolve the runtime server command with:
 

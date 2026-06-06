@@ -195,7 +195,7 @@ public final class AxFlow implements AxProgram {
 
   public Map<String, Object> optimize(List<Map<String, Object>> dataset, Map<String, Object> options) {
     Object engine = options == null ? null : options.getOrDefault("engine", options.get("optimizer"));
-    if (!(engine instanceof OptimizerEngine optimizer)) throw new UnsupportedOperationException("AxIR generated runtimes require an OptimizerEngine for optimize()");
+    if (!(engine instanceof OptimizerEngine optimizer)) throw new IllegalArgumentException("options.engine must implement OptimizerEngine for optimize()");
     return optimizeWith(optimizer, dataset, options);
   }
 
