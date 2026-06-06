@@ -6766,6 +6766,7 @@ def _run_ai_model_catalog_runtime(fixture):
             "modelCount": sum(len(item.get("models") or []) for item in result),
             "openaiFirstModel": next((p.get("models", [{}])[0].get("name") for p in result if p.get("name") == "openai" and p.get("models")), None),
             "openaiModelTypes": sorted(set(model.get("type") for p in result if p.get("name") == "openai" for model in p.get("models", []))),
+            "catalog": result,
         }
         _assert_subset(actual, expected, "provider model catalog runtime")
     if fixture.get("check_clone"):

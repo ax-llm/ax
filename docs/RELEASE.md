@@ -3,7 +3,8 @@
 Ax ships first as the TypeScript/JavaScript package `@ax-llm/ax`. The same
 portable Ax semantics can also be emitted as generated Python, Java, C++, and
 Go libraries. AxIR is the compiler implementation detail behind those libraries;
-it is not a package name.
+it is not a package name. The generated package sources are checked in under
+`packages/python`, `packages/java`, `packages/cpp`, and `packages/go`.
 
 ## Package Names
 
@@ -57,6 +58,13 @@ GOCACHE=/private/tmp/go-build go run . verify \
   ../../ir/axcore/root.axir
 ```
 
+Regenerate the checked-in package trees before release when AxIR changes:
+
+```bash
+npm run axir:generate-packages
+npm run axir:check-packages
+```
+
 For local examples, use the shared runner from the repo root:
 
 ```bash
@@ -71,12 +79,13 @@ npm run example -- cpp axgen_openai_api.cpp
 npm run example -- go axgen_openai_api.go
 ```
 
-The runner loads `.env`, generates the requested language package into
-`src/examples/.generated/`, builds it when needed, and runs the checked-in
-example source. No-key examples use deterministic local clients/transports and
-cover AxAgent, AxFlow, provider audio/realtime mapping, runtime adapters,
-optimizer artifacts, and GEPA. Provider API examples call real provider HTTP
-and require provider keys such as `OPENAI_API_KEY` or `OPENAI_APIKEY`.
+The runner loads `.env`, uses the committed package source under
+`packages/<language>`, writes build scratch data under `src/examples/.generated/`,
+and runs the checked-in example source. No-key examples use deterministic local
+clients/transports and cover AxAgent, AxFlow, provider audio/realtime mapping,
+runtime adapters, optimizer artifacts, and GEPA. Provider API examples call real
+provider HTTP and require provider keys such as `OPENAI_API_KEY` or
+`OPENAI_APIKEY`.
 
 ## Publishing Shape
 
@@ -90,7 +99,8 @@ Publishing is secret-gated per ecosystem:
 - C++ should start as GitHub Release source/CMake artifacts. Conan or vcpkg can
   be added later if product demand justifies maintaining package-manager recipes.
 
-The release gate should run `axir verify` before upload and keep generated
-runtime-profile dependencies out of the base Python, Java, and C++ packages.
-For Go, keep vendor-specific runtime constructors in opt-in subpackages such as
-`runtime/goja` rather than in the root `axllm` package.
+The release gate should run `axir verify` and `npm run axir:check-packages`
+before upload, and keep generated runtime-profile dependencies out of the base
+Python, Java, and C++ packages. For Go, keep vendor-specific runtime
+constructors in opt-in subpackages such as `runtime/goja` rather than in the
+root `axllm` package.

@@ -59,6 +59,27 @@ Repo-maintainer skills that should not ship in Ax packages live under `tools/axi
 Use `tools/axir/skills/axir-language-backend/SKILL.md` when adding generated
 language backends.
 
+## AxIR Backlog For Portable TS Changes
+
+If a PR changes portable TypeScript behavior under `src/ax/ai/`, `src/ax/dsp/`,
+`src/ax/agent/`, or `src/ax/flow/`, either update AxIR/conformance in the same
+PR or add a backlog entry:
+
+```bash
+npm run axir:backlog -- add --title "..." --surface axai --impact "..." --paths src/ax/ai/...
+npm run axir:backlog:validate
+```
+
+Most TS-only PR agents should prefer a backlog entry over attempting an AxIR
+migration unless they are already working in `ir/` or `tools/axir/`. AxIR
+maintainers can refresh conformance with:
+
+```bash
+npm run axir:conformance:check
+npm run axir:conformance:write
+npm run test:axir
+```
+
 ## Package Management
 
 Install dependencies from the repo root with workspace flags:

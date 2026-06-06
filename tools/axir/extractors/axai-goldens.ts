@@ -34,7 +34,10 @@ import {
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
 
-const outDir = join(process.cwd(), 'ir/conformance/axai');
+const outDir = join(
+  process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd(),
+  'ir/conformance/axai'
+);
 
 function stable(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((item) => stable(item));
@@ -151,6 +154,10 @@ if (firstOpenAIModel) {
 const clonedOpenAIModel = axGetSupportedAIModels()
   .find((provider) => provider.name === 'openai')
   ?.models.find((model) => model.name === AxAIOpenAIModel.GPT5Mini);
+
+function catalogSnapshot(catalog: unknown): Json {
+  return JSON.parse(JSON.stringify(catalog)) as Json;
+}
 
 const routerFeatures = (overrides: Record<string, unknown> = {}) => ({
   functions: false,
@@ -501,6 +508,7 @@ for (const [fixtureName, modelType, catalog] of [
       openaiModelTypes: [
         ...new Set(openai?.models.map((model) => model.type) ?? []),
       ].sort(),
+      catalog: catalogSnapshot(catalog),
     },
   });
 }

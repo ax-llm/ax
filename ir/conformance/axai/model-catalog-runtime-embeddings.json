@@ -1,6 +1,253 @@
 {
   "check_clone": true,
   "expected_output": {
+    "catalog": [
+      {
+        "defaultEmbedModel": "text-embedding-3-small",
+        "defaultModel": "gpt-5-mini",
+        "displayName": "OpenAI",
+        "isDynamic": false,
+        "models": [
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.02,
+            "currency": "usd",
+            "isDefault": true,
+            "name": "text-embedding-3-small",
+            "promptTokenCostPer1M": 0.02,
+            "provider": "openai",
+            "type": "embeddings"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.1,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "text-embedding-ada-002",
+            "promptTokenCostPer1M": 0.1,
+            "provider": "openai",
+            "type": "embeddings"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.13,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "text-embedding-3-large",
+            "promptTokenCostPer1M": 0.13,
+            "provider": "openai",
+            "type": "embeddings"
+          }
+        ],
+        "name": "openai"
+      },
+      {
+        "defaultEmbedModel": "gemini-embedding-2",
+        "defaultModel": "gemini-2.5-flash",
+        "displayName": "Google Gemini",
+        "isDynamic": false,
+        "models": [
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "characterIsToken": false,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "gemini-embedding-001",
+            "promptTokenCostPer1M": 0.15,
+            "provider": "google-gemini",
+            "type": "embeddings"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "characterIsToken": false,
+            "contextWindow": 8192,
+            "currency": "usd",
+            "isDefault": true,
+            "name": "gemini-embedding-2",
+            "promptTokenCostPer1M": 0.2,
+            "provider": "google-gemini",
+            "type": "embeddings"
+          }
+        ],
+        "name": "google-gemini"
+      },
+      {
+        "defaultModel": "command-r-plus",
+        "displayName": "Cohere",
+        "isDynamic": false,
+        "models": [
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.1,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "embed-english-light-v3.0",
+            "promptTokenCostPer1M": 0.1,
+            "provider": "cohere",
+            "type": "embeddings"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.1,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "embed-english-v3.0",
+            "promptTokenCostPer1M": 0.1,
+            "provider": "cohere",
+            "type": "embeddings"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.1,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "embed-multilingual-light-v3.0",
+            "promptTokenCostPer1M": 0.1,
+            "provider": "cohere",
+            "type": "embeddings"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.1,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "embed-multilingual-v3.0",
+            "promptTokenCostPer1M": 0.1,
+            "provider": "cohere",
+            "type": "embeddings"
+          }
+        ],
+        "name": "cohere"
+      },
+      {
+        "defaultEmbedModel": "text-embedding-ada-002",
+        "defaultModel": "gpt-4o",
+        "displayName": "OpenAI Responses",
+        "isDynamic": false,
+        "models": [],
+        "name": "openai-responses"
+      },
+      {
+        "displayName": "Azure OpenAI",
+        "isDynamic": true,
+        "models": [],
+        "name": "azure-openai"
+      },
+      {
+        "defaultModel": "claude-3-7-sonnet-latest",
+        "displayName": "Anthropic",
+        "isDynamic": false,
+        "models": [],
+        "name": "anthropic"
+      },
+      {
+        "defaultModel": "deepseek-v4-flash",
+        "displayName": "DeepSeek",
+        "isDynamic": false,
+        "models": [],
+        "name": "deepseek"
+      },
+      {
+        "defaultModel": "mistral-small-latest",
+        "displayName": "Mistral AI",
+        "isDynamic": false,
+        "models": [],
+        "name": "mistral"
+      },
+      {
+        "defaultModel": "meta-llama/Llama-2-70b-chat-hf",
+        "displayName": "Hugging Face",
+        "isDynamic": true,
+        "models": [],
+        "name": "huggingface"
+      },
+      {
+        "defaultModel": "reka-core",
+        "displayName": "Reka",
+        "isDynamic": false,
+        "models": [],
+        "name": "reka"
+      },
+      {
+        "defaultModel": "grok-3",
+        "displayName": "xAI Grok",
+        "isDynamic": false,
+        "models": [],
+        "name": "grok"
+      }
+    ],
     "modelCount": 9,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["embeddings"],

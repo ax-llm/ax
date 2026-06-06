@@ -5897,6 +5897,7 @@ public final class Conformance {
       actual.put("modelCount", modelCount);
       actual.put("openaiFirstModel", openaiFirst);
       actual.put("openaiModelTypes", new ArrayList<>(openaiTypes));
+      actual.put("catalog", result);
       assertSubset(actual, fixture.get("expected_output"), "provider model catalog runtime");
     }
   }

@@ -1,6 +1,333 @@
 {
   "check_clone": true,
   "expected_output": {
+    "catalog": [
+      {
+        "defaultEmbedModel": "gemini-embedding-2",
+        "defaultModel": "gemini-2.5-flash",
+        "displayName": "Google Gemini",
+        "isDynamic": false,
+        "models": [
+          {
+            "audio": {
+              "input": false,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": true,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 3,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "gemini-3.1-flash-tts-preview",
+            "promptTokenCostPer1M": 0.5,
+            "provider": "google-gemini",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "topP": true
+            },
+            "characterIsToken": false,
+            "contextWindow": 131072,
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-3.1-flash-live-preview",
+            "provider": "google-gemini",
+            "supported": {
+              "showThoughts": true,
+              "thinkingBudget": true
+            },
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "topP": true
+            },
+            "characterIsToken": false,
+            "contextWindow": 131072,
+            "isDefault": false,
+            "maxTokens": 8192,
+            "name": "gemini-2.5-flash-native-audio-preview-12-2025",
+            "provider": "google-gemini",
+            "supported": {
+              "showThoughts": true,
+              "thinkingBudget": true
+            },
+            "type": "audio"
+          }
+        ],
+        "name": "google-gemini"
+      },
+      {
+        "defaultEmbedModel": "text-embedding-3-small",
+        "defaultModel": "gpt-5-mini",
+        "displayName": "OpenAI",
+        "isDynamic": false,
+        "models": [
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-audio",
+            "provider": "openai",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-audio-mini",
+            "provider": "openai",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-audio-1.5",
+            "provider": "openai",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-realtime-1.5",
+            "provider": "openai",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-realtime-2",
+            "provider": "openai",
+            "supported": {
+              "thinkingBudget": true
+            },
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-realtime-whisper",
+            "provider": "openai",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-realtime-translate",
+            "provider": "openai",
+            "type": "audio"
+          }
+        ],
+        "name": "openai"
+      },
+      {
+        "defaultEmbedModel": "text-embedding-ada-002",
+        "defaultModel": "gpt-4o",
+        "displayName": "OpenAI Responses",
+        "isDynamic": false,
+        "models": [],
+        "name": "openai-responses"
+      },
+      {
+        "displayName": "Azure OpenAI",
+        "isDynamic": true,
+        "models": [],
+        "name": "azure-openai"
+      },
+      {
+        "defaultModel": "claude-3-7-sonnet-latest",
+        "displayName": "Anthropic",
+        "isDynamic": false,
+        "models": [],
+        "name": "anthropic"
+      },
+      {
+        "defaultModel": "command-r-plus",
+        "displayName": "Cohere",
+        "isDynamic": false,
+        "models": [],
+        "name": "cohere"
+      },
+      {
+        "defaultModel": "deepseek-v4-flash",
+        "displayName": "DeepSeek",
+        "isDynamic": false,
+        "models": [],
+        "name": "deepseek"
+      },
+      {
+        "defaultModel": "mistral-small-latest",
+        "displayName": "Mistral AI",
+        "isDynamic": false,
+        "models": [],
+        "name": "mistral"
+      },
+      {
+        "defaultModel": "meta-llama/Llama-2-70b-chat-hf",
+        "displayName": "Hugging Face",
+        "isDynamic": true,
+        "models": [],
+        "name": "huggingface"
+      },
+      {
+        "defaultModel": "reka-core",
+        "displayName": "Reka",
+        "isDynamic": false,
+        "models": [],
+        "name": "reka"
+      },
+      {
+        "defaultModel": "grok-3",
+        "displayName": "xAI Grok",
+        "isDynamic": false,
+        "models": [
+          {
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-voice-think-fast-1.0",
+            "provider": "grok",
+            "type": "audio"
+          },
+          {
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-voice-fast-1.0",
+            "provider": "grok",
+            "type": "audio"
+          }
+        ],
+        "name": "grok"
+      }
+    ],
     "modelCount": 12,
     "openaiFirstModel": "gpt-audio",
     "openaiModelTypes": ["audio"],

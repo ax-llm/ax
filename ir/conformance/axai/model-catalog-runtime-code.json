@@ -1,6 +1,386 @@
 {
   "check_clone": true,
   "expected_output": {
+    "catalog": [
+      {
+        "defaultModel": "mistral-small-latest",
+        "displayName": "Mistral AI",
+        "isDynamic": false,
+        "models": [
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.25,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "open-codestral-mamba",
+            "promptTokenCostPer1M": 0.25,
+            "provider": "mistral",
+            "type": "code"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.6,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "codestral-latest",
+            "promptTokenCostPer1M": 0.2,
+            "provider": "mistral",
+            "type": "code"
+          }
+        ],
+        "name": "mistral"
+      },
+      {
+        "defaultEmbedModel": "text-embedding-3-small",
+        "defaultModel": "gpt-5-mini",
+        "displayName": "OpenAI",
+        "isDynamic": false,
+        "models": [
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": false,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 2,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "gpt-5.1-codex-mini",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 0.25,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "code"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": false,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "gpt-5-codex",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 1.25,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "code"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": false,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "gpt-5.1-codex",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 1.25,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "code"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": false,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "gpt-5.1-codex-max",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 1.25,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "code"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": false,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 14,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "gpt-5.2-codex",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 1.75,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "code"
+          }
+        ],
+        "name": "openai"
+      },
+      {
+        "defaultEmbedModel": "text-embedding-ada-002",
+        "defaultModel": "gpt-4o",
+        "displayName": "OpenAI Responses",
+        "isDynamic": false,
+        "models": [
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 2,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "gpt-5.1-codex-mini",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 0.25,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "code"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "gpt-5-codex",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 1.25,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "code"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "gpt-5.1-codex",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 1.25,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "code"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "gpt-5.1-codex-max",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 1.25,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "code"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 14,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "gpt-5.2-codex",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 1.75,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "code"
+          }
+        ],
+        "name": "openai-responses"
+      },
+      {
+        "displayName": "Azure OpenAI",
+        "isDynamic": true,
+        "models": [],
+        "name": "azure-openai"
+      },
+      {
+        "defaultModel": "claude-3-7-sonnet-latest",
+        "displayName": "Anthropic",
+        "isDynamic": false,
+        "models": [],
+        "name": "anthropic"
+      },
+      {
+        "defaultEmbedModel": "gemini-embedding-2",
+        "defaultModel": "gemini-2.5-flash",
+        "displayName": "Google Gemini",
+        "isDynamic": false,
+        "models": [],
+        "name": "google-gemini"
+      },
+      {
+        "defaultModel": "command-r-plus",
+        "displayName": "Cohere",
+        "isDynamic": false,
+        "models": [],
+        "name": "cohere"
+      },
+      {
+        "defaultModel": "deepseek-v4-flash",
+        "displayName": "DeepSeek",
+        "isDynamic": false,
+        "models": [],
+        "name": "deepseek"
+      },
+      {
+        "defaultModel": "meta-llama/Llama-2-70b-chat-hf",
+        "displayName": "Hugging Face",
+        "isDynamic": true,
+        "models": [],
+        "name": "huggingface"
+      },
+      {
+        "defaultModel": "reka-core",
+        "displayName": "Reka",
+        "isDynamic": false,
+        "models": [],
+        "name": "reka"
+      },
+      {
+        "defaultModel": "grok-3",
+        "displayName": "xAI Grok",
+        "isDynamic": false,
+        "models": [],
+        "name": "grok"
+      }
+    ],
     "modelCount": 12,
     "openaiFirstModel": "gpt-5.1-codex-mini",
     "openaiModelTypes": ["code"],

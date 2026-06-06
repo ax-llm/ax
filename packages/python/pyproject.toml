@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "axllm"
+version = "22.0.2"
+description = "Generated Ax runtime library"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Ax" }]
+dependencies = []
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Typing :: Typed",
+]
+
+[tool.setuptools.packages.find]
+include = ["axllm", "axllm.*"]
+
+[tool.setuptools.package-data]
+axllm = ["py.typed"]

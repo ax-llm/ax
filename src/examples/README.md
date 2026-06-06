@@ -11,11 +11,11 @@ npm run tsx src/examples/summarize.ts
 npm run example -- ts src/examples/summarize.ts
 ```
 
-Generated Python, Java, C++, and Go examples are stored in language-specific directories
-and run through the shared `.env`-aware example runner. The runner generates the
-local Ax package into `src/examples/.generated/`, builds the language package
-when needed, then runs the example. Use `list` to see the current no-key and
-provider API examples:
+Generated Python, Java, C++, and Go examples are stored in language-specific
+directories and run through the shared `.env`-aware example runner. The runner
+uses the committed generated Ax packages under `packages/<language>`, writes
+only build/run scratch data into `src/examples/.generated/`, then runs the
+example. Use `list` to see the current no-key and provider API examples:
 
 ```bash
 npm run example -- list
@@ -65,8 +65,8 @@ npm run example -- go provider_mapping_no_key.go
 npm run example -- go axgen_openai_api.go
 ```
 
-Go examples use the generated module `github.com/ax-llm/ax/go` through a local
-scratch module. The generated Go package also includes an opt-in
+Go examples use the committed generated module `github.com/ax-llm/ax/go`
+through a local scratch module. The generated Go package also includes an opt-in
 `github.com/ax-llm/ax/go/runtime/goja` runtime profile for built-in JavaScript
 actor execution; QuickJS/Pyodide remain process-adapter or non-Go profiles.
 

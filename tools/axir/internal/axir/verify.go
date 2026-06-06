@@ -820,14 +820,14 @@ func verifyCppPackageSmoke(report *VerifyTargetReport, cpp string) error {
 		return nil
 	}
 	buildDir := filepath.Join(pkgDir, "cmake-build")
-	if err := runVerifyCommand(report, "package cpp cmake configure", "", nil, cmake, "-S", report.OutDir, "-B", buildDir, "-DAX_BUILD_EXAMPLES=ON", "-DAX_BUILD_CONFORMANCE=OFF"); err != nil {
+	if err := runVerifyCommand(report, "package cpp cmake configure", pkgDir, nil, cmake, "-S", report.OutDir, "-B", buildDir, "-DAX_BUILD_EXAMPLES=ON", "-DAX_BUILD_CONFORMANCE=OFF"); err != nil {
 		return err
 	}
-	if err := runVerifyCommand(report, "package cpp cmake build", "", nil, cmake, "--build", buildDir, "--target", "signature_schema"); err != nil {
+	if err := runVerifyCommand(report, "package cpp cmake build", buildDir, nil, cmake, "--build", ".", "--target", "signature_schema"); err != nil {
 		return err
 	}
 	installDir := filepath.Join(pkgDir, "install")
-	if err := runVerifyCommand(report, "package cpp cmake install", "", nil, cmake, "--install", buildDir, "--prefix", installDir); err != nil {
+	if err := runVerifyCommand(report, "package cpp cmake install", buildDir, nil, cmake, "--install", ".", "--prefix", installDir); err != nil {
 		return err
 	}
 	consumerDir := filepath.Join(pkgDir, "consumer")
@@ -856,10 +856,10 @@ int main() {
 		return err
 	}
 	consumerBuild := filepath.Join(pkgDir, "consumer-build")
-	if err := runVerifyCommand(report, "package cpp consumer configure", "", nil, cmake, "-S", consumerDir, "-B", consumerBuild, "-DCMAKE_PREFIX_PATH="+installDir); err != nil {
+	if err := runVerifyCommand(report, "package cpp consumer configure", consumerDir, nil, cmake, "-S", consumerDir, "-B", consumerBuild, "-DCMAKE_PREFIX_PATH="+installDir); err != nil {
 		return err
 	}
-	if err := runVerifyCommand(report, "package cpp consumer build", "", nil, cmake, "--build", consumerBuild); err != nil {
+	if err := runVerifyCommand(report, "package cpp consumer build", consumerBuild, nil, cmake, "--build", "."); err != nil {
 		return err
 	}
 	return runVerifyCommand(report, "package cpp consumer", "", nil, filepath.Join(consumerBuild, "consumer"))

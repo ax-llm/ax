@@ -1,0 +1,10 @@
+{
+  "allowFilesystem": false,
+  "allowNetwork": false,
+  "allowPackageLoading": false,
+  "allowMicropip": false,
+  "packageAllowlist": [],
+  "timeoutMs": 5000,
+  "maxDiagnosticsChars": 8192,
+  "maxSnapshotBytes": 262144
+}

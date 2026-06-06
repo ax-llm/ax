@@ -33,6 +33,8 @@ const examples = [
   ['cpp', 'runtime_adapter.cpp'],
   ['cpp', 'optimizer_artifact.cpp'],
   ['cpp', 'gepa_local_optimizer.cpp'],
+  ['go', 'signature_schema.go'],
+  ['go', 'provider_mapping_no_key.go'],
 ];
 
 run(process.execPath, [runner, 'list']);

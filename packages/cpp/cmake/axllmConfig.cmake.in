@@ -1,0 +1,7 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+if(@AXLLM_CONFIG_USES_CURL@)
+  find_dependency(CURL)
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/axllmTargets.cmake")

@@ -117,18 +117,24 @@ AxIR emits libraries, not one-off programs:
   JavaScript actor execution.
 
 Every generated package includes `axir-capabilities.json`, a README, runnable
-examples, and a conformance runner when the target is executable.
+examples, and a conformance runner when the target is executable. The committed
+package output lives under `packages/python`, `packages/java`, `packages/cpp`,
+and `packages/go`; AxIR remains the source of truth.
 
 The checked-in examples under `src/examples/python`, `src/examples/java`,
 `src/examples/cpp`, and `src/examples/go` are run through
 `npm run example -- <language> <file>`.
 `npm run example -- list` groups the examples by language and marks no-key
-deterministic examples separately from provider API examples. The runner
-compiles the generated package into an ignored local cache before running the
-example, so users do not need to call the compiler manually. The examples cover
+deterministic examples separately from provider API examples. The runner uses
+the committed package source under `packages/<language>` and writes only build
+scratch data under `src/examples/.generated/`. The examples cover
 signatures, AxGen, AxAgent, AxFlow, OpenAI Responses audio mapping,
 Grok/Gemini realtime event folding, runtime adapters, optimizer artifacts, and
 GEPA.
+
+When compiler output changes, run `npm run axir:generate-packages` and commit
+the refreshed package trees. CI runs `npm run axir:check-packages` so stale
+checked-in generated packages fail fast.
 
 See [`docs/RELEASE.md`](./RELEASE.md) for the publishable package names,
 versioning rule, and local release smoke workflow.
@@ -187,3 +193,27 @@ New portable behavior should follow this loop:
 Do not add a public TypeScript AxIR API, do not hand-edit generated target
 output, and do not add provider/runtime logic directly to Python, Java, C++, or Go
 templates when it belongs in Core descriptors or Core helpers.
+
+Most TypeScript feature PRs do not need to complete the AxIR migration
+immediately. If a PR changes portable behavior under `src/ax/ai/`,
+`src/ax/dsp/`, `src/ax/agent/`, or `src/ax/flow/`, it must either update
+AxIR/conformance or add a tracked backlog item:
+
+```bash
+npm run axir:backlog -- add --title "..." --surface axai --impact "..." --paths src/ax/ai/...
+npm run axir:backlog:validate
+```
+
+`ir/axir-backlog.json` is the machine-readable source of truth, and
+`docs/AXIR_BACKLOG.md` is generated from it. CI checks this ledger before the
+full generated-backend verification so coding agents get a fast, command-first
+failure when portable TS changes need AxIR follow-up.
+
+When completing backlog work, update or add the TS-derived fixtures, update
+Core/descriptor data, then run:
+
+```bash
+npm run axir:conformance:check
+npm run test:axir
+npm run axir:backlog -- done <id> --commit <sha> --verification "npm run test:axir"
+```

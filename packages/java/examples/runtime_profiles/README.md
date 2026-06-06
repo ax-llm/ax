@@ -1,0 +1,80 @@
+# JavaScript QuickJS Runtime Profile
+
+This optional profile runs JavaScript actor code in QuickJS4J. It is not part of
+the base generated Java compile path; compile it only when you want the
+`javascript-quickjs` runtime profile.
+
+QuickJS4J dependency metadata is provided in both `quickjs4j-pom.xml` and
+`quickjs4j-build.gradle`. To resolve the classpath with Maven:
+
+```bash
+AXIR_QUICKJS4J_WORKDIR=/private/tmp/axir-quickjs4j-cp \
+AXIR_QUICKJS4J_CP="$(sh examples/runtime_profiles/resolve_quickjs4j_cp.sh)"
+```
+
+`axir verify --runtime-profiles javascript-quickjs` also accepts
+`AXIR_QUICKJS4J_CP_FILE`, or `AXIR_QUICKJS4J_RESOLVE=1` to run the same
+generated Maven helper during verification. The helper keeps Maven's local
+repository under `AXIR_QUICKJS4J_WORKDIR` by default; set
+`AXIR_QUICKJS4J_M2_REPO` to override it.
+
+Python profile verification can point `AXIR_QUICKJS_RUNTIME_SERVER` at
+`java -cp ... dev.axllm.ax.runtime.quickjs.AxQuickJsProtocolServer` explicitly. When
+that variable is not set, `axir verify --runtime-profiles javascript-quickjs`
+auto-compiles and runs this generated Java protocol server whenever the
+QuickJS4J classpath is available.
+
+Host callbacks are registered with `AxQuickJsCodeRuntime.registerCallable` and
+are exposed to actor JavaScript as ordinary functions. Arguments and results must
+be JSON-compatible. Callback failures are normalized to runtime error objects;
+filesystem, network, process, and arbitrary host object access are not exposed by
+default.
+
+Runtime productization policy is explicit and deny-by-default. Java accepts a
+JSON-compatible `runtimePolicy` map in `AxQuickJsCodeRuntime` and per-session
+options. C++ accepts the same policy object in `QuickJsCodeRuntime`. The
+generated `quickjs-runtime-policy.json` shows the supported keys. Java reports
+`memoryLimitBytes` as unsupported capability metadata because QuickJS4J does not
+expose that limit through the profile surface; C++ applies it through the
+QuickJS C API.
+
+Profile examples check the same observable runtime/session contract as the
+TypeScript `AxJSRuntime` reference: actor primitive envelopes, host-call
+success/failure, persistent bindings, reserved-name-safe snapshots,
+inspect/snapshot/patch, runtime errors, and session-closed normalization.
+
+
+---
+
+# Python Pyodide Runtime Profile
+
+This optional profile runs Python actor code through a Pyodide JSONL protocol
+server. It is not part of the base generated package compile path.
+
+Resolve the runtime server command with:
+
+```bash
+AXIR_REPO_ROOT=/path/to/ax AXIR_PYODIDE_RUNTIME_SERVER="$(sh examples/runtime_profiles/resolve_pyodide_runtime_server.sh)"
+```
+
+The helper installs the npm `pyodide` package into a temp workdir and prints a
+command suitable for `ProcessCodeRuntime`. `axir verify` also accepts
+`AXIR_PYODIDE_RUNTIME_SERVER` directly, or `AXIR_PYODIDE_RESOLVE=1` to
+run the generated helper.
+
+Host callbacks are exposed to Python actor code as ordinary functions and must
+use JSON-compatible arguments/results. Filesystem, network, package loading, and
+process permissions remain adapter-owned and are not exposed by default.
+
+Runtime productization policy is explicit and deny-by-default. Set
+`AXIR_PYODIDE_RUNTIME_POLICY` to a JSON object before starting the server to
+tune `timeoutMs`, `maxDiagnosticsChars`, `maxSnapshotBytes`, and
+package allowlisting. The generated `pyodide-runtime-policy.json` shows the
+supported keys. Package loading is disabled by default; when enabled, package
+names must appear in `packageAllowlist`. `micropip` remains disabled unless
+`allowMicropip` is set.
+
+Profile examples check parity with the AxJS reference runtime for actor
+primitive envelopes, host-call success/failure, persistent bindings,
+inspect/snapshot/patch, diagnostics, runtime errors, and session-closed
+normalization.

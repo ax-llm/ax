@@ -2974,7 +2974,7 @@ func runConformanceAIModelCatalogRuntime(fixture map[string]Value) {
 		sort.Strings(typeKeys)
 		typeValues := Array()
 		for _, key := range typeKeys { typeValues = append(typeValues, key) }
-		actual := Object("providerCount", float64(len(asSlice(result))), "providerNames", providerNames, "modelCount", float64(modelCount), "openaiFirstModel", openaiFirst, "openaiModelTypes", typeValues)
+		actual := Object("providerCount", float64(len(asSlice(result))), "providerNames", providerNames, "modelCount", float64(modelCount), "openaiFirstModel", openaiFirst, "openaiModelTypes", typeValues, "catalog", result)
 		assertSubset(actual, expected, "provider model catalog runtime")
 	}
 	if coreTruthy(coreGet(fixture, "check_clone", false)) {

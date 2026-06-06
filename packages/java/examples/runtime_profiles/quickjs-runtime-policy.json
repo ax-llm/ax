@@ -1,0 +1,9 @@
+{
+  "allowFilesystem": false,
+  "allowNetwork": false,
+  "allowProcess": false,
+  "allowNativeHostAccess": false,
+  "timeoutMs": 5000,
+  "maxSnapshotBytes": 262144,
+  "memoryLimitBytes": 33554432
+}

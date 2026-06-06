@@ -6788,7 +6788,7 @@ static void run_ai_model_catalog_runtime(Value fixture) {
     }
     Value type_values = Value::array();
     for (const auto& item : openai_types) Core::append(type_values, item);
-    Value actual = object({{"providerCount", static_cast<double>(as_array(result).size())}, {"providerNames", provider_names}, {"modelCount", model_count}, {"openaiFirstModel", openai_first}, {"openaiModelTypes", type_values}});
+    Value actual = object({{"providerCount", static_cast<double>(as_array(result).size())}, {"providerNames", provider_names}, {"modelCount", model_count}, {"openaiFirstModel", openai_first}, {"openaiModelTypes", type_values}, {"catalog", result}});
     assert_subset(actual, expected, "provider model catalog runtime");
   }
 }

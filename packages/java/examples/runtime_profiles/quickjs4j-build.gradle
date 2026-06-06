@@ -1,0 +1,11 @@
+plugins {
+  id 'java'
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  implementation 'io.roastedroot:quickjs4j:0.0.18'
+}

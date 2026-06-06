@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pyodide": "0.29.4"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.3"
+  }
+}

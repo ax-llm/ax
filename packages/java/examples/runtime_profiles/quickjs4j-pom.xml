@@ -1,0 +1,13 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>dev.axllm.ax.generated</groupId>
+  <artifactId>axir-quickjs-profile-example</artifactId>
+  <version>0.1.0</version>
+  <dependencies>
+    <dependency>
+      <groupId>io.roastedroot</groupId>
+      <artifactId>quickjs4j</artifactId>
+      <version>0.0.18</version>
+    </dependency>
+  </dependencies>
+</project>

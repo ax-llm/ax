@@ -10,8 +10,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
 const examplesRoot = path.join(repoRoot, 'src', 'examples');
 const generatedRoot = path.join(examplesRoot, '.generated');
-const axirDir = path.join(repoRoot, 'tools', 'axir');
-const rootAxir = path.join(repoRoot, 'ir', 'axcore', 'root.axir');
+const packagesRoot = path.join(repoRoot, 'packages');
 
 const languageAliases = new Map([
   ['ts', 'ts'],
@@ -268,7 +267,7 @@ function runTs(examplePath, rest) {
 }
 
 async function runPython(examplePath, rest) {
-  const outDir = await ensureGeneratedPackage('python');
+  const outDir = languagePackageDir('python');
   const python = findCommand(['python3', 'python'], ['--version']);
   const pythonPath = prependEnvPath(env.PYTHONPATH, outDir);
   run(python, [examplePath, ...rest], {
@@ -278,10 +277,11 @@ async function runPython(examplePath, rest) {
 }
 
 async function runJava(examplePath, rest) {
-  const outDir = await ensureGeneratedPackage('java');
+  const outDir = languagePackageDir('java');
   const javac = findJavaTool('javac');
   const java = findJavaTool('java');
-  const classesDir = path.join(generatedRoot, 'java-classes');
+  const className = path.basename(examplePath, '.java');
+  const classesDir = path.join(generatedRoot, 'java-classes', className);
   await rm(classesDir, { recursive: true, force: true });
   await mkdir(classesDir, { recursive: true });
 
@@ -292,7 +292,6 @@ async function runJava(examplePath, rest) {
     env,
   });
 
-  const className = path.basename(examplePath, '.java');
   run(java, ['-cp', classesDir, className, ...rest], {
     cwd: repoRoot,
     env,
@@ -300,15 +299,16 @@ async function runJava(examplePath, rest) {
 }
 
 async function runCpp(examplePath, rest) {
-  const outDir = await ensureGeneratedPackage('cpp');
+  const outDir = languagePackageDir('cpp');
   const stem = path.basename(examplePath, path.extname(examplePath));
   const cmake = findOptionalCommand(['cmake'], ['--version']);
 
   if (cmake) {
-    const buildDir = path.join(generatedRoot, 'cpp-cmake-build');
-    const installDir = path.join(generatedRoot, 'cpp-install');
+    const buildDir = path.join(generatedRoot, 'cpp-cmake-build', stem);
+    const installDir = path.join(generatedRoot, 'cpp-install', stem);
     const scratchDir = path.join(generatedRoot, 'cpp-run', stem);
     const scratchBuildDir = path.join(generatedRoot, 'cpp-run-build', stem);
+    await rm(buildDir, { recursive: true, force: true });
     await rm(installDir, { recursive: true, force: true });
     await rm(scratchDir, { recursive: true, force: true });
     await rm(scratchBuildDir, { recursive: true, force: true });
@@ -389,7 +389,7 @@ function escapeCmakePath(value) {
 }
 
 async function runGo(examplePath, rest) {
-  const outDir = await ensureGeneratedPackage('go');
+  const outDir = languagePackageDir('go');
   const stem = path.basename(examplePath, path.extname(examplePath));
   const scratchDir = path.join(generatedRoot, 'go-run', stem);
   await rm(scratchDir, { recursive: true, force: true });
@@ -416,18 +416,13 @@ function escapeGoModPath(value) {
   return value.replace(/\\/g, '/');
 }
 
-async function ensureGeneratedPackage(target) {
-  const outDir = path.join(generatedRoot, target);
-  await rm(outDir, { recursive: true, force: true });
-  await mkdir(outDir, { recursive: true });
-  run(
-    'go',
-    ['run', '.', 'compile', '--target', target, '--out', outDir, rootAxir],
-    {
-      cwd: axirDir,
-      env,
-    }
-  );
+function languagePackageDir(target) {
+  const outDir = path.join(packagesRoot, target);
+  if (!existsSync(outDir)) {
+    throw new Error(
+      `Committed AxIR package missing: packages/${target}. Run \`npm run axir:generate-packages\`.`
+    );
+  }
   return outDir;
 }
 

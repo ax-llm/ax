@@ -78,8 +78,10 @@ No prompt engineering. Switch `name: "openai"` to `"anthropic"`, `"google-gemini
 ## Same idea in every language
 
 The generated Python, Java, C++, and Go libraries expose the same top-level Ax
-ideas in native package shapes. The repo runner builds the generated packages
-locally and runs examples without asking you to remember compiler commands:
+ideas in native package shapes. Their generated source is checked in under
+`packages/<language>` so the supported APIs are easy to inspect. The repo
+runner uses those committed packages and runs examples without asking you to
+remember compiler commands:
 
 ```bash
 npm run example -- python signature_schema.py
@@ -91,7 +93,8 @@ npm run example -- go signature_schema.go
 See [`src/examples/README.md`](src/examples/README.md) for runnable examples,
 [`docs/RELEASE.md`](docs/RELEASE.md) for package/release shape, and
 [`docs/COMPILER.md`](docs/COMPILER.md) for how the language-agnostic Ax
-compiler works.
+compiler works. When AxIR changes, run `npm run axir:generate-packages` to
+refresh the checked-in packages.
 
 ## Provider-Native Speed
 
@@ -468,10 +471,11 @@ The current published package is TypeScript / JavaScript:
 npm install @ax-llm/ax
 ```
 
-Generated Python, Java, and C++ libraries are verified in this repo and prepared
-for ecosystem release as `axllm`, `dev.axllm:ax`, and `axllm::axllm`. Until
-those registry lanes are enabled, use the repo runner to build and smoke-test
-the generated packages locally.
+Generated Python, Java, C++, and Go libraries are checked in under `packages/`
+and verified in this repo. They are prepared for ecosystem release as `axllm`,
+`dev.axllm:ax`, `axllm::axllm`, and `github.com/ax-llm/ax/go`. Until those
+registry lanes are enabled, use the repo runner to smoke-test the committed
+packages locally.
 
 Optional packages:
 

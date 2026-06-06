@@ -1,0 +1,22 @@
+import dev.axllm.ax.*;
+import java.util.*;
+
+public final class AxGenOpenAIExample {
+  public static void main(String[] args) throws Exception {
+    String apiKey = System.getenv("OPENAI_API_KEY");
+    if (apiKey == null || apiKey.isBlank()) apiKey = System.getenv("OPENAI_APIKEY");
+    if (apiKey == null || apiKey.isBlank()) {
+      throw new IllegalStateException("Set OPENAI_API_KEY to run this provider API example.");
+    }
+    OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
+      "api_key", apiKey,
+      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini"),
+      "model_config", Map.of("temperature", 0.0)
+    ));
+    AxGen program = Ax.ax("question:string -> answer:string");
+    Map<String, Object> out = program.forward(client, Map.of(
+      "question", "In one sentence, explain Ax as a language-agnostic LLM programming library."
+    ));
+    System.out.println(out);
+  }
+}

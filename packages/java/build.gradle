@@ -1,0 +1,27 @@
+plugins {
+  id 'java-library'
+}
+
+group = 'dev.axllm'
+version = '22.0.2'
+
+java {
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(17)
+  }
+}
+
+sourceSets {
+  main {
+    java {
+      srcDirs = ['.']
+      include 'dev/axllm/ax/*.java'
+      exclude 'dev/axllm/ax/runtime/quickjs/**'
+      exclude 'examples/**'
+    }
+    resources {
+      srcDirs = ['.']
+      include 'axir-capabilities.json'
+    }
+  }
+}
