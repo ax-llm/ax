@@ -338,6 +338,14 @@ import {
   type AxAIHuggingFaceRequest,
   type AxAIHuggingFaceResponse,
 } from './ai/huggingface/types.js';
+import {
+  AxAILiteLLM,
+  type AxAILiteLLMArgs,
+  axAILiteLLMCreativeConfig,
+  axAILiteLLMDefaultConfig,
+} from './ai/litellm/api.js';
+import { axModelInfoLiteLLM } from './ai/litellm/info.js';
+import type { AxAILiteLLMModel } from './ai/litellm/types.js';
 import type { AxAIMetricsInstruments } from './ai/metrics.js';
 import {
   AxAIMistral,
@@ -909,6 +917,7 @@ export { AxAIGrokEmbedModels };
 export { AxAIGrokModel };
 export { AxAIHuggingFace };
 export { AxAIHuggingFaceModel };
+export { AxAILiteLLM };
 export { AxAIMistral };
 export { AxAIMistralEmbedModels };
 export { AxAIMistralModel };
@@ -998,6 +1007,8 @@ export { axAIGrokDefaultConfig };
 export { axAIGrokVoiceDefaultConfig };
 export { axAIHuggingFaceCreativeConfig };
 export { axAIHuggingFaceDefaultConfig };
+export { axAILiteLLMCreativeConfig };
+export { axAILiteLLMDefaultConfig };
 export { axAIMistralBestConfig };
 export { axAIMistralDefaultConfig };
 export { axAIOpenAIAudioDefaultConfig };
@@ -1070,6 +1081,7 @@ export { axModelInfoDeepSeek };
 export { axModelInfoGoogleGemini };
 export { axModelInfoGrok };
 export { axModelInfoHuggingFace };
+export { axModelInfoLiteLLM };
 export { axModelInfoMistral };
 export { axModelInfoOpenAI };
 export { axModelInfoOpenAIResponses };
@@ -1184,6 +1196,8 @@ export type { AxAIHuggingFaceConfig };
 export type { AxAIHuggingFaceRequest };
 export type { AxAIHuggingFaceResponse };
 export type { AxAIInputModelList };
+export type { AxAILiteLLMArgs };
+export type { AxAILiteLLMModel };
 export type { AxAIMemory };
 export type { AxAIMetricsInstruments };
 export type { AxAIMistralArgs };
