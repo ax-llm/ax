@@ -533,6 +533,26 @@ Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.
 - [GitHub](https://github.com/ax-llm/ax) — source and issues
 - [DeepWiki](https://deepwiki.com/ax-llm/ax) — AI-generated docs
 
+## Contributing
+
+Ax is TypeScript-first. Most contributors and coding agents should focus on the
+TypeScript source change they are making and should not try to update every
+generated language backend by hand.
+
+When a PR changes portable behavior under `src/ax/ai/`, `src/ax/dsp/`,
+`src/ax/agent/`, or `src/ax/flow/`, CI will ask for either AxIR/conformance
+updates or an AxIR backlog entry. If you are not already working in AxIR, use the
+backlog path:
+
+```bash
+npm run axir:backlog -- add --title "..." --surface axai --impact "..." --paths src/ax/ai/...
+npm run axir:backlog:validate
+```
+
+That keeps normal TypeScript PRs small while giving AxIR maintainers and coding
+agents a precise queue for migrating the behavior into Python, Java, C++, Go,
+and future generated backends later.
+
 ## Contributors
 
 - Author: [@dosco](https://github.com/dosco)
