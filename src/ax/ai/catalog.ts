@@ -11,6 +11,7 @@ import {
 } from './google-gemini/types.js';
 import { axModelInfoHuggingFace } from './huggingface/info.js';
 import { AxAIHuggingFaceModel } from './huggingface/types.js';
+import { axModelInfoLiteLLM } from './litellm/info.js';
 import { axModelInfoMistral } from './mistral/info.js';
 import { AxAIMistralModel } from './mistral/types.js';
 import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './openai/chat_types.js';
@@ -152,6 +153,11 @@ const axAIModelCatalogProviderDefinitions = {
     defaultModel: AxAIGrokModel.Grok3,
     isDynamic: false,
     modelInfo: axModelInfoGrok,
+  },
+  litellm: {
+    displayName: 'LiteLLM',
+    isDynamic: true,
+    modelInfo: axModelInfoLiteLLM,
   },
 } satisfies Record<
   AxAIModelCatalogProviderName,

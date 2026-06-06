@@ -24,6 +24,8 @@ import {
   type AxAIHuggingFaceArgs,
 } from './huggingface/api.js';
 import type { AxAIHuggingFaceModel } from './huggingface/types.js';
+import { AxAILiteLLM, type AxAILiteLLMArgs } from './litellm/api.js';
+import type { AxAILiteLLMModel } from './litellm/types.js';
 import { AxAIMistral, type AxAIMistralArgs } from './mistral/api.js';
 import type { AxAIMistralModel } from './mistral/types.js';
 import { AxAIOpenAI, type AxAIOpenAIArgs } from './openai/api.js';
@@ -72,7 +74,8 @@ export type AxAIArgs<TModelKey> =
   | AxAIMistralArgs<TModelKey>
   | AxAIDeepSeekArgs<TModelKey>
   | AxAIRekaArgs<TModelKey>
-  | AxAIGrokArgs<TModelKey>;
+  | AxAIGrokArgs<TModelKey>
+  | AxAILiteLLMArgs<TModelKey>;
 
 export type AxAIModels =
   | AxAIOpenAIModel
@@ -229,6 +232,9 @@ export class AxAI<TModelKey = string>
         break;
       case 'reka':
         this.ai = new AxAIReka<TModelKey>(options);
+        break;
+      case 'litellm':
+        this.ai = new AxAILiteLLM<TModelKey>(options);
         break;
       default:
         throw new Error('Unknown AI');
