@@ -226,6 +226,10 @@ func runVerify(args []string) error {
 	targetsText := fs.String("targets", "python,java,cpp,go,rust", "comma-separated targets: python,java,cpp,go,rust")
 	workDir := fs.String("workdir", "", "optional verification output directory")
 	runtimeProfilesText := fs.String("runtime-profiles", "", "comma-separated optional runtime profiles, e.g. javascript-quickjs,javascript-goja")
+	mode := fs.String("mode", axir.VerifyModeRelease, "verification mode: dev or release")
+	jobs := fs.Int("jobs", 1, "parallel target jobs; 0 uses available CPUs")
+	progress := fs.Bool("progress", false, "print target step progress to stderr")
+	noProgress := fs.Bool("no-progress", false, "disable target step progress")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -234,7 +238,18 @@ func runVerify(args []string) error {
 	}
 	targets := splitTargets(*targetsText)
 	runtimeProfiles := splitTargets(*runtimeProfilesText)
-	report, err := axir.Verify(fs.Arg(0), axir.VerifyOptions{Targets: targets, WorkDir: *workDir, RuntimeProfiles: runtimeProfiles})
+	showProgress := *progress
+	if *noProgress {
+		showProgress = false
+	}
+	report, err := axir.Verify(fs.Arg(0), axir.VerifyOptions{
+		Targets:         targets,
+		WorkDir:         *workDir,
+		RuntimeProfiles: runtimeProfiles,
+		Mode:            *mode,
+		Jobs:            *jobs,
+		Progress:        showProgress,
+	})
 	fmt.Print(report.String())
 	return err
 }
@@ -277,6 +292,6 @@ commands:
   lint [--profile llm-core] <roots...>   lint for the LLM authoring profile
   explain --symbol NAME <root>           explain a lowered symbol
   compile --target python|java|cpp|go|rust --out DIR <file>
-  verify [--targets python,java,cpp,go,rust] [--workdir DIR] [--runtime-profiles javascript-quickjs,javascript-goja] <root>
+  verify [--mode dev|release] [--jobs N] [--progress|--no-progress] [--targets python,java,cpp,go,rust] [--workdir DIR] [--runtime-profiles javascript-quickjs,javascript-goja] <root>
 `
 }

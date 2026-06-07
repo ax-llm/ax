@@ -2,24 +2,38 @@ package axir
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	VerifyModeDev     = "dev"
+	VerifyModeRelease = "release"
 )
 
 type VerifyOptions struct {
 	Targets         []string
 	WorkDir         string
 	RuntimeProfiles []string
+	Mode            string
+	Jobs            int
+	Progress        bool
 }
 
 type VerifyReport struct {
 	Root    string
 	WorkDir string
+	Mode    string
+	Jobs    int
 	Targets []VerifyTargetReport
 }
 
@@ -27,16 +41,24 @@ type VerifyTargetReport struct {
 	Target string
 	OutDir string
 	Steps  []VerifyStep
+
+	mode     string
+	progress *verifyProgress
 }
 
 type VerifyStep struct {
-	Name    string
-	Status  string
-	Message string
+	Name     string
+	Status   string
+	Message  string
+	Duration time.Duration
 }
 
 func Verify(rootFile string, opts VerifyOptions) (VerifyReport, error) {
 	targets := normalizeVerifyTargets(opts.Targets)
+	mode, err := normalizeVerifyMode(opts.Mode)
+	if err != nil {
+		return VerifyReport{}, err
+	}
 	bundle, err := LoadBundle(rootFile)
 	if err != nil {
 		return VerifyReport{}, err
@@ -46,67 +68,184 @@ func Verify(rootFile string, opts VerifyOptions) (VerifyReport, error) {
 	}
 	workDir := opts.WorkDir
 	if workDir == "" {
-		workDir, err = os.MkdirTemp("", "axir-verify-")
-		if err != nil {
-			return VerifyReport{}, err
-		}
-	}
-	report := VerifyReport{Root: rootFile, WorkDir: workDir}
-	conformanceRoot := conformanceRootFor(rootFile)
-	var failures []string
-	for _, target := range targets {
-		targetReport := VerifyTargetReport{
-			Target: target,
-			OutDir: filepath.Join(workDir, target),
-		}
-		if err := os.RemoveAll(targetReport.OutDir); err != nil {
-			return report, err
-		}
-		if err := Compile(bundle, target, targetReport.OutDir); err != nil {
-			targetReport.Steps = append(targetReport.Steps, VerifyStep{Name: "compile", Status: "fail", Message: err.Error()})
-			report.Targets = append(report.Targets, targetReport)
-			failures = append(failures, fmt.Sprintf("%s compile: %v", target, err))
-			continue
-		}
-		targetReport.Steps = append(targetReport.Steps, VerifyStep{Name: "compile", Status: "ok", Message: targetReport.OutDir})
-		if err := verifyManifest(targetReport.OutDir, target); err != nil {
-			targetReport.Steps = append(targetReport.Steps, VerifyStep{Name: "manifest", Status: "fail", Message: err.Error()})
-			report.Targets = append(report.Targets, targetReport)
-			failures = append(failures, fmt.Sprintf("%s manifest: %v", target, err))
-			continue
-		}
-		targetReport.Steps = append(targetReport.Steps, VerifyStep{Name: "manifest", Status: "ok", Message: "axir-capabilities.json"})
-		var targetErr error
-		switch target {
-		case "python":
-			targetReport, targetErr = verifyPythonTarget(targetReport, conformanceRoot)
-		case "java":
-			targetReport, targetErr = verifyJavaTarget(targetReport, conformanceRoot)
-		case "cpp":
-			targetReport, targetErr = verifyCppTarget(targetReport, conformanceRoot)
-		case "go":
-			targetReport, targetErr = verifyGoTarget(targetReport, conformanceRoot)
-		case "rust":
-			targetReport, targetErr = verifyRustTarget(targetReport, conformanceRoot)
-		default:
-			targetErr = fmt.Errorf("unknown verify target %q", target)
-		}
-		if targetErr != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", target, targetErr))
-		}
-		if len(opts.RuntimeProfiles) > 0 && targetErr == nil {
-			var profileErr error
-			targetReport, profileErr = verifyRuntimeProfilesTarget(targetReport, target, opts.RuntimeProfiles, conformanceRoot, bundle)
-			if profileErr != nil {
-				failures = append(failures, fmt.Sprintf("%s runtime profiles: %v", target, profileErr))
+		if mode == VerifyModeDev {
+			workDir = stableDevVerifyWorkDir(rootFile)
+		} else {
+			workDir, err = os.MkdirTemp("", "axir-verify-")
+			if err != nil {
+				return VerifyReport{}, err
 			}
 		}
-		report.Targets = append(report.Targets, targetReport)
+	}
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		return VerifyReport{}, err
+	}
+	if mode == VerifyModeDev {
+		ensureDevVerifyCaches()
+	}
+	jobs := normalizeVerifyJobs(opts.Jobs, len(targets))
+	report := VerifyReport{Root: rootFile, WorkDir: workDir, Mode: mode, Jobs: jobs}
+	conformanceRoot := conformanceRootFor(rootFile)
+	progress := &verifyProgress{enabled: opts.Progress}
+	results := runVerifyTargets(targets, jobs, func(index int, target string) verifyTargetResult {
+		return verifyOneTarget(index, target, bundle, workDir, conformanceRoot, opts.RuntimeProfiles, mode, progress)
+	})
+	failures := make([]string, 0)
+	for _, result := range results {
+		report.Targets = append(report.Targets, result.report)
+		if result.err != nil {
+			failures = append(failures, result.err.Error())
+		}
+		if result.failure != "" {
+			failures = append(failures, result.failure)
+		}
 	}
 	if len(failures) > 0 {
 		return report, fmt.Errorf("axir verify failed: %s", strings.Join(failures, "; "))
 	}
 	return report, nil
+}
+
+type verifyTargetResult struct {
+	index   int
+	report  VerifyTargetReport
+	failure string
+	err     error
+}
+
+func verifyOneTarget(index int, target string, bundle Bundle, workDir string, conformanceRoot string, runtimeProfiles []string, mode string, progress *verifyProgress) verifyTargetResult {
+	targetReport := VerifyTargetReport{
+		Target:   target,
+		OutDir:   filepath.Join(workDir, target),
+		mode:     mode,
+		progress: progress,
+	}
+	if err := os.RemoveAll(targetReport.OutDir); err != nil {
+		return verifyTargetResult{index: index, report: targetReport, err: fmt.Errorf("%s cleanup: %v", target, err)}
+	}
+	start := targetReport.startStep("compile")
+	if err := Compile(bundle, target, targetReport.OutDir); err != nil {
+		targetReport.finishStep("compile", "fail", err.Error(), start)
+		return verifyTargetResult{index: index, report: targetReport, failure: fmt.Sprintf("%s compile: %v", target, err)}
+	}
+	targetReport.finishStep("compile", "ok", targetReport.OutDir, start)
+	start = targetReport.startStep("manifest")
+	if err := verifyManifest(targetReport.OutDir, target); err != nil {
+		targetReport.finishStep("manifest", "fail", err.Error(), start)
+		return verifyTargetResult{index: index, report: targetReport, failure: fmt.Sprintf("%s manifest: %v", target, err)}
+	}
+	targetReport.finishStep("manifest", "ok", "axir-capabilities.json", start)
+	var targetErr error
+	switch target {
+	case "python":
+		targetReport, targetErr = verifyPythonTarget(targetReport, conformanceRoot)
+	case "java":
+		targetReport, targetErr = verifyJavaTarget(targetReport, conformanceRoot)
+	case "cpp":
+		targetReport, targetErr = verifyCppTarget(targetReport, conformanceRoot)
+	case "go":
+		targetReport, targetErr = verifyGoTarget(targetReport, conformanceRoot)
+	case "rust":
+		targetReport, targetErr = verifyRustTarget(targetReport, conformanceRoot)
+	default:
+		targetErr = fmt.Errorf("unknown verify target %q", target)
+	}
+	if targetErr != nil {
+		return verifyTargetResult{index: index, report: targetReport, failure: fmt.Sprintf("%s: %v", target, targetErr)}
+	}
+	if len(runtimeProfiles) > 0 {
+		var profileErr error
+		targetReport, profileErr = verifyRuntimeProfilesTarget(targetReport, target, runtimeProfiles, conformanceRoot, bundle)
+		if profileErr != nil {
+			return verifyTargetResult{index: index, report: targetReport, failure: fmt.Sprintf("%s runtime profiles: %v", target, profileErr)}
+		}
+	}
+	return verifyTargetResult{index: index, report: targetReport}
+}
+
+func runVerifyTargets(targets []string, jobs int, run func(index int, target string) verifyTargetResult) []verifyTargetResult {
+	results := make([]verifyTargetResult, len(targets))
+	if jobs <= 1 || len(targets) <= 1 {
+		for index, target := range targets {
+			results[index] = run(index, target)
+		}
+		return results
+	}
+	type verifyJob struct {
+		index  int
+		target string
+	}
+	work := make(chan verifyJob)
+	done := make(chan verifyTargetResult)
+	var wg sync.WaitGroup
+	for i := 0; i < jobs; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range work {
+				done <- run(job.index, job.target)
+			}
+		}()
+	}
+	go func() {
+		for index, target := range targets {
+			work <- verifyJob{index: index, target: target}
+		}
+		close(work)
+		wg.Wait()
+		close(done)
+	}()
+	for result := range done {
+		results[result.index] = result
+	}
+	return results
+}
+
+func normalizeVerifyMode(mode string) (string, error) {
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		return VerifyModeRelease, nil
+	}
+	switch mode {
+	case VerifyModeDev, VerifyModeRelease:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unknown verify mode %q", mode)
+	}
+}
+
+func normalizeVerifyJobs(jobs int, targetCount int) int {
+	if targetCount <= 1 {
+		return 1
+	}
+	if jobs == 0 {
+		jobs = runtime.NumCPU()
+	}
+	if jobs < 1 {
+		jobs = 1
+	}
+	if jobs > targetCount {
+		jobs = targetCount
+	}
+	return jobs
+}
+
+func stableDevVerifyWorkDir(rootFile string) string {
+	abs, err := filepath.Abs(rootFile)
+	if err != nil {
+		abs = rootFile
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return filepath.Join(os.TempDir(), "axir-verify-dev-"+fmt.Sprintf("%x", sum[:])[:12])
+}
+
+func ensureDevVerifyCaches() {
+	if strings.TrimSpace(os.Getenv("GOCACHE")) == "" {
+		_ = os.Setenv("GOCACHE", filepath.Join(os.TempDir(), "go-build"))
+	}
+	if strings.TrimSpace(os.Getenv("CARGO_TARGET_DIR")) == "" {
+		_ = os.Setenv("CARGO_TARGET_DIR", filepath.Join(os.TempDir(), "axir-cargo-target"))
+	}
 }
 
 func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profiles []string, conformanceRoot string, bundle Bundle) (VerifyTargetReport, error) {
@@ -167,6 +306,55 @@ func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profi
 		}
 	}
 	return report, nil
+}
+
+type verifyProgress struct {
+	enabled bool
+	mu      sync.Mutex
+}
+
+func (p *verifyProgress) start(target, name string) {
+	if p == nil || !p.enabled {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	fmt.Fprintf(os.Stderr, "[%s] start %s\n", target, name)
+}
+
+func (p *verifyProgress) finish(target, name, status string, duration time.Duration) {
+	if p == nil || !p.enabled {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	fmt.Fprintf(os.Stderr, "[%s] %s %s (%s)\n", target, status, name, formatVerifyDuration(duration))
+}
+
+func (r *VerifyTargetReport) startStep(name string) time.Time {
+	if r.progress != nil {
+		r.progress.start(r.Target, name)
+	}
+	return time.Now()
+}
+
+func (r *VerifyTargetReport) finishStep(name, status, message string, start time.Time) {
+	duration := time.Duration(0)
+	if !start.IsZero() {
+		duration = time.Since(start)
+	}
+	r.Steps = append(r.Steps, VerifyStep{Name: name, Status: status, Message: message, Duration: duration})
+	if r.progress != nil && !start.IsZero() {
+		r.progress.finish(r.Target, name, status, duration)
+	}
+}
+
+func (r *VerifyTargetReport) skipPackageSmoke(name string) {
+	r.finishStep(name, "skip", "dev mode; use --mode release to run package-consumer smoke tests", time.Time{})
+}
+
+func (r *VerifyTargetReport) releaseMode() bool {
+	return r.mode == VerifyModeRelease
 }
 
 func verifyGoGojaProfile(report VerifyTargetReport) (VerifyTargetReport, error) {
@@ -243,8 +431,12 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 	if err := runVerifyCommand(&report, "conformance", report.OutDir, env, goTool, args...); err != nil {
 		return report, err
 	}
-	if err := verifyGoPackageSmoke(&report, goTool); err != nil {
-		return report, err
+	if report.releaseMode() {
+		if err := verifyGoPackageSmoke(&report, goTool); err != nil {
+			return report, err
+		}
+	} else {
+		report.skipPackageSmoke("package go consumer")
 	}
 	return report, nil
 }
@@ -324,8 +516,12 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	if err := runCargoVerifyCommand(&report, "conformance", report.OutDir, env, cargo, args...); err != nil {
 		return report, err
 	}
-	if err := verifyRustPackageSmoke(&report, cargo); err != nil {
-		return report, err
+	if report.releaseMode() {
+		if err := verifyRustPackageSmoke(&report, cargo); err != nil {
+			return report, err
+		}
+	} else {
+		report.skipPackageSmoke("package rust consumer")
 	}
 	return report, nil
 }
@@ -372,14 +568,20 @@ func conformanceRootFor(rootFile string) string {
 func (r VerifyReport) String() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "AxIR verify: %s\n", filepath.Clean(r.Root))
+	fmt.Fprintf(&b, "mode: %s\n", r.Mode)
+	fmt.Fprintf(&b, "jobs: %d\n", r.Jobs)
 	fmt.Fprintf(&b, "workdir: %s\n", filepath.Clean(r.WorkDir))
 	for _, target := range r.Targets {
 		fmt.Fprintf(&b, "%s: %s\n", target.Target, filepath.Clean(target.OutDir))
 		for _, step := range target.Steps {
+			duration := ""
+			if step.Duration > 0 {
+				duration = " (" + formatVerifyDuration(step.Duration) + ")"
+			}
 			if step.Message == "" {
-				fmt.Fprintf(&b, "  %s %s\n", step.Status, step.Name)
+				fmt.Fprintf(&b, "  %s %s%s\n", step.Status, step.Name, duration)
 			} else {
-				fmt.Fprintf(&b, "  %s %s: %s\n", step.Status, step.Name, step.Message)
+				fmt.Fprintf(&b, "  %s %s%s: %s\n", step.Status, step.Name, duration, step.Message)
 			}
 		}
 	}
@@ -450,8 +652,12 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 	if err := runVerifyCommand(&report, "conformance", "", env, python, args...); err != nil {
 		return report, err
 	}
-	if err := verifyPythonPackageSmoke(&report, conformanceRoot, python); err != nil {
-		return report, err
+	if report.releaseMode() {
+		if err := verifyPythonPackageSmoke(&report, conformanceRoot, python); err != nil {
+			return report, err
+		}
+	} else {
+		report.skipPackageSmoke("package python smoke")
 	}
 	return report, nil
 }
@@ -576,8 +782,12 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	if err := runVerifyCommand(&report, "conformance", "", nil, java, args...); err != nil {
 		return report, err
 	}
-	if err := verifyJavaPackageSmoke(&report, javac, java); err != nil {
-		return report, err
+	if report.releaseMode() {
+		if err := verifyJavaPackageSmoke(&report, javac, java); err != nil {
+			return report, err
+		}
+	} else {
+		report.skipPackageSmoke("package java smoke")
 	}
 	return report, nil
 }
@@ -879,6 +1089,18 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 	}
 	axSource := filepath.Join(report.OutDir, "axllm", "axllm.cpp")
 	mcpSource := filepath.Join(report.OutDir, "axllm", "mcp.cpp")
+	buildDir := filepath.Join(report.OutDir, "_verify_cpp")
+	if err := os.MkdirAll(buildDir, 0o755); err != nil {
+		return report, err
+	}
+	axObj := filepath.Join(buildDir, "axllm.o")
+	mcpObj := filepath.Join(buildDir, "mcp.o")
+	if err := runVerifyCommand(&report, "compile axllm.cpp", "", nil, cpp, "-std=c++17", "-I", report.OutDir, "-c", axSource, "-o", axObj); err != nil {
+		return report, err
+	}
+	if err := runVerifyCommand(&report, "compile mcp.cpp", "", nil, cpp, "-std=c++17", "-I", report.OutDir, "-c", mcpSource, "-o", mcpObj); err != nil {
+		return report, err
+	}
 	examples := []string{
 		"signature_schema",
 		"axgen_scripted_client_tool",
@@ -897,11 +1119,11 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 	for _, example := range examples {
 		source := filepath.Join(report.OutDir, "examples", example+".cpp")
 		bin := filepath.Join(report.OutDir, example)
-		compileArgs := []string{"-std=c++17", "-I", report.OutDir, axSource}
+		compileArgs := []string{"-std=c++17", "-I", report.OutDir, source, axObj}
 		if example == "mcp_scripted_tools" {
-			compileArgs = append(compileArgs, mcpSource)
+			compileArgs = append(compileArgs, mcpObj)
 		}
-		compileArgs = append(compileArgs, source, "-o", bin)
+		compileArgs = append(compileArgs, "-o", bin)
 		if err := runVerifyCommand(&report, "compile example "+example, "", nil, cpp, compileArgs...); err != nil {
 			return report, err
 		}
@@ -910,15 +1132,19 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		}
 	}
 	conformanceBin := filepath.Join(report.OutDir, "conformance")
-	if err := runVerifyCommand(&report, "compile conformance", "", nil, cpp, "-std=c++17", "-I", report.OutDir, axSource, mcpSource, filepath.Join(report.OutDir, "conformance.cpp"), "-o", conformanceBin); err != nil {
+	if err := runVerifyCommand(&report, "compile conformance", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "conformance.cpp"), axObj, mcpObj, "-o", conformanceBin); err != nil {
 		return report, err
 	}
 	args := append([]string{}, conformanceSuitePaths(conformanceRoot)...)
 	if err := runVerifyCommand(&report, "conformance", "", nil, conformanceBin, args...); err != nil {
 		return report, err
 	}
-	if err := verifyCppPackageSmoke(&report, cpp); err != nil {
-		return report, err
+	if report.releaseMode() {
+		if err := verifyCppPackageSmoke(&report, cpp); err != nil {
+			return report, err
+		}
+	} else {
+		report.skipPackageSmoke("package cpp smoke")
 	}
 	return report, nil
 }
@@ -1093,25 +1319,27 @@ func runtimeProtocolEnv(conformanceRoot string, env []string) []string {
 }
 
 func runVerifyCommand(report *VerifyTargetReport, name, dir string, env []string, command string, args ...string) error {
+	start := report.startStep(name)
 	message, err := runCommandMessage(dir, env, command, args...)
 	if err != nil {
-		report.Steps = append(report.Steps, VerifyStep{Name: name, Status: "fail", Message: message})
+		report.finishStep(name, "fail", message, start)
 		return fmt.Errorf("%s failed: %s", name, message)
 	}
 	if message == "" {
 		message = filepath.Base(command)
 	}
-	report.Steps = append(report.Steps, VerifyStep{Name: name, Status: "ok", Message: message})
+	report.finishStep(name, "ok", message, start)
 	return nil
 }
 
 func runCargoVerifyCommand(report *VerifyTargetReport, name, dir string, env []string, cargo string, args ...string) error {
+	start := report.startStep(name)
 	message, err := runCommandMessage(dir, env, cargo, args...)
 	if err == nil {
 		if message == "" {
 			message = filepath.Base(cargo)
 		}
-		report.Steps = append(report.Steps, VerifyStep{Name: name, Status: "ok", Message: message})
+		report.finishStep(name, "ok", message, start)
 		return nil
 	}
 	if isCargoRegistryNetworkFailure(message) && !envHas(env, "CARGO_NET_OFFLINE") {
@@ -1121,13 +1349,23 @@ func runCargoVerifyCommand(report *VerifyTargetReport, name, dir string, env []s
 			if offlineMessage == "" {
 				offlineMessage = filepath.Base(cargo)
 			}
-			report.Steps = append(report.Steps, VerifyStep{Name: name, Status: "ok", Message: "offline retry\n" + offlineMessage})
+			report.finishStep(name, "ok", "offline retry\n"+offlineMessage, start)
 			return nil
 		}
 		message = message + "\n\noffline retry failed:\n" + offlineMessage
 	}
-	report.Steps = append(report.Steps, VerifyStep{Name: name, Status: "fail", Message: message})
+	report.finishStep(name, "fail", message, start)
 	return fmt.Errorf("%s failed: %s", name, message)
+}
+
+func formatVerifyDuration(duration time.Duration) string {
+	if duration <= 0 {
+		return "0s"
+	}
+	if duration < time.Second {
+		return duration.Round(time.Millisecond).String()
+	}
+	return duration.Round(100 * time.Millisecond).String()
 }
 
 func runCommandMessage(dir string, env []string, command string, args ...string) (string, error) {

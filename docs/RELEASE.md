@@ -28,17 +28,24 @@ development fallback.
 
 ## Local Release Smoke
 
-The default verification path remains dependency-light:
+For frequent local iteration, run the faster dev verifier first:
 
 ```bash
-cd tools/axir
-GOCACHE=/private/tmp/go-build go run . verify \
-  --targets python,java,cpp,go,rust \
-  --workdir /private/tmp/axir-verify-release \
-  ../../ir/axcore/root.axir
+npm run axir:verify:dev
+npm run axir:verify:dev -- --targets python
 ```
 
-That gate emits the generated libraries and smoke-tests package consumption:
+The dev verifier uses the cached AxIR binary, stable temp caches, parallel
+target verification, examples, and conformance while skipping downstream
+package-consumer smoke tests.
+
+Before release, run the full release verifier:
+
+```bash
+npm run axir:verify:release
+```
+
+That release gate emits the generated libraries and smoke-tests package consumption:
 
 - Python source/install import of `axllm`, plus an installed-package example when
   build tooling is available
@@ -57,23 +64,21 @@ runtime is dependency-bearing in the generated `runtime/goja` package and is
 verified explicitly with:
 
 ```bash
-cd tools/axir
-GOCACHE=/private/tmp/go-build go run . verify \
+npm run axir -- verify \
+  --mode release \
   --targets go \
   --runtime-profiles javascript-goja \
-  --workdir /private/tmp/axir-verify-goja \
-  ../../ir/axcore/root.axir
+  --workdir /private/tmp/axir-verify-goja
 ```
 
 The Rust embedded QuickJS profile is verified separately with:
 
 ```bash
-cd tools/axir
-GOCACHE=/private/tmp/go-build go run . verify \
+npm run axir -- verify \
+  --mode release \
   --targets rust \
   --runtime-profiles javascript-quickjs \
-  --workdir /private/tmp/axir-verify-rust-quickjs \
-  ../../ir/axcore/root.axir
+  --workdir /private/tmp/axir-verify-rust-quickjs
 ```
 
 Regenerate the checked-in package trees before release when AxIR changes:

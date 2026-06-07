@@ -25,7 +25,10 @@
       "support_mode": "embedded",
       "dependency_mode": "optional-build",
       "feature_gate": "AX_BUILD_QUICKJS_PROFILE",
-      "environment_gates": ["AXIR_QUICKJS_CFLAGS", "AXIR_QUICKJS_LDFLAGS"],
+      "environment_gates": [
+        "AXIR_QUICKJS_CFLAGS",
+        "AXIR_QUICKJS_LDFLAGS"
+      ],
       "verification_command": "tools/axir verify --targets cpp --runtime-profiles javascript-quickjs"
     },
     {

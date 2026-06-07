@@ -41,7 +41,11 @@
           "kind": "type",
           "description": "Parsed signature with input/output fields, descriptions, and JSON schema helpers.",
           "form": "AxSignature",
-          "important_options": ["inputs", "outputs", "description"],
+          "important_options": [
+            "inputs",
+            "outputs",
+            "description"
+          ],
           "returns": "signature object"
         }
       ]
@@ -118,7 +122,12 @@
           "kind": "type",
           "description": "OpenAI-compatible chat, stream, embedding, audio, and realtime provider boundary.",
           "form": "OpenAICompatibleClient / ai(provider, options)",
-          "important_options": ["api key", "model", "base URL", "transport"],
+          "important_options": [
+            "api key",
+            "model",
+            "base URL",
+            "transport"
+          ],
           "returns": "provider client"
         },
         {
@@ -128,7 +137,12 @@
           "kind": "type",
           "description": "OpenAI Responses provider mapping using the same Core-owned request and response contract.",
           "form": "OpenAIResponsesClient / ai(provider, options)",
-          "important_options": ["api key", "model", "audio", "realtime"],
+          "important_options": [
+            "api key",
+            "model",
+            "audio",
+            "realtime"
+          ],
           "returns": "provider client"
         },
         {
@@ -138,7 +152,11 @@
           "kind": "type",
           "description": "Gemini provider mapping for chat, streaming, media, tools, embeddings, and usage normalization.",
           "form": "GoogleGeminiClient / ai(provider, options)",
-          "important_options": ["api key", "model", "embed model"],
+          "important_options": [
+            "api key",
+            "model",
+            "embed model"
+          ],
           "returns": "provider client"
         },
         {
@@ -177,7 +195,10 @@
           "kind": "type",
           "description": "Choose a service by capability or model routing policy.",
           "form": "MultiServiceRouter",
-          "important_options": ["services", "routing"],
+          "important_options": [
+            "services",
+            "routing"
+          ],
           "returns": "AI service"
         },
         {
@@ -187,7 +208,11 @@
           "kind": "type",
           "description": "Route provider requests to registered provider clients.",
           "form": "ProviderRouter",
-          "important_options": ["providers", "routing", "processing"],
+          "important_options": [
+            "providers",
+            "routing",
+            "processing"
+          ],
           "returns": "AI service"
         }
       ]
@@ -264,7 +289,12 @@
           "kind": "type",
           "description": "Workflow graph with Core-owned planning, cache keys, state merge, child aggregation, optimization, and returns projection.",
           "form": "AxFlow",
-          "important_options": ["steps", "state", "parallel groups", "returns"],
+          "important_options": [
+            "steps",
+            "state",
+            "parallel groups",
+            "returns"
+          ],
           "returns": "flow program"
         }
       ]
@@ -298,7 +328,11 @@
           "kind": "type",
           "description": "Callable tool descriptor with JSON-schema-compatible parameters and a host handler.",
           "form": "Tool",
-          "important_options": ["parameters", "returns", "handler"],
+          "important_options": [
+            "parameters",
+            "returns",
+            "handler"
+          ],
           "returns": "tool descriptor"
         }
       ]
@@ -346,7 +380,11 @@
           "kind": "type",
           "description": "Stdio transport with JSON-RPC framing for local MCP servers.",
           "form": "AxMCPStdioTransport",
-          "important_options": ["command", "args", "env"],
+          "important_options": [
+            "command",
+            "args",
+            "env"
+          ],
           "returns": "MCP transport"
         }
       ]
@@ -363,7 +401,12 @@
           "kind": "type",
           "description": "Process/JSONL runtime adapter for actor-code sessions and runtime protocol tests.",
           "form": "ProcessCodeRuntime::new(command)",
-          "important_options": ["command", "env", "cwd", "timeout"],
+          "important_options": [
+            "command",
+            "env",
+            "cwd",
+            "timeout"
+          ],
           "returns": "AxCodeRuntime",
           "example": "let runtime = ProcessCodeRuntime::new(vec![\"node\".into(), \"runtime-server.mjs\".into()]);"
         },
@@ -390,7 +433,12 @@
           "kind": "type",
           "description": "Actor primitive envelope for final, clarification, discovery, recall, used, guidance, and runtime results.",
           "form": "RuntimeEnvelope",
-          "important_options": ["type", "args", "result", "error"],
+          "important_options": [
+            "type",
+            "args",
+            "result",
+            "error"
+          ],
           "returns": "runtime envelope"
         },
         {
@@ -438,7 +486,10 @@
           "kind": "interface",
           "description": "Optimizer boundary consumed by AxGen, AxAgent, and AxFlow optimization helpers.",
           "form": "OptimizerEngine::optimize(request, evaluator)",
-          "important_options": ["request", "evaluator"],
+          "important_options": [
+            "request",
+            "evaluator"
+          ],
           "returns": "optimized artifact"
         },
         {
@@ -448,7 +499,11 @@
           "kind": "interface",
           "description": "Evaluator callback boundary used by generated optimizers.",
           "form": "OptimizerEvaluator::evaluate(request)",
-          "important_options": ["dataset rows", "candidate map", "evidence"],
+          "important_options": [
+            "dataset rows",
+            "candidate map",
+            "evidence"
+          ],
           "returns": "score/evidence result"
         }
       ]

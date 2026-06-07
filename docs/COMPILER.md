@@ -153,6 +153,19 @@ When compiler output changes, run `npm run axir:generate-packages` and commit
 the refreshed package trees. CI runs `npm run axir:check-packages` so stale
 checked-in generated packages fail fast.
 
+For local iteration, use the cached AxIR wrapper from the repo root:
+
+```bash
+npm run axir -- check ir/axcore/root.axir
+npm run axir:verify:dev
+npm run axir:verify:dev -- --targets python
+```
+
+`axir:verify:dev` keeps a stable temp workdir and build caches, runs target
+verification in parallel, and skips downstream package-consumer smoke tests.
+Use `npm run axir:verify:release` before release or when package metadata and
+consumer wiring are part of the change.
+
 See [`docs/RELEASE.md`](./RELEASE.md) for the publishable package names,
 versioning rule, and local release smoke workflow.
 
@@ -210,7 +223,7 @@ New portable behavior should follow this loop:
 1. add or update TS-derived fixtures
 2. encode the stable semantics in `.axir` Core helpers or descriptor data
 3. keep target templates limited to idiomatic wrappers and host boundaries
-4. run `go test`, `check`, `lower`, and `axir verify`
+4. run the cached AxIR checks and `npm run axir:verify:dev`
 
 Do not add a public TypeScript AxIR API, do not hand-edit generated target
 output, and do not add provider/runtime logic directly to Python, Java, C++, Go, or Rust

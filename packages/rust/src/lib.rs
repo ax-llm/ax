@@ -1255,7 +1255,13 @@ impl OpenAICompatibleClient {
             body["response_format"] = format.clone();
         }
         if let Some(tools) = request.get("tools") {
-            body["tools"] = tools.clone();
+            if tools
+                .as_array()
+                .map(|items| !items.is_empty())
+                .unwrap_or(true)
+            {
+                body["tools"] = tools.clone();
+            }
         }
         body
     }
