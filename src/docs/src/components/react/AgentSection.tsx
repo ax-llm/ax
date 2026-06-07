@@ -1,6 +1,10 @@
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Bot, Brain, Zap } from 'lucide-react';
 import { GlowCard } from './GlowCard';
+import {
+  getHomepageLanguageDemo,
+  useHomepageLanguage,
+} from './homepageLanguage';
 
 const EASE = [0.25, 0.46, 0.45, 0.94] as const;
 
@@ -54,7 +58,7 @@ function ContextGrowthChart() {
             Prompt stays lean — across every turn
           </h4>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            State lives in the JS runtime, not the LLM context
+            State lives in the runtime session, not the LLM context
           </p>
         </div>
         <div className="flex-shrink-0 ml-4 rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
@@ -200,6 +204,9 @@ function ContextGrowthChart() {
 /* ─── Code Block ─── */
 
 function AgentCodeBlock() {
+  const language = useHomepageLanguage();
+  const demo = getHomepageLanguageDemo(language).agent;
+
   return (
     <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-[#1a1b26] overflow-hidden shadow-2xl">
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/5">
@@ -207,86 +214,26 @@ function AgentCodeBlock() {
         <div className="w-2.5 h-2.5 rounded-full bg-amber-400/80" />
         <div className="w-2.5 h-2.5 rounded-full bg-green-400/80" />
         <span className="ml-2 text-xs text-gray-500 font-mono">
-          researcher.ts
+          {demo.filename}
         </span>
       </div>
 
-      <div className="p-5 font-mono text-[12.5px] leading-[1.85] text-gray-300">
-        <div>
-          <span className="text-purple-400">import</span>
-          <span className="text-gray-500">{' { '}</span>
-          <span className="text-blue-300">AxAgent</span>
-          <span className="text-gray-500">{', '}</span>
-          <span className="text-blue-300">AxJSRuntime</span>
-          <span className="text-gray-500">{' } '}</span>
-          <span className="text-purple-400">from</span>
-          <span className="text-emerald-400">{" '@ax-llm/ax'"}</span>
+      <div className="p-5">
+        <div className="mb-3 text-[10px] uppercase tracking-[0.22em] text-emerald-300/80 font-semibold">
+          {demo.runtimeLabel}
         </div>
-
-        <div className="mt-3 text-gray-600">{'// Typed DSPy signature'}</div>
-        <div>
-          <span className="text-purple-400">const</span>
-          <span className="text-white">{' researcher '}</span>
-          <span className="text-gray-500">{'= '}</span>
-          <span className="text-purple-400">new </span>
-          <span className="text-blue-400">AxAgent</span>
-          <span className="text-gray-500">{'('}</span>
-        </div>
-        <div className="pl-4">
-          <span className="text-emerald-400">
-            {"'topic:string, largeDocument:string -> report:string'"}
-          </span>
-          <span className="text-gray-500">,</span>
-        </div>
-        <div className="pl-4">
-          <span className="text-gray-500">{'{'}</span>
-        </div>
-        <div className="pl-8">
-          <span className="text-sky-300">runtime</span>
-          <span className="text-gray-500">{': '}</span>
-          <span className="text-purple-400">new </span>
-          <span className="text-blue-400">AxJSRuntime</span>
-          <span className="text-gray-500">{'(),'}</span>
-          <span className="text-gray-600">{' // state in JS'}</span>
-        </div>
-        <div className="pl-8">
-          <span className="text-sky-300">contextFields</span>
-          <span className="text-gray-500">{': ['}</span>
-          <span className="text-white">largeDocument</span>
-          <span className="text-gray-500">{'],'}</span>
-        </div>
-        <div className="pl-8">
-          <span className="text-sky-300">functions</span>
-          <span className="text-gray-500">{': ['}</span>
-          <span className="text-white">search</span>
-          <span className="text-gray-500">{', '}</span>
-          <span className="text-white">scrape</span>
-          <span className="text-gray-500">{'],'}</span>
-        </div>
-        <div className="pl-4">
-          <span className="text-gray-500">{'}'}</span>
-        </div>
-        <div>
-          <span className="text-gray-500">{')'}</span>
-        </div>
-
-        <div className="mt-3 text-gray-600">
-          {'// Typed output — report: string ✓'}
-        </div>
-        <div>
-          <span className="text-purple-400">const</span>
-          <span className="text-gray-500">{' { '}</span>
-          <span className="text-white">report</span>
-          <span className="text-gray-500">{' } = '}</span>
-          <span className="text-purple-400">await </span>
-          <span className="text-white">researcher.</span>
-          <span className="text-blue-400">forward</span>
-          <span className="text-gray-500">{'(ai, { '}</span>
-          <span className="text-sky-300">topic</span>
-          <span className="text-gray-500">{': '}</span>
-          <span className="text-emerald-400">{"'…'"}</span>
-          <span className="text-gray-500">{' })'}</span>
-        </div>
+        <AnimatePresence mode="wait">
+          <motion.pre
+            key={`${language}-agent-code`}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: EASE }}
+            className="font-mono text-[12.5px] leading-[1.85] text-gray-300 overflow-x-auto"
+          >
+            <code>{demo.code}</code>
+          </motion.pre>
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -297,19 +244,19 @@ function AgentCodeBlock() {
 const features = [
   {
     Icon: Bot,
-    title: 'State in runtime, not the prompt',
+    title: 'State in the runtime, not the prompt',
     description:
-      'The JS sandbox keeps your objects alive across turns. The LLM only sees a compact current-state summary — token cost stays flat no matter how long the loop runs.',
+      'Runtime sessions keep objects alive across turns. The LLM only sees a compact current-state summary — token cost stays flat no matter how long the loop runs.',
     color: 'emerald' as const,
-    badges: ['RLM loop', 'Bounded context', 'JS sandbox'],
+    badges: ['RLM loop', 'Bounded context', 'Host runtime'],
   },
   {
     Icon: Zap,
     title: 'Typed signatures — end to end',
     description:
-      "Declare agents as 'topic:string → report:string'. Inputs and outputs are TypeScript types — shape mismatches surface at compile time, not in production.",
+      "Declare agents as 'topic:string -> report:string'. Inputs and outputs follow the same Ax contract across native language packages.",
     color: 'violet' as const,
-    badges: ['DSPy-style', 'TypeScript safe', 'Schema validated'],
+    badges: ['DSPy-style', 'Native packages', 'Schema validated'],
   },
   {
     Icon: Brain,

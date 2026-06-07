@@ -1,446 +1,20 @@
-import type React from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import {
+  getHomepageLanguageDemo,
+  type SignatureTab,
+  useHomepageLanguage,
+} from './homepageLanguage';
 
 const EASE = [0.25, 0.46, 0.45, 0.94] as const;
-
-type Tab = 'fluent' | 'string' | 'zod';
-
-/* ─── Code content for each tab ─── */
-
-function FluentCode() {
-  return (
-    <pre className="p-5 text-[13px] leading-relaxed overflow-x-auto font-mono">
-      <code>
-        <L>
-          <Kw>import</Kw> {'{ f, ax, ai }'} <Kw>from</Kw>{' '}
-          <S>&apos;@ax-llm/ax&apos;</S>
-        </L>
-        <L />
-        <L>
-          <Kw>const</Kw> sig = <Fn>f</Fn>()
-        </L>
-        <L>
-          {' '}
-          .<Fn>input</Fn>(<S>&apos;document&apos;</S>, <Fn>f</Fn>.
-          <Fn>string</Fn>().<Fn>min</Fn>(<N>10</N>))
-        </L>
-        <L>
-          {' '}
-          .<Fn>output</Fn>(<S>&apos;summary&apos;</S>, <Fn>f</Fn>.
-          <Fn>string</Fn>().<Fn>max</Fn>(<N>500</N>))
-        </L>
-        <L>
-          {' '}
-          .<Fn>output</Fn>(<S>&apos;entities&apos;</S>, <Fn>f</Fn>.
-          <Fn>object</Fn>({'{'}
-        </L>
-        <L>
-          {' '}
-          <P>name</P>: <Fn>f</Fn>.<Fn>string</Fn>().<Fn>min</Fn>(<N>1</N>),
-        </L>
-        <L>
-          {' '}
-          <P>type</P>: <Fn>f</Fn>.<Fn>class</Fn>([<S>&apos;person&apos;</S>,{' '}
-          <S>&apos;org&apos;</S>, <S>&apos;place&apos;</S>]),
-        </L>
-        <L>
-          {' '}
-          <P>confidence</P>: <Fn>f</Fn>.<Fn>number</Fn>().<Fn>min</Fn>(<N>0</N>
-          ).<Fn>max</Fn>(<N>1</N>),
-        </L>
-        <L>
-          {' '}
-          {'}'}).<Fn>array</Fn>())
-        </L>
-        <L>
-          {' '}
-          .<Fn>output</Fn>(<S>&apos;contact&apos;</S>, <Fn>f</Fn>.
-          <Fn>object</Fn>({'{'}
-        </L>
-        <L>
-          {' '}
-          <P>email</P>: <Fn>f</Fn>.<Fn>email</Fn>(),
-        </L>
-        <L>
-          {' '}
-          <P>website</P>: <Fn>f</Fn>.<Fn>url</Fn>().<Fn>optional</Fn>(),
-        </L>
-        <L> {'}'}))</L>
-        <L>
-          {' '}
-          .<Fn>output</Fn>(<S>&apos;tags&apos;</S>, <Fn>f</Fn>.<Fn>string</Fn>
-          ().<Fn>array</Fn>())
-        </L>
-        <L>
-          {' '}
-          .<Fn>build</Fn>()
-        </L>
-        <L />
-        <L>
-          <Kw>const</Kw> gen = <Fn>ax</Fn>(sig)
-        </L>
-        <L>
-          <Kw>const</Kw> result = <Kw>await</Kw> gen.<Fn>forward</Fn>(llm, {'{'}
-        </L>
-        <L>
-          {' '}
-          <P>document</P>: contractText
-        </L>
-        <L>{'}'})</L>
-      </code>
-    </pre>
-  );
-}
-
-function StringCode() {
-  return (
-    <pre className="p-5 text-[13px] leading-relaxed overflow-x-auto font-mono">
-      <code>
-        <L>
-          <Kw>import</Kw> {'{ ax, ai }'} <Kw>from</Kw>{' '}
-          <S>&apos;@ax-llm/ax&apos;</S>
-        </L>
-        <L />
-        <L>
-          <C>{'// String shorthand — fast and concise'}</C>
-        </L>
-        <L>
-          <Kw>const</Kw> classify = <Fn>ax</Fn>(
-        </L>
-        <L>
-          {' '}
-          <S>
-            &apos;text:string -&gt; sentiment:class &quot;pos, neg,
-            neutral&quot;&apos;
-          </S>
-        </L>
-        <L>)</L>
-        <L />
-        <L>
-          <C>{'// Multi-field extraction'}</C>
-        </L>
-        <L>
-          <Kw>const</Kw> extract = <Fn>ax</Fn>(
-        </L>
-        <L>
-          {' '}
-          <S>
-            &apos;doc:string -&gt; names:string[], dates:date[],
-            amounts:number[]&apos;
-          </S>
-        </L>
-        <L>)</L>
-        <L />
-        <L>
-          <C>{'// Chain-of-thought with internal reasoning'}</C>
-        </L>
-        <L>
-          <Kw>const</Kw> solve = <Fn>ax</Fn>(
-        </L>
-        <L>
-          {' '}
-          <S>
-            &apos;problem:string -&gt; reasoning!:string, answer:string&apos;
-          </S>
-        </L>
-        <L>)</L>
-        <L />
-        <L>
-          <C>{'// Multi-modal'}</C>
-        </L>
-        <L>
-          <Kw>const</Kw> describe = <Fn>ax</Fn>(
-        </L>
-        <L>
-          {' '}
-          <S>&apos;photo:image, question:string -&gt; answer:string&apos;</S>
-        </L>
-        <L>)</L>
-        <L />
-        <L>
-          <C>{'// Run any of them the same way'}</C>
-        </L>
-        <L>
-          <Kw>const</Kw> result = <Kw>await</Kw> classify.<Fn>forward</Fn>(llm,{' '}
-          {'{'}
-        </L>
-        <L>
-          {' '}
-          <P>text</P>: <S>&apos;Best purchase ever!&apos;</S>
-        </L>
-        <L>{'}'})</L>
-      </code>
-    </pre>
-  );
-}
-
-function ZodCode() {
-  return (
-    <pre className="p-5 text-[13px] leading-relaxed overflow-x-auto font-mono">
-      <code>
-        <L>
-          <Kw>import</Kw> {'{ z }'} <Kw>from</Kw> <S>&apos;zod&apos;</S>
-        </L>
-        <L>
-          <Kw>import</Kw> {'{ f, ax }'} <Kw>from</Kw>{' '}
-          <S>&apos;@ax-llm/ax&apos;</S>
-        </L>
-        <L />
-        <L>
-          <Kw>const</Kw> sig = <Fn>f</Fn>()
-        </L>
-        <L>
-          {' '}
-          .<Fn>input</Fn>(z.<Fn>object</Fn>({'{'}
-        </L>
-        <L>
-          {' '}
-          <P>document</P>: z.<Fn>string</Fn>().<Fn>min</Fn>(<N>10</N>),
-        </L>
-        <L> {'}'}))</L>
-        <L>
-          {' '}
-          .<Fn>output</Fn>(z.<Fn>object</Fn>({'{'}
-        </L>
-        <L>
-          {' '}
-          <P>summary</P>: z.<Fn>string</Fn>().<Fn>describe</Fn>(
-        </L>
-        <L>
-          {' '}
-          <S>&apos;Brief summary&apos;</S>),
-        </L>
-        <L>
-          {' '}
-          <P>sentiment</P>: z.<Fn>enum</Fn>([
-        </L>
-        <L>
-          {' '}
-          <S>&apos;positive&apos;</S>, <S>&apos;neutral&apos;</S>,
-        </L>
-        <L>
-          {' '}
-          <S>&apos;negative&apos;</S>]),
-        </L>
-        <L>
-          {' '}
-          <P>score</P>: z.<Fn>number</Fn>().<Fn>min</Fn>(<N>1</N>).<Fn>max</Fn>(
-          <N>10</N>),
-        </L>
-        <L>
-          {' '}
-          <P>keyPoints</P>: z.<Fn>array</Fn>(z.<Fn>string</Fn>()),
-        </L>
-        <L> {'}'}))</L>
-        <L>
-          {' '}
-          .<Fn>build</Fn>()
-        </L>
-        <L />
-        <L>
-          <Kw>const</Kw> gen = <Fn>ax</Fn>(sig)
-        </L>
-        <L>
-          <Kw>const</Kw> result = <Kw>await</Kw> gen.<Fn>forward</Fn>(llm, {'{'}
-        </L>
-        <L>
-          {' '}
-          <P>document</P>: reviewText
-        </L>
-        <L>{'}'})</L>
-      </code>
-    </pre>
-  );
-}
-
-function ZodOutput() {
-  return (
-    <div className="p-5 flex flex-col h-full">
-      <div className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold mb-3">
-        Typed Output
-      </div>
-      <pre className="text-[13px] leading-relaxed font-mono flex-1">
-        <code>
-          <L>{'{'}</L>
-          <L>
-            {' '}
-            <P>summary</P>: <S>&apos;Exceptional battery life and...&apos;</S>,
-          </L>
-          <L>
-            {' '}
-            <P>sentiment</P>: <S>&apos;positive&apos;</S>,
-          </L>
-          <L>
-            {' '}
-            <P>score</P>: <N>9</N>,
-          </L>
-          <L>
-            {' '}
-            <P>keyPoints</P>: [
-          </L>
-          <L>
-            {' '}
-            <S>&apos;30h battery life&apos;</S>,
-          </L>
-          <L>
-            {' '}
-            <S>&apos;Premium build quality&apos;</S>,
-          </L>
-          <L>
-            {' '}
-            <S>&apos;Ear cushions warm after 2h&apos;</S>
-          </L>
-          <L> ],</L>
-          <L>{'}'}</L>
-        </code>
-      </pre>
-      <div className="mt-4 space-y-2">
-        <Feature color="bg-violet-500" text="Any Standard Schema v1 library" />
-        <Feature
-          color="bg-rose-500"
-          text=".refine() & .transform() run at parse"
-        />
-        <Feature
-          color="bg-teal-500"
-          text="Same retry pipeline as fluent builder"
-        />
-      </div>
-    </div>
-  );
-}
-
-function FluentOutput() {
-  return (
-    <div className="p-5 flex flex-col h-full">
-      <div className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold mb-3">
-        Typed Output
-      </div>
-      <pre className="text-[13px] leading-relaxed font-mono flex-1">
-        <code>
-          <L>{'{'}</L>
-          <L>
-            {' '}
-            <P>summary</P>: <S>&apos;Service agreement between...&apos;</S>,
-          </L>
-          <L>
-            {' '}
-            <P>entities</P>: [
-          </L>
-          <L>
-            {' '}
-            {'{'} <P>name</P>: <S>&apos;Acme Corp&apos;</S>,
-          </L>
-          <L>
-            {' '}
-            <P>type</P>: <S>&apos;org&apos;</S>,
-          </L>
-          <L>
-            {' '}
-            <P>confidence</P>: <N>0.95</N> {'}'},
-          </L>
-          <L>
-            {' '}
-            {'{'} <P>name</P>: <S>&apos;Jane Smith&apos;</S>,
-          </L>
-          <L>
-            {' '}
-            <P>type</P>: <S>&apos;person&apos;</S>,
-          </L>
-          <L>
-            {' '}
-            <P>confidence</P>: <N>0.88</N> {'}'},
-          </L>
-          <L> ],</L>
-          <L>
-            {' '}
-            <P>contact</P>: {'{'}
-          </L>
-          <L>
-            {' '}
-            <P>email</P>: <S>&apos;jane@acme.com&apos;</S>,
-          </L>
-          <L>
-            {' '}
-            <P>website</P>: <S>&apos;https://acme.com&apos;</S>
-          </L>
-          <L> {'}'},</L>
-          <L>
-            {' '}
-            <P>tags</P>: [<S>&apos;contract&apos;</S>, <S>&apos;legal&apos;</S>,{' '}
-            <S>&apos;NDA&apos;</S>]
-          </L>
-          <L>{'}'}</L>
-        </code>
-      </pre>
-      <div className="mt-4 space-y-2">
-        <Feature color="bg-emerald-500" text="Nested objects & typed arrays" />
-        <Feature color="bg-purple-500" text="Email & URL format validated" />
-        <Feature color="bg-cyan-500" text="Auto-retry on validation failure" />
-      </div>
-    </div>
-  );
-}
-
-function StringOutput() {
-  return (
-    <div className="p-5 flex flex-col h-full">
-      <div className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold mb-3">
-        Typed Output
-      </div>
-      <pre className="text-[13px] leading-relaxed font-mono flex-1">
-        <code>
-          <L>
-            <C>{'// classify'}</C>
-          </L>
-          <L>
-            {'{'} <P>sentiment</P>: <S>&apos;pos&apos;</S> {'}'}
-          </L>
-          <L />
-          <L>
-            <C>{'// extract'}</C>
-          </L>
-          <L>
-            {'{'} <P>names</P>: [<S>&apos;Alice&apos;</S>,{' '}
-            <S>&apos;Bob&apos;</S>],
-          </L>
-          <L>
-            {' '}
-            <P>dates</P>: [<S>&apos;2025-03-15&apos;</S>],
-          </L>
-          <L>
-            {' '}
-            <P>amounts</P>: [<N>1500</N>, <N>3200</N>] {'}'}
-          </L>
-          <L />
-          <L>
-            <C>{'// solve (reasoning is hidden)'}</C>
-          </L>
-          <L>
-            {'{'} <P>answer</P>: <S>&apos;42&apos;</S> {'}'}
-          </L>
-          <L />
-          <L>
-            <C>{'// describe'}</C>
-          </L>
-          <L>
-            {'{'} <P>answer</P>: <S>&apos;A golden retriever...&apos;</S> {'}'}
-          </L>
-        </code>
-      </pre>
-      <div className="mt-4 space-y-2">
-        <Feature color="bg-amber-500" text="Concise one-liner signatures" />
-        <Feature color="bg-pink-500" text="Internal fields hide reasoning" />
-        <Feature color="bg-blue-500" text="Images, audio, dates built-in" />
-      </div>
-    </div>
-  );
-}
-
-/* ─── Main Component ─── */
+const TABS: SignatureTab[] = ['native', 'string', 'schema'];
+const FEATURE_COLORS = ['bg-emerald-500', 'bg-purple-500', 'bg-cyan-500'];
 
 export default function SignatureShowcase() {
-  const [tab, setTab] = useState<Tab>('fluent');
+  const [tab, setTab] = useState<SignatureTab>('native');
+  const language = useHomepageLanguage();
+  const languageDemo = getHomepageLanguageDemo(language);
+  const panel = languageDemo.signatures[tab];
 
   return (
     <section className="max-w-6xl mx-auto px-6 py-20">
@@ -452,32 +26,25 @@ export default function SignatureShowcase() {
       >
         <div className="text-center mb-10">
           <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white tracking-tight mb-4">
-            Three ways to define signatures
+            One signature, native code
           </h2>
           <p className="text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
-            Quick string syntax, type-safe fluent builder, or your existing zod
-            schemas — same pipeline, same retries, same type inference.
+            String signatures, fluent builders, and schema output share the same
+            Ax semantics in every language package.
           </p>
         </div>
 
         {/* Tab switcher */}
         <div className="flex justify-center mb-6">
           <div className="inline-flex rounded-xl bg-gray-100 dark:bg-white/[0.06] border border-gray-200 dark:border-white/10 p-1">
-            <TabButton
-              active={tab === 'fluent'}
-              onClick={() => setTab('fluent')}
-              label="Fluent Builder"
-            />
-            <TabButton
-              active={tab === 'string'}
-              onClick={() => setTab('string')}
-              label="String Syntax"
-            />
-            <TabButton
-              active={tab === 'zod'}
-              onClick={() => setTab('zod')}
-              label="Zod Schema"
-            />
+            {TABS.map((item) => (
+              <TabButton
+                key={item}
+                active={tab === item}
+                onClick={() => setTab(item)}
+                label={languageDemo.signatures[item].tabLabel}
+              />
+            ))}
           </div>
         </div>
 
@@ -485,31 +52,18 @@ export default function SignatureShowcase() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {/* Left: Code input */}
           <div className="rounded-2xl overflow-hidden border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-gray-950">
-            <TerminalHeader
-              filename={
-                tab === 'fluent'
-                  ? 'analyze.ts'
-                  : tab === 'zod'
-                    ? 'zod-schema.ts'
-                    : 'signatures.ts'
-              }
-            />
+            <TerminalHeader filename={panel.filename} />
             <AnimatePresence mode="wait">
-              <motion.div
-                key={tab}
+              <motion.pre
+                key={`${language}-${tab}-code`}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
+                className="p-5 text-[13px] leading-relaxed overflow-x-auto font-mono text-gray-800 dark:text-gray-200"
               >
-                {tab === 'fluent' ? (
-                  <FluentCode />
-                ) : tab === 'zod' ? (
-                  <ZodCode />
-                ) : (
-                  <StringCode />
-                )}
-              </motion.div>
+                <code>{panel.code}</code>
+              </motion.pre>
             </AnimatePresence>
           </div>
 
@@ -518,20 +72,28 @@ export default function SignatureShowcase() {
             <TerminalHeader filename="output" />
             <AnimatePresence mode="wait">
               <motion.div
-                key={tab}
+                key={`${language}-${tab}-output`}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="h-[calc(100%-48px)]"
+                className="p-5 flex flex-col h-[calc(100%-48px)]"
               >
-                {tab === 'fluent' ? (
-                  <FluentOutput />
-                ) : tab === 'zod' ? (
-                  <ZodOutput />
-                ) : (
-                  <StringOutput />
-                )}
+                <div className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold mb-3">
+                  Typed Output
+                </div>
+                <pre className="text-[13px] leading-relaxed font-mono flex-1 text-gray-800 dark:text-gray-200 overflow-x-auto">
+                  <code>{panel.output}</code>
+                </pre>
+                <div className="mt-4 space-y-2">
+                  {panel.features.map((feature, index) => (
+                    <Feature
+                      key={feature}
+                      color={FEATURE_COLORS[index % FEATURE_COLORS.length]}
+                      text={feature}
+                    />
+                  ))}
+                </div>
               </motion.div>
             </AnimatePresence>
           </div>
@@ -540,8 +102,6 @@ export default function SignatureShowcase() {
     </section>
   );
 }
-
-/* ─── Shared sub-components ─── */
 
 function TerminalHeader({ filename }: { filename: string }) {
   return (
@@ -588,42 +148,4 @@ function Feature({ color, text }: { color: string; text: string }) {
       <span className="text-xs text-gray-500 dark:text-gray-400">{text}</span>
     </div>
   );
-}
-
-/* ─── Syntax highlighting helpers ─── */
-
-function L({ children }: { children?: React.ReactNode }) {
-  return (
-    <span className="block text-gray-800 dark:text-gray-200">{children}</span>
-  );
-}
-
-function Kw({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-purple-600 dark:text-purple-400">{children}</span>
-  );
-}
-
-function S({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-emerald-600 dark:text-emerald-400">{children}</span>
-  );
-}
-
-function Fn({ children }: { children: React.ReactNode }) {
-  return <span className="text-blue-600 dark:text-blue-400">{children}</span>;
-}
-
-function P({ children }: { children: React.ReactNode }) {
-  return <span className="text-amber-600 dark:text-amber-300">{children}</span>;
-}
-
-function N({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-orange-500 dark:text-orange-400">{children}</span>
-  );
-}
-
-function C({ children }: { children: React.ReactNode }) {
-  return <span className="text-gray-400 dark:text-gray-500">{children}</span>;
 }

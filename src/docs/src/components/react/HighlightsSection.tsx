@@ -387,15 +387,15 @@ const highlights: Highlight[] = [
     visual: null,
   },
   {
-    stat: '3 Runtimes',
-    title: 'Universal Runtime',
+    stat: '6 Languages',
+    title: 'Native Packages',
     description:
-      'Works in Node.js, Deno, and browsers. Web Workers for sandboxed execution.',
+      'TypeScript, Python, Java, C++, Go, and Rust packages share one Ax semantic core.',
     glowColor: 'rgba(59, 130, 246, 0.15)',
     statColor: 'text-blue-600 dark:text-blue-400',
     visual: (
       <div className="flex items-center gap-2 mt-1">
-        {['Node.js', 'Deno', 'Browser'].map((rt) => (
+        {['TS', 'Python', 'Java', 'C++', 'Go', 'Rust'].map((rt) => (
           <span
             key={rt}
             className="px-2.5 py-1 rounded-full text-[10px] font-medium bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/20"

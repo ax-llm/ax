@@ -1,55 +1,56 @@
 import { motion } from 'framer-motion';
+import { providerSnippet, useHomepageLanguage } from './homepageLanguage';
 
 interface Provider {
+  id: string;
   name: string;
-  code: string;
   color: string;
 }
 
 const providers: Provider[] = [
   {
+    id: 'openai',
     name: 'OpenAI',
-    code: `ai({ name: 'openai' })`,
     color: 'text-green-600 dark:text-green-400',
   },
   {
+    id: 'anthropic',
     name: 'Anthropic',
-    code: `ai({ name: 'anthropic' })`,
     color: 'text-orange-600 dark:text-orange-400',
   },
   {
+    id: 'google-gemini',
     name: 'Google Gemini',
-    code: `ai({ name: 'google-gemini' })`,
     color: 'text-blue-600 dark:text-blue-400',
   },
   {
+    id: 'cohere',
     name: 'Cohere',
-    code: `ai({ name: 'cohere' })`,
     color: 'text-purple-600 dark:text-purple-400',
   },
   {
+    id: 'deepseek',
     name: 'DeepSeek',
-    code: `ai({ name: 'deepseek' })`,
     color: 'text-sky-600 dark:text-sky-400',
   },
   {
+    id: 'mistral',
     name: 'Mistral',
-    code: `ai({ name: 'mistral' })`,
     color: 'text-amber-600 dark:text-amber-400',
   },
   {
+    id: 'grok',
     name: 'Grok',
-    code: `ai({ name: 'grok' })`,
     color: 'text-neutral-600 dark:text-neutral-300',
   },
   {
+    id: 'reka',
     name: 'Reka',
-    code: `ai({ name: 'reka' })`,
     color: 'text-teal-600 dark:text-teal-400',
   },
   {
+    id: 'aws-bedrock',
     name: 'AWS Bedrock',
-    code: `new AxAIBedrock({ region: 'us-east-2' })`,
     color: 'text-orange-600 dark:text-orange-300',
   },
 ];
@@ -70,6 +71,8 @@ const fieldTypes = [
 const EASE = [0.25, 0.46, 0.45, 0.94] as const;
 
 export default function ProvidersSection() {
+  const language = useHomepageLanguage();
+
   return (
     <section className="max-w-6xl mx-auto px-6 py-20">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
@@ -98,7 +101,7 @@ export default function ProvidersSection() {
                   {p.name}
                 </div>
                 <code className="text-[10px] font-mono text-gray-400 dark:text-gray-500 leading-tight block truncate">
-                  {p.code}
+                  {providerSnippet(p.id, language)}
                 </code>
               </div>
             ))}

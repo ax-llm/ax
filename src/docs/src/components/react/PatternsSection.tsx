@@ -1,15 +1,16 @@
-import type React from 'react';
 import { motion } from 'framer-motion';
 import {
-  Tags,
   FileText,
-  MessageCircle,
-  Languages,
   Image,
-  Shield,
-  Zap,
+  Languages,
   ListChecks,
+  MessageCircle,
+  Shield,
+  Tags,
+  Zap,
 } from 'lucide-react';
+import type React from 'react';
+import { useHomepageLanguage, wrapSignature } from './homepageLanguage';
 
 interface Pattern {
   name: string;
@@ -25,7 +26,7 @@ const patterns: Pattern[] = [
     name: 'Classification',
     description: 'Categorize text into predefined classes',
     icon: Tags,
-    code: `'text:string -> category:class "spam, ham, promo"'`,
+    code: 'text:string -> category:class "spam, ham, promo"',
     iconBg: 'bg-violet-100 dark:bg-violet-500/20',
     iconColor: 'text-violet-600 dark:text-violet-400',
   },
@@ -33,7 +34,7 @@ const patterns: Pattern[] = [
     name: 'Extraction',
     description: 'Pull structured data from unstructured text',
     icon: FileText,
-    code: `'document:string -> names:string[], dates:date[], amounts:number[]'`,
+    code: 'document:string -> names:string[], dates:date[], amounts:number[]',
     iconBg: 'bg-cyan-100 dark:bg-cyan-500/20',
     iconColor: 'text-cyan-600 dark:text-cyan-400',
   },
@@ -41,7 +42,7 @@ const patterns: Pattern[] = [
     name: 'Question Answering',
     description: 'Answer questions given context',
     icon: MessageCircle,
-    code: `'context:string, question:string -> answer:string'`,
+    code: 'context:string, question:string -> answer:string',
     iconBg: 'bg-emerald-100 dark:bg-emerald-500/20',
     iconColor: 'text-emerald-600 dark:text-emerald-400',
   },
@@ -49,7 +50,7 @@ const patterns: Pattern[] = [
     name: 'Multi-Modal',
     description: 'Process images and audio alongside text',
     icon: Image,
-    code: `'photo:image, question:string -> answer:string'`,
+    code: 'photo:image, question:string -> answer:string',
     iconBg: 'bg-amber-100 dark:bg-amber-500/20',
     iconColor: 'text-amber-600 dark:text-amber-400',
   },
@@ -57,7 +58,7 @@ const patterns: Pattern[] = [
     name: 'Validation',
     description: 'Auto-validate outputs with built-in constraints',
     icon: Shield,
-    code: `f.string().email()  f.number().min(0).max(100)`,
+    code: 'email:string, score:number -> valid:boolean',
     iconBg: 'bg-pink-100 dark:bg-pink-500/20',
     iconColor: 'text-pink-600 dark:text-pink-400',
   },
@@ -65,7 +66,7 @@ const patterns: Pattern[] = [
     name: 'Streaming',
     description: 'Get results as they generate in real-time',
     icon: Zap,
-    code: `await gen.forward(llm, input, { stream: true })`,
+    code: 'topic:string -> chunk:string',
     iconBg: 'bg-yellow-100 dark:bg-yellow-500/20',
     iconColor: 'text-yellow-600 dark:text-yellow-400',
   },
@@ -73,7 +74,7 @@ const patterns: Pattern[] = [
     name: 'Translation',
     description: 'Translate between any languages',
     icon: Languages,
-    code: `'text:string, targetLanguage:string -> translation:string'`,
+    code: 'text:string, targetLanguage:string -> translation:string',
     iconBg: 'bg-indigo-100 dark:bg-indigo-500/20',
     iconColor: 'text-indigo-600 dark:text-indigo-400',
   },
@@ -81,7 +82,7 @@ const patterns: Pattern[] = [
     name: 'Complex Workflows',
     description: 'Multiple typed outputs from a single call',
     icon: ListChecks,
-    code: `'doc:string -> summary:string, keyPoints:string[], sentiment:class "pos, neg"'`,
+    code: 'doc:string -> summary:string, keyPoints:string[], sentiment:class "pos, neg"',
     iconBg: 'bg-teal-100 dark:bg-teal-500/20',
     iconColor: 'text-teal-600 dark:text-teal-400',
   },
@@ -105,6 +106,8 @@ const itemVariants = {
 };
 
 export default function PatternsSection() {
+  const language = useHomepageLanguage();
+
   return (
     <section className="max-w-6xl mx-auto px-6 py-20">
       <div className="text-center mb-12">
@@ -147,7 +150,7 @@ export default function PatternsSection() {
             </p>
             <div className="rounded-lg bg-gray-100 dark:bg-black/30 border border-gray-200 dark:border-white/5 px-3 py-2">
               <code className="text-xs font-mono text-gray-700 dark:text-gray-300 break-all leading-relaxed">
-                {pattern.code}
+                {wrapSignature(pattern.code, language)}
               </code>
             </div>
           </motion.div>

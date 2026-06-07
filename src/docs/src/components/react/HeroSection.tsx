@@ -1,9 +1,22 @@
-import { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, Check } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Check, Copy } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  getHomepageLanguage,
+  getHomepageLanguageDemo,
+  HOMEPAGE_LANGUAGES,
+  type HomepageLanguage,
+  setHomepageLanguage,
+  stopHomepageLanguageRotation,
+  useHomepageLanguage,
+} from './homepageLanguage';
 import NetworkCanvas from './NetworkCanvas';
 
 const EASE = [0.25, 0.46, 0.45, 0.94] as const;
+const GLOW_GRADIENT =
+  'linear-gradient(to right, #6366f1, #a855f7, #22d3ee, #10b981, #8b5cf6)';
+const VISIBLE_GRADIENT =
+  'linear-gradient(to right, #818cf8, #a855f7, #22d3ee, #34d399, #8b5cf6)';
 
 const fadeUp = (delay: number) => ({
   initial: { opacity: 0, y: 20 },
@@ -11,32 +24,69 @@ const fadeUp = (delay: number) => ({
   transition: { duration: 0.6, delay, ease: EASE },
 });
 
-const INSTALL_COMMANDS = [
-  { cmd: 'npm install @ax-llm/ax', label: 'npm' },
-  { cmd: 'npx ax', label: 'npx' },
-  { cmd: 'deno add npm:@ax-llm/ax --allow-scripts', label: 'deno' },
-  { cmd: 'bun add @ax-llm/ax', label: 'bun' },
-];
-
 export default function HeroSection() {
   const [copied, setCopied] = useState(false);
-  const [cmdIndex, setCmdIndex] = useState(0);
+  const [lockedLanguage, setLockedLanguage] = useState<HomepageLanguage | null>(
+    null
+  );
+  const language = useHomepageLanguage();
+  const demo = getHomepageLanguageDemo(language);
 
   useEffect(() => {
-    const id = setInterval(() => {
-      setCmdIndex((i) => (i + 1) % INSTALL_COMMANDS.length);
-    }, 3500);
-    return () => clearInterval(id);
+    const prefersReducedMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)'
+    );
+    if (prefersReducedMotion.matches) {
+      return;
+    }
+
+    stopHomepageLanguageRotation();
+
+    const owner = Date.now() + Math.random();
+    window.__axHomepageLanguageRotationOwner = owner;
+
+    let languageIndex = Math.max(
+      0,
+      HOMEPAGE_LANGUAGES.findIndex((item) => item.id === getHomepageLanguage())
+    );
+
+    const rotate = () => {
+      if (window.__axHomepageLanguageRotationOwner !== owner) {
+        return;
+      }
+
+      languageIndex = (languageIndex + 1) % HOMEPAGE_LANGUAGES.length;
+      setHomepageLanguage(HOMEPAGE_LANGUAGES[languageIndex].id);
+      window.__axHomepageLanguageTimer = window.setTimeout(rotate, 4200);
+    };
+
+    window.__axHomepageLanguageTimer = window.setTimeout(rotate, 4200);
+
+    return () => {
+      if (window.__axHomepageLanguageRotationOwner === owner) {
+        window.__axHomepageLanguageRotationOwner = undefined;
+        if (window.__axHomepageLanguageTimer) {
+          clearTimeout(window.__axHomepageLanguageTimer);
+          window.__axHomepageLanguageTimer = undefined;
+        }
+      }
+    };
+  }, []);
+
+  const handleLanguageSelect = useCallback((nextLanguage: HomepageLanguage) => {
+    stopHomepageLanguageRotation();
+    setLockedLanguage(nextLanguage);
+    setHomepageLanguage(nextLanguage);
   }, []);
 
   const handleCopy = useCallback(async () => {
-    await navigator.clipboard.writeText(INSTALL_COMMANDS[cmdIndex].cmd);
+    await navigator.clipboard.writeText(demo.command);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [cmdIndex]);
+  }, [demo.command]);
 
   return (
-    <section className="relative min-h-[95vh] flex items-start justify-center overflow-hidden">
+    <section className="relative min-h-[84vh] sm:min-h-[95vh] flex items-start justify-center overflow-hidden">
       {/* Background layers */}
       <div className="absolute inset-0">
         {/* Dot grid pattern */}
@@ -64,33 +114,43 @@ export default function HeroSection() {
       </div>
 
       {/* Content — sits in the clean top zone */}
-      <div className="relative z-10 max-w-5xl mx-auto px-6 pt-28 pb-16 text-center">
+      <div className="relative z-10 max-w-5xl mx-auto px-6 pt-24 sm:pt-28 pb-8 sm:pb-16 text-center">
         {/* Tagline */}
         <motion.h1
           {...fadeUp(0)}
-          className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold leading-[1.05] text-gray-900 dark:text-white tracking-tighter mb-6"
+          className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold leading-[1.05] text-gray-900 dark:text-white tracking-tighter mb-4 sm:mb-6"
+          aria-label={`DSPy for ${demo.label}`}
         >
-          <span className="relative inline-block">
+          <span
+            className="relative mx-auto inline-flex justify-center"
+            aria-hidden="true"
+          >
             {/* Glow layer (dark mode only) */}
             <span
               className="absolute inset-0 bg-clip-text text-transparent animate-gradient blur-2xl opacity-0 dark:opacity-40 pointer-events-none select-none"
               style={{
-                backgroundImage:
-                  'linear-gradient(to right, #6366f1, #a855f7, #22d3ee, #10b981, #8b5cf6)',
+                backgroundImage: GLOW_GRADIENT,
               }}
               aria-hidden="true"
             >
-              DSPy for TypeScript
+              DSPy for{' '}
+              <LanguageWord
+                language={language}
+                backgroundImage={GLOW_GRADIENT}
+              />
             </span>
             {/* Visible gradient text */}
             <span
               className="relative bg-clip-text text-transparent animate-gradient"
               style={{
-                backgroundImage:
-                  'linear-gradient(to right, #818cf8, #a855f7, #22d3ee, #34d399, #8b5cf6)',
+                backgroundImage: VISIBLE_GRADIENT,
               }}
             >
-              DSPy for TypeScript
+              DSPy for{' '}
+              <LanguageWord
+                language={language}
+                backgroundImage={VISIBLE_GRADIENT}
+              />
             </span>
           </span>
         </motion.h1>
@@ -98,24 +158,54 @@ export default function HeroSection() {
         {/* Subtitle */}
         <motion.p
           {...fadeUp(0.1)}
-          className="text-lg md:text-xl text-gray-600 dark:text-gray-300 max-w-2xl mx-auto mb-6 leading-relaxed"
+          className="text-lg md:text-xl text-gray-600 dark:text-gray-300 max-w-2xl mx-auto mb-4 sm:mb-6 leading-relaxed"
         >
           Declare signatures, not prompts. Ax compiles type-safe inputs and
           outputs into optimized LLM calls — then chains them into agents,
           flows, and self-improving pipelines.
         </motion.p>
 
+        <motion.div
+          {...fadeUp(0.16)}
+          className="mb-5 sm:mb-7 flex flex-wrap items-center justify-center gap-2"
+        >
+          {HOMEPAGE_LANGUAGES.map((item) => {
+            const active = item.id === language;
+            const locked = item.id === lockedLanguage;
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleLanguageSelect(item.id)}
+                aria-pressed={active}
+                aria-label={
+                  locked ? `${item.label} locked` : `Lock ${item.label}`
+                }
+                className={`min-h-9 rounded-lg border px-3.5 py-1.5 text-sm font-semibold transition-all duration-200 ${
+                  active
+                    ? 'border-cyan-400/70 bg-cyan-500/10 text-cyan-700 shadow-sm shadow-cyan-500/10 dark:border-cyan-300/40 dark:bg-cyan-300/10 dark:text-cyan-200'
+                    : 'border-gray-200/70 bg-white/45 text-gray-600 hover:border-gray-300 hover:bg-white/70 hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1] dark:hover:text-white'
+                }`}
+                title={`Lock ${item.label}`}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </motion.div>
+
         {/* Feature pills */}
         <motion.div
           {...fadeUp(0.2)}
-          className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 mb-8"
+          className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 sm:gap-x-6 sm:gap-y-3 mb-5 sm:mb-7"
         >
           {[
             { label: '15+ LLM Providers', color: 'bg-blue-500' },
-            { label: 'End-to-end Streaming', color: 'bg-purple-500' },
-            { label: 'Auto Prompt Tuning', color: 'bg-cyan-500' },
+            { label: '6 Native Language Packages', color: 'bg-purple-500' },
+            { label: 'DSPy + GEPA Optimizer', color: 'bg-cyan-500' },
             {
-              label: 'Auto-installs Claude & Codex skills',
+              label: 'RLM Agent Runtime',
               color: 'bg-emerald-500',
             },
           ].map((pill) => (
@@ -129,7 +219,7 @@ export default function HeroSection() {
         </motion.div>
 
         {/* Install command — glassmorphism, cycling */}
-        <motion.div {...fadeUp(0.3)} className="mb-6">
+        <motion.div {...fadeUp(0.3)} className="mb-5 sm:mb-6">
           <div className="inline-flex items-center gap-3 bg-white/60 dark:bg-white/[0.08] backdrop-blur-xl border border-gray-200/60 dark:border-white/10 rounded-xl px-5 py-3 font-mono text-sm shadow-lg shadow-gray-200/50 dark:shadow-none">
             <span className="text-gray-400 dark:text-gray-500 select-none">
               $
@@ -137,14 +227,14 @@ export default function HeroSection() {
             <div className="relative h-5 flex items-center overflow-hidden">
               <AnimatePresence mode="wait">
                 <motion.span
-                  key={cmdIndex}
+                  key={language}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.25, ease: EASE }}
                   className="text-gray-800 dark:text-gray-200 whitespace-nowrap"
                 >
-                  {INSTALL_COMMANDS[cmdIndex].cmd}
+                  {demo.command}
                 </motion.span>
               </AnimatePresence>
             </div>
@@ -165,7 +255,7 @@ export default function HeroSection() {
         {/* CTA buttons */}
         <motion.div
           {...fadeUp(0.4)}
-          className="flex flex-wrap items-center justify-center gap-4 mb-6"
+          className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mb-5 sm:mb-6"
         >
           <a
             href="#get-started"
@@ -195,7 +285,7 @@ export default function HeroSection() {
         {/* Badges */}
         <motion.div
           {...fadeUp(0.5)}
-          className="flex flex-wrap items-center justify-center gap-3"
+          className="hidden sm:flex flex-wrap items-center justify-center gap-3"
         >
           <a
             href="https://github.com/ax-llm/ax"
@@ -236,5 +326,33 @@ export default function HeroSection() {
         </motion.div>
       </div>
     </section>
+  );
+}
+
+function LanguageWord({
+  language,
+  backgroundImage,
+}: {
+  language: HomepageLanguage;
+  backgroundImage: string;
+}) {
+  const demo = getHomepageLanguageDemo(language);
+
+  return (
+    <span className="relative inline-grid align-baseline [perspective:800px]">
+      <AnimatePresence mode="wait">
+        <motion.span
+          key={language}
+          initial={{ opacity: 0, rotateX: -80, y: 18 }}
+          animate={{ opacity: 1, rotateX: 0, y: 0 }}
+          exit={{ opacity: 0, rotateX: 80, y: -18 }}
+          transition={{ duration: 0.55, ease: EASE }}
+          className="inline-block bg-clip-text text-transparent animate-gradient [transform-origin:50%_60%]"
+          style={{ backgroundImage }}
+        >
+          {demo.label}
+        </motion.span>
+      </AnimatePresence>
+    </span>
   );
 }

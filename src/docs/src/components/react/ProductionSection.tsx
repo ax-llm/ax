@@ -1,13 +1,13 @@
 import { motion } from 'framer-motion';
-import { GlowCard } from './GlowCard';
 import {
   Activity,
   BarChart3,
-  Zap,
   DollarSign,
   Globe,
   Shield,
+  Zap,
 } from 'lucide-react';
+import { GlowCard } from './GlowCard';
 
 const EASE = [0.25, 0.46, 0.45, 0.94] as const;
 
@@ -31,8 +31,8 @@ const stats = [
     color: 'text-purple-600 dark:text-purple-400',
   },
   {
-    value: '3',
-    label: 'Runtimes',
+    value: '6',
+    label: 'Languages',
     color: 'text-emerald-600 dark:text-emerald-400',
   },
 ];
@@ -74,9 +74,9 @@ const features = [
   },
   {
     Icon: Globe,
-    title: 'Multi-Runtime',
+    title: 'Multi-Language',
     description:
-      'Same code runs in Node.js, Deno, and browsers. Web Workers for sandboxed execution — deploy anywhere.',
+      'One semantic core spans TypeScript, Python, Java, C++, Go, and Rust package shapes — from embedded apps to web services.',
     glow: 'rgba(99, 102, 241, 0.15)',
     color: 'indigo',
   },
