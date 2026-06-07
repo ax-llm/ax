@@ -1,7 +1,7 @@
 #include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeOptimizer : axllm::OptimizerEngine {
+struct ScriptedOptimizer : axllm::OptimizerEngine {
   std::string name() const override { return "fixture"; }
   std::string version() const override { return "1"; }
   axllm::Value optimize(axllm::Value) override {
@@ -28,7 +28,7 @@ static bool has_instruction(const axllm::AxGen& gen, const std::string& value) {
 
 int main() {
   axllm::AxGen qa = axllm::ax("question:string -> answer:string", axllm::object({{"id", "qa"}, {"instruction", "Base."}}));
-  FakeOptimizer engine;
+  ScriptedOptimizer engine;
   axllm::Value artifact = qa.optimize_with(engine, axllm::Value::array(), axllm::object({{"apply", false}}));
   if (!has_instruction(qa, "Base.")) return 1;
   qa.apply_optimization(axllm::Value(axllm::stringify(artifact)));

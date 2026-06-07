@@ -2,7 +2,7 @@ import dev.axllm.ax.*;
 import java.util.*;
 
 public final class OptimizerArtifactExample {
-  static final class FakeOptimizer implements OptimizerEngine {
+  static final class ScriptedOptimizer implements OptimizerEngine {
     public String name() { return "fixture"; }
     public String version() { return "1"; }
     public Map<String, Object> optimize(Map<String, Object> request) {
@@ -25,7 +25,7 @@ public final class OptimizerArtifactExample {
 
   public static void main(String[] args) {
     AxGen qa = new AxGen(Ax.s("question:string -> answer:string"), Map.of("id", "qa", "instruction", "Base."));
-    Map<String, Object> artifact = qa.optimizeWith(new FakeOptimizer(), List.of(), Map.of("apply", false));
+    Map<String, Object> artifact = qa.optimizeWith(new ScriptedOptimizer(), List.of(), Map.of("apply", false));
     if (!hasInstruction(qa, "Base.")) throw new RuntimeException("apply=false mutated components");
     qa.applyOptimization(Json.stringify(artifact));
     if (!hasInstruction(qa, "Prefer artifact-backed answers.")) throw new RuntimeException("artifact not applied");

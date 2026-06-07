@@ -12,7 +12,7 @@ struct ProfileAIClient : axllm::AIClient {
 
   axllm::Value complete(axllm::Value request) override {
     requests.push_back(request);
-    if (index >= responses.size()) throw axllm::AxError("runtime", "fake client exhausted");
+    if (index >= responses.size()) throw axllm::AxError("runtime", "scripted client exhausted");
     return responses[index++];
   }
 };
@@ -26,7 +26,7 @@ struct PyodideProfileTransport : axllm::RuntimeTransport {
     axllm::Value id = axllm::Core::get(message, "id");
     axllm::Value op = axllm::Core::get(message, "op");
     if (axllm::equal(op, "capabilities")) {
-      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::object({{"language", "Python"}, {"usage_instructions", "fake Pyodide protocol"}})}});
+      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::object({{"language", "Python"}, {"usage_instructions", "scripted Pyodide protocol"}})}});
     }
     if (axllm::equal(op, "create_session")) {
       std::string session_id = "p" + std::to_string(++next_session);

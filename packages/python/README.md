@@ -41,17 +41,24 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `no-key` examples are deterministic local smokes. They are the fastest way to see the package work without any provider account:
 
 - `python examples/signature_schema.py`: signature parsing and JSON schema generation
-- `python examples/axgen_fake_client_tool.py`: AxGen with a fake client and tool
-- `python examples/axai_fake_transport.py`: provider mapping through a fake transport
+- `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client and tool
+- `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport
+- `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport
 - `python examples/axagent_pipeline.py`: deterministic AxAgent pipeline
 - `python examples/axflow_program_graph.py`: AxFlow program graph
+- `python examples/audio_responses_mapping.py`: OpenAI Responses speak/transcribe mapping through a scripted transport
+- `python examples/realtime_audio_events.py`: Grok/Gemini realtime audio setup, input, and event folding
 - `python examples/runtime_adapter.py`: custom `AxCodeRuntime` session
 - `python examples/runtime_protocol.py`: process runtime protocol against the AxJS reference adapter
 - `python examples/optimizer_artifact.py`: optimizer artifact save/load/apply lifecycle
+- `python examples/gepa_local_optimizer.py`: local GEPA optimizer artifact generation
+- `python examples/mcp_scripted_tools.py`: MCP tool discovery and invocation through a scripted transport
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - `OPENAI_API_KEY=... python examples/axgen_openai_api.py`: AxGen with a real OpenAI-compatible provider API
+- `OPENAI_API_KEY=... python examples/agent_openai_api.py`: AxAgent with a real OpenAI-compatible provider API
+- `OPENAI_API_KEY=... python examples/flow_openai_api.py`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents
 
@@ -74,7 +81,7 @@ Optional runtime profiles are dependency-bearing and opt-in. Adapter policy owns
 
 - Compiler contract version: 0.1
 - Package: axllm
-- Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow
+- Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow, axmcp
 - Provider mode: provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic
-- Fake transport support: true
+- Scripted transport support: true
 - Real network support: available

@@ -1,8 +1,8 @@
-use axllm::{AxAIClient, AxResult, FakeTransport, OpenAICompatibleClient};
+use axllm::{AxAIClient, AxResult, OpenAICompatibleClient, ScriptedTransport};
 use serde_json::json;
 
 fn main() -> AxResult<()> {
-    let transport = FakeTransport::new(vec![json!({
+    let transport = ScriptedTransport::new(vec![json!({
         "status": 200,
         "json": {
             "id": "chatcmpl_example",

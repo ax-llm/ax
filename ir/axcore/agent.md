@@ -39,4 +39,4 @@ session is created, how one actor code step is executed through a host
 `AxCodeRuntime`/`AxCodeSession` boundary, how final/clarification/discover/status
 payloads are normalized, when action-log entries are written, and how session
 state export/restore/close is shaped. Generated targets provide the actual
-runtime implementation; conformance uses deterministic fake runtimes.
+runtime implementation; conformance uses deterministic scripted runtimes.

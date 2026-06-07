@@ -42,17 +42,24 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `no-key` examples are deterministic local smokes. They are the fastest way to see the package work without any provider account:
 
 - `examples/signature_schema.cpp`: signature parsing and JSON schema generation
-- `examples/axgen_fake_client_tool.cpp`: AxGen with a fake client and tool
-- `examples/axai_fake_transport.cpp`: provider mapping through a fake transport
+- `examples/axgen_scripted_client_tool.cpp`: AxGen with a scripted client and tool
+- `examples/provider_mapping_no_key.cpp`: provider mapping through a scripted transport
+- `examples/provider_stream_no_key.cpp`: provider streaming through a scripted SSE transport
 - `examples/axagent_pipeline.cpp`: deterministic AxAgent pipeline
 - `examples/axflow_program_graph.cpp`: AxFlow program graph
+- `examples/audio_responses_mapping.cpp`: OpenAI Responses speak/transcribe mapping through a scripted transport
+- `examples/realtime_audio_events.cpp`: Grok/Gemini realtime audio setup, input, and event folding
 - `examples/runtime_adapter.cpp`: custom `AxCodeRuntime` session
 - `examples/runtime_protocol.cpp`: process runtime protocol against the AxJS reference adapter
 - `examples/optimizer_artifact.cpp`: optimizer artifact save/load/apply lifecycle
+- `examples/gepa_local_optimizer.cpp`: local GEPA optimizer artifact generation
+- `examples/mcp_scripted_tools.cpp`: MCP tool discovery and invocation through a scripted transport
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - `OPENAI_API_KEY=... ./build/axgen_openai_api`: AxGen with a real OpenAI-compatible provider API after building examples
+- `OPENAI_API_KEY=... ./build/agent_openai_api`: AxAgent with a real OpenAI-compatible provider API after building examples
+- `OPENAI_API_KEY=... ./build/flow_openai_api`: AxFlow with a real OpenAI-compatible provider API after building examples
 
 ## Runtime Profiles And RLM Agents
 
@@ -75,7 +82,7 @@ Optional runtime profiles are dependency-bearing and opt-in. Adapter policy owns
 
 - Compiler contract version: 0.1
 - Package: axllm
-- Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow
+- Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow, axmcp
 - Provider mode: provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic
-- Fake transport support: true
+- Scripted transport support: true
 - Real network support: available through the built-in libcurl HttpTransport when the CMake package finds CURL; custom Transport remains supported

@@ -11,11 +11,12 @@ npm run tsx src/examples/summarize.ts
 npm run example -- ts src/examples/summarize.ts
 ```
 
-Generated Python, Java, C++, Go, and Rust examples are stored in language-specific
-directories and run through the shared `.env`-aware example runner. The runner
-uses the committed generated Ax packages under `packages/<language>`, writes
-only build/run scratch data into `src/examples/.generated/`, then runs the
-example. Use `list` to see the current no-key and provider API examples:
+Generated Python, Java, C++, Go, and Rust examples live in the committed
+generated packages under `packages/<language>/examples`. TypeScript examples
+remain in `src/examples`. The shared `.env`-aware runner resolves generated
+language examples from packages first, writes only build/run scratch data into
+`src/examples/.generated/`, then runs the example. Use `list` to see the current
+no-key and provider API examples:
 
 ```bash
 npm run example -- list
@@ -24,10 +25,12 @@ npm run example -- java SignatureSchemaExample.java
 npm run example -- cpp signature_schema.cpp
 npm run example -- go signature_schema.go
 npm run example -- rust signature_schema.rs
+npm run example -- ts src/examples/mcp-scripted-tools.ts
+npm run example -- python mcp_scripted_tools.py
 ```
 
-No-key examples are deterministic local examples. They use fake clients,
-fake transports, custom runtime adapters, or local evaluators and print the
+No-key examples are deterministic local examples. They use scripted clients,
+scripted transports, custom runtime adapters, or local evaluators and print the
 actual normalized output shape. Provider API examples call real provider HTTP
 and require `OPENAI_API_KEY` or `OPENAI_APIKEY` from `.env`:
 
@@ -44,35 +47,46 @@ npm run example -- rust axgen_openai_api.rs
 | Area | Python | Java | C++ | Go | Rust | Kind |
 | --- | --- | --- | --- | --- | --- | --- |
 | Signature/schema | `signature_schema.py` | `SignatureSchemaExample.java` | `signature_schema.cpp` | `signature_schema.go` | `signature_schema.rs` | no-key |
-| OpenAI-compatible provider mapping | `axai_fake_transport.py` | `AxAIFakeTransportExample.java` | `axai_fake_transport.cpp` | `provider_mapping_no_key.go` | `provider_mapping_no_key.rs` | no-key |
-| OpenAI-compatible provider stream | - | - | - | - | `provider_stream_no_key.rs` | no-key |
-| AxGen fake client/tool | `axgen_fake_client_tool.py` | `AxGenFakeClientToolExample.java` | `axgen_fake_client_tool.cpp` | `axgen_fake_client_tool.go` | `axgen_fake_client_tool.rs` | no-key |
+| OpenAI-compatible provider mapping | `provider_mapping_no_key.py` | `ProviderMappingNoKeyExample.java` | `provider_mapping_no_key.cpp` | `provider_mapping_no_key.go` | `provider_mapping_no_key.rs` | no-key |
+| OpenAI-compatible provider stream | `provider_stream_no_key.py` | `ProviderStreamNoKeyExample.java` | `provider_stream_no_key.cpp` | `provider_stream_no_key.go` | `provider_stream_no_key.rs` | no-key |
+| AxGen scripted client/tool | `axgen_scripted_client_tool.py` | `AxGenScriptedClientToolExample.java` | `axgen_scripted_client_tool.cpp` | `axgen_scripted_client_tool.go` | `axgen_scripted_client_tool.rs` | no-key |
 | AxGen OpenAI API | `axgen_openai_api.py` | `AxGenOpenAIExample.java` | `axgen_openai_api.cpp` | `axgen_openai_api.go` | `axgen_openai_api.rs` | provider-api |
-| AxAgent deterministic pipeline | `agent_pipeline.py` | `AgentPipelineExample.java` | `agent_pipeline.cpp` | `axagent_pipeline.go` | `axagent_pipeline.rs` | no-key |
-| AxAgent OpenAI API | `agent_openai_api.py` | `AgentOpenAIExample.java` | `agent_openai_api.cpp` | - | - | provider-api |
-| AxFlow deterministic graph | `flow_program_graph.py` | `FlowProgramGraphExample.java` | `flow_program_graph.cpp` | `axflow_program_graph.go` | `axflow_program_graph.rs` | no-key |
-| AxFlow OpenAI API | `flow_openai_api.py` | `FlowOpenAIExample.java` | `flow_openai_api.cpp` | - | - | provider-api |
-| OpenAI Responses audio mapping | `audio_responses_mapping.py` | `AudioResponsesMappingExample.java` | `audio_responses_mapping.cpp` | - | - | no-key |
-| Grok/Gemini realtime event folding | `realtime_audio_events.py` | `RealtimeAudioEventsExample.java` | `realtime_audio_events.cpp` | - | - | no-key |
+| AxAgent deterministic pipeline | `axagent_pipeline.py` | `AxAgentPipelineExample.java` | `axagent_pipeline.cpp` | `axagent_pipeline.go` | `axagent_pipeline.rs` | no-key |
+| AxAgent OpenAI API | `agent_openai_api.py` | `AgentOpenAIExample.java` | `agent_openai_api.cpp` | `agent_openai_api.go` | `agent_openai_api.rs` | provider-api |
+| AxFlow deterministic graph | `axflow_program_graph.py` | `AxFlowProgramGraphExample.java` | `axflow_program_graph.cpp` | `axflow_program_graph.go` | `axflow_program_graph.rs` | no-key |
+| AxFlow OpenAI API | `flow_openai_api.py` | `FlowOpenAIExample.java` | `flow_openai_api.cpp` | `flow_openai_api.go` | `flow_openai_api.rs` | provider-api |
+| OpenAI Responses audio mapping | `audio_responses_mapping.py` | `AudioResponsesMappingExample.java` | `audio_responses_mapping.cpp` | `audio_responses_mapping.go` | `audio_responses_mapping.rs` | no-key |
+| Grok/Gemini realtime event folding | `realtime_audio_events.py` | `RealtimeAudioEventsExample.java` | `realtime_audio_events.cpp` | `realtime_audio_events.go` | `realtime_audio_events.rs` | no-key |
 | Runtime adapter | `runtime_adapter.py` | `RuntimeAdapterExample.java` | `runtime_adapter.cpp` | `runtime_adapter.go` | `runtime_adapter.rs` | no-key |
 | Runtime protocol | `runtime_protocol.py` | `RuntimeProtocolExample.java` | `runtime_protocol.cpp` | `runtime_protocol.go` | `runtime_protocol.rs` | no-key |
 | Optimizer artifact round trip | `optimizer_artifact.py` | `OptimizerArtifactExample.java` | `optimizer_artifact.cpp` | `optimizer_artifact.go` | `optimizer_artifact.rs` | no-key |
-| GEPA local optimizer | `gepa_local_optimizer.py` | `GEPALocalOptimizerExample.java` | `gepa_local_optimizer.cpp` | - | - | no-key |
+| GEPA local optimizer | `gepa_local_optimizer.py` | `GEPALocalOptimizerExample.java` | `gepa_local_optimizer.cpp` | `gepa_local_optimizer.go` | `gepa_local_optimizer.rs` | no-key |
+| MCP scripted transport tools | `mcp_scripted_tools.py` | `AxMCPScriptedToolsExample.java` | `mcp_scripted_tools.cpp` | `mcp_scripted_tools.go` | `mcp_scripted_tools.rs` | no-key |
+| MCP stdio JSON-RPC framing | `mcp-stdio-framing.ts` | - | - | - | - | no-key |
+| Linear MCP Streamable HTTP | `mcp-client-linear.ts` | - | - | - | - | provider-api |
 
 Example commands:
 
 ```bash
-npm run example -- python agent_pipeline.py
-npm run example -- java FlowProgramGraphExample.java
+npm run example -- python axagent_pipeline.py
+npm run example -- java AxFlowProgramGraphExample.java
 npm run example -- cpp realtime_audio_events.cpp
 npm run example -- go signature_schema.go
 npm run example -- go provider_mapping_no_key.go
+npm run example -- go provider_stream_no_key.go
+npm run example -- go realtime_audio_events.go
 npm run example -- go axagent_pipeline.go
 npm run example -- go axflow_program_graph.go
+npm run example -- go gepa_local_optimizer.go
+npm run example -- go mcp_scripted_tools.go
 npm run example -- go axgen_openai_api.go
 npm run example -- rust signature_schema.rs
+npm run example -- rust provider_stream_no_key.rs
+npm run example -- rust realtime_audio_events.rs
 npm run example -- rust axagent_pipeline.rs
 npm run example -- rust axflow_program_graph.rs
+npm run example -- rust gepa_local_optimizer.rs
+npm run example -- rust mcp_scripted_tools.rs
 ```
 
 Go examples use the committed generated module `github.com/ax-llm/ax/go`
@@ -81,8 +95,8 @@ through a local scratch module. The generated Go package also includes an opt-in
 actor execution; QuickJS/Pyodide remain process-adapter or non-Go profiles.
 Rust examples use the committed generated crate `axllm` through a local scratch
 Cargo project. The generated Rust crate includes blocking provider transport and
-the process-protocol `ProcessCodeRuntime`; embedded runtime engine profiles are
-left as additive future adapters.
+the process-protocol `ProcessCodeRuntime`; embedded runtime engine profiles stay
+feature-gated and additive.
 
 ## Multi-Objective Optimization Example (GEPA)
 

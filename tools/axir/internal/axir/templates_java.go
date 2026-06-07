@@ -4484,14 +4484,14 @@ public final class Conformance {
     FixtureError(String message) { super(message); }
   }
 
-  static final class FakeAIService extends AxBaseAI {
+  static final class ConformanceScriptedAI extends AxBaseAI {
     final List<Object> responses;
     final List<Object> streamEvents;
     final List<Map<String, Object>> requests = new ArrayList<>();
     int chatCalls;
 
-    FakeAIService(List<Object> responses, List<Object> streamEvents) {
-      super("fake", "fake-chat", "fake-embed", Map.of(), Map.of());
+    ConformanceScriptedAI(List<Object> responses, List<Object> streamEvents) {
+      super("scripted", "scripted-chat", "scripted-embed", Map.of(), Map.of());
       this.responses = new ArrayList<>(responses);
       this.streamEvents = new ArrayList<>(streamEvents);
     }
@@ -4499,13 +4499,13 @@ public final class Conformance {
     protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) {
       chatCalls++;
       requests.add(new LinkedHashMap<>(request));
-      if (responses.isEmpty()) throw new RuntimeException("fake client exhausted");
+      if (responses.isEmpty()) throw new RuntimeException("scripted client exhausted");
       return Core.legacyResponseToChatResponse(Core.asMap(responses.remove(0)));
     }
 
     protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) {
       requests.add(new LinkedHashMap<>(request));
-      if (responses.isEmpty()) throw new RuntimeException("fake client exhausted");
+      if (responses.isEmpty()) throw new RuntimeException("scripted client exhausted");
       return Core.asMap(responses.remove(0));
     }
 
@@ -4518,7 +4518,7 @@ public final class Conformance {
 
     public Map<String, Object> transcribe(Map<String, Object> request) {
       requests.add(new LinkedHashMap<>(request));
-      return Map.of("text", "fake transcript");
+      return Map.of("text", "scripted transcript");
     }
 
     public Map<String, Object> speak(Map<String, Object> request) {
@@ -4527,13 +4527,13 @@ public final class Conformance {
     }
   }
 
-  static final class FakeTransport implements OpenAICompatibleClient.Transport {
+  static final class ScriptedTransport implements OpenAICompatibleClient.Transport {
     final List<Object> responses;
     final List<Map<String, Object>> requests = new ArrayList<>();
-    FakeTransport(List<Object> responses) { this.responses = new ArrayList<>(responses); }
+    ScriptedTransport(List<Object> responses) { this.responses = new ArrayList<>(responses); }
     public Object call(Map<String, Object> request) {
       requests.add(new LinkedHashMap<>(request));
-      if (responses.isEmpty()) throw new RuntimeException("fake transport exhausted");
+      if (responses.isEmpty()) throw new RuntimeException("scripted transport exhausted");
       return responses.remove(0);
     }
   }
@@ -4611,17 +4611,17 @@ public final class Conformance {
     }
   }
 
-  static final class FakeOptimizerEngine implements OptimizerEngine {
+  static final class ScriptedOptimizerEngine implements OptimizerEngine {
     final Map<String, Object> response;
     final List<Map<String, Object>> requests = new ArrayList<>();
     final List<Map<String, Object>> evaluations = new ArrayList<>();
     final List<Map<String, Object>> transcripts = new ArrayList<>();
 
-    FakeOptimizerEngine(Object response) {
+    ScriptedOptimizerEngine(Object response) {
       this.response = new LinkedHashMap<>(Core.asMap(response));
     }
 
-    public String name() { return "fake"; }
+    public String name() { return "scripted"; }
     public String version() { return "1"; }
 
     public Map<String, Object> optimize(Map<String, Object> request) {
@@ -4719,9 +4719,9 @@ public final class Conformance {
     }
   }
 
-  static final class FakeCodeRuntime implements AxCodeRuntime {
+  static final class ScriptedCodeRuntime implements AxCodeRuntime {
     final List<Object> script;
-    final List<FakeCodeSession> sessions = new ArrayList<>();
+    final List<ScriptedCodeSession> sessions = new ArrayList<>();
     final List<String> executed = new ArrayList<>();
     final List<Map<String, Object>> createRequests = new ArrayList<>();
     final List<Map<String, Object>> executeOptions = new ArrayList<>();
@@ -4729,15 +4729,15 @@ public final class Conformance {
     final String usageInstructions;
     final Map<String, Object> capabilities;
 
-    FakeCodeRuntime(List<Object> script) {
+    ScriptedCodeRuntime(List<Object> script) {
       this(script, "JavaScript", "", Map.of());
     }
 
-    FakeCodeRuntime(List<Object> script, String language, String usageInstructions) {
+    ScriptedCodeRuntime(List<Object> script, String language, String usageInstructions) {
       this(script, language, usageInstructions, Map.of());
     }
 
-    FakeCodeRuntime(List<Object> script, String language, String usageInstructions, Map<String, Object> capabilities) {
+    ScriptedCodeRuntime(List<Object> script, String language, String usageInstructions, Map<String, Object> capabilities) {
       this.script = new ArrayList<>(script == null ? List.of() : script);
       this.language = language == null || language.isBlank() ? "JavaScript" : language;
       this.usageInstructions = usageInstructions == null ? "" : usageInstructions;
@@ -4753,19 +4753,19 @@ public final class Conformance {
         "globals", new LinkedHashMap<>(globals == null ? Map.of() : globals),
         "options", new LinkedHashMap<>(options == null ? Map.of() : options)
       )));
-      FakeCodeSession session = new FakeCodeSession(this, globals, options);
+      ScriptedCodeSession session = new ScriptedCodeSession(this, globals, options);
       sessions.add(session);
       return session;
     }
   }
 
-  static final class FakeCodeSession implements AxCodeSession {
-    final FakeCodeRuntime runtime;
+  static final class ScriptedCodeSession implements AxCodeSession {
+    final ScriptedCodeRuntime runtime;
     Map<String, Object> globals;
     Map<String, Object> createOptions;
     boolean closed;
 
-    FakeCodeSession(FakeCodeRuntime runtime, Map<String, Object> globals, Map<String, Object> options) {
+    ScriptedCodeSession(ScriptedCodeRuntime runtime, Map<String, Object> globals, Map<String, Object> options) {
       this.runtime = runtime;
       this.globals = new LinkedHashMap<>(globals == null ? Map.of() : globals);
       this.createOptions = new LinkedHashMap<>(options == null ? Map.of() : options);
@@ -4773,7 +4773,7 @@ public final class Conformance {
 
     public Object execute(String code, Map<String, Object> options) {
       if (closed) return new LinkedHashMap<>(Map.of("is_error", true, "error_category", "session_closed", "error", "session closed"));
-      if (runtime.script.isEmpty()) throw new RuntimeException("fake runtime exhausted");
+      if (runtime.script.isEmpty()) throw new RuntimeException("scripted runtime exhausted");
       Map<String, Object> step = Core.asMap(runtime.script.remove(0));
       Object expected = step.get("expected_code");
       if (expected != null && !String.valueOf(expected).equals(code)) throw new RuntimeException("expected code " + expected + ", got " + code);
@@ -5023,6 +5023,7 @@ public final class Conformance {
       case "program_contract" -> runProgramContract(fixture);
       case "flow" -> runFlow(fixture);
       case "optimize" -> runOptimize(fixture);
+      case "mcp" -> AxMCPClient.runConformanceFixture(fixture);
       default -> throw new FixtureError("unknown fixture kind " + kind);
     }
   }
@@ -5113,7 +5114,7 @@ public final class Conformance {
       for (Object item : Core.asList(fixture.getOrDefault("stop_functions", fixture.getOrDefault("stopFunctions", List.of())))) names.add(String.valueOf(item));
       gen.setStopFunctions(names);
     }
-    FakeAIService client = new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
     Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of()))), fixture);
     if (!fixture.containsKey("expected_error_contains") && fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "forward output");
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
@@ -5290,7 +5291,7 @@ public final class Conformance {
       if (fixture.containsKey("expected_plan")) assertEqual(fl.getPlan(), fixture.get("expected_plan"), "flow plan");
       if (fixture.containsKey("expected_plan_subset")) assertListSubset(fl.getPlan(), fixture.get("expected_plan_subset"), "flow plan");
       if ("plan".equals(fixture.get("operation"))) return;
-      FakeAIService client = new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+      ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
       Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
       if (fixture.containsKey("cache_seed_value")) {
         Map<String, Object> cacheStore = Core.asMap(forwardOptions.getOrDefault("cache_store", new LinkedHashMap<>()));
@@ -5404,7 +5405,7 @@ public final class Conformance {
         return;
       }
       if ("evaluate".equals(operation)) {
-        FakeAIService client = new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+        ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
         Map<String, Object> result = "axgen".equals(programKind)
           ? ((AxGen) program).evaluateOptimization(client, fixture.getOrDefault("dataset", List.of()), Core.asMap(fixture.getOrDefault("candidate_map", Map.of())), Core.asMap(fixture.getOrDefault("eval_options", Map.of())))
           : "flow".equals(programKind)
@@ -5419,10 +5420,10 @@ public final class Conformance {
         return;
       }
       if ("engine".equals(operation)) {
-        FakeOptimizerEngine engine = new FakeOptimizerEngine(fixture.getOrDefault("engine_response", Map.of()));
+        ScriptedOptimizerEngine engine = new ScriptedOptimizerEngine(fixture.getOrDefault("engine_response", Map.of()));
         Map<String, Object> opts = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("optimize_options", Map.of())));
         if (Boolean.TRUE.equals(fixture.get("engine_uses_evaluator"))) {
-          opts.put("client", new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of()))));
+          opts.put("client", new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of()))));
         }
         Map<String, Object> artifact = "axgen".equals(programKind)
           ? ((AxGen) program).optimizeWith(engine, Core.asMapList(fixture.getOrDefault("dataset", List.of())), opts)
@@ -5453,7 +5454,7 @@ public final class Conformance {
         request.put("options", new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("optimize_options", Map.of()))));
         request.put("evidence", Map.of("source", "fixture"));
         AiClient reflection = fixture.containsKey("reflection_responses")
-          ? new FakeAIService(Core.asList(fixture.getOrDefault("reflection_responses", List.of())), List.of())
+          ? new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("reflection_responses", List.of())), List.of())
           : null;
         AxGEPA engine = new AxGEPA(reflection, Core.asMap(fixture.getOrDefault("gepa_options", Map.of())));
         ScriptedGEPAEvaluator evaluator = new ScriptedGEPAEvaluator(fixture);
@@ -5463,7 +5464,7 @@ public final class Conformance {
         return;
       }
       if ("eval".equals(operation)) {
-        FakeAIService client = new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+        ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
         Map<String, Object> prediction = ((AxAgent) program).evaluateOptimizationTask(client, Core.asMap(fixture.getOrDefault("task", Map.of("input", fixture.getOrDefault("input", Map.of())))), Core.asMap(fixture.getOrDefault("eval_options", Map.of())));
         if (fixture.containsKey("expected_prediction_subset")) assertSubset(prediction, fixture.get("expected_prediction_subset"), "eval prediction");
         return;
@@ -5497,12 +5498,12 @@ public final class Conformance {
   }
 
   static void runAgentForward(Map<String, Object> fixture) {
-    FakeAIService client = new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
     Map<String, Object> agentOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
-    FakeCodeRuntime runtime = null;
+    ScriptedCodeRuntime runtime = null;
     if (fixture.containsKey("runtime_script")) {
       Map<String, Object> runtimeConfig = Core.asMap(agentOptions.getOrDefault("runtime", Map.of()));
-      runtime = new FakeCodeRuntime(
+      runtime = new ScriptedCodeRuntime(
         Core.asList(fixture.getOrDefault("runtime_script", List.of())),
         String.valueOf(runtimeConfig.getOrDefault("language", fixture.getOrDefault("runtime_language", "JavaScript"))),
         String.valueOf(runtimeConfig.getOrDefault("usageInstructions", runtimeConfig.getOrDefault("usage_instructions", "")))
@@ -5639,7 +5640,7 @@ public final class Conformance {
 
 	  static void runAgentRuntimeSession(Map<String, Object> fixture) {
     AxAgent agent = Ax.agent(String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string")), Core.asMap(fixture.getOrDefault("options", Map.of())));
-    FakeCodeRuntime runtime = new FakeCodeRuntime(
+    ScriptedCodeRuntime runtime = new ScriptedCodeRuntime(
       Core.asList(fixture.getOrDefault("runtime_script", List.of())),
       "JavaScript",
       "",
@@ -5684,7 +5685,7 @@ public final class Conformance {
 	    if (fixture.containsKey("expected_session_count") && runtime.sessions.size() != Core.asInt(fixture.get("expected_session_count"))) throw new FixtureError("expected session count mismatch");
 	    if (fixture.containsKey("expected_closed_session_count")) {
 	      int closedCount = 0;
-	      for (FakeCodeSession session : runtime.sessions) if (session.closed) closedCount++;
+	      for (ScriptedCodeSession session : runtime.sessions) if (session.closed) closedCount++;
 	      if (closedCount != Core.asInt(fixture.get("expected_closed_session_count"))) throw new FixtureError("expected closed session count mismatch");
 	    }
     if (fixture.containsKey("expected_executed")) assertEqual(runtime.executed, fixture.get("expected_executed"), "executed code");
@@ -6220,11 +6221,11 @@ public final class Conformance {
 
   static final class ClientFixture {
     final OpenAICompatibleClient client;
-    final FakeTransport transport;
-    ClientFixture(OpenAICompatibleClient client, FakeTransport transport) { this.client = client; this.transport = transport; }
+    final ScriptedTransport transport;
+    ClientFixture(OpenAICompatibleClient client, ScriptedTransport transport) { this.client = client; this.transport = transport; }
   }
   static ClientFixture openaiClient(Map<String, Object> fixture) {
-    FakeTransport transport = new FakeTransport(Core.asList(fixture.getOrDefault("transport_responses", fixture.getOrDefault("responses", List.of()))));
+    ScriptedTransport transport = new ScriptedTransport(Core.asList(fixture.getOrDefault("transport_responses", fixture.getOrDefault("responses", List.of()))));
     String provider = String.valueOf(Core.provider_normalize_profile(String.valueOf(fixture.getOrDefault("provider", "openai-compatible"))));
     boolean responsesProvider = provider.equals("openai-responses");
     boolean geminiProvider = provider.equals("google-gemini");
@@ -6259,7 +6260,7 @@ public final class Conformance {
     return new ClientFixture(client, transport);
   }
 
-  static void assertTransport(Map<String, Object> fixture, FakeTransport transport) {
+  static void assertTransport(Map<String, Object> fixture, ScriptedTransport transport) {
     if (!fixture.containsKey("expected_transport_request")) return;
     if (transport.requests.isEmpty()) throw new FixtureError("expected provider transport request but none were sent");
     assertSubset(transport.requests.get(0), fixture.get("expected_transport_request"), "provider request");

@@ -33,6 +33,27 @@
         "kind": "agent_runtime_session",
         "runner": "python:axagent",
         "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_profile",
+        "operation": "javascript-quickjs",
+        "runner": "python:axagent.javascript-quickjs",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_profile",
+        "operation": "javascript-goja",
+        "runner": "python:axagent.javascript-goja",
+        "category": "explicitly-not-claimed"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_profile",
+        "operation": "python-pyodide",
+        "runner": "python:axagent.python-pyodide",
+        "category": "transport-boundary"
       }
     ],
     "axai": [
@@ -168,6 +189,85 @@
         "kind": "stream",
         "runner": "python:axgen",
         "category": "semantic"
+      }
+    ],
+    "axmcp": [
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "initialize",
+        "runner": "python:axmcp.initialize",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "protocol_negotiation",
+        "runner": "python:axmcp.protocol_negotiation",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "ping",
+        "runner": "python:axmcp.ping",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "tools",
+        "runner": "python:axmcp.tools",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "prompts_resources",
+        "runner": "python:axmcp.prompts_resources",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "roots_notifications",
+        "runner": "python:axmcp.roots_notifications",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "cancellation",
+        "runner": "python:axmcp.cancellation",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "http_session_headers",
+        "runner": "python:axmcp.http_session_headers",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "stdio_framing",
+        "runner": "python:axmcp.stdio_framing",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "oauth",
+        "runner": "python:axmcp.oauth",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "ssrf",
+        "runner": "python:axmcp.ssrf",
+        "category": "validation-error"
       }
     ],
     "axoptimize": [

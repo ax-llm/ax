@@ -10,4 +10,12 @@ No entries.
 
 ## Done
 
-No entries.
+- `axir-2026-06-07-port-mcp-client-and-transports` [axmcp] Port MCP client and transports
+  - Status: done
+  - Source commit: `4e8da4ba`
+  - TS paths: `src/ax/mcp`
+  - Impact: Generated Python, Java, C++, Go, and Rust packages do not yet expose the modern MCP client, transports, OAuth discovery, or SSRF guard behavior.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-06-07
+  - Completed by: `working-tree`
+  - Verification: `npm run test:axir`

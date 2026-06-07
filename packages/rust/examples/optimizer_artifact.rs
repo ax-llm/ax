@@ -1,9 +1,9 @@
 use axllm::{AxResult, OptimizerEngine};
 use serde_json::{json, Value};
 
-struct FakeOptimizer;
+struct ScriptedOptimizer;
 
-impl OptimizerEngine for FakeOptimizer {
+impl OptimizerEngine for ScriptedOptimizer {
     fn optimize(
         &mut self,
         request: Value,
@@ -15,7 +15,7 @@ impl OptimizerEngine for FakeOptimizer {
 }
 
 fn main() -> AxResult<()> {
-    let mut engine = FakeOptimizer;
+    let mut engine = ScriptedOptimizer;
     let result = engine.optimize(json!({"candidate": "short prompt"}), &mut |_candidate| {
         Ok(json!({"score": 1.0}))
     })?;

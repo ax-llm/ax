@@ -3,7 +3,7 @@ import json
 from axllm import OptimizerEngine, ax
 
 
-class FakeOptimizer(OptimizerEngine):
+class ScriptedOptimizer(OptimizerEngine):
     name = "fixture"
     version = "1"
 
@@ -18,7 +18,7 @@ class FakeOptimizer(OptimizerEngine):
 
 
 qa = ax("question:string -> answer:string", {"id": "qa", "instruction": "Base."})
-artifact = qa.optimize_with(FakeOptimizer(), [], {"apply": False})
+artifact = qa.optimize_with(ScriptedOptimizer(), [], {"apply": False})
 assert any(item["id"] == "qa::instruction" and item["current"] == "Base." for item in qa.get_optimizable_components())
 qa.apply_optimization(json.dumps(artifact))
 assert any(

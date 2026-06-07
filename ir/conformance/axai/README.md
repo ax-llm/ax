@@ -1,7 +1,7 @@
 # AxAI Conformance Fixtures
 
 These fixtures define the Python AxAI beta slice. They are backend-neutral at
-the Ax service boundary and use fake OpenAI-compatible transport responses to
+the Ax service boundary and use scripted OpenAI-compatible transport responses to
 avoid network calls.
 
 Reference areas:
@@ -18,7 +18,7 @@ Reference areas:
   Responses request/response/stream mapping, citations, function calls, and
   Responses-specific model/config defaults.
 - `src/ax/ai/openai/audio.ts` and `src/ax/ai/openai/realtime.ts` for audio and
-  realtime normalization fixtures. Generated targets use fake transports for
+  realtime normalization fixtures. Generated targets use scripted transports for
   these operations; live multipart/WebSocket transports remain host-owned.
 - `src/ax/ai/google-gemini/api.ts` and `src/ax/ai/catalog.ts` for
   descriptor-backed Gemini Developer API chat, stream, media-part, tool/schema,

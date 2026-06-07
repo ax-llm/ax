@@ -11,8 +11,8 @@ Every generated package must include:
 - `axir-capabilities.json`, the machine-readable target contract
 - `README.md`, the human-readable package contract
 - target package/build metadata for local library consumption
-- runnable examples for signature/schema, AxGen with a fake client/tool, and
-  AxAI with a fake OpenAI-compatible transport
+- runnable examples for signature/schema, AxGen with a scripted client/tool, and
+  AxAI with a scripted OpenAI-compatible transport
 - a conformance runner when the target is executable in V1
 
 Python target:
@@ -34,7 +34,7 @@ Python target:
 - includes a generated `axllm.conformance` module that can run backend-neutral
   fixture JSON from all current `ir/conformance/*` suites
 - real OpenAI-compatible HTTP transport is implemented with the Python standard
-  library; default verification uses fake transport fixtures
+  library; default verification uses scripted transport fixtures
 
 Java target:
 
@@ -52,7 +52,7 @@ Java target:
 - executable conformance target for signatures, schema, validation, prompt,
   AxGen, AxAI/OpenAI-compatible mapping, and the prompt optimizer contract
 - real OpenAI-compatible HTTP transport is implemented with `java.net.http`;
-  default verification uses fake transport fixtures
+  default verification uses scripted transport fixtures
 - idiom contract: classes/builders for static shapes and `Map<String,Object>`
   only at dynamic JSON/tool boundaries
 
@@ -69,7 +69,7 @@ C++ target:
 - idiom contract: value types, `namespace axllm`, standard containers, and
   explicit exceptions rather than TypeScript-shaped dynamic objects
 - OpenAI-compatible request/response mapping is Core-owned and executable
-  through deterministic fake transports or the built-in `HttpTransport`;
+  through deterministic scripted transports or the built-in `HttpTransport`;
   custom `Transport` remains available for hosts that need their own HTTP,
   retry, proxy, or observability stack
 
@@ -170,23 +170,26 @@ and stderr diagnostics as stable runtime protocol errors.
 
 The first dependency-bearing runtime profile is `javascript-quickjs`.
 Generated packages emit optional profile sources: Java uses QuickJS4J,
-C++ uses the QuickJS C API, and Python drives a QuickJS protocol server through
+C++ uses the QuickJS C API, Rust uses `rquickjs` behind Cargo feature
+`runtime-quickjs`, and Python drives a QuickJS protocol server through
 `ProcessCodeRuntime`. The profile is not part of default package compilation;
 `axir verify --runtime-profiles javascript-quickjs` runs it only when the
 profile-specific dependency/toolchain environment is present. QuickJS profiles
-must expose only explicit Ax runtime primitives and JSON-like globals by
-default; filesystem, network, and native host access remain adapter-owned.
-The beta profile also supports native host-call bridges for tool/child-agent
-style callbacks. Java uses QuickJS4J builtins, C++ uses QuickJS C functions, and
-Python reaches the same bridge through the JSONL protocol server. Callback
-arguments and results stay JSON-compatible; runtime limits and diagnostics are
-profile behavior rather than Core semantics. Java verification may use
+must expose only explicit Ax runtime primitives, registered host callables, and
+JSON-like globals by default; filesystem, network, process, and native host
+access remain adapter-owned. The beta profile also supports native host-call
+bridges for tool/child-agent style callbacks. Java uses QuickJS4J builtins, C++
+uses QuickJS C functions, Rust uses the `rquickjs` function bridge, and Python
+reaches the same bridge through the JSONL protocol server. Callback arguments
+and results stay JSON-compatible; runtime limits and diagnostics are profile
+behavior rather than Core semantics. Java verification may use
 `AXIR_QUICKJS4J_CP`, `AXIR_QUICKJS4J_CP_FILE`, or `AXIR_QUICKJS4J_RESOLVE=1`
 to resolve the generated QuickJS4J Maven example classpath; default verification
 still skips the dependency-bearing profile when those inputs are absent. Python
 verification may use `AXIR_QUICKJS_RUNTIME_SERVER` directly, or automatically
 compile and run the generated Java QuickJS4J protocol server when the QuickJS4J
-classpath is available.
+classpath is available. Rust verification runs
+`cargo run --example javascript_quickjs --features runtime-quickjs`.
 
 The second dependency-bearing runtime profile is `python-pyodide`. It is a
 Python actor-language profile, not a generated-Python-host feature. Python,
@@ -202,17 +205,18 @@ verification still skips the dependency-bearing profile when those inputs are
 absent.
 
 The TypeScript `AxJSRuntime` is the reference JavaScript host runtime for the
-runtime/session contract. `javascript-quickjs` and `python-pyodide` are checked
-against the same observable behaviors where their languages overlap: actor
-primitive envelopes, host-call success/failure envelopes, persistent bindings,
-reserved-name protection, inspect/snapshot/patch/close, stdout/stderr
-diagnostics, runtime errors, and session-closed normalization. Optional profile
-verification also drives real `AxAgent.forward(...)` actor-loop runs where fake
-AI responses produce runtime code, the profile executes that code, and the
-responder consumes the normalized result. AxIR does not add generated Node,
-Deno, or Bun runtime profiles; those are the existing TypeScript runtime
-surface. Adapter-owned policy still covers filesystem, network, package
-loading, native cancellation, and process security.
+runtime/session contract. `javascript-quickjs`, `javascript-goja`, and
+`python-pyodide` are checked against the same observable behaviors where their
+languages overlap: actor primitive envelopes, host-call success/failure
+envelopes, persistent bindings, reserved-name protection,
+inspect/snapshot/patch/close, stdout/stderr diagnostics when the profile owns
+them, runtime errors, and session-closed normalization. Optional profile
+verification also drives real `AxAgent.forward(...)` or equivalent actor-loop
+runs where scripted AI responses produce runtime code, the profile executes that
+code, and the responder consumes the normalized result. AxIR does not add
+generated Node, Deno, or Bun runtime profiles; those are the existing
+TypeScript runtime surface. Adapter-owned policy still covers filesystem,
+network, package loading, native cancellation, and process security.
 
 Runtime profile productization is profile-specific and deny-by-default. The
 generated QuickJS and Pyodide profile artifacts expose JSON-compatible

@@ -33,6 +33,7 @@ from .ai import (
 from .gen import AxGen, AxMemory, ax
 from .agent import AxAgent, AxAgentClarificationError, AxCodeRuntime, AxCodeSession, AxGEPA, OptimizerEngine, OptimizerEvaluator, agent
 from .flow import AxFlow, AxProgram, flow
+from .mcp import AxMCPClient, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport
 from .prompt import AxPromptTemplate, TemplateError, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, ProcessCodeSession, RuntimeCapabilities, RuntimeEnvelope
 
@@ -57,6 +58,12 @@ __all__ = [
     "AxCodeSession",
     "AxGEPA",
     "AxMemory",
+    "AxMCPClient",
+    "AxMCPOAuthOptions",
+    "AxMCPStdioTransport",
+    "AxMCPStreamableHTTPTransport",
+    "AxMCPTokenSet",
+    "AxMCPTransport",
     "OptimizerEngine",
     "OptimizerEvaluator",
     "ProcessCodeRuntime",

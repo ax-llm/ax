@@ -50,11 +50,11 @@ That gate emits the generated libraries and smoke-tests package consumption:
   and downstream local path-dependency consumer
 
 Optional QuickJS, Pyodide, and Go goja runtime profile checks stay opt-in and
-are not base Python/Java/C++ package dependencies. Rust uses the process JSONL
-runtime boundary in the base crate; embedded QuickJS/V8 Rust runtime profiles
-are intentionally deferred. Go's built-in JavaScript actor runtime is
-dependency-bearing in the generated `runtime/goja` package and is verified
-explicitly with:
+are not base Python/Java/C++ package dependencies. Rust keeps the process JSONL
+runtime boundary in the base crate and verifies embedded QuickJS only when the
+`runtime-quickjs` Cargo feature is requested. Go's built-in JavaScript actor
+runtime is dependency-bearing in the generated `runtime/goja` package and is
+verified explicitly with:
 
 ```bash
 cd tools/axir
@@ -62,6 +62,17 @@ GOCACHE=/private/tmp/go-build go run . verify \
   --targets go \
   --runtime-profiles javascript-goja \
   --workdir /private/tmp/axir-verify-goja \
+  ../../ir/axcore/root.axir
+```
+
+The Rust embedded QuickJS profile is verified separately with:
+
+```bash
+cd tools/axir
+GOCACHE=/private/tmp/go-build go run . verify \
+  --targets rust \
+  --runtime-profiles javascript-quickjs \
+  --workdir /private/tmp/axir-verify-rust-quickjs \
   ../../ir/axcore/root.axir
 ```
 
@@ -113,7 +124,8 @@ Publishing is secret-gated per ecosystem:
 
 The release gate should run `axir verify` and `npm run axir:check-packages`
 before upload, and keep generated runtime-profile dependencies out of the base
-Python, Java, and C++ packages. For Go, keep vendor-specific runtime
+Python, Java, C++, and Rust packages. For Go, keep vendor-specific runtime
 constructors in opt-in subpackages such as `runtime/goja` rather than in the
-root `axllm` package. For Rust, keep embedded runtime engines additive and
-behind the existing `AxCodeRuntime` / `AxCodeSession` traits.
+root `axllm` package. For Rust, keep embedded runtime engines additive,
+feature-gated, and behind the existing `AxCodeRuntime` / `AxCodeSession`
+traits.

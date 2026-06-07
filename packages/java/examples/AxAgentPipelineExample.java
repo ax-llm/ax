@@ -2,7 +2,7 @@ import dev.axllm.ax.*;
 import java.util.*;
 
 public final class AxAgentPipelineExample {
-  static final class FakeService implements AiClient {
+  static final class ScriptedService implements AiClient {
     final List<Map<String, Object>> responses = new ArrayList<>(List.of(
       Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"),
       Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"),
@@ -10,18 +10,18 @@ public final class AxAgentPipelineExample {
     ));
 
     public Map<String, Object> complete(Map<String, Object> request) {
-      if (responses.isEmpty()) throw new RuntimeException("fake service exhausted");
+      if (responses.isEmpty()) throw new RuntimeException("scripted service exhausted");
       return responses.remove(0);
     }
   }
 
-  static final class FakeRuntime implements AxCodeRuntime {
+  static final class ScriptedRuntime implements AxCodeRuntime {
     public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
-      return new FakeSession();
+      return new ScriptedSession();
     }
   }
 
-  static final class FakeSession implements AxCodeSession {
+  static final class ScriptedSession implements AxCodeSession {
     public Object execute(String code, Map<String, Object> options) {
       return Map.of("type", "final", "args", List.of(Map.of("answer", "runtime")));
     }
@@ -33,10 +33,10 @@ public final class AxAgentPipelineExample {
 
   public static void main(String[] args) {
     AxAgent qa = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of()));
-    Map<String, Object> out = qa.forward(new FakeService(), Map.of("question", "Capital of France?"));
+    Map<String, Object> out = qa.forward(new ScriptedService(), Map.of("question", "Capital of France?"));
     if (!"Paris".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
     if (!"responder".equals(((Map<?, ?>) qa.getChatLog().get(qa.getChatLog().size() - 1)).get("name"))) throw new RuntimeException("bad chat log");
-    Map<String, Object> runtimeOut = qa.test(new FakeRuntime(), "final({answer:'runtime'})");
+    Map<String, Object> runtimeOut = qa.test(new ScriptedRuntime(), "final({answer:'runtime'})");
     if (!"final".equals(runtimeOut.get("kind"))) throw new RuntimeException("bad runtime output: " + runtimeOut);
     System.out.println("java-axagent-ok");
   }

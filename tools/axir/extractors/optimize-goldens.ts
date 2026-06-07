@@ -665,7 +665,7 @@ writeFixture('apply-agent-component-map', {
   ],
 });
 
-writeFixture('fake-engine-apply', {
+writeFixture('scripted-engine-apply', {
   kind: 'optimize',
   operation: 'engine',
   program: 'agent',
@@ -693,7 +693,7 @@ writeFixture('fake-engine-apply', {
     componentMap: {
       'task.root.responder::instruction': 'Return concise final answers.',
     },
-    optimizerName: 'fake',
+    optimizerName: 'scripted',
   },
   expected_components_subset: [
     {

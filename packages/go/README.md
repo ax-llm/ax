@@ -45,17 +45,24 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `no-key` examples are deterministic local smokes. They are the fastest way to see the package work without any provider account:
 
 - `go run ./examples/signature_schema`: signature parsing and JSON schema generation
-- `go run ./examples/axgen_fake_client_tool`: AxGen with a fake client and tool
-- `go run ./examples/axai_fake_transport`: provider mapping through a fake transport
+- `go run ./examples/axgen_scripted_client_tool`: AxGen with a scripted client and tool
+- `go run ./examples/provider_mapping_no_key`: provider mapping through a scripted transport
+- `go run ./examples/provider_stream_no_key`: provider streaming through a scripted SSE transport
 - `go run ./examples/axagent_pipeline`: deterministic AxAgent pipeline
 - `go run ./examples/axflow_program_graph`: AxFlow program graph
+- `go run ./examples/audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport
+- `go run ./examples/realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding
 - `go run ./examples/runtime_adapter`: custom `AxCodeRuntime` session
 - `go run ./examples/runtime_protocol`: process runtime protocol against the AxJS reference adapter
 - `go run ./examples/optimizer_artifact`: optimizer artifact save/load/apply lifecycle
+- `go run ./examples/gepa_local_optimizer`: local GEPA optimizer artifact generation
+- `go run ./examples/mcp_scripted_tools`: MCP tool discovery and invocation through a scripted transport
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - From the repo root, `OPENAI_API_KEY=... npm run example -- go axgen_openai_api.go`: AxGen with a real OpenAI-compatible provider API
+- From the repo root, `OPENAI_API_KEY=... npm run example -- go agent_openai_api.go`: AxAgent with a real OpenAI-compatible provider API
+- From the repo root, `OPENAI_API_KEY=... npm run example -- go flow_openai_api.go`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents
 
@@ -77,7 +84,7 @@ Optional runtime profiles are dependency-bearing and opt-in. Adapter policy owns
 
 - Compiler contract version: 0.1
 - Package: github.com/ax-llm/ax/go
-- Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow
+- Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow, axmcp
 - Provider mode: provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic
-- Fake transport support: true
+- Scripted transport support: true
 - Real network support: available

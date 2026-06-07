@@ -1,3 +1,8 @@
+pub mod mcp;
+pub use mcp::{
+    AxMCPClient, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport,
+    AxMCPTokenSet, AxMCPTransport,
+};
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -8,6 +13,11 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+#[cfg(feature = "runtime-quickjs")]
+pub mod runtime {
+    pub mod quickjs;
+}
 
 pub type AxResult<T> = Result<T, AxError>;
 
@@ -1150,12 +1160,12 @@ pub trait AxTransport: Send {
 
 pub type RuntimeTransport = dyn AxTransport;
 
-pub struct FakeTransport {
+pub struct ScriptedTransport {
     responses: VecDeque<Value>,
     pub requests: Vec<Value>,
 }
 
-impl FakeTransport {
+impl ScriptedTransport {
     pub fn new(responses: Vec<Value>) -> Self {
         Self {
             responses: responses.into(),
@@ -1164,12 +1174,12 @@ impl FakeTransport {
     }
 }
 
-impl AxTransport for FakeTransport {
+impl AxTransport for ScriptedTransport {
     fn send(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
         self.responses
             .pop_front()
-            .ok_or_else(|| AxError::runtime("fake transport exhausted"))
+            .ok_or_else(|| AxError::runtime("scripted transport exhausted"))
     }
 }
 
@@ -3841,6 +3851,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "flow" => run_flow_fixture(&fixture)?,
         "optimize" => run_optimize_fixture(&fixture)?,
         "program_contract" => run_program_contract_fixture(&fixture)?,
+        "mcp" => mcp::run_mcp_conformance_fixture(&fixture)?,
         _ => run_explicit_non_ai_conformance_fixture(kind, &fixture)?,
     }
     Ok(())
@@ -6124,7 +6135,7 @@ fn optimizer_engine_request(fixture: &Value, components: &[Value]) -> Value {
 }
 
 fn optimizer_engine_artifact(fixture: &Value, components: &[Value]) -> AxResult<Value> {
-    optimized_artifact_from_fixture(fixture, components, "fake")
+    optimized_artifact_from_fixture(fixture, components, "scripted")
 }
 
 fn engine_evaluations(fixture: &Value) -> Vec<Value> {

@@ -1,0 +1,515 @@
+{
+  "schema_version": "axir-api-v1",
+  "axir_version": "0.1",
+  "target": "cpp",
+  "package_name": "axllm",
+  "sections": [
+    {
+      "id": "signatures",
+      "title": "Signatures",
+      "summary": "Describe typed Ax inputs and outputs once, then reuse that shape for schemas, prompts, validation, tools, and structured results.",
+      "symbols": [
+        {
+          "target_name": "cpp",
+          "canonical_name": "s",
+          "public_name": "axllm::s",
+          "kind": "function",
+          "description": "Parse an Ax string signature into the target language signature object.",
+          "form": "axllm::s(const std::string\u0026 signature)",
+          "returns": "AxSignature",
+          "example": "auto sig = axllm::s(\"question:string -\u003e answer:string\");"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "f",
+          "public_name": "axllm::FieldType",
+          "kind": "function",
+          "description": "Build signatures and field types fluently when the target has a fluent helper.",
+          "form": "FieldType / Field descriptors",
+          "important_options": [
+            "input fields",
+            "output fields",
+            "field descriptions",
+            "constraints"
+          ],
+          "returns": "signature builder or field factory"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxSignature",
+          "public_name": "axllm::AxSignature",
+          "kind": "type",
+          "description": "Parsed signature with input/output fields, descriptions, and JSON schema helpers.",
+          "form": "axllm::Value signature",
+          "important_options": ["inputs", "outputs", "description"],
+          "returns": "signature object"
+        }
+      ]
+    },
+    {
+      "id": "axgen",
+      "title": "AxGen",
+      "summary": "Run structured generation with Core-owned prompts, tool loops, retries, streaming folds, traces, usage, examples, and field processors.",
+      "symbols": [
+        {
+          "target_name": "cpp",
+          "canonical_name": "ax",
+          "public_name": "axllm::ax",
+          "kind": "function",
+          "description": "Create an AxGen program from a string or parsed signature.",
+          "form": "axllm::ax(signature, options)",
+          "important_options": [
+            "functions",
+            "examples",
+            "demos",
+            "modelConfig",
+            "maxRetries",
+            "streaming assertions",
+            "field processors"
+          ],
+          "returns": "AxGen",
+          "example": "auto qa = axllm::ax(\"question:string -\u003e answer:string\");"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxGen",
+          "public_name": "axllm::AxGen",
+          "kind": "type",
+          "description": "Structured generation program with forward, streaming, optimization, trace, usage, and tool-call behavior.",
+          "form": "axllm::AxGen(signature, options)",
+          "important_options": [
+            "signature",
+            "functions",
+            "examples",
+            "demos",
+            "memory",
+            "prompt template"
+          ],
+          "returns": "program object"
+        }
+      ]
+    },
+    {
+      "id": "axai",
+      "title": "AxAI",
+      "summary": "Call supported providers through the shared provider descriptor registry, scripted transports, routers, and balancers.",
+      "symbols": [
+        {
+          "target_name": "cpp",
+          "canonical_name": "ai",
+          "public_name": "axllm::ai",
+          "kind": "function",
+          "description": "Create a provider client from a provider name and options.",
+          "form": "axllm::ai(provider, options)",
+          "important_options": [
+            "api key",
+            "model",
+            "api URL",
+            "headers",
+            "transport"
+          ],
+          "returns": "AI client/service",
+          "example": "auto client = axllm::ai(\"openai\", axllm::object({{\"apiKey\", std::getenv(\"OPENAI_API_KEY\")}}));"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "OpenAICompatibleClient",
+          "public_name": "axllm::OpenAICompatibleClient",
+          "kind": "type",
+          "description": "OpenAI-compatible chat, stream, embedding, audio, and realtime provider boundary.",
+          "form": "axllm::OpenAICompatibleClient(options, transport)",
+          "important_options": ["api key", "model", "base URL", "transport"],
+          "returns": "provider client"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "OpenAIResponsesClient",
+          "public_name": "axllm::OpenAIResponsesClient",
+          "kind": "type",
+          "description": "OpenAI Responses provider mapping using the same Core-owned request and response contract.",
+          "form": "axllm::OpenAIResponsesClient(options, transport)",
+          "important_options": ["api key", "model", "audio", "realtime"],
+          "returns": "provider client"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "GoogleGeminiClient",
+          "public_name": "axllm::GoogleGeminiClient",
+          "kind": "type",
+          "description": "Gemini provider mapping for chat, streaming, media, tools, embeddings, and usage normalization.",
+          "form": "axllm::GoogleGeminiClient(options, transport)",
+          "important_options": ["api key", "model", "embed model"],
+          "returns": "provider client"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AnthropicClient",
+          "public_name": "axllm::AnthropicClient",
+          "kind": "type",
+          "description": "Anthropic provider mapping for messages, thinking, cache control, streaming, and usage normalization.",
+          "form": "axllm::AnthropicClient(options, transport)",
+          "important_options": [
+            "api key",
+            "model",
+            "thinking",
+            "cache control"
+          ],
+          "returns": "provider client"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxBalancer",
+          "public_name": "axllm::AxBalancer",
+          "kind": "type",
+          "description": "Retry and route requests across multiple provider services while preserving Ax request shape.",
+          "form": "axllm::AxBalancer(services, options)",
+          "important_options": [
+            "services",
+            "retry policy",
+            "capability requirements"
+          ],
+          "returns": "AI service"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "MultiServiceRouter",
+          "public_name": "axllm::MultiServiceRouter",
+          "kind": "type",
+          "description": "Choose a service by capability or model routing policy.",
+          "form": "axllm::MultiServiceRouter(services)",
+          "important_options": ["services", "routing"],
+          "returns": "AI service"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "ProviderRouter",
+          "public_name": "axllm::ProviderRouter",
+          "kind": "type",
+          "description": "Route provider requests to registered provider clients.",
+          "form": "axllm::ProviderRouter(providers, routing, processing)",
+          "important_options": ["providers", "routing", "processing"],
+          "returns": "AI service"
+        }
+      ]
+    },
+    {
+      "id": "agents-rlm",
+      "title": "Agents And RLM",
+      "summary": "Run AxAgent through the RLM executor loop, where actor-code steps execute through an AxCodeRuntime session.",
+      "symbols": [
+        {
+          "target_name": "cpp",
+          "canonical_name": "agent",
+          "public_name": "axllm::agent",
+          "kind": "function",
+          "description": "Create an AxAgent from a signature and agent/runtime options.",
+          "form": "axllm::agent(signature, options)",
+          "important_options": [
+            "name",
+            "description",
+            "runtime",
+            "maxSteps",
+            "context fields",
+            "discovery",
+            "recall",
+            "functions"
+          ],
+          "returns": "AxAgent",
+          "example": "auto helper = axllm::agent(\"query:string -\u003e answer:string\");"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxAgent",
+          "public_name": "axllm::AxAgent",
+          "kind": "type",
+          "description": "RLM agent with Core-owned envelopes, state, traces, discovery, recall, delegation, and final typed responses.",
+          "form": "axllm::AxAgent(signature, options)",
+          "important_options": [
+            "executor model",
+            "runtime",
+            "policy",
+            "context",
+            "optimizer metadata"
+          ],
+          "returns": "agent program"
+        }
+      ]
+    },
+    {
+      "id": "flow",
+      "title": "Flow",
+      "summary": "Compose AxGen, AxAgent, and nested flows into a portable program graph.",
+      "symbols": [
+        {
+          "target_name": "cpp",
+          "canonical_name": "flow",
+          "public_name": "axllm::flow",
+          "kind": "function",
+          "description": "Create an AxFlow program graph.",
+          "form": "axllm::flow(options)",
+          "important_options": [
+            "nodes",
+            "execute mappers",
+            "conditions",
+            "cache",
+            "returns"
+          ],
+          "returns": "AxFlow",
+          "example": "auto wf = axllm::flow();"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxFlow",
+          "public_name": "axllm::AxFlow",
+          "kind": "type",
+          "description": "Workflow graph with Core-owned planning, cache keys, state merge, child aggregation, optimization, and returns projection.",
+          "form": "axllm::AxFlow(options)",
+          "important_options": ["steps", "state", "parallel groups", "returns"],
+          "returns": "flow program"
+        }
+      ]
+    },
+    {
+      "id": "tools",
+      "title": "Tools",
+      "summary": "Expose host functions to AxGen and AxAgent with typed argument and return schemas.",
+      "symbols": [
+        {
+          "target_name": "cpp",
+          "canonical_name": "fn",
+          "public_name": "axllm::Tool",
+          "kind": "function",
+          "description": "Build a typed function tool. Rust uses `tool` because `fn` is reserved.",
+          "form": "axllm::Tool(name, description, parameters, handler)",
+          "important_options": [
+            "name",
+            "description",
+            "args",
+            "returns",
+            "handler"
+          ],
+          "returns": "tool builder or Tool",
+          "example": "axllm::Tool search(\"search\", \"Search docs\", axllm::object({}), handler);"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "Tool",
+          "public_name": "axllm::Tool",
+          "kind": "type",
+          "description": "Callable tool descriptor with JSON-schema-compatible parameters and a host handler.",
+          "form": "axllm::Tool",
+          "important_options": ["parameters", "returns", "handler"],
+          "returns": "tool descriptor"
+        }
+      ]
+    },
+    {
+      "id": "mcp",
+      "title": "MCP",
+      "summary": "Use MCP clients and transports while keeping JSON-RPC lifecycle, tools, prompts, resources, OAuth, cancellation, and SSRF checks aligned.",
+      "symbols": [
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxMCPClient",
+          "public_name": "axllm::AxMCPClient",
+          "kind": "type",
+          "description": "MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions.",
+          "form": "axllm::AxMCPClient(transport, options)",
+          "important_options": [
+            "transport",
+            "client info",
+            "roots",
+            "tool overrides"
+          ],
+          "returns": "MCP client",
+          "example": "axllm::AxMCPClient client(transport);"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxMCPStreamableHTTPTransport",
+          "public_name": "axllm::AxMCPStreamableHTTPTransport",
+          "kind": "type",
+          "description": "Streamable HTTP transport with session headers, OAuth options, and SSRF protection.",
+          "form": "axllm::AxMCPStreamableHTTPTransport(endpoint, options)",
+          "important_options": [
+            "endpoint",
+            "headers",
+            "OAuth",
+            "SSRF protection"
+          ],
+          "returns": "MCP transport"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxMCPStdioTransport",
+          "public_name": "axllm::AxMCPStdioTransport",
+          "kind": "type",
+          "description": "Stdio transport with JSON-RPC framing for local MCP servers.",
+          "form": "axllm::AxMCPStdioTransport(command, options)",
+          "important_options": ["command", "args", "env"],
+          "returns": "MCP transport"
+        }
+      ]
+    },
+    {
+      "id": "runtime-profiles",
+      "title": "Runtime Profiles",
+      "summary": "Run RLM actor code through the portable AxCodeRuntime and optional target-specific runtime profiles.",
+      "symbols": [
+        {
+          "target_name": "cpp",
+          "canonical_name": "ProcessCodeRuntime",
+          "public_name": "axllm::ProcessCodeRuntime",
+          "kind": "type",
+          "description": "Process/JSONL runtime adapter for actor-code sessions and runtime protocol tests.",
+          "form": "axllm::RuntimeProtocolClient(transport)",
+          "important_options": ["command", "env", "cwd", "timeout"],
+          "returns": "AxCodeRuntime",
+          "example": "auto runtime = axllm::RuntimeProtocolClient(transport);"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "RuntimeCapabilities",
+          "public_name": "axllm::RuntimeCapabilities",
+          "kind": "type",
+          "description": "Runtime capability envelope visible to the agent runtime policy.",
+          "form": "axllm::RuntimeCapabilities",
+          "important_options": [
+            "language",
+            "snapshot",
+            "patch",
+            "abort",
+            "usage instructions"
+          ],
+          "returns": "capability record"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "RuntimeEnvelope",
+          "public_name": "axllm::RuntimeEnvelope",
+          "kind": "type",
+          "description": "Actor primitive envelope for final, clarification, discovery, recall, used, guidance, and runtime results.",
+          "form": "axllm::RuntimeEnvelope",
+          "important_options": ["type", "args", "result", "error"],
+          "returns": "runtime envelope"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "runtime-profile:javascript-quickjs",
+          "public_name": "javascript-quickjs",
+          "kind": "runtime-profile",
+          "description": "Optional runtime profile for javascript actor code.",
+          "form": "tools/axir verify --targets cpp --runtime-profiles javascript-quickjs",
+          "important_options": [
+            "actor language: javascript",
+            "support mode: embedded",
+            "dependency mode: optional-build",
+            "feature gate: AX_BUILD_QUICKJS_PROFILE",
+            "environment gate: AXIR_QUICKJS_CFLAGS",
+            "environment gate: AXIR_QUICKJS_LDFLAGS"
+          ],
+          "returns": "AxCodeRuntime-compatible actor execution profile"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "runtime-profile:python-pyodide",
+          "public_name": "python-pyodide",
+          "kind": "runtime-profile",
+          "description": "Optional runtime profile for python actor code.",
+          "form": "tools/axir verify --targets cpp --runtime-profiles python-pyodide",
+          "important_options": [
+            "actor language: python",
+            "support mode: process-adapter",
+            "dependency mode: optional-env",
+            "environment gate: AXIR_PYODIDE_RUNTIME_SERVER",
+            "environment gate: AXIR_PYODIDE_RESOLVE"
+          ],
+          "returns": "AxCodeRuntime-compatible actor execution profile"
+        }
+      ]
+    },
+    {
+      "id": "optimizers",
+      "title": "Optimizers",
+      "summary": "Optimize Ax programs through portable component maps, evaluator rows, artifacts, and the generated GEPA engine.",
+      "symbols": [
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxGEPA",
+          "public_name": "axllm::AxGEPA",
+          "kind": "type",
+          "description": "Generated GEPA optimizer engine with Core-owned reflection, Pareto, bootstrap, and selector-state behavior.",
+          "form": "axllm::AxGEPA(reflection, options)",
+          "important_options": [
+            "reflection client",
+            "budget",
+            "metric",
+            "candidate count"
+          ],
+          "returns": "optimizer engine",
+          "example": "axllm::AxGEPA engine(reflection_client);"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "OptimizerEngine",
+          "public_name": "axllm::OptimizerEngine",
+          "kind": "interface",
+          "description": "Optimizer boundary consumed by AxGen, AxAgent, and AxFlow optimization helpers.",
+          "form": "axllm::OptimizerEngine::optimize(request, evaluator)",
+          "important_options": ["request", "evaluator"],
+          "returns": "optimized artifact"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "OptimizerEvaluator",
+          "public_name": "axllm::OptimizerEvaluator",
+          "kind": "interface",
+          "description": "Evaluator callback boundary used by generated optimizers.",
+          "form": "axllm::OptimizerEvaluator::evaluate(request)",
+          "important_options": ["dataset rows", "candidate map", "evidence"],
+          "returns": "score/evidence result"
+        }
+      ]
+    },
+    {
+      "id": "errors-values",
+      "title": "Errors And Values",
+      "summary": "Handle target-native errors and dynamic values at Ax host boundaries.",
+      "symbols": [
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxError",
+          "public_name": "axllm::AxError",
+          "kind": "type",
+          "description": "Target-native error envelope for validation, provider, runtime, MCP, and optimizer failures.",
+          "form": "axllm::AxError with target-native error handling",
+          "important_options": [
+            "category",
+            "message",
+            "status",
+            "code",
+            "retryable"
+          ],
+          "returns": "error"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "Value",
+          "public_name": "axllm::Value",
+          "kind": "type",
+          "description": "Dynamic JSON-like value boundary used by generated package APIs, tools, providers, MCP, and runtime sessions.",
+          "form": "axllm::Value",
+          "important_options": [
+            "string",
+            "number",
+            "boolean",
+            "object",
+            "array",
+            "null"
+          ],
+          "returns": "dynamic value"
+        }
+      ]
+    }
+  ]
+}

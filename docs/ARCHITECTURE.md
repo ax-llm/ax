@@ -124,13 +124,13 @@ native cancellation, and callback bodies.
 TypeScript ships `AxJSRuntime` as the canonical JavaScript actor runtime.
 Generated AxIR libraries also include optional runtime profiles:
 
-- QuickJS for JavaScript actor code in Java/C++, with Python driving a QuickJS
-  protocol server
+- QuickJS for JavaScript actor code in Java/C++/Rust, with Python driving a
+  QuickJS protocol server
 - goja for Go-native JavaScript actor code through the generated
   `runtime/goja` package
 - Pyodide for Python actor code
-- Rust uses the shared JSONL process protocol through `ProcessCodeRuntime`;
-  embedded Rust QuickJS/V8-style profiles are deferred.
+- Rust keeps `ProcessCodeRuntime` for the shared JSONL process protocol and
+  adds embedded QuickJS behind the `runtime-quickjs` Cargo feature.
 
 Those profiles are supportable adapters, not a replacement for the TypeScript
 runtime.

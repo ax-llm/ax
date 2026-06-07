@@ -1,0 +1,30 @@
+{
+  "name": "mcp ping request",
+  "kind": "mcp",
+  "operation": "ping",
+  "responses": [
+    {
+      "method": "initialize",
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {},
+        "serverInfo": {
+          "name": "scripted-mcp",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "method": "ping",
+      "result": {}
+    }
+  ],
+  "expected_requests": [
+    {
+      "method": "initialize"
+    },
+    {
+      "method": "ping"
+    }
+  ]
+}

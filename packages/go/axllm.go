@@ -29688,9 +29688,9 @@ func (c contextBoundAIClient) Stream(ctx context.Context, request map[string]Val
 
 type Transport interface { Call(context.Context, Value) (Value, error) }
 
-type FakeTransport struct { Responses []Value; Requests []Value }
-func NewFakeTransport(responses []Value) *FakeTransport { return &FakeTransport{Responses: append([]Value(nil), responses...)} }
-func (t *FakeTransport) Call(ctx context.Context, request Value) (Value, error) {
+type ScriptedTransport struct { Responses []Value; Requests []Value }
+func NewScriptedTransport(responses []Value) *ScriptedTransport { return &ScriptedTransport{Responses: append([]Value(nil), responses...)} }
+func (t *ScriptedTransport) Call(ctx context.Context, request Value) (Value, error) {
 	t.Requests = append(t.Requests, request)
 	if len(t.Responses) == 0 { return Object("status", float64(200), "json", Object()), nil }
 	out := t.Responses[0]; t.Responses = t.Responses[1:]; return out, nil
@@ -29858,6 +29858,22 @@ func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[str
 }
 func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	return safeValue(func() Value { transportReq := c.requestJSON("speak", request, false); raw, err := c.Transport.Call(ctx, transportReq); if err != nil { panic(AxError{Category:"network", Message:err.Error()}) }; return provider_normalize_speak_response(c.Profile, coreGet(raw,"json",raw), request) })
+}
+func (c *OpenAICompatibleClient) RealtimeAudioSetup(request map[string]Value, options map[string]Value) Value {
+	return provider_build_realtime_audio_setup(c.Profile, request, options)
+}
+func (c *OpenAICompatibleClient) RealtimeAudioInput(request map[string]Value, options map[string]Value) Value {
+	return provider_build_realtime_audio_input(c.Profile, request, options)
+}
+func (c *OpenAICompatibleClient) Realtime(events []Value) []Value {
+	state := Object()
+	opts := c.optionsSnapshot()
+	model := coreGet(opts, "model", nil)
+	out := []Value{}
+	for _, event := range events {
+		out = append(out, provider_normalize_realtime_event(c.Profile, event, state, c.Name, model))
+	}
+	return out
 }
 func (c *OpenAICompatibleClient) GetID() string { if c.ID != "" { return c.ID }; return c.Name+"-id" }
 func (c *OpenAICompatibleClient) GetName() string { return c.Name }
@@ -30525,6 +30541,18 @@ func NewFlow(options map[string]Value) *AxFlow {
 	state := asMap(_flow_factory(options))
 	return &AxFlow{State:state, Steps:coreGet(state, "steps", Array()), Options:options}
 }
+func (f *AxFlow) Execute(name string, program AxProgram, options map[string]Value) *AxFlow {
+	if options == nil { options = Object() }
+	step := _flow_step("program", name, program, options)
+	_flow_add_step(f.State, step)
+	f.Steps = coreGet(f.State, "steps", Array())
+	return f
+}
+func (f *AxFlow) Returns(mapping map[string]Value) *AxFlow {
+	_flow_set_returns(f.State, mapping)
+	return f
+}
+func (f *AxFlow) GetPlan() Value { return _flow_plan(f.State) }
 func (f *AxFlow) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value,error) { return safeValue(func() Value { return _flow_forward(f.State, bindAIClientContext(ctx, client), values, options) }) }
 func (f *AxFlow) GetOptimizableComponents() Value { return _flow_get_optimizable_components(f.State) }
 func (f *AxFlow) ApplyOptimizedComponents(m map[string]Value) { _flow_apply_optimized_components(f.State, m) }
@@ -30900,9 +30928,9 @@ func (s *ProcessCodeSession) Close() Value {
 	return coreGet(response, "result", Object("closed", true))
 }
 
-type conformanceFakeCodeRuntime struct {
+type conformanceScriptedCodeRuntime struct {
 	Script []Value
-	Sessions []*conformanceFakeCodeSession
+	Sessions []*conformanceScriptedCodeSession
 	CreateRequests []Value
 	ExecuteOptions []Value
 	Executed []Value
@@ -30910,19 +30938,19 @@ type conformanceFakeCodeRuntime struct {
 	LanguageName string
 	Usage string
 }
-type conformanceFakeCodeSession struct { Runtime *conformanceFakeCodeRuntime; Globals map[string]Value; Closed bool }
-func newConformanceFakeCodeRuntime(script Value, capabilities map[string]Value) *conformanceFakeCodeRuntime {
-	return &conformanceFakeCodeRuntime{Script: append([]Value(nil), asSlice(script)...), Capabilities: capabilities, LanguageName: "JavaScript"}
+type conformanceScriptedCodeSession struct { Runtime *conformanceScriptedCodeRuntime; Globals map[string]Value; Closed bool }
+func newConformanceScriptedCodeRuntime(script Value, capabilities map[string]Value) *conformanceScriptedCodeRuntime {
+	return &conformanceScriptedCodeRuntime{Script: append([]Value(nil), asSlice(script)...), Capabilities: capabilities, LanguageName: "JavaScript"}
 }
-func (r *conformanceFakeCodeRuntime) Language() string { if r.LanguageName == "" { return "JavaScript" }; return r.LanguageName }
-func (r *conformanceFakeCodeRuntime) UsageInstructions() string { return r.Usage }
-func (r *conformanceFakeCodeRuntime) CreateSession(globals map[string]Value, options map[string]Value) (CodeSession,error) {
-	session := &conformanceFakeCodeSession{Runtime:r, Globals:cloneMap(globals)}
+func (r *conformanceScriptedCodeRuntime) Language() string { if r.LanguageName == "" { return "JavaScript" }; return r.LanguageName }
+func (r *conformanceScriptedCodeRuntime) UsageInstructions() string { return r.Usage }
+func (r *conformanceScriptedCodeRuntime) CreateSession(globals map[string]Value, options map[string]Value) (CodeSession,error) {
+	session := &conformanceScriptedCodeSession{Runtime:r, Globals:cloneMap(globals)}
 	r.Sessions = append(r.Sessions, session)
 	r.CreateRequests = append(r.CreateRequests, Object("globals", cloneMap(globals), "options", cloneMap(options)))
 	return session, nil
 }
-func (s *conformanceFakeCodeSession) Execute(code string, options map[string]Value) Value {
+func (s *conformanceScriptedCodeSession) Execute(code string, options map[string]Value) Value {
 	r := s.Runtime
 	r.Executed = append(r.Executed, code)
 	r.ExecuteOptions = append(r.ExecuteOptions, cloneMap(options))
@@ -30935,17 +30963,17 @@ func (s *conformanceFakeCodeSession) Execute(code string, options map[string]Val
 	for key, value := range asMap(coreGet(step, "bindings_patch", Object())) { if key != "__order" { coreSet(s.Globals, key, cloneValue(value)) } }
 	return cloneValue(coreGet(step, "result", Object("kind", "status", "status", Object("type", "success", "message", ""))))
 }
-func (s *conformanceFakeCodeSession) Inspect(options map[string]Value) Value {
+func (s *conformanceScriptedCodeSession) Inspect(options map[string]Value) Value {
 	if coreGet(s.Runtime.Capabilities, "inspect", true) == false { return Object("unavailable", "runtime state inspection unavailable") }
 	return Object("globals", cloneMap(s.Globals), "closed", s.Closed)
 }
-func (s *conformanceFakeCodeSession) SnapshotGlobals(options map[string]Value) Value {
+func (s *conformanceScriptedCodeSession) SnapshotGlobals(options map[string]Value) Value {
 	if coreGet(s.Runtime.Capabilities, "snapshot", true) == false {
 		panic(AxError{Category:"runtime", Message:"AxCodeSession.snapshotGlobals() is required to export AxAgent state"})
 	}
 	return Object("closed", s.Closed, "globals", conformanceSanitizeRuntimeGlobals(s.Globals))
 }
-func (s *conformanceFakeCodeSession) PatchGlobals(snapshot Value, options map[string]Value) Value {
+func (s *conformanceScriptedCodeSession) PatchGlobals(snapshot Value, options map[string]Value) Value {
 	if coreGet(s.Runtime.Capabilities, "patch", true) == false {
 		panic(AxError{Category:"runtime", Message:"AxCodeSession.patchGlobals() is required to restore AxAgent state"})
 	}
@@ -30955,7 +30983,7 @@ func (s *conformanceFakeCodeSession) PatchGlobals(snapshot Value, options map[st
 	for key, value := range asMap(globals) { if key != "__order" { coreSet(s.Globals, key, cloneValue(value)) } }
 	return Object("ok", true, "globals", conformanceSanitizeRuntimeGlobals(s.Globals))
 }
-func (s *conformanceFakeCodeSession) Close() Value { s.Closed = true; return Object("kind", "session_closed", "closed", true) }
+func (s *conformanceScriptedCodeSession) Close() Value { s.Closed = true; return Object("kind", "session_closed", "closed", true) }
 func conformanceSanitizeRuntimeGlobals(globals map[string]Value) map[string]Value {
 	out := Object()
 	reserved := map[string]bool{}
@@ -31231,29 +31259,29 @@ func _core_agent_callable_invoke(values ...Value) Value { if len(values)==0 { re
 type FixtureError struct { Message string }
 func (e FixtureError) Error() string { return e.Message }
 
-type conformanceFakeAI struct {
+type conformanceScriptedAI struct {
 	Responses []Value
 	StreamEvents []Value
 	Requests []map[string]Value
 	ChatCalls int
 }
 
-func (f *conformanceFakeAI) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+func (f *conformanceScriptedAI) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	f.ChatCalls++
 	f.Requests = append(f.Requests, cloneMap(request))
-	if len(f.Responses) == 0 { return nil, AxError{Category:"runtime", Message:"fake client exhausted"} }
+	if len(f.Responses) == 0 { return nil, AxError{Category:"runtime", Message:"scripted client exhausted"} }
 	raw := f.Responses[0]
 	f.Responses = f.Responses[1:]
 	return conformanceLegacyResponse(raw), nil
 }
-func (f *conformanceFakeAI) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+func (f *conformanceScriptedAI) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	f.Requests = append(f.Requests, cloneMap(request))
 	if len(f.Responses) == 0 { return Object(), nil }
 	raw := f.Responses[0]
 	f.Responses = f.Responses[1:]
 	return raw, nil
 }
-func (f *conformanceFakeAI) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
+func (f *conformanceScriptedAI) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
 	f.Requests = append(f.Requests, cloneMap(request))
 	return append([]Value(nil), f.StreamEvents...), nil
 }
@@ -31352,6 +31380,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceFlow(fixture)
 	case "optimize":
 		runConformanceOptimize(fixture)
+	case "mcp":
+		runMCPConformanceFixture(fixture)
 	case "agent_forward":
 		runConformanceAgentForward(fixture)
 	case "agent_runtime_policy":
@@ -31765,7 +31795,7 @@ func runConformanceForward(fixture map[string]Value) {
 	if assertions := coreGet(fixture, "assertions", nil); assertions != nil { for _, assertion := range asSlice(assertions) { gen.AddAssert(assertion) } }
 	if processors := coreGet(fixture, "field_processors", coreGet(fixture, "fieldProcessors", nil)); processors != nil { gen.FieldProcessors = processors }
 	if stops := coreGet(fixture, "stop_functions", coreGet(fixture, "stopFunctions", nil)); stops != nil { gen.StopFunctions = stops }
-	client := &conformanceFakeAI{Responses:asSlice(coreGet(fixture, "responses", Array())), StreamEvents:asSlice(coreGet(fixture, "stream_events", Array()))}
+	client := &conformanceScriptedAI{Responses:asSlice(coreGet(fixture, "responses", Array())), StreamEvents:asSlice(coreGet(fixture, "stream_events", Array()))}
 	output := expectMaybeFixtureError(func() Value {
 		out, err := gen.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
 		if err != nil { panic(err) }
@@ -31810,8 +31840,8 @@ func runConformanceStreamingAssertions(fixture map[string]Value, content Value) 
 	}
 }
 
-func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *FakeTransport) {
-	transport := NewFakeTransport(asSlice(coreGet(fixture, "transport_responses", Array())))
+func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *ScriptedTransport) {
+	transport := NewScriptedTransport(asSlice(coreGet(fixture, "transport_responses", Array())))
 	provider := display(coreGet(fixture, "provider", "openai-compatible"))
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	if coreGet(options, "api_key", nil) == nil && coreGet(options, "apiKey", nil) == nil { coreSet(options, "api_key", "test-key") }
@@ -31971,7 +32001,7 @@ func runConformanceFlow(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_plan", nil); expected != nil { assertEqual(_flow_plan(flow.State), expected, "flow plan") }
 	if expected := coreGet(fixture, "expected_plan_subset", nil); expected != nil { assertListSubset(coreGet(_flow_plan(flow.State), "steps", _flow_plan(flow.State)), expected, "flow plan") }
 	if display(coreGet(fixture, "operation", "")) == "plan" { return }
-	client := &conformanceFakeAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
 	forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
 	if seed := coreGet(fixture, "cache_seed_value", nil); seed != nil {
 		cacheStore := asMap(coreGet(forwardOptions, "cache_store", coreGet(forwardOptions, "cacheStore", Object())))
@@ -32102,8 +32132,8 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		opts := asMap(coreGet(fixture, "optimize_options", Object()))
 		run := asMap(_prepare_optimizer_run(conformanceProgramKind(fixture), components, coreGet(fixture, "dataset", Array()), opts, Object(), coreTruthy(coreGet(fixture, "engine_uses_evaluator", false))))
 		request := coreGet(run, "request", Object())
-		engineResponse, evaluations, transcripts := conformanceRunFakeOptimizer(fixture, request)
-		artifact := _normalize_optimizer_engine_response(engineResponse, "fake", "1", components)
+		engineResponse, evaluations, transcripts := conformanceRunScriptedOptimizer(fixture, request)
+		artifact := _normalize_optimizer_engine_response(engineResponse, "scripted", "1", components)
 		if rawApply := coreGet(opts, "apply", nil); rawApply == nil || coreTruthy(rawApply) {
 			program.ApplyOptimizedComponents(asMap(coreGet(artifact, "componentMap", Object())))
 		}
@@ -32119,7 +32149,7 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 	case "gepa":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
 		request := Object("contractVersion", "axir-optimize-contract-v1", "programKind", conformanceProgramKind(fixture), "components", components, "dataset", _normalize_optimization_dataset(coreGet(fixture, "dataset", Array())), "options", coreGet(fixture, "optimize_options", Object()), "trace", Object(), "evaluator", Object("available", true, "contractVersion", "axir-optimizer-evaluator-v1"))
-		reflection := &conformanceFakeAI{Responses: asSlice(coreGet(fixture, "reflection_responses", Array()))}
+		reflection := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "reflection_responses", Array()))}
 		engine := NewGEPA(reflection, asMap(coreGet(fixture, "gepa_options", Object())))
 		evaluator := &conformanceGEPAEvaluator{Fixture: fixture, Evaluations: MutableArray()}
 		artifact, err := engine.Optimize(request, evaluator)
@@ -32179,7 +32209,7 @@ func conformanceProgramKind(fixture map[string]Value) string {
 	}
 }
 
-func conformanceRunFakeOptimizer(fixture map[string]Value, request Value) (Value, Value, Value) {
+func conformanceRunScriptedOptimizer(fixture map[string]Value, request Value) (Value, Value, Value) {
 	response := cloneValue(coreGet(fixture, "engine_response", Object()))
 	evaluations := MutableArray()
 	transcripts := MutableArray()
@@ -32434,12 +32464,12 @@ func runConformanceAgentRuntimePolicy(fixture map[string]Value) {
 }
 
 func runConformanceAgentForward(fixture map[string]Value) {
-	client := &conformanceFakeAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
-	var runtime *conformanceFakeCodeRuntime
+	var runtime *conformanceScriptedCodeRuntime
 	if script := coreGet(fixture, "runtime_script", nil); script != nil {
 		runtimeConfig := asMap(coreGet(options, "runtime", Object()))
-		runtime = newConformanceFakeCodeRuntime(script, asMap(coreGet(fixture, "runtime_capabilities", Object())))
+		runtime = newConformanceScriptedCodeRuntime(script, asMap(coreGet(fixture, "runtime_capabilities", Object())))
 		runtime.LanguageName = display(coreGet(runtimeConfig, "language", coreGet(fixture, "runtime_language", "JavaScript")))
 		runtime.Usage = display(coreGet(runtimeConfig, "usageInstructions", coreGet(runtimeConfig, "usage_instructions", "")))
 		coreSet(options, "runtime", runtime)
@@ -32585,7 +32615,7 @@ func conformanceRuntimeAdapterCall(spec map[string]Value) Value {
 
 func runConformanceAgentRuntimeSession(fixture map[string]Value) {
 	ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), asMap(coreGet(fixture, "options", Object())))
-	runtime := newConformanceFakeCodeRuntime(coreGet(fixture, "runtime_script", Array()), asMap(coreGet(fixture, "runtime_capabilities", Object())))
+	runtime := newConformanceScriptedCodeRuntime(coreGet(fixture, "runtime_script", Array()), asMap(coreGet(fixture, "runtime_capabilities", Object())))
 	var result Value
 	_, err := safeValue(func() Value {
 		operation := display(coreGet(fixture, "operation", "test"))

@@ -1,0 +1,7 @@
+{
+  "name": "mcp oauth pkce host callback token flow",
+  "kind": "mcp",
+  "operation": "oauth",
+  "endpoint": "https://example.com/mcp",
+  "verifier": "test-verifier"
+}

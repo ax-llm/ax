@@ -36,7 +36,7 @@ fn main() -> AxResult<()> {
 - Dynamic value boundary: `serde_json::Value`
 - Error boundary: `Result<T, AxError>`
 - Built-in HTTP transport: blocking `reqwest` with rustls TLS
-- Runtime execution: process/JSONL protocol through `ProcessCodeRuntime`; no embedded JS engine in the base crate
+- Runtime execution: process/JSONL protocol through `ProcessCodeRuntime`; embedded QuickJS is opt-in with the `runtime-quickjs` Cargo feature
 - Network support: available
 
 Shared Ax behavior is Core-owned. The generated target code stays focused on idiomatic wrappers, transports, dynamic value helpers, and host-runtime boundaries.
@@ -46,18 +46,25 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `no-key` examples are deterministic local smokes. They are the fastest way to see the package work without any provider account:
 
 - `cargo run --example signature_schema`: signature parsing and JSON schema generation
-- `cargo run --example provider_mapping_no_key`: provider mapping through a fake transport
-- `cargo run --example provider_stream_no_key`: provider streaming through a fake SSE transport
-- `cargo run --example axgen_fake_client_tool`: AxGen with a fake client and tool
+- `cargo run --example provider_mapping_no_key`: provider mapping through a scripted transport
+- `cargo run --example provider_stream_no_key`: provider streaming through a scripted SSE transport
+- `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool
 - `cargo run --example axagent_pipeline`: deterministic AxAgent pipeline
 - `cargo run --example axflow_program_graph`: AxFlow program graph
+- `cargo run --example audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport
+- `cargo run --example realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding
 - `cargo run --example runtime_adapter`: custom `AxCodeRuntime` session
 - `cargo run --example runtime_protocol`: process runtime protocol against the AxJS reference adapter
+- `cargo run --example javascript_quickjs --features runtime-quickjs`: embedded QuickJS actor runtime profile
 - `cargo run --example optimizer_artifact`: optimizer artifact lifecycle smoke
+- `cargo run --example gepa_local_optimizer`: local GEPA optimizer artifact generation
+- `cargo run --example mcp_scripted_tools`: MCP tool discovery and invocation through a scripted transport
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - `OPENAI_API_KEY=... cargo run --example axgen_openai_api`: AxGen with a real OpenAI-compatible provider API
+- `OPENAI_API_KEY=... cargo run --example agent_openai_api`: AxAgent with a real OpenAI-compatible provider API
+- `OPENAI_API_KEY=... cargo run --example flow_openai_api`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents
 
@@ -67,10 +74,12 @@ The TypeScript package ships `AxJSRuntime` as the reference JavaScript implement
 
 This package is not a TypeScript transpiler. AxIR compiles shared Ax semantics into native package code; it does not run your original Ax TypeScript application inside a Rust runtime. Application code is still written in the language you are using here.
 
-This package is protocol-first for RLM actor execution:
+Runtime profiles are target-specific and opt in to their engine dependencies:
 
 - `ProcessCodeRuntime` speaks the shared AxCodeRuntime JSONL protocol.
-- Embedded JavaScript engines such as QuickJS/V8 are intentionally deferred from the v1 Rust backend.
+- `javascript-quickjs` is an embedded JavaScript actor runtime backed by `rquickjs` and gated by Cargo feature `runtime-quickjs`.
+
+Verify it with `axir verify --targets rust --runtime-profiles javascript-quickjs` when the AxIR toolchain is available.
 
 Optional runtime profiles are dependency-bearing and opt-in. Adapter policy owns sandboxing, dependency loading, hard cancellation, process security, and host permissions. The shared Ax contract still owns envelopes, state, logs, traces, and the model-visible protocol.
 
@@ -78,7 +87,7 @@ Optional runtime profiles are dependency-bearing and opt-in. Adapter policy owns
 
 - Compiler contract version: 0.1
 - Package: axllm
-- Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow
+- Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow, axmcp
 - Provider mode: provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic
-- Fake transport support: true
+- Scripted transport support: true
 - Real network support: available

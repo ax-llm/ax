@@ -158,6 +158,16 @@ describe('axir-backlog CLI', () => {
       ])
     ).toThrow(/AxIR backlog check failed/);
 
+    expect(() =>
+      run([
+        'check-pr',
+        '--root',
+        root,
+        '--changed-file',
+        'src/ax/mcp/client.ts',
+      ])
+    ).toThrow(/--surface axmcp/);
+
     run([
       'add',
       '--root',
@@ -178,6 +188,29 @@ describe('axir-backlog CLI', () => {
         root,
         '--changed-file',
         'src/ax/ai/openai/info.ts',
+      ])
+    ).toContain('ok');
+
+    run([
+      'add',
+      '--root',
+      root,
+      '--title',
+      'Sync MCP transports',
+      '--surface',
+      'axmcp',
+      '--impact',
+      'Generated MCP clients and transports may drift.',
+      '--paths',
+      'src/ax/mcp',
+    ]);
+    expect(
+      run([
+        'check-pr',
+        '--root',
+        root,
+        '--changed-file',
+        'src/ax/mcp/client.ts',
       ])
     ).toContain('ok');
 

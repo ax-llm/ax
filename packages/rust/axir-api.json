@@ -1,0 +1,497 @@
+{
+  "schema_version": "axir-api-v1",
+  "axir_version": "0.1",
+  "target": "rust",
+  "package_name": "axllm",
+  "sections": [
+    {
+      "id": "signatures",
+      "title": "Signatures",
+      "summary": "Describe typed Ax inputs and outputs once, then reuse that shape for schemas, prompts, validation, tools, and structured results.",
+      "symbols": [
+        {
+          "target_name": "rust",
+          "canonical_name": "s",
+          "public_name": "s",
+          "kind": "function",
+          "description": "Parse an Ax string signature into the target language signature object.",
+          "form": "s(spec: \u0026str)",
+          "returns": "AxResult\u003cAxSignature\u003e",
+          "example": "let sig = s(\"question:string -\u003e answer:string\")?;"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "f",
+          "public_name": "f",
+          "kind": "function",
+          "description": "Build signatures and field types fluently when the target has a fluent helper.",
+          "form": "f().input(...).output(...).build()",
+          "important_options": [
+            "input fields",
+            "output fields",
+            "field descriptions",
+            "constraints"
+          ],
+          "returns": "signature builder or field factory"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxSignature",
+          "public_name": "AxSignature",
+          "kind": "type",
+          "description": "Parsed signature with input/output fields, descriptions, and JSON schema helpers.",
+          "form": "AxSignature",
+          "important_options": ["inputs", "outputs", "description"],
+          "returns": "signature object"
+        }
+      ]
+    },
+    {
+      "id": "axgen",
+      "title": "AxGen",
+      "summary": "Run structured generation with Core-owned prompts, tool loops, retries, streaming folds, traces, usage, examples, and field processors.",
+      "symbols": [
+        {
+          "target_name": "rust",
+          "canonical_name": "ax",
+          "public_name": "ax",
+          "kind": "function",
+          "description": "Create an AxGen program from a string or parsed signature.",
+          "form": "ax(spec: \u0026str)",
+          "important_options": [
+            "functions",
+            "examples",
+            "demos",
+            "modelConfig",
+            "maxRetries",
+            "streaming assertions",
+            "field processors"
+          ],
+          "returns": "AxResult\u003cAxGen\u003e",
+          "example": "let qa = ax(\"question:string -\u003e answer:string\")?;"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxGen",
+          "public_name": "AxGen",
+          "kind": "type",
+          "description": "Structured generation program with forward, streaming, optimization, trace, usage, and tool-call behavior.",
+          "form": "AxGen",
+          "important_options": [
+            "signature",
+            "functions",
+            "examples",
+            "demos",
+            "memory",
+            "prompt template"
+          ],
+          "returns": "program object"
+        }
+      ]
+    },
+    {
+      "id": "axai",
+      "title": "AxAI",
+      "summary": "Call supported providers through the shared provider descriptor registry, scripted transports, routers, and balancers.",
+      "symbols": [
+        {
+          "target_name": "rust",
+          "canonical_name": "ai",
+          "public_name": "ai",
+          "kind": "function",
+          "description": "Create a provider client from a provider name and options.",
+          "form": "ai(provider, options)",
+          "important_options": [
+            "api key",
+            "model",
+            "api URL",
+            "headers",
+            "transport"
+          ],
+          "returns": "AxResult\u003cOpenAICompatibleClient\u003e",
+          "example": "let client = ai(\"openai\", json!({\"apiKey\": std::env::var(\"OPENAI_API_KEY\")?}))?;"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "OpenAICompatibleClient",
+          "public_name": "OpenAICompatibleClient",
+          "kind": "type",
+          "description": "OpenAI-compatible chat, stream, embedding, audio, and realtime provider boundary.",
+          "form": "OpenAICompatibleClient / ai(provider, options)",
+          "important_options": ["api key", "model", "base URL", "transport"],
+          "returns": "provider client"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "OpenAIResponsesClient",
+          "public_name": "OpenAIResponsesClient",
+          "kind": "type",
+          "description": "OpenAI Responses provider mapping using the same Core-owned request and response contract.",
+          "form": "OpenAIResponsesClient / ai(provider, options)",
+          "important_options": ["api key", "model", "audio", "realtime"],
+          "returns": "provider client"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "GoogleGeminiClient",
+          "public_name": "GoogleGeminiClient",
+          "kind": "type",
+          "description": "Gemini provider mapping for chat, streaming, media, tools, embeddings, and usage normalization.",
+          "form": "GoogleGeminiClient / ai(provider, options)",
+          "important_options": ["api key", "model", "embed model"],
+          "returns": "provider client"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AnthropicClient",
+          "public_name": "AnthropicClient",
+          "kind": "type",
+          "description": "Anthropic provider mapping for messages, thinking, cache control, streaming, and usage normalization.",
+          "form": "AnthropicClient / ai(provider, options)",
+          "important_options": [
+            "api key",
+            "model",
+            "thinking",
+            "cache control"
+          ],
+          "returns": "provider client"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxBalancer",
+          "public_name": "AxBalancer",
+          "kind": "type",
+          "description": "Retry and route requests across multiple provider services while preserving Ax request shape.",
+          "form": "AxBalancer",
+          "important_options": [
+            "services",
+            "retry policy",
+            "capability requirements"
+          ],
+          "returns": "AI service"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "MultiServiceRouter",
+          "public_name": "MultiServiceRouter",
+          "kind": "type",
+          "description": "Choose a service by capability or model routing policy.",
+          "form": "MultiServiceRouter",
+          "important_options": ["services", "routing"],
+          "returns": "AI service"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "ProviderRouter",
+          "public_name": "ProviderRouter",
+          "kind": "type",
+          "description": "Route provider requests to registered provider clients.",
+          "form": "ProviderRouter",
+          "important_options": ["providers", "routing", "processing"],
+          "returns": "AI service"
+        }
+      ]
+    },
+    {
+      "id": "agents-rlm",
+      "title": "Agents And RLM",
+      "summary": "Run AxAgent through the RLM executor loop, where actor-code steps execute through an AxCodeRuntime session.",
+      "symbols": [
+        {
+          "target_name": "rust",
+          "canonical_name": "agent",
+          "public_name": "agent",
+          "kind": "function",
+          "description": "Create an AxAgent from a signature and agent/runtime options.",
+          "form": "agent(spec: \u0026str)",
+          "important_options": [
+            "name",
+            "description",
+            "runtime",
+            "maxSteps",
+            "context fields",
+            "discovery",
+            "recall",
+            "functions"
+          ],
+          "returns": "AxResult\u003cAxAgent\u003e",
+          "example": "let helper = agent(\"query:string -\u003e answer:string\")?;"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxAgent",
+          "public_name": "AxAgent",
+          "kind": "type",
+          "description": "RLM agent with Core-owned envelopes, state, traces, discovery, recall, delegation, and final typed responses.",
+          "form": "AxAgent",
+          "important_options": [
+            "executor model",
+            "runtime",
+            "policy",
+            "context",
+            "optimizer metadata"
+          ],
+          "returns": "agent program"
+        }
+      ]
+    },
+    {
+      "id": "flow",
+      "title": "Flow",
+      "summary": "Compose AxGen, AxAgent, and nested flows into a portable program graph.",
+      "symbols": [
+        {
+          "target_name": "rust",
+          "canonical_name": "flow",
+          "public_name": "flow",
+          "kind": "function",
+          "description": "Create an AxFlow program graph.",
+          "form": "flow(id)",
+          "important_options": [
+            "nodes",
+            "execute mappers",
+            "conditions",
+            "cache",
+            "returns"
+          ],
+          "returns": "AxFlow",
+          "example": "let wf = flow(\"workflow\");"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxFlow",
+          "public_name": "AxFlow",
+          "kind": "type",
+          "description": "Workflow graph with Core-owned planning, cache keys, state merge, child aggregation, optimization, and returns projection.",
+          "form": "AxFlow",
+          "important_options": ["steps", "state", "parallel groups", "returns"],
+          "returns": "flow program"
+        }
+      ]
+    },
+    {
+      "id": "tools",
+      "title": "Tools",
+      "summary": "Expose host functions to AxGen and AxAgent with typed argument and return schemas.",
+      "symbols": [
+        {
+          "target_name": "rust",
+          "canonical_name": "fn",
+          "public_name": "tool",
+          "kind": "function",
+          "description": "Build a typed function tool. Rust uses `tool` because `fn` is reserved.",
+          "form": "tool(name).description(...).arg(...).handler(...).build()",
+          "important_options": [
+            "name",
+            "description",
+            "args",
+            "returns",
+            "handler"
+          ],
+          "returns": "ToolBuilder",
+          "example": "let search = tool(\"search\").description(\"Search docs\").build();"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "Tool",
+          "public_name": "Tool",
+          "kind": "type",
+          "description": "Callable tool descriptor with JSON-schema-compatible parameters and a host handler.",
+          "form": "Tool",
+          "important_options": ["parameters", "returns", "handler"],
+          "returns": "tool descriptor"
+        }
+      ]
+    },
+    {
+      "id": "mcp",
+      "title": "MCP",
+      "summary": "Use MCP clients and transports while keeping JSON-RPC lifecycle, tools, prompts, resources, OAuth, cancellation, and SSRF checks aligned.",
+      "symbols": [
+        {
+          "target_name": "rust",
+          "canonical_name": "AxMCPClient",
+          "public_name": "AxMCPClient",
+          "kind": "type",
+          "description": "MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions.",
+          "form": "AxMCPClient::new(transport, options)",
+          "important_options": [
+            "transport",
+            "client info",
+            "roots",
+            "tool overrides"
+          ],
+          "returns": "MCP client",
+          "example": "let client = AxMCPClient::new(transport, json!({}));"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxMCPStreamableHTTPTransport",
+          "public_name": "AxMCPStreamableHTTPTransport",
+          "kind": "type",
+          "description": "Streamable HTTP transport with session headers, OAuth options, and SSRF protection.",
+          "form": "AxMCPStreamableHTTPTransport",
+          "important_options": [
+            "endpoint",
+            "headers",
+            "OAuth",
+            "SSRF protection"
+          ],
+          "returns": "MCP transport"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxMCPStdioTransport",
+          "public_name": "AxMCPStdioTransport",
+          "kind": "type",
+          "description": "Stdio transport with JSON-RPC framing for local MCP servers.",
+          "form": "AxMCPStdioTransport",
+          "important_options": ["command", "args", "env"],
+          "returns": "MCP transport"
+        }
+      ]
+    },
+    {
+      "id": "runtime-profiles",
+      "title": "Runtime Profiles",
+      "summary": "Run RLM actor code through the portable AxCodeRuntime and optional target-specific runtime profiles.",
+      "symbols": [
+        {
+          "target_name": "rust",
+          "canonical_name": "ProcessCodeRuntime",
+          "public_name": "ProcessCodeRuntime",
+          "kind": "type",
+          "description": "Process/JSONL runtime adapter for actor-code sessions and runtime protocol tests.",
+          "form": "ProcessCodeRuntime::new(command)",
+          "important_options": ["command", "env", "cwd", "timeout"],
+          "returns": "AxCodeRuntime",
+          "example": "let runtime = ProcessCodeRuntime::new(vec![\"node\".into(), \"runtime-server.mjs\".into()]);"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "RuntimeCapabilities",
+          "public_name": "RuntimeCapabilities",
+          "kind": "type",
+          "description": "Runtime capability envelope visible to the agent runtime policy.",
+          "form": "RuntimeCapabilities",
+          "important_options": [
+            "language",
+            "snapshot",
+            "patch",
+            "abort",
+            "usage instructions"
+          ],
+          "returns": "capability record"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "RuntimeEnvelope",
+          "public_name": "RuntimeEnvelope",
+          "kind": "type",
+          "description": "Actor primitive envelope for final, clarification, discovery, recall, used, guidance, and runtime results.",
+          "form": "RuntimeEnvelope",
+          "important_options": ["type", "args", "result", "error"],
+          "returns": "runtime envelope"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "runtime-profile:javascript-quickjs",
+          "public_name": "javascript-quickjs",
+          "kind": "runtime-profile",
+          "description": "Optional runtime profile for javascript actor code.",
+          "form": "tools/axir verify --targets rust --runtime-profiles javascript-quickjs",
+          "important_options": [
+            "actor language: javascript",
+            "support mode: embedded",
+            "dependency mode: optional-feature",
+            "feature gate: runtime-quickjs"
+          ],
+          "returns": "AxCodeRuntime-compatible actor execution profile"
+        }
+      ]
+    },
+    {
+      "id": "optimizers",
+      "title": "Optimizers",
+      "summary": "Optimize Ax programs through portable component maps, evaluator rows, artifacts, and the generated GEPA engine.",
+      "symbols": [
+        {
+          "target_name": "rust",
+          "canonical_name": "AxGEPA",
+          "public_name": "AxGEPA",
+          "kind": "type",
+          "description": "Generated GEPA optimizer engine with Core-owned reflection, Pareto, bootstrap, and selector-state behavior.",
+          "form": "AxGEPA::new(reflection, options)",
+          "important_options": [
+            "reflection client",
+            "budget",
+            "metric",
+            "candidate count"
+          ],
+          "returns": "optimizer engine",
+          "example": "let engine = AxGEPA::new(reflection_client, json!({}));"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "OptimizerEngine",
+          "public_name": "OptimizerEngine",
+          "kind": "interface",
+          "description": "Optimizer boundary consumed by AxGen, AxAgent, and AxFlow optimization helpers.",
+          "form": "OptimizerEngine::optimize(request, evaluator)",
+          "important_options": ["request", "evaluator"],
+          "returns": "optimized artifact"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "OptimizerEvaluator",
+          "public_name": "OptimizerEvaluator",
+          "kind": "interface",
+          "description": "Evaluator callback boundary used by generated optimizers.",
+          "form": "OptimizerEvaluator::evaluate(request)",
+          "important_options": ["dataset rows", "candidate map", "evidence"],
+          "returns": "score/evidence result"
+        }
+      ]
+    },
+    {
+      "id": "errors-values",
+      "title": "Errors And Values",
+      "summary": "Handle target-native errors and dynamic values at Ax host boundaries.",
+      "symbols": [
+        {
+          "target_name": "rust",
+          "canonical_name": "AxError",
+          "public_name": "AxError",
+          "kind": "type",
+          "description": "Target-native error envelope for validation, provider, runtime, MCP, and optimizer failures.",
+          "form": "AxError with target-native error handling",
+          "important_options": [
+            "category",
+            "message",
+            "status",
+            "code",
+            "retryable"
+          ],
+          "returns": "error"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "Value",
+          "public_name": "serde_json::Value",
+          "kind": "type",
+          "description": "Dynamic JSON-like value boundary used by generated package APIs, tools, providers, MCP, and runtime sessions.",
+          "form": "serde_json::Value",
+          "important_options": [
+            "string",
+            "number",
+            "boolean",
+            "object",
+            "array",
+            "null"
+          ],
+          "returns": "dynamic value"
+        }
+      ]
+    }
+  ]
+}

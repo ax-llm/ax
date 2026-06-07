@@ -124,7 +124,7 @@ func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profi
 			case "go":
 				report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "Go uses javascript-goja for built-in JavaScript actor execution; use ProcessCodeRuntime for external QuickJS protocol servers"})
 			case "rust":
-				report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "Rust uses ProcessCodeRuntime for external QuickJS protocol servers; embedded JavaScript runtime profiles are deferred"})
+				report, err = verifyRustQuickJSProfile(report)
 			default:
 				err = fmt.Errorf("unknown target %q", target)
 			}
@@ -181,6 +181,18 @@ func verifyGoGojaProfile(report VerifyTargetReport) (VerifyTargetReport, error) 
 	return report, nil
 }
 
+func verifyRustQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, error) {
+	cargo, err := exec.LookPath("cargo")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs cargo", Status: "skip", Message: "cargo not found"})
+		return report, nil
+	}
+	if err := runCargoVerifyCommand(&report, "runtime profile javascript-quickjs", report.OutDir, os.Environ(), cargo, "run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--features", "runtime-quickjs", "--example", "javascript_quickjs"); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
 func normalizeVerifyTargets(targets []string) []string {
 	if len(targets) == 0 {
 		return []string{"python", "java", "cpp", "go", "rust"}
@@ -210,13 +222,18 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 	}
 	for _, example := range []string{
 		"signature_schema",
-		"axgen_fake_client_tool",
-		"axai_fake_transport",
+		"axgen_scripted_client_tool",
+		"provider_mapping_no_key",
+		"provider_stream_no_key",
 		"axagent_pipeline",
+		"audio_responses_mapping",
+		"realtime_audio_events",
 		"runtime_adapter",
 		"runtime_protocol",
 		"axflow_program_graph",
 		"optimizer_artifact",
+		"gepa_local_optimizer",
+		"mcp_scripted_tools",
 	} {
 		if err := runVerifyCommand(&report, "example "+example, report.OutDir, env, goTool, "run", "./examples/"+example); err != nil {
 			return report, err
@@ -287,12 +304,17 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	for _, example := range []string{
 		"signature_schema",
 		"provider_mapping_no_key",
-		"axgen_fake_client_tool",
+		"provider_stream_no_key",
+		"axgen_scripted_client_tool",
 		"axagent_pipeline",
+		"audio_responses_mapping",
+		"realtime_audio_events",
 		"runtime_adapter",
 		"runtime_protocol",
 		"axflow_program_graph",
 		"optimizer_artifact",
+		"gepa_local_optimizer",
+		"mcp_scripted_tools",
 	} {
 		if err := runCargoVerifyCommand(&report, "example "+example, report.OutDir, env, cargo, "run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--example", example); err != nil {
 			return report, err
@@ -407,13 +429,18 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 	}
 	for _, example := range []string{
 		"signature_schema.py",
-		"axgen_fake_client_tool.py",
-		"axai_fake_transport.py",
+		"axgen_scripted_client_tool.py",
+		"provider_mapping_no_key.py",
+		"provider_stream_no_key.py",
 		"axagent_pipeline.py",
+		"audio_responses_mapping.py",
+		"realtime_audio_events.py",
 		"runtime_adapter.py",
 		"runtime_protocol.py",
 		"axflow_program_graph.py",
 		"optimizer_artifact.py",
+		"gepa_local_optimizer.py",
+		"mcp_scripted_tools.py",
 	} {
 		if err := runVerifyCommand(&report, "example "+example, "", env, python, filepath.Join(report.OutDir, "examples", example)); err != nil {
 			return report, err
@@ -528,13 +555,18 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	}
 	for _, className := range []string{
 		"SignatureSchemaExample",
-		"AxGenFakeClientToolExample",
-		"AxAIFakeTransportExample",
+		"AxGenScriptedClientToolExample",
+		"ProviderMappingNoKeyExample",
+		"ProviderStreamNoKeyExample",
 		"AxAgentPipelineExample",
+		"AudioResponsesMappingExample",
+		"RealtimeAudioEventsExample",
 		"RuntimeAdapterExample",
 		"RuntimeProtocolExample",
 		"AxFlowProgramGraphExample",
 		"OptimizerArtifactExample",
+		"GEPALocalOptimizerExample",
+		"AxMCPScriptedToolsExample",
 	} {
 		if err := runVerifyCommand(&report, "example "+className, "", env, java, "-cp", report.OutDir, className); err != nil {
 			return report, err
@@ -632,7 +664,7 @@ func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, er
 	if err != nil {
 		return report, err
 	}
-	profileFiles, err := filepath.Glob(filepath.Join(report.OutDir, "dev", "axllm", "axllm", "runtime", "quickjs", "*.java"))
+	profileFiles, err := filepath.Glob(filepath.Join(report.OutDir, "dev", "axllm", "ax", "runtime", "quickjs", "*.java"))
 	if err != nil {
 		return report, err
 	}
@@ -717,7 +749,7 @@ func quickJSJavaProtocolServerCommand(report *VerifyTargetReport, bundle Bundle)
 	if err != nil {
 		return "", "", err
 	}
-	profileFiles, err := filepath.Glob(filepath.Join(javaOutDir, "dev", "axllm", "axllm", "runtime", "quickjs", "*.java"))
+	profileFiles, err := filepath.Glob(filepath.Join(javaOutDir, "dev", "axllm", "ax", "runtime", "quickjs", "*.java"))
 	if err != nil {
 		return "", "", err
 	}
@@ -846,20 +878,31 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		return report, nil
 	}
 	axSource := filepath.Join(report.OutDir, "axllm", "axllm.cpp")
+	mcpSource := filepath.Join(report.OutDir, "axllm", "mcp.cpp")
 	examples := []string{
 		"signature_schema",
-		"axgen_fake_client_tool",
-		"axai_fake_transport",
+		"axgen_scripted_client_tool",
+		"provider_mapping_no_key",
+		"provider_stream_no_key",
 		"axagent_pipeline",
+		"audio_responses_mapping",
+		"realtime_audio_events",
 		"runtime_adapter",
 		"runtime_protocol",
 		"axflow_program_graph",
 		"optimizer_artifact",
+		"gepa_local_optimizer",
+		"mcp_scripted_tools",
 	}
 	for _, example := range examples {
 		source := filepath.Join(report.OutDir, "examples", example+".cpp")
 		bin := filepath.Join(report.OutDir, example)
-		if err := runVerifyCommand(&report, "compile example "+example, "", nil, cpp, "-std=c++17", "-I", report.OutDir, axSource, source, "-o", bin); err != nil {
+		compileArgs := []string{"-std=c++17", "-I", report.OutDir, axSource}
+		if example == "mcp_scripted_tools" {
+			compileArgs = append(compileArgs, mcpSource)
+		}
+		compileArgs = append(compileArgs, source, "-o", bin)
+		if err := runVerifyCommand(&report, "compile example "+example, "", nil, cpp, compileArgs...); err != nil {
 			return report, err
 		}
 		if err := runVerifyCommand(&report, "example "+example, "", nil, bin); err != nil {
@@ -867,7 +910,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		}
 	}
 	conformanceBin := filepath.Join(report.OutDir, "conformance")
-	if err := runVerifyCommand(&report, "compile conformance", "", nil, cpp, "-std=c++17", "-I", report.OutDir, axSource, filepath.Join(report.OutDir, "conformance.cpp"), "-o", conformanceBin); err != nil {
+	if err := runVerifyCommand(&report, "compile conformance", "", nil, cpp, "-std=c++17", "-I", report.OutDir, axSource, mcpSource, filepath.Join(report.OutDir, "conformance.cpp"), "-o", conformanceBin); err != nil {
 		return report, err
 	}
 	args := append([]string{}, conformanceSuitePaths(conformanceRoot)...)
@@ -1036,6 +1079,7 @@ func conformanceSuitePaths(root string) []string {
 		filepath.Join(root, "axoptimize"),
 		filepath.Join(root, "axprogram"),
 		filepath.Join(root, "axflow"),
+		filepath.Join(root, "axmcp"),
 	}
 }
 

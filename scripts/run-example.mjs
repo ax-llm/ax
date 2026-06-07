@@ -64,11 +64,37 @@ const exampleCatalog = {
       'src/examples/audio-chat.ts voice',
       'Realtime audio voice stream',
     ],
+    [
+      'no-key',
+      'src/examples/mcp-scripted-tools.ts',
+      'MCP scripted transport tools',
+    ],
+    [
+      'no-key',
+      'src/examples/mcp-stdio-framing.ts',
+      'MCP stdio JSON-RPC framing',
+    ],
+    [
+      'provider-api',
+      'src/examples/mcp-client-linear.ts',
+      'Linear MCP Streamable HTTP run',
+    ],
   ],
   python: [
     ['no-key', 'signature_schema.py', 'Signature and schema smoke'],
-    ['no-key', 'agent_pipeline.py', 'Deterministic AxAgent forward and logs'],
-    ['no-key', 'flow_program_graph.py', 'Deterministic AxFlow graph'],
+    ['no-key', 'provider_mapping_no_key.py', 'OpenAI-compatible mapping smoke'],
+    [
+      'no-key',
+      'provider_stream_no_key.py',
+      'OpenAI-compatible streaming smoke',
+    ],
+    [
+      'no-key',
+      'axgen_scripted_client_tool.py',
+      'AxGen scripted client and tool',
+    ],
+    ['no-key', 'axagent_pipeline.py', 'Deterministic AxAgent forward and logs'],
+    ['no-key', 'axflow_program_graph.py', 'Deterministic AxFlow graph'],
     ['no-key', 'audio_responses_mapping.py', 'OpenAI Responses audio mapping'],
     [
       'no-key',
@@ -78,6 +104,7 @@ const exampleCatalog = {
     ['no-key', 'runtime_adapter.py', 'Custom AxCodeRuntime session'],
     ['no-key', 'optimizer_artifact.py', 'Optimizer artifact apply round trip'],
     ['no-key', 'gepa_local_optimizer.py', 'Local GEPA engine run'],
+    ['no-key', 'mcp_scripted_tools.py', 'MCP scripted transport tools'],
     ['provider-api', 'axgen_openai_api.py', 'AxGen OpenAI API run'],
     ['provider-api', 'agent_openai_api.py', 'AxAgent OpenAI API run'],
     ['provider-api', 'flow_openai_api.py', 'AxFlow OpenAI API run'],
@@ -86,10 +113,25 @@ const exampleCatalog = {
     ['no-key', 'SignatureSchemaExample.java', 'Signature and schema smoke'],
     [
       'no-key',
-      'AgentPipelineExample.java',
+      'ProviderMappingNoKeyExample.java',
+      'OpenAI-compatible mapping smoke',
+    ],
+    [
+      'no-key',
+      'ProviderStreamNoKeyExample.java',
+      'OpenAI-compatible streaming smoke',
+    ],
+    [
+      'no-key',
+      'AxGenScriptedClientToolExample.java',
+      'AxGen scripted client and tool',
+    ],
+    [
+      'no-key',
+      'AxAgentPipelineExample.java',
       'Deterministic AxAgent forward and logs',
     ],
-    ['no-key', 'FlowProgramGraphExample.java', 'Deterministic AxFlow graph'],
+    ['no-key', 'AxFlowProgramGraphExample.java', 'Deterministic AxFlow graph'],
     [
       'no-key',
       'AudioResponsesMappingExample.java',
@@ -107,14 +149,38 @@ const exampleCatalog = {
       'Optimizer artifact apply round trip',
     ],
     ['no-key', 'GEPALocalOptimizerExample.java', 'Local GEPA engine run'],
+    [
+      'no-key',
+      'AxMCPScriptedToolsExample.java',
+      'MCP scripted transport tools',
+    ],
     ['provider-api', 'AxGenOpenAIExample.java', 'AxGen OpenAI API run'],
     ['provider-api', 'AgentOpenAIExample.java', 'AxAgent OpenAI API run'],
     ['provider-api', 'FlowOpenAIExample.java', 'AxFlow OpenAI API run'],
   ],
   cpp: [
     ['no-key', 'signature_schema.cpp', 'Signature and schema smoke'],
-    ['no-key', 'agent_pipeline.cpp', 'Deterministic AxAgent forward and logs'],
-    ['no-key', 'flow_program_graph.cpp', 'Deterministic AxFlow graph'],
+    [
+      'no-key',
+      'provider_mapping_no_key.cpp',
+      'OpenAI-compatible mapping smoke',
+    ],
+    [
+      'no-key',
+      'provider_stream_no_key.cpp',
+      'OpenAI-compatible streaming smoke',
+    ],
+    [
+      'no-key',
+      'axgen_scripted_client_tool.cpp',
+      'AxGen scripted client and tool',
+    ],
+    [
+      'no-key',
+      'axagent_pipeline.cpp',
+      'Deterministic AxAgent forward and logs',
+    ],
+    ['no-key', 'axflow_program_graph.cpp', 'Deterministic AxFlow graph'],
     ['no-key', 'audio_responses_mapping.cpp', 'OpenAI Responses audio mapping'],
     [
       'no-key',
@@ -124,6 +190,7 @@ const exampleCatalog = {
     ['no-key', 'runtime_adapter.cpp', 'Custom AxCodeRuntime session'],
     ['no-key', 'optimizer_artifact.cpp', 'Optimizer artifact apply round trip'],
     ['no-key', 'gepa_local_optimizer.cpp', 'Local GEPA engine run'],
+    ['no-key', 'mcp_scripted_tools.cpp', 'MCP scripted transport tools'],
     ['provider-api', 'axgen_openai_api.cpp', 'AxGen OpenAI API run'],
     ['provider-api', 'agent_openai_api.cpp', 'AxAgent OpenAI API run'],
     ['provider-api', 'flow_openai_api.cpp', 'AxFlow OpenAI API run'],
@@ -131,13 +198,32 @@ const exampleCatalog = {
   go: [
     ['no-key', 'signature_schema.go', 'Signature and schema smoke'],
     ['no-key', 'provider_mapping_no_key.go', 'OpenAI-compatible mapping smoke'],
-    ['no-key', 'axgen_fake_client_tool.go', 'AxGen fake client and tool'],
+    [
+      'no-key',
+      'provider_stream_no_key.go',
+      'OpenAI-compatible streaming smoke',
+    ],
+    [
+      'no-key',
+      'axgen_scripted_client_tool.go',
+      'AxGen scripted client and tool',
+    ],
     ['no-key', 'axagent_pipeline.go', 'Deterministic AxAgent forward and logs'],
     ['no-key', 'axflow_program_graph.go', 'Deterministic AxFlow graph'],
+    ['no-key', 'audio_responses_mapping.go', 'OpenAI Responses audio mapping'],
+    [
+      'no-key',
+      'realtime_audio_events.go',
+      'Grok and Gemini realtime event folding',
+    ],
     ['no-key', 'runtime_adapter.go', 'Custom AxCodeRuntime session'],
     ['no-key', 'runtime_protocol.go', 'Process AxCodeRuntime protocol'],
     ['no-key', 'optimizer_artifact.go', 'Optimizer artifact smoke'],
+    ['no-key', 'gepa_local_optimizer.go', 'Local GEPA engine run'],
+    ['no-key', 'mcp_scripted_tools.go', 'MCP scripted transport tools'],
     ['provider-api', 'axgen_openai_api.go', 'AxGen OpenAI API run'],
+    ['provider-api', 'agent_openai_api.go', 'AxAgent OpenAI API run'],
+    ['provider-api', 'flow_openai_api.go', 'AxFlow OpenAI API run'],
   ],
   rust: [
     ['no-key', 'signature_schema.rs', 'Signature and schema smoke'],
@@ -147,13 +233,27 @@ const exampleCatalog = {
       'provider_stream_no_key.rs',
       'OpenAI-compatible streaming smoke',
     ],
-    ['no-key', 'axgen_fake_client_tool.rs', 'AxGen fake client and tool'],
+    [
+      'no-key',
+      'axgen_scripted_client_tool.rs',
+      'AxGen scripted client and tool',
+    ],
     ['no-key', 'axagent_pipeline.rs', 'Deterministic AxAgent forward and logs'],
     ['no-key', 'axflow_program_graph.rs', 'Deterministic AxFlow graph'],
+    ['no-key', 'audio_responses_mapping.rs', 'OpenAI Responses audio mapping'],
+    [
+      'no-key',
+      'realtime_audio_events.rs',
+      'Grok and Gemini realtime event folding',
+    ],
     ['no-key', 'runtime_adapter.rs', 'Custom AxCodeRuntime session'],
     ['no-key', 'runtime_protocol.rs', 'Process AxCodeRuntime protocol'],
     ['no-key', 'optimizer_artifact.rs', 'Optimizer artifact smoke'],
+    ['no-key', 'gepa_local_optimizer.rs', 'Local GEPA engine run'],
+    ['no-key', 'mcp_scripted_tools.rs', 'MCP scripted transport tools'],
     ['provider-api', 'axgen_openai_api.rs', 'AxGen OpenAI API run'],
+    ['provider-api', 'agent_openai_api.rs', 'AxAgent OpenAI API run'],
+    ['provider-api', 'flow_openai_api.rs', 'AxFlow OpenAI API run'],
   ],
 };
 
@@ -290,19 +390,26 @@ function resolveExample(language, exampleArg) {
 
   if (path.isAbsolute(withExt)) candidates.push(withExt);
   candidates.push(path.resolve(process.cwd(), withExt));
-  candidates.push(path.join(examplesRoot, languageDir[language], withExt));
-  if (language === 'go') {
-    candidates.push(
-      path.join(
-        packagesRoot,
-        'go',
-        'examples',
-        path.basename(withExt, '.go'),
-        'main.go'
-      )
-    );
+  if (language !== 'ts') {
+    candidates.push(path.join(packagesRoot, language, 'examples', withExt));
+    if (language === 'go') {
+      candidates.push(
+        path.join(
+          packagesRoot,
+          'go',
+          'examples',
+          path.basename(withExt, '.go'),
+          'main.go'
+        )
+      );
+    }
+    candidates.push(path.join(examplesRoot, languageDir[language], withExt));
+  } else {
+    candidates.push(path.join(examplesRoot, withExt));
+    if (languageDir[language]) {
+      candidates.push(path.join(examplesRoot, languageDir[language], withExt));
+    }
   }
-  if (language === 'ts') candidates.push(path.join(examplesRoot, withExt));
 
   const found = candidates.find((candidate) => existsSync(candidate));
   if (!found) {
@@ -420,17 +527,12 @@ target_link_libraries(${stem} PRIVATE axllm::axllm)
   ]);
   const bin = path.join(generatedRoot, 'cpp-bin', stem);
   await mkdir(path.dirname(bin), { recursive: true });
+  const cppSources = [path.join(outDir, 'axllm', 'axllm.cpp')];
+  const mcpSource = path.join(outDir, 'axllm', 'mcp.cpp');
+  if (existsSync(mcpSource)) cppSources.push(mcpSource);
   run(
     cxx,
-    [
-      '-std=c++17',
-      '-I',
-      outDir,
-      path.join(outDir, 'axllm', 'axllm.cpp'),
-      examplePath,
-      '-o',
-      bin,
-    ],
+    ['-std=c++17', '-I', outDir, ...cppSources, examplePath, '-o', bin],
     { cwd: repoRoot, env }
   );
   run(bin, rest, { cwd: repoRoot, env });
@@ -490,16 +592,28 @@ serde_json = "1"
     path.join(scratchDir, 'src', 'main.rs'),
     await readFile(examplePath)
   );
+  const manifestPath = path.join(scratchDir, 'Cargo.toml');
+  const args = ['run', '--quiet', '--manifest-path', manifestPath, ...rest];
+  const result = spawnSync('cargo', args, {
+    cwd: scratchDir,
+    env,
+    shell: false,
+    stdio: 'pipe',
+    encoding: 'utf8',
+  });
+  if (result.error) throw result.error;
+  if (result.status === 0) {
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    return;
+  }
   run(
     'cargo',
-    [
-      'run',
-      '--quiet',
-      '--manifest-path',
-      path.join(scratchDir, 'Cargo.toml'),
-      ...rest,
-    ],
-    { cwd: scratchDir, env }
+    ['run', '--offline', '--quiet', '--manifest-path', manifestPath, ...rest],
+    {
+      cwd: scratchDir,
+      env,
+    }
   );
 }
 

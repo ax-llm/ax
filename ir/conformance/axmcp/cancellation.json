@@ -1,0 +1,27 @@
+{
+  "name": "mcp cancellation notification",
+  "kind": "mcp",
+  "operation": "cancellation",
+  "request_id": "abc",
+  "reason": "user cancelled",
+  "responses": [
+    {
+      "method": "initialize",
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {},
+        "serverInfo": {
+          "name": "scripted-mcp",
+          "version": "1.0.0"
+        }
+      }
+    }
+  ],
+  "expected_notification": {
+    "method": "notifications/cancelled",
+    "params": {
+      "requestId": "abc",
+      "reason": "user cancelled"
+    }
+  }
+}

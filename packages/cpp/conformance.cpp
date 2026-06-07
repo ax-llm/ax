@@ -1,4 +1,5 @@
 #include "axllm/axllm.hpp"
+#include "axllm/mcp.hpp"
 
 #include <fstream>
 #include <iostream>
@@ -15,16 +16,16 @@ static Object as_object(Value value) {
   return {};
 }
 
-struct FakeAIClient : AIClient {
+struct ConformanceScriptedAI : AIClient {
   Array responses;
   std::vector<Value> requests;
   int chat_calls = 0;
 
-  explicit FakeAIClient(Value values) : responses(as_array(values)) {}
+  explicit ConformanceScriptedAI(Value values) : responses(as_array(values)) {}
 
   Value complete(Value request) override {
     requests.push_back(request);
-    if (responses.empty()) throw AxError("fixture", "fake client exhausted");
+    if (responses.empty()) throw AxError("fixture", "scripted client exhausted");
     Value out = responses.front();
     responses.erase(responses.begin());
     return out;
@@ -36,15 +37,15 @@ struct FakeAIClient : AIClient {
   }
 };
 
-struct FakeTransport : Transport {
+struct ScriptedTransport : Transport {
   Array responses;
   std::vector<Value> requests;
 
-  explicit FakeTransport(Value values) : responses(as_array(values)) {}
+  explicit ScriptedTransport(Value values) : responses(as_array(values)) {}
 
   Value call(Value request) override {
     requests.push_back(request);
-    if (responses.empty()) throw AxError("fixture", "fake transport exhausted");
+    if (responses.empty()) throw AxError("fixture", "scripted transport exhausted");
     Value out = responses.front();
     responses.erase(responses.begin());
     return out;
@@ -153,15 +154,15 @@ static double conf_number(Value value) {
   return text.empty() ? 0.0 : std::stod(text);
 }
 
-struct FakeOptimizerEngine : OptimizerEngine {
+struct ScriptedOptimizerEngine : OptimizerEngine {
   Value response;
   std::vector<Value> requests;
   std::vector<Value> evaluations;
   std::vector<Value> transcripts;
 
-  explicit FakeOptimizerEngine(Value response_) : response(std::move(response_)) {}
+  explicit ScriptedOptimizerEngine(Value response_) : response(std::move(response_)) {}
 
-  std::string name() const override { return "fake"; }
+  std::string name() const override { return "scripted"; }
   std::string version() const override { return "1"; }
 
   Value optimize(Value request) override {
@@ -255,15 +256,15 @@ struct ScriptedGEPAEvaluator : OptimizerEvaluator {
 
 static void assert_subset(Value actual, Value expected, const std::string& label);
 
-struct FakeCodeRuntime;
+struct ScriptedCodeRuntime;
 
-struct FakeCodeSession : AxCodeSession {
-  FakeCodeRuntime* runtime;
+struct ScriptedCodeSession : AxCodeSession {
+  ScriptedCodeRuntime* runtime;
   Value globals;
   Value create_options;
   bool closed = false;
 
-  FakeCodeSession(FakeCodeRuntime* runtime_, Value globals_, Value options_) : runtime(runtime_), globals(std::move(globals_)), create_options(std::move(options_)) {}
+  ScriptedCodeSession(ScriptedCodeRuntime* runtime_, Value globals_, Value options_) : runtime(runtime_), globals(std::move(globals_)), create_options(std::move(options_)) {}
 
   Value execute(Value code, Value options = Value::object()) override;
   Value inspect(Value options = Value::object()) override;
@@ -281,9 +282,9 @@ struct FakeCodeSession : AxCodeSession {
   }
 };
 
-struct FakeCodeRuntime : AxCodeRuntime {
+struct ScriptedCodeRuntime : AxCodeRuntime {
   Array script;
-  std::vector<std::unique_ptr<FakeCodeSession>> sessions;
+  std::vector<std::unique_ptr<ScriptedCodeSession>> sessions;
   std::vector<Value> executed;
   std::vector<Value> create_requests;
   std::vector<Value> execute_options;
@@ -291,7 +292,7 @@ struct FakeCodeRuntime : AxCodeRuntime {
   std::string runtime_usage;
   Value capabilities;
 
-  explicit FakeCodeRuntime(Value script_value, std::string language = "JavaScript", std::string usage = "", Value capabilities_ = Value::object())
+  explicit ScriptedCodeRuntime(Value script_value, std::string language = "JavaScript", std::string usage = "", Value capabilities_ = Value::object())
       : script(as_array(script_value)), runtime_language(std::move(language)), runtime_usage(std::move(usage)), capabilities(object({{"inspect", true}, {"snapshot", true}, {"patch", true}})) {
     for (const auto& kv : as_object(capabilities_)) {
       if (kv.first != "__order") Core::set(capabilities, kv.first, kv.second);
@@ -303,19 +304,19 @@ struct FakeCodeRuntime : AxCodeRuntime {
 
   AxCodeSession* create_session(Value globals, Value options = Value::object()) override {
     create_requests.push_back(object({{"globals", globals}, {"options", options}}));
-    sessions.push_back(std::make_unique<FakeCodeSession>(this, std::move(globals), std::move(options)));
+    sessions.push_back(std::make_unique<ScriptedCodeSession>(this, std::move(globals), std::move(options)));
     return sessions.back().get();
   }
 };
 
-Value FakeCodeSession::inspect(Value) {
+Value ScriptedCodeSession::inspect(Value) {
   if (!Core::truthy(Core::get(runtime->capabilities, "inspect", true))) {
     return Value("[runtime state inspection unavailable: runtime session does not implement inspect_globals()]");
   }
   return globals;
 }
 
-Value FakeCodeSession::snapshot_globals(Value) {
+Value ScriptedCodeSession::snapshot_globals(Value) {
   if (!Core::truthy(Core::get(runtime->capabilities, "snapshot", true))) {
     throw AxError("runtime", "AxCodeSession.snapshot_globals() is required to export AxAgent state");
   }
@@ -327,7 +328,7 @@ Value FakeCodeSession::snapshot_globals(Value) {
   return object({{"version", 1}, {"entries", entries}, {"bindings", globals}, {"globals", globals}, {"closed", closed}});
 }
 
-Value FakeCodeSession::patch_globals(Value snapshot, Value options) {
+Value ScriptedCodeSession::patch_globals(Value snapshot, Value options) {
   if (!Core::truthy(Core::get(runtime->capabilities, "patch", true))) {
     throw AxError("runtime", "AxCodeSession.patch_globals() is required to restore AxAgent state");
   }
@@ -337,9 +338,9 @@ Value FakeCodeSession::patch_globals(Value snapshot, Value options) {
   return snapshot_globals(options);
 }
 
-Value FakeCodeSession::execute(Value code, Value options) {
+Value ScriptedCodeSession::execute(Value code, Value options) {
   if (closed) return object({{"is_error", true}, {"error_category", "session_closed"}, {"error", "session closed"}});
-  if (runtime->script.empty()) throw AxError("fixture", "fake runtime exhausted");
+  if (runtime->script.empty()) throw AxError("fixture", "scripted runtime exhausted");
   Value step = runtime->script.front();
   runtime->script.erase(runtime->script.begin());
   Value expected = Core::get(step, "expected_code", Value());
@@ -627,7 +628,7 @@ static void run_forward(Value fixture) {
   if (!Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions")).is_null()) {
     gen.set_stop_functions(Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions", Value::array())));
   }
-  FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
   Value input = Core::get(fixture, "input", Core::get(fixture, "values", Value::object()));
   Value output = expect_maybe_error([&] { return gen.forward(client, input, Core::get(fixture, "forward_options", Value::object())); }, fixture);
   if (Core::get(fixture, "expected_error_contains").is_null() && !Core::get(fixture, "expected_output").is_null()) {
@@ -750,10 +751,10 @@ static void run_optimize(Value fixture) {
           {"options", Core::get(fixture, "optimize_options", Value::object())},
           {"evidence", object({{"source", "fixture"}})},
       });
-      std::unique_ptr<FakeAIClient> reflection;
+      std::unique_ptr<ConformanceScriptedAI> reflection;
       AIClient* reflection_ptr = nullptr;
       if (!Core::get(fixture, "reflection_responses").is_null()) {
-        reflection = std::make_unique<FakeAIClient>(Core::get(fixture, "reflection_responses", Value::array()));
+        reflection = std::make_unique<ConformanceScriptedAI>(Core::get(fixture, "reflection_responses", Value::array()));
         reflection_ptr = reflection.get();
       }
       AxGEPA engine(reflection_ptr, Core::get(fixture, "gepa_options", Value::object()));
@@ -783,7 +784,7 @@ static void run_optimize(Value fixture) {
         return;
       }
       if (op == "evaluate") {
-        FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+        ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
         Value result = gen.evaluate_optimization(client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "candidate_map", Value::object()), Core::get(fixture, "eval_options", Value::object()));
         if (!Core::get(fixture, "expected_evaluation_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_evaluation_subset"), "optimization evaluation");
         if (!Core::get(fixture, "expected_evaluation_rows_subset").is_null()) assert_list_subset(Core::get(result, "rows", Value::array()), Core::get(fixture, "expected_evaluation_rows_subset"), "optimization evaluation rows");
@@ -791,10 +792,10 @@ static void run_optimize(Value fixture) {
         return;
       }
       if (op == "engine") {
-        FakeOptimizerEngine engine(Core::get(fixture, "engine_response", Value::object()));
+        ScriptedOptimizerEngine engine(Core::get(fixture, "engine_response", Value::object()));
         Value artifact;
         if (Core::truthy(Core::get(fixture, "engine_uses_evaluator", false))) {
-          FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+          ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
           artifact = gen.optimize_with(engine, client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()));
         } else {
           artifact = gen.optimize_with(engine, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()));
@@ -838,7 +839,7 @@ static void run_optimize(Value fixture) {
         return;
       }
       if (op == "evaluate") {
-        FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+        ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
         Value result = fl.evaluate_optimization(client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "candidate_map", Value::object()), Core::get(fixture, "eval_options", Value::object()));
         if (!Core::get(fixture, "expected_evaluation_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_evaluation_subset"), "optimization evaluation");
         if (!Core::get(fixture, "expected_evaluation_rows_subset").is_null()) assert_list_subset(Core::get(result, "rows", Value::array()), Core::get(fixture, "expected_evaluation_rows_subset"), "optimization evaluation rows");
@@ -846,10 +847,10 @@ static void run_optimize(Value fixture) {
         return;
       }
       if (op == "engine") {
-        FakeOptimizerEngine engine(Core::get(fixture, "engine_response", Value::object()));
+        ScriptedOptimizerEngine engine(Core::get(fixture, "engine_response", Value::object()));
         Value artifact;
         if (Core::truthy(Core::get(fixture, "engine_uses_evaluator", false))) {
-          FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+          ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
           artifact = fl.optimize_with(engine, client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()));
         } else {
           artifact = fl.optimize_with(engine, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()));
@@ -896,10 +897,10 @@ static void run_optimize(Value fixture) {
       return;
     }
     if (op == "engine") {
-      FakeOptimizerEngine engine(Core::get(fixture, "engine_response", Value::object()));
+      ScriptedOptimizerEngine engine(Core::get(fixture, "engine_response", Value::object()));
       Value artifact;
       if (Core::truthy(Core::get(fixture, "engine_uses_evaluator", false))) {
-        FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+        ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
         artifact = ag.optimize_with(engine, client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()));
       } else {
         artifact = ag.optimize_with(engine, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()));
@@ -915,7 +916,7 @@ static void run_optimize(Value fixture) {
       return;
     }
     if (op == "evaluate") {
-      FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+      ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
       Value result = ag.evaluate_optimization(client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "candidate_map", Value::object()), Core::get(fixture, "eval_options", Value::object()));
       if (!Core::get(fixture, "expected_evaluation_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_evaluation_subset"), "optimization evaluation");
       if (!Core::get(fixture, "expected_evaluation_rows_subset").is_null()) assert_list_subset(Core::get(result, "rows", Value::array()), Core::get(fixture, "expected_evaluation_rows_subset"), "optimization evaluation rows");
@@ -923,7 +924,7 @@ static void run_optimize(Value fixture) {
       return;
     }
     if (op == "eval") {
-      FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+      ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
       Value prediction = ag.evaluate_optimization_task(client, Core::get(fixture, "task", object({{"input", Core::get(fixture, "input", Value::object())}})), Core::get(fixture, "eval_options", Value::object()));
       if (!Core::get(fixture, "expected_prediction_subset").is_null()) assert_subset(prediction, Core::get(fixture, "expected_prediction_subset"), "eval prediction");
       return;
@@ -939,12 +940,12 @@ static void run_optimize(Value fixture) {
 static void assert_agent_trace(AxAgent& ag, Value fixture);
 
 static void run_agent_forward(Value fixture) {
-  FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
   Value agent_options = Core::get(fixture, "options", Value::object());
-  std::unique_ptr<FakeCodeRuntime> runtime;
+  std::unique_ptr<ScriptedCodeRuntime> runtime;
   if (!Core::get(fixture, "runtime_script").is_null()) {
     Value runtime_config = Core::get(agent_options, "runtime", Value::object());
-    runtime = std::make_unique<FakeCodeRuntime>(
+    runtime = std::make_unique<ScriptedCodeRuntime>(
         Core::get(fixture, "runtime_script", Value::array()),
         display(Core::get(runtime_config, "language", Core::get(fixture, "runtime_language", "JavaScript"))),
         display(Core::get(runtime_config, "usageInstructions", Core::get(runtime_config, "usage_instructions", ""))));
@@ -1106,7 +1107,7 @@ static void run_agent_runtime_policy(Value fixture) {
 
 static void run_agent_runtime_session(Value fixture) {
   AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), Core::get(fixture, "options", Value::object()));
-  FakeCodeRuntime runtime(Core::get(fixture, "runtime_script", Value::array()), "JavaScript", "", Core::get(fixture, "runtime_capabilities", Value::object()));
+  ScriptedCodeRuntime runtime(Core::get(fixture, "runtime_script", Value::array()), "JavaScript", "", Core::get(fixture, "runtime_capabilities", Value::object()));
   Value result;
   bool caught_expected_error = false;
   try {
@@ -1396,14 +1397,14 @@ static void run_agent_runtime_protocol(Value fixture) {
 }
 
 struct ClientFixture {
-  FakeTransport transport;
+  ScriptedTransport transport;
   std::unique_ptr<OpenAICompatibleClient> client;
 
   explicit ClientFixture(Value fixture)
       : transport(Core::get(fixture, "transport_responses", Core::get(fixture, "responses", Value::array()))),
         client(make_client(fixture, &transport)) {}
 
-  static std::unique_ptr<OpenAICompatibleClient> make_client(Value fixture, FakeTransport* transport) {
+  static std::unique_ptr<OpenAICompatibleClient> make_client(Value fixture, ScriptedTransport* transport) {
     std::string provider = display(Core::provider_normalize_profile(Core::get(fixture, "provider", "openai-compatible")));
     if (provider == "google-gemini") return std::make_unique<GoogleGeminiClient>(options(fixture), transport);
     if (provider == "anthropic") return std::make_unique<AnthropicClient>(options(fixture), transport);
@@ -1443,14 +1444,14 @@ struct ClientFixture {
   }
 };
 
-static void assert_transport(Value fixture, const FakeTransport& transport) {
+static void assert_transport(Value fixture, const ScriptedTransport& transport) {
   Value expected = Core::get(fixture, "expected_transport_request");
   if (expected.is_null()) return;
   if (transport.requests.empty()) throw AxError("fixture", "expected provider transport request but none were sent");
   assert_subset(transport.requests[0], expected, "provider request");
 }
 
-static void assert_ai_error(const AxError& error, Value fixture, const FakeTransport& transport) {
+static void assert_ai_error(const AxError& error, Value fixture, const ScriptedTransport& transport) {
   Value expected = Core::get(fixture, "expected_error_contains");
   if (!expected.is_null() && std::string(error.what()).find(display(expected)) == std::string::npos) {
     throw AxError("fixture", "expected error containing " + display(expected) + ", got " + error.what());
@@ -1879,7 +1880,7 @@ static void run_flow(Value fixture) {
     if (!Core::get(fixture, "expected_plan").is_null()) assert_equal(fl.get_plan(), Core::get(fixture, "expected_plan"), "flow plan");
     if (!Core::get(fixture, "expected_plan_subset").is_null()) assert_list_subset(fl.get_plan(), Core::get(fixture, "expected_plan_subset"), "flow plan");
     if (display(Core::get(fixture, "operation", Value(""))) == "plan") return;
-    FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+    ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
     Value forward_options = Core::get(fixture, "forward_options", Value::object());
     if (!Core::get(fixture, "cache_seed_value").is_null()) {
       Value cache_store = Core::get(forward_options, "cache_store", Value::object());
@@ -1980,6 +1981,8 @@ static void run(Value fixture) {
     run_flow(fixture);
   } else if (kind == "optimize") {
     run_optimize(fixture);
+  } else if (kind == "mcp") {
+    run_mcp_conformance_fixture(fixture);
   } else if (kind == "ai_chat") {
     run_ai_chat(fixture);
   } else if (kind == "ai_embed") {

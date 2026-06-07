@@ -78,7 +78,7 @@ Core-owned behavior is deterministic and language-agnostic:
 - signature parsing, validation, prompts, schemas, and structured output rules
 - AxGen orchestration, tool-call normalization, streaming folds, traces, usage,
   examples, demos, and retry ordering
-- provider request/response/audio/realtime mapping and fake-transport
+- provider request/response/audio/realtime mapping and scripted-transport
   normalization
 - AxAgent runtime envelopes, lifecycle, context policy, checkpoint state,
   action logs, trace events, and actor-visible policy vocabulary
@@ -119,25 +119,35 @@ AxIR emits libraries, not one-off programs:
   JavaScript actor execution.
 - Rust: crate `axllm`, Rust 1.74+, idiomatic `Result<T, AxError>` fallible
   boundaries, `serde_json::Value` for dynamic Ax values, blocking
-  `reqwest`/rustls provider transport, and process-protocol code runtime
-  adapters. The public top-level tool constructor is `tool(...)` because `fn`
-  is reserved in Rust.
+  `reqwest`/rustls provider transport, process-protocol code runtime adapters,
+  and an opt-in embedded QuickJS profile behind Cargo feature
+  `runtime-quickjs`. The public top-level tool constructor is `tool(...)`
+  because `fn` is reserved in Rust.
 
-Every generated package includes `axir-capabilities.json`, a README, runnable
-examples, and a conformance runner when the target is executable. The committed
-package output lives under `packages/python`, `packages/java`, `packages/cpp`,
-`packages/go`, and `packages/rust`; AxIR remains the source of truth.
+Every generated package includes `axir-capabilities.json`, `axir-api.json`,
+`README.md`, `API.md`, runnable examples, and a conformance runner when the
+target is executable. `API.md` and `axir-api.json` are emitted from
+compiler-owned API metadata so package docs, future docs-site pages, and agent
+docs can consume the same source without scraping generated code.
 
-The checked-in examples under `src/examples/python`, `src/examples/java`,
-`src/examples/cpp`, `src/examples/go`, and `src/examples/rust` are run through
-`npm run example -- <language> <file>`.
+The npm-installed Claude Code skills in `@ax-llm/ax` stay focused on the
+TypeScript package. Generated Python, Java, C++, Go, and Rust API docs ship with
+their package trees instead of being auto-installed into user projects as npm
+skills. The committed package output lives under `packages/python`,
+`packages/java`, `packages/cpp`, `packages/go`, and `packages/rust`; AxIR
+remains the source of truth.
+
+TypeScript examples remain under `src/examples`. Generated Python, Java, C++,
+Go, and Rust examples are canonical under `packages/<language>/examples` and run
+through `npm run example -- <language> <file>`.
 `npm run example -- list` groups the examples by language and marks no-key
 deterministic examples separately from provider API examples. The runner uses
-the committed package source under `packages/<language>` and writes only build
-scratch data under `src/examples/.generated/`. The examples cover
+the committed package source under `packages/<language>`, resolves generated
+language examples from packages first, and writes only build scratch data under
+`src/examples/.generated/`. The examples cover
 signatures, AxGen, AxAgent, AxFlow, OpenAI Responses audio mapping,
-Grok/Gemini realtime event folding, runtime adapters, optimizer artifacts, and
-GEPA.
+Grok/Gemini realtime event folding, MCP scripted transports, runtime adapters,
+optimizer artifacts, and GEPA.
 
 When compiler output changes, run `npm run axir:generate-packages` and commit
 the refreshed package trees. CI runs `npm run axir:check-packages` so stale
@@ -153,17 +163,18 @@ AxAgent. Generated runtime profiles are portability proofs behind the same
 `AxCodeRuntime` / `AxCodeSession` boundary:
 
 - `javascript-quickjs`: Java embeds QuickJS through QuickJS4J, C++ uses the
-  QuickJS C API, and Python drives a QuickJS protocol server.
+  QuickJS C API, Rust uses `rquickjs` behind Cargo feature
+  `runtime-quickjs`, and Python drives a QuickJS protocol server.
 - `python-pyodide`: Python actor code runs in a Node-hosted Pyodide JSONL
   protocol server; generated Python, Java, and C++ clients all use the same
   process/protocol boundary.
 - `javascript-goja`: Go-native JavaScript actor code runs through the generated
   `runtime/goja` package. The root Go package stays vendor-neutral; users opt
   in by importing `github.com/ax-llm/ax/go/runtime/goja`.
-- Rust uses the process JSONL runtime protocol through `ProcessCodeRuntime`.
-  Embedded QuickJS/V8-style runtime profiles are intentionally deferred and can
-  be added later without changing the public `AxCodeRuntime` /
-  `AxCodeSession` boundary.
+- Rust keeps the process JSONL runtime protocol through `ProcessCodeRuntime`.
+  The embedded JavaScript profile is additive and feature-gated, so the base
+  crate stays dependency-light while the public `AxCodeRuntime` /
+  `AxCodeSession` boundary remains unchanged.
 
 Runtime profiles are optional and dependency-bearing. Default package builds and
 default `axir verify` stay dependency-light.
@@ -177,7 +188,7 @@ target templates.
 
 Audio and realtime are modeled as provider operations. Core owns request shape,
 audio metadata, event grammar folding, usage folding, error normalization, and
-fake-transport conformance. Targets own real HTTP/SSE/WebSocket transport,
+scripted-transport conformance. Targets own real HTTP/SSE/WebSocket transport,
 media devices, auth, reconnect policy, and binary audio IO. See
 [`docs/AUDIO.md`](./AUDIO.md) for user-facing audio usage.
 
@@ -207,8 +218,8 @@ templates when it belongs in Core descriptors or Core helpers.
 
 Most TypeScript feature PRs do not need to complete the AxIR migration
 immediately. If a PR changes portable behavior under `src/ax/ai/`,
-`src/ax/dsp/`, `src/ax/agent/`, or `src/ax/flow/`, it must either update
-AxIR/conformance or add a tracked backlog item:
+`src/ax/dsp/`, `src/ax/agent/`, `src/ax/flow/`, or `src/ax/mcp/`, it must
+either update AxIR/conformance or add a tracked backlog item:
 
 ```bash
 npm run axir:backlog -- add --title "..." --surface axai --impact "..." --paths src/ax/ai/...

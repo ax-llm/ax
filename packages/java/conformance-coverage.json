@@ -33,6 +33,27 @@
         "kind": "agent_runtime_session",
         "runner": "java:axagent",
         "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_profile",
+        "operation": "javascript-quickjs",
+        "runner": "java:axagent.javascript-quickjs",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_profile",
+        "operation": "javascript-goja",
+        "runner": "java:axagent.javascript-goja",
+        "category": "explicitly-not-claimed"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_profile",
+        "operation": "python-pyodide",
+        "runner": "java:axagent.python-pyodide",
+        "category": "transport-boundary"
       }
     ],
     "axai": [
@@ -168,6 +189,85 @@
         "kind": "stream",
         "runner": "java:axgen",
         "category": "semantic"
+      }
+    ],
+    "axmcp": [
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "initialize",
+        "runner": "java:axmcp.initialize",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "protocol_negotiation",
+        "runner": "java:axmcp.protocol_negotiation",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "ping",
+        "runner": "java:axmcp.ping",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "tools",
+        "runner": "java:axmcp.tools",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "prompts_resources",
+        "runner": "java:axmcp.prompts_resources",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "roots_notifications",
+        "runner": "java:axmcp.roots_notifications",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "cancellation",
+        "runner": "java:axmcp.cancellation",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "http_session_headers",
+        "runner": "java:axmcp.http_session_headers",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "stdio_framing",
+        "runner": "java:axmcp.stdio_framing",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "oauth",
+        "runner": "java:axmcp.oauth",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "ssrf",
+        "runner": "java:axmcp.ssrf",
+        "category": "validation-error"
       }
     ],
     "axoptimize": [

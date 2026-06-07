@@ -1,0 +1,78 @@
+{
+  "name": "mcp tools list and toFunction call",
+  "kind": "mcp",
+  "operation": "tools",
+  "responses": [
+    {
+      "method": "initialize",
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "tools": {}
+        },
+        "serverInfo": {
+          "name": "scripted-mcp",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "method": "tools/list",
+      "result": {
+        "tools": [
+          {
+            "name": "echo",
+            "description": "Echo text",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": ["text"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "structuredContent": {
+          "echo": "hello"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "hello"
+          }
+        ]
+      }
+    }
+  ],
+  "expected_function_names": ["echo"],
+  "call_function": {
+    "name": "echo",
+    "arguments": {
+      "text": "hello"
+    }
+  },
+  "expected_call_result": {
+    "echo": "hello"
+  },
+  "expected_requests": [
+    {
+      "method": "initialize"
+    },
+    {
+      "method": "tools/list"
+    },
+    {
+      "method": "tools/call",
+      "params": {
+        "name": "echo"
+      }
+    }
+  ]
+}

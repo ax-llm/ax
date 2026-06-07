@@ -1,0 +1,19 @@
+{
+  "name": "mcp protocol negotiation rejects unsupported server version",
+  "kind": "mcp",
+  "operation": "protocol_negotiation",
+  "responses": [
+    {
+      "method": "initialize",
+      "result": {
+        "protocolVersion": "1900-01-01",
+        "capabilities": {},
+        "serverInfo": {
+          "name": "old-mcp",
+          "version": "0.1.0"
+        }
+      }
+    }
+  ],
+  "expected_error_contains": "Unsupported MCP protocol version"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "mcp http session and protocol headers",
+  "kind": "mcp",
+  "operation": "http_session_headers",
+  "endpoint": "https://example.com/mcp",
+  "session_id": "session-123",
+  "protocol_version": "2025-11-25",
+  "expected_headers": {
+    "MCP-Session-Id": "session-123",
+    "MCP-Protocol-Version": "2025-11-25"
+  }
+}

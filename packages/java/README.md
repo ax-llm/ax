@@ -43,17 +43,24 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `no-key` examples are deterministic local smokes. They are the fastest way to see the package work without any provider account:
 
 - `examples/SignatureSchemaExample.java`: signature parsing and JSON schema generation
-- `examples/AxGenFakeClientToolExample.java`: AxGen with a fake client and tool
-- `examples/AxAIFakeTransportExample.java`: provider mapping through a fake transport
+- `examples/AxGenScriptedClientToolExample.java`: AxGen with a scripted client and tool
+- `examples/ProviderMappingNoKeyExample.java`: provider mapping through a scripted transport
+- `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport
 - `examples/AxAgentPipelineExample.java`: deterministic AxAgent pipeline
 - `examples/AxFlowProgramGraphExample.java`: AxFlow program graph
+- `examples/AudioResponsesMappingExample.java`: OpenAI Responses speak/transcribe mapping through a scripted transport
+- `examples/RealtimeAudioEventsExample.java`: Grok/Gemini realtime audio setup, input, and event folding
 - `examples/RuntimeAdapterExample.java`: custom `AxCodeRuntime` session
 - `examples/RuntimeProtocolExample.java`: process runtime protocol against the AxJS reference adapter
 - `examples/OptimizerArtifactExample.java`: optimizer artifact save/load/apply lifecycle
+- `examples/GEPALocalOptimizerExample.java`: local GEPA optimizer artifact generation
+- `examples/AxMCPScriptedToolsExample.java`: MCP tool discovery and invocation through a scripted transport
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/AxGenOpenAIExample.java && java -cp .:examples AxGenOpenAIExample`: AxGen with a real OpenAI-compatible provider API
+- `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/AgentOpenAIExample.java && java -cp .:examples AgentOpenAIExample`: AxAgent with a real OpenAI-compatible provider API
+- `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/FlowOpenAIExample.java && java -cp .:examples FlowOpenAIExample`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents
 
@@ -76,7 +83,7 @@ Optional runtime profiles are dependency-bearing and opt-in. Adapter policy owns
 
 - Compiler contract version: 0.1
 - Package: dev.axllm:ax
-- Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow
+- Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow, axmcp
 - Provider mode: provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic
-- Fake transport support: true
+- Scripted transport support: true
 - Real network support: available

@@ -1,0 +1,137 @@
+module @ax.mcp version "0.1" {
+  dialect @ax.mcp version "0.1"
+
+  op ax.mcp.interface @AxMCPTransport {
+    attr core_kind = "interface"
+    attr public = true
+    tag "axmcp"
+    type signature = "mcp-transport"
+  }
+
+  op ax.mcp.record @AxMCPTokenSet {
+    attr core_kind = "record"
+    attr public = true
+    tag "axmcp"
+    type fields = "accessToken:string,refreshToken?:string,expiresAt?:number,issuer?:string"
+  }
+
+  op ax.mcp.record @AxMCPOAuthOptions {
+    attr core_kind = "record"
+    attr public = true
+    tag "axmcp"
+    type fields = "clientId?:string,clientSecret?:string,redirectUri?:string,scopes?:list<string>,tokenStore?:json"
+  }
+
+  op ax.mcp.record @AxMCPClient {
+    attr core_kind = "record"
+    attr public = true
+    ref transport = @AxMCPTransport
+    tag "axmcp"
+    type signature = "(AxMCPTransport, options?:json) -> AxMCPClient"
+  }
+
+  op ax.mcp.record @AxMCPStreamableHTTPTransport {
+    attr core_kind = "record"
+    attr public = true
+    ref transport = @AxMCPTransport
+    tag "axmcp"
+    type signature = "(endpoint:string, options?:json) -> AxMCPStreamableHTTPTransport"
+  }
+
+  op ax.mcp.record @AxMCPStdioTransport {
+    attr core_kind = "record"
+    attr public = true
+    ref transport = @AxMCPTransport
+    tag "axmcp"
+    type signature = "(command:string, args?:list<string>, options?:json) -> AxMCPStdioTransport"
+  }
+
+  op ax.mcp.semantic @mcp_protocol_constants {
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr body_source = "core"
+    tag "axmcp"
+    type signature = "() -> json"
+    body @entry() {
+      %versions = core.list
+      core.append %versions, "2025-11-25"
+      core.append %versions, "2025-06-18"
+      core.append %versions, "2025-03-26"
+      core.append %versions, "2024-11-05"
+      %out = core.map
+      core.set %out["protocolVersion"] = "2025-11-25"
+      core.set %out["supportedProtocolVersions"] = %versions
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_jsonrpc_request {
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr body_source = "core"
+    tag "axmcp"
+    type signature = "(id:string, method:string, params?:json) -> json"
+    body @entry(%id: string, %method: string, %params: json) {
+      %out = core.map
+      core.set %out["jsonrpc"] = "2.0"
+      core.set %out["id"] = %id
+      core.set %out["method"] = %method
+      %missing = core.call intrinsic.is_none(%params)
+      core.if %missing {
+      } else {
+        core.set %out["params"] = %params
+      }
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_jsonrpc_notification {
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr body_source = "core"
+    tag "axmcp"
+    type signature = "(method:string, params?:json) -> json"
+    body @entry(%method: string, %params: json) {
+      %out = core.map
+      core.set %out["jsonrpc"] = "2.0"
+      core.set %out["method"] = %method
+      %missing = core.call intrinsic.is_none(%params)
+      core.if %missing {
+      } else {
+        core.set %out["params"] = %params
+      }
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_normalize_error {
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr body_source = "core"
+    tag "axmcp"
+    type signature = "(response:json) -> json"
+    body @entry(%response: json) {
+      %err = core.get %response["error"] default null
+      %missing = core.call intrinsic.is_none(%err)
+      core.if %missing {
+        %ok = core.map
+        %result = core.get %response["result"] default null
+        core.set %ok["ok"] = true
+        core.set %ok["result"] = %result
+        core.return %ok
+      } else {
+        %code = core.get %err["code"] default 0
+        %message = core.get %err["message"] default "MCP JSON-RPC error"
+        %data = core.get %err["data"] default null
+        %out = core.map
+        core.set %out["ok"] = false
+        core.set %out["category"] = "mcp"
+        core.set %out["code"] = %code
+        core.set %out["message"] = %message
+        core.set %out["data"] = %data
+        core.return %out
+      }
+      core.return %response
+    }
+  }
+}

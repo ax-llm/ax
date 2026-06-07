@@ -41,7 +41,7 @@ func lintOp(file string, op Operation) Diagnostics {
 
 func stringsHasAxSemanticPrefix(name string) bool {
 	switch name {
-	case "ax.ai.semantic", "ax.gen.semantic", "ax.optimize.semantic", "ax.provider.semantic", "ax.schema.semantic", "ax.signature.semantic", "ax.stream.semantic", "ax.template.semantic", "ax.tool.semantic", "ax.validate.semantic":
+	case "ax.ai.semantic", "ax.gen.semantic", "ax.mcp.semantic", "ax.optimize.semantic", "ax.provider.semantic", "ax.schema.semantic", "ax.signature.semantic", "ax.stream.semantic", "ax.template.semantic", "ax.tool.semantic", "ax.validate.semantic":
 		return true
 	default:
 		return false

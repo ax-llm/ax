@@ -1,0 +1,7 @@
+{
+  "name": "mcp ssrf rejects private endpoint",
+  "kind": "mcp",
+  "operation": "ssrf",
+  "endpoint": "https://127.0.0.1/mcp",
+  "expected_error_contains": "not allowed"
+}

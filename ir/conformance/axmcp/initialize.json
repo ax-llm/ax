@@ -1,0 +1,27 @@
+{
+  "name": "mcp initialize sends protocol and initialized notification",
+  "kind": "mcp",
+  "operation": "initialize",
+  "responses": [
+    {
+      "method": "initialize",
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {},
+        "serverInfo": {
+          "name": "scripted-mcp",
+          "version": "1.0.0"
+        }
+      }
+    }
+  ],
+  "expected_protocol_version": "2025-11-25",
+  "expected_requests": [
+    {
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-11-25"
+      }
+    }
+  ]
+}

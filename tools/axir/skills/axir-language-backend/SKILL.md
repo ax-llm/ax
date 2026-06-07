@@ -33,7 +33,7 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 - Compiler target registration: `Compile`, CLI help, default verify target list, package name mapping, capability manifest, target idiom metadata.
 - Code generation: target Core emitter, target templates, package metadata, README text, examples, conformance runner, runtime protocol/client support.
 - Verification: target compile, manifest guard, no-key examples, conformance suites, package smoke/install or external-consumer smoke, and optional runtime-profile checks where applicable.
-- Coverage gates: add target entries to generated-output audits in `tools/axir/internal/axir/axir_test.go`, including negative cases for fake runner patterns and positive markers for AxAgent, AxFlow, AxAI, runtime protocol, and optimizer coverage.
+- Coverage gates: add target entries to generated-output audits in `tools/axir/internal/axir/axir_test.go`, including negative cases for placeholder runner patterns and positive markers for AxAgent, AxFlow, AxAI, runtime protocol, and optimizer coverage.
 - Repo examples: `scripts/run-example.mjs`, `src/examples/<language>/`, `src/examples/README.md`, and root `package.json` convenience scripts if needed.
 - User-facing example lists: update `npm run example -- list`, the root README "Run examples" block, examples README command blocks, package convenience scripts, and release/compiler docs so the new backend is discoverable without reading compiler internals.
 - Docs: `README.md`, `docs/COMPILER.md`, `docs/RELEASE.md`, and `docs/ARCHITECTURE.md`. Edit canonical docs in `docs/`, not generated docs under `src/docs/`.
@@ -51,6 +51,6 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 
 - Do not put repo-maintainer backend guidance in `src/ax/skills/`; those files are Ax product subsystem docs.
 - Do not implement provider or Agent semantics directly in target templates when a Core descriptor/helper exists.
-- Do not present fake/no-key examples as provider API examples or claim registry publishing before workflows and credentials exist.
+- Do not present scripted/no-key examples as provider API examples or claim registry publishing before workflows and credentials exist.
 - Do not widen runtime profile semantics while adding a language backend unless a concrete conformance gap proves it is necessary.
 - Do not ship a thinner v1 target by leaving stream/audio/realtime/router/runtime/optimizer methods as placeholders while the manifest or README claims full AxIR support.

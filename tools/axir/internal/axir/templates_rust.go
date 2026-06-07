@@ -19,8 +19,18 @@ path = "src/lib.rs"
 name = "axllm-conformance"
 path = "src/bin/axllm-conformance.rs"
 
+[[example]]
+name = "javascript_quickjs"
+path = "examples/runtime_profiles/javascript_quickjs.rs"
+required-features = ["runtime-quickjs"]
+
+[features]
+default = []
+runtime-quickjs = ["dep:rquickjs"]
+
 [dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rquickjs = { version = "0.12", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 `
@@ -35,6 +45,11 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+#[cfg(feature = "runtime-quickjs")]
+pub mod runtime {
+    pub mod quickjs;
+}
 
 pub type AxResult<T> = Result<T, AxError>;
 
@@ -1084,12 +1099,12 @@ pub trait AxTransport: Send {
 
 pub type RuntimeTransport = dyn AxTransport;
 
-pub struct FakeTransport {
+pub struct ScriptedTransport {
     responses: VecDeque<Value>,
     pub requests: Vec<Value>,
 }
 
-impl FakeTransport {
+impl ScriptedTransport {
     pub fn new(responses: Vec<Value>) -> Self {
         Self {
             responses: responses.into(),
@@ -1098,12 +1113,12 @@ impl FakeTransport {
     }
 }
 
-impl AxTransport for FakeTransport {
+impl AxTransport for ScriptedTransport {
     fn send(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
         self.responses
             .pop_front()
-            .ok_or_else(|| AxError::runtime("fake transport exhausted"))
+            .ok_or_else(|| AxError::runtime("scripted transport exhausted"))
     }
 }
 
@@ -3603,6 +3618,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "flow" => run_flow_fixture(&fixture)?,
         "optimize" => run_optimize_fixture(&fixture)?,
         "program_contract" => run_program_contract_fixture(&fixture)?,
+        "mcp" => mcp::run_mcp_conformance_fixture(&fixture)?,
         _ => run_explicit_non_ai_conformance_fixture(kind, &fixture)?,
     }
     Ok(())
@@ -5413,7 +5429,7 @@ fn optimizer_engine_request(fixture: &Value, components: &[Value]) -> Value {
 }
 
 fn optimizer_engine_artifact(fixture: &Value, components: &[Value]) -> AxResult<Value> {
-    optimized_artifact_from_fixture(fixture, components, "fake")
+    optimized_artifact_from_fixture(fixture, components, "scripted")
 }
 
 fn engine_evaluations(fixture: &Value) -> Vec<Value> {
@@ -6430,11 +6446,11 @@ fn main() -> AxResult<()> {
 }
 `
 
-const rustProviderMappingNoKeyExample = `use axllm::{AxAIClient, AxResult, FakeTransport, OpenAICompatibleClient};
+const rustProviderMappingNoKeyExample = `use axllm::{AxAIClient, AxResult, ScriptedTransport, OpenAICompatibleClient};
 use serde_json::json;
 
 fn main() -> AxResult<()> {
-    let transport = FakeTransport::new(vec![json!({
+    let transport = ScriptedTransport::new(vec![json!({
         "status": 200,
         "json": {
             "id": "chatcmpl_example",
@@ -6460,11 +6476,11 @@ fn main() -> AxResult<()> {
 }
 `
 
-const rustProviderStreamNoKeyExample = `use axllm::{AxAIClient, AxResult, FakeTransport, OpenAICompatibleClient};
+const rustProviderStreamNoKeyExample = `use axllm::{AxAIClient, AxResult, ScriptedTransport, OpenAICompatibleClient};
 use serde_json::json;
 
 fn main() -> AxResult<()> {
-    let transport = FakeTransport::new(vec![json!({
+    let transport = ScriptedTransport::new(vec![json!({
         "status": 200,
         "body": "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\ndata: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
     })]);
@@ -6482,14 +6498,14 @@ fn main() -> AxResult<()> {
 }
 `
 
-const rustAxGenFakeClientToolExample = `use axllm::{ax, tool, AxAIClient, AxResult, FieldType};
+const rustAxGenScriptedClientToolExample = `use axllm::{ax, tool, AxAIClient, AxResult, FieldType};
 use serde_json::{json, Value};
 
-struct FakeClient {
+struct ScriptedClient {
     calls: usize,
 }
 
-impl AxAIClient for FakeClient {
+impl AxAIClient for ScriptedClient {
     fn chat(&mut self, _request: Value) -> AxResult<Value> {
         self.calls += 1;
         if self.calls == 1 {
@@ -6505,7 +6521,7 @@ fn main() -> AxResult<()> {
         .arg("query", FieldType::string())
         .handler(|_args| Ok(json!({"title": "Ax docs"})));
     let mut program = ax("query:string -> answer:string")?.with_tool(search);
-    let out = program.forward(&mut FakeClient { calls: 0 }, json!({"query": "ax docs"}))?;
+    let out = program.forward(&mut ScriptedClient { calls: 0 }, json!({"query": "ax docs"}))?;
     assert_eq!(out["answer"], "Found Ax docs");
     println!("rust-axgen-ok");
     Ok(())
@@ -6536,19 +6552,19 @@ const rustAxAgentPipelineExample = `use axllm::{agent, AxAIClient, AxResult};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 
-struct FakeService {
+struct ScriptedService {
     responses: VecDeque<Value>,
 }
 
-impl AxAIClient for FakeService {
+impl AxAIClient for ScriptedService {
     fn chat(&mut self, _request: Value) -> AxResult<Value> {
-        let content = self.responses.pop_front().ok_or_else(|| axllm::AxError::runtime("fake service exhausted"))?;
+        let content = self.responses.pop_front().ok_or_else(|| axllm::AxError::runtime("scripted service exhausted"))?;
         Ok(json!({"results": [{"content": content["content"], "function_calls": []}]}))
     }
 }
 
 fn main() -> AxResult<()> {
-    let mut service = FakeService {
+    let mut service = ScriptedService {
         responses: VecDeque::from(vec![
             json!({"content": "{\"answer\":\"Paris\"}"}),
         ]),
@@ -6564,9 +6580,9 @@ fn main() -> AxResult<()> {
 const rustAxFlowProgramGraphExample = `use axllm::{ax, flow, AxAIClient, AxResult};
 use serde_json::{json, Value};
 
-struct FakeClient;
+struct ScriptedClient;
 
-impl AxAIClient for FakeClient {
+impl AxAIClient for ScriptedClient {
     fn chat(&mut self, _request: Value) -> AxResult<Value> {
         Ok(json!({"results": [{"content": "{\"answer\":\"Paris\"}", "function_calls": []}]}))
     }
@@ -6575,7 +6591,7 @@ impl AxAIClient for FakeClient {
 fn main() -> AxResult<()> {
     let qa = ax("question:string -> answer:string")?;
     let mut program = flow("example.flow").execute("qa", qa).returns(json!({"answer": "answer"}));
-    let output = program.forward(&mut FakeClient, json!({"question": "Capital of France?"}))?;
+    let output = program.forward(&mut ScriptedClient, json!({"question": "Capital of France?"}))?;
     assert_eq!(output["answer"], "Paris");
     println!("rust-axflow-ok");
     Ok(())
@@ -6668,9 +6684,9 @@ fn main() -> AxResult<()> {
 const rustOptimizerArtifactExample = `use axllm::{AxResult, OptimizerEngine};
 use serde_json::{json, Value};
 
-struct FakeOptimizer;
+struct ScriptedOptimizer;
 
-impl OptimizerEngine for FakeOptimizer {
+impl OptimizerEngine for ScriptedOptimizer {
     fn optimize(&mut self, request: Value, evaluator: &mut dyn FnMut(Value) -> AxResult<Value>) -> AxResult<Value> {
         let score = evaluator(json!({"candidate": request["candidate"]}))?;
         Ok(json!({"artifact": {"version": 1, "score": score}}))
@@ -6678,10 +6694,194 @@ impl OptimizerEngine for FakeOptimizer {
 }
 
 fn main() -> AxResult<()> {
-    let mut engine = FakeOptimizer;
+    let mut engine = ScriptedOptimizer;
     let result = engine.optimize(json!({"candidate": "short prompt"}), &mut |_candidate| Ok(json!({"score": 1.0})))?;
     assert_eq!(result["artifact"]["version"], 1);
     println!("rust-optimizer-artifact-ok");
+    Ok(())
+}
+`
+
+const rustAxAgentOpenAIExample = `use axllm::{agent, AxResult, OpenAICompatibleClient};
+use serde_json::json;
+use std::env;
+
+fn main() -> AxResult<()> {
+    let api_key = env::var("OPENAI_API_KEY")
+        .or_else(|_| env::var("OPENAI_APIKEY"))
+        .map_err(|_| axllm::AxError::runtime("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example."))?;
+    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-4.1-mini".to_string());
+    let mut client = OpenAICompatibleClient::new(api_key, model).with_model_config(json!({"temperature": 0}));
+    let mut assistant = agent("question:string -> answer:string")?;
+    let output = assistant.forward(
+        &mut client,
+        json!({"question": "In one sentence, explain what Ax helps developers build."}),
+    )?;
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+`
+
+const rustAxFlowOpenAIExample = `use axllm::{ax, flow, AxResult, OpenAICompatibleClient};
+use serde_json::json;
+use std::env;
+
+fn main() -> AxResult<()> {
+    let api_key = env::var("OPENAI_API_KEY")
+        .or_else(|_| env::var("OPENAI_APIKEY"))
+        .map_err(|_| axllm::AxError::runtime("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example."))?;
+    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-4.1-mini".to_string());
+    let mut client = OpenAICompatibleClient::new(api_key, model).with_model_config(json!({"temperature": 0}));
+    let outline = ax("topic:string -> outline:string")?;
+    let mut program = flow("examples.openaiApiFlow")
+        .execute("outline", outline)
+        .returns(json!({"outline": "outline"}));
+    let output = program.forward(&mut client, json!({"topic": "how Ax composes typed LLM programs"}))?;
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+`
+
+const rustAudioResponsesMappingExample = `use axllm::{ai, AxResult, ScriptedTransport};
+use serde_json::json;
+
+fn main() -> AxResult<()> {
+    let transport = ScriptedTransport::new(vec![
+        json!({"status": 200, "json": {"audio": "base64-speech"}}),
+        json!({"status": 200, "json": {"text": "hello world", "language": "en", "duration": 1.25}}),
+    ]);
+    let mut client = ai("openai-responses", json!({"api_key": "test-key"}))?.with_transport(transport);
+    let speech = client.speak(json!({"text": "hello", "voice": "alloy", "format": "mp3"}))?;
+    let transcript = client.transcribe(json!({
+        "audio": "base64-audio",
+        "language": "en",
+        "model": "whisper-1",
+        "format": "json"
+    }))?;
+    assert_eq!(speech["audio"], "base64-speech");
+    assert_eq!(transcript["text"], "hello world");
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({"speak": speech, "transcribe": transcript}))?
+    );
+    Ok(())
+}
+`
+
+const rustRealtimeAudioEventsExample = `use axllm::{ai, AxResult};
+use serde_json::json;
+
+fn main() -> AxResult<()> {
+    let grok = ai("grok", json!({
+        "api_key": "test-key",
+        "model": "grok-voice-think-fast-1.0"
+    }))?;
+    let grok_request = json!({
+        "model": "grok-voice-think-fast-1.0",
+        "chat_prompt": [
+            {"role": "system", "content": "You are a concise voice agent."},
+            {"role": "user", "content": "Say hello."}
+        ],
+        "audio": {
+            "input": {"sampleRate": 24000},
+            "output": {"sampleRate": 24000, "voice": "eve"}
+        }
+    });
+    let grok_events = json!([
+        {"type": "response.output_audio_transcript.delta", "response_id": "grok_rt", "delta": "hello "},
+        {"type": "response.output_audio.delta", "response_id": "grok_rt", "delta": "AQI="},
+        {
+            "type": "response.done",
+            "response": {
+                "id": "grok_rt",
+                "usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}
+            }
+        }
+    ]);
+
+    let gemini = ai("google-gemini", json!({
+        "api_key": "test-key",
+        "model": "gemini-2.5-flash-native-audio-preview-12-2025"
+    }))?;
+    let gemini_request = json!({
+        "model": "gemini-2.5-flash-native-audio-preview-12-2025",
+        "chat_prompt": [
+            {"role": "system", "content": "Answer with audio."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Realtime question"},
+                    {"type": "audio", "data": "AAAA", "format": "pcm16", "sampleRate": 16000}
+                ]
+            }
+        ],
+        "audio": {"output": {"transcript": true, "voice": "Kore"}}
+    });
+    let gemini_events = json!([
+        {"id": "gemini_live_1", "serverContent": {"outputTranscription": {"text": "spoken "}}},
+        {
+            "id": "gemini_live_2",
+            "serverContent": {
+                "modelTurn": {
+                    "parts": [{"inlineData": {"data": "AQI=", "mimeType": "audio/pcm"}}]
+                }
+            }
+        },
+        {
+            "id": "gemini_live_3",
+            "toolCall": {"functionCalls": [{"name": "lookup", "args": {"q": "ax"}}]}
+        },
+        {
+            "id": "gemini_live_done",
+            "serverContent": {"turnComplete": true},
+            "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 4, "totalTokenCount": 7}
+        }
+    ]);
+
+    let output = json!({
+        "grokSetup": grok.realtime_audio_setup(grok_request)?,
+        "grokEvents": grok.realtime_events(grok_events)?,
+        "geminiSetup": gemini.realtime_audio_setup(gemini_request.clone())?,
+        "geminiInput": gemini.realtime_audio_input(gemini_request)?,
+        "geminiEvents": gemini.realtime_events(gemini_events)?
+    });
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+`
+
+const rustGEPALocalOptimizerExample = `use axllm::{AxGEPA, AxResult, OptimizerEngine};
+use serde_json::{json, Value};
+
+fn main() -> AxResult<()> {
+    let request = json!({
+        "candidate": {
+            "qa::instruction": "Answer clearly and concisely."
+        },
+        "dataset": {
+            "train": [{"question": "What is Ax?"}, {"question": "Why use typed signatures?"}],
+            "validation": [{"question": "Summarize Ax."}]
+        },
+        "options": {"numTrials": 0, "maxMetricCalls": 8, "seed": 7}
+    });
+
+    let mut engine = AxGEPA::new();
+    let artifact = engine.optimize(request, &mut |candidate: Value| {
+        let instruction = candidate["candidate"]["qa::instruction"].as_str().unwrap_or_default();
+        let quality = if instruction.to_lowercase().contains("concise") { 0.9 } else { 0.65 };
+        let brevity = 0.8;
+        Ok(json!({
+            "rows": [{
+                "prediction": {"answer": "Ax composes typed LLM programs."},
+                "scores": {"quality": quality, "brevity": brevity},
+                "scalar": (quality + brevity) / 2.0
+            }],
+            "avg": (quality + brevity) / 2.0,
+            "count": 1
+        }))
+    })?;
+    assert_eq!(artifact["artifact"]["kind"], "gepa");
+    println!("{}", serde_json::to_string_pretty(&artifact)?);
     Ok(())
 }
 `

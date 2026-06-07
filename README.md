@@ -463,7 +463,7 @@ const result = await optimizer.compile(
 | Providers | `ai({ name: ... })` | OpenAI, OpenAI Responses, Azure OpenAI, Anthropic, Gemini, Mistral, Cohere, Reka, DeepSeek, Grok/xAI, Bedrock (separate pkg) |
 | OpenAI-compatible endpoints | `ai({ name: "openai", apiURL, apiKey, models })` | one path for custom OpenAI-compatible gateways |
 | Observability | OpenTelemetry, `actorTurnCallback`, `onFunctionCall` | per-turn telemetry, tool-call tracing |
-| MCP | `AxMCPClient`, `AxMCPHTTPSSETransport`, `AxMCPStreambleHTTPTransport` | use any MCP server as a tool source |
+| MCP | `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPStdioTransport` | use any MCP server as a tool source |
 
 ## Install
 
@@ -511,11 +511,13 @@ npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extr
 ```bash
 OPENAI_APIKEY=your-key npm run tsx ./src/examples/<name>.ts
 npm run example -- list
-npm run example -- python agent_pipeline.py
-npm run example -- java FlowProgramGraphExample.java
+npm run example -- python axagent_pipeline.py
+npm run example -- java AxFlowProgramGraphExample.java
 npm run example -- cpp realtime_audio_events.cpp
 npm run example -- go signature_schema.go
 npm run example -- rust signature_schema.rs
+npm run example -- ts src/examples/mcp-scripted-tools.ts
+npm run example -- python mcp_scripted_tools.py
 npm run example -- python axgen_openai_api.py
 npm run example -- java AxGenOpenAIExample.java
 npm run example -- cpp axgen_openai_api.cpp
@@ -525,9 +527,11 @@ npm run example -- rust axgen_openai_api.rs
 
 `npm run example -- list` shows `no-key` and `provider-api` examples for
 TypeScript, Python, Java, C++, Go, and Rust. No-key examples cover signatures,
-AxAgent, AxFlow, audio/realtime mapping, runtime adapters, optimizer artifacts,
-and GEPA with deterministic local clients. Provider API examples call real
-provider HTTP and read `OPENAI_API_KEY` or `OPENAI_APIKEY` from `.env`.
+AxAgent, AxFlow, MCP scripted transports, audio/realtime mapping, runtime adapters,
+optimizer artifacts, and GEPA with deterministic local clients. Provider API
+examples call real provider HTTP and read credentials from `.env`. TypeScript
+examples live under `src/examples`; generated language examples are canonical in
+`packages/<language>/examples` and are resolved from those packages first.
 
 Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `audio-chat.ts`, `audio-batch-and-agent.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `openai-compatible.ts`, `ax-flow-enhanced-demo.ts`. [Browse all examples →](src/examples/)
 
@@ -545,9 +549,9 @@ TypeScript source change they are making and should not try to update every
 generated language backend by hand.
 
 When a PR changes portable behavior under `src/ax/ai/`, `src/ax/dsp/`,
-`src/ax/agent/`, or `src/ax/flow/`, CI will ask for either AxIR/conformance
-updates or an AxIR backlog entry. If you are not already working in AxIR, use the
-backlog path:
+`src/ax/agent/`, `src/ax/flow/`, or `src/ax/mcp/`, CI will ask for either
+AxIR/conformance updates or an AxIR backlog entry. If you are not already
+working in AxIR, use the backlog path:
 
 ```bash
 npm run axir:backlog -- add --title "..." --surface axai --impact "..." --paths src/ax/ai/...

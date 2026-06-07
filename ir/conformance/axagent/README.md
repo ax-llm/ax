@@ -10,6 +10,6 @@ chat-log aggregation, optimizer-facing metadata, runtime session lifecycle,
 reserved runtime globals, session export/restore/close, and minimal state
 handling.
 
-Runtime fixtures use fake generated `AxCodeRuntime`/`AxCodeSession`
+Runtime fixtures use scripted generated `AxCodeRuntime`/`AxCodeSession`
 implementations. They validate the portable protocol without requiring Python,
 Java, C++, or JavaScript interpreters inside AxIR itself.

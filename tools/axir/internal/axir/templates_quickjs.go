@@ -5,7 +5,7 @@ const pyJavaScriptQuickJSProfilePythonExample = `import os
 from axllm import ProcessCodeRuntime, agent
 
 
-class FakeClient:
+class ScriptedClient:
     def __init__(self, responses):
         self.responses = list(responses)
         self.requests = []
@@ -13,7 +13,7 @@ class FakeClient:
     def complete(self, request):
         self.requests.append(request)
         if not self.responses:
-            raise RuntimeError("fake client exhausted")
+            raise RuntimeError("scripted client exhausted")
         return self.responses.pop(0)
 
 server = os.environ.get("AXIR_QUICKJS_RUNTIME_SERVER")
@@ -40,7 +40,7 @@ try:
             },
         },
     )
-    forward_client = FakeClient(
+    forward_client = ScriptedClient(
         [
             {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"},
             {"content": "{\"javascriptCode\":\"counter = 41; discover({tools:['search']})\"}"},
@@ -70,7 +70,7 @@ try:
     assert "likes concise docs" in str(restored_agent.export_runtime_state()), restored_agent.export_runtime_state()
 
     guide_agent = agent("question:string -> answer:string", {"runtime": {"language": "JavaScript"}})
-    guide_client = FakeClient(
+    guide_client = ScriptedClient(
         [
             {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide\",{}]}}"},
             {"content": "{\"javascriptCode\":\"guideAgent('Prefer concise final.')\"}"},
@@ -88,7 +88,7 @@ try:
     assert "guide_agent" in guide_text and "Prefer concise final." in guide_text, guide_text
 
     clarification_agent = agent("question:string -> answer:string", {"runtime": {"language": "JavaScript"}})
-    clarification_client = FakeClient(
+    clarification_client = ScriptedClient(
         [
             {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Ask\",{}]}}"},
             {"content": "{\"javascriptCode\":\"askClarification('Need detail?')\"}"},
@@ -664,7 +664,7 @@ public final class JavaScriptQuickJsExample {
 
     public Map<String, Object> complete(Map<String, Object> request) {
       requests.add(new LinkedHashMap<>(request));
-      if (responses.isEmpty()) throw new RuntimeException("fake client exhausted");
+      if (responses.isEmpty()) throw new RuntimeException("scripted client exhausted");
       return responses.remove(0);
     }
   }
@@ -1308,7 +1308,7 @@ struct ProfileAIClient : axllm::AIClient {
 
   axllm::Value complete(axllm::Value request) override {
     requests.push_back(request);
-    if (index >= responses.size()) throw axllm::AxError("runtime", "fake client exhausted");
+    if (index >= responses.size()) throw axllm::AxError("runtime", "scripted client exhausted");
     return responses[index++];
   }
 };

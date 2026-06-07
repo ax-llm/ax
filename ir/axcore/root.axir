@@ -14,6 +14,7 @@ module @ax.root version "0.1" {
   import @ax.agent from "agent.axir"
   import @ax.optimize from "optimize.axir"
   import @ax.flow from "flow.axir"
+  import @ax.mcp from "mcp.axir"
 
   dialect @ax.api version "0.1"
 

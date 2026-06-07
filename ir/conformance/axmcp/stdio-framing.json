@@ -1,0 +1,11 @@
+{
+  "name": "mcp stdio newline json framing",
+  "kind": "mcp",
+  "operation": "stdio_framing",
+  "message": {
+    "jsonrpc": "2.0",
+    "id": "1",
+    "method": "ping",
+    "params": {}
+  }
+}

@@ -53,15 +53,16 @@ from .runtime import ProcessCodeRuntime, RuntimeCapabilities, RuntimeEnvelope, R
 from .schema import strip_internal, to_json_schema, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
+from .mcp import run_mcp_conformance_fixture
 
 
 class FixtureError(AssertionError):
     pass
 
 
-class FakeAIService(AxBaseAI):
+class ConformanceScriptedAI(AxBaseAI):
     def __init__(self, responses=None, stream_events=None):
-        super().__init__(name="fake", model="fake-chat", embed_model="fake-embed")
+        super().__init__(name="scripted", model="scripted-chat", embed_model="scripted-embed")
         self.responses = list(responses or [])
         self.stream_events = list(stream_events or [])
         self.requests = []
@@ -71,13 +72,13 @@ class FakeAIService(AxBaseAI):
         self.chat_calls += 1
         self.requests.append(copy.deepcopy(request))
         if not self.responses:
-            raise RuntimeError("fake client exhausted")
+            raise RuntimeError("scripted client exhausted")
         return _legacy_response_to_chat_response(copy.deepcopy(self.responses.pop(0)))
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         self.requests.append(copy.deepcopy(request))
         if not self.responses:
-            raise RuntimeError("fake client exhausted")
+            raise RuntimeError("scripted client exhausted")
         return copy.deepcopy(self.responses.pop(0))
 
     def stream(self, request: dict[str, Any]):
@@ -187,7 +188,7 @@ def _deep_merge(left, right):
     return out
 
 
-class FakeTransport:
+class ScriptedTransport:
     def __init__(self, responses):
         self.responses = list(responses or [])
         self.requests = []
@@ -195,11 +196,11 @@ class FakeTransport:
     def __call__(self, request):
         self.requests.append(copy.deepcopy(request))
         if not self.responses:
-            raise RuntimeError("fake transport exhausted")
+            raise RuntimeError("scripted transport exhausted")
         return copy.deepcopy(self.responses.pop(0))
 
 
-class FakeCodeSession(AxCodeSession):
+class ScriptedCodeSession(AxCodeSession):
     def __init__(self, runtime, globals_, options=None):
         self.runtime = runtime
         self.globals = copy.deepcopy(globals_ or {})
@@ -210,7 +211,7 @@ class FakeCodeSession(AxCodeSession):
         if self.closed:
             return {"is_error": True, "error_category": "session_closed", "error": "session closed"}
         if not self.runtime.script:
-            raise RuntimeError("fake runtime exhausted")
+            raise RuntimeError("scripted runtime exhausted")
         step = copy.deepcopy(self.runtime.script.pop(0))
         expected = step.get("expected_code")
         if expected is not None and expected != code:
@@ -263,7 +264,7 @@ class FakeCodeSession(AxCodeSession):
         return {"closed": True}
 
 
-class FakeCodeRuntime(AxCodeRuntime):
+class ScriptedCodeRuntime(AxCodeRuntime):
     def __init__(self, script=None, language="JavaScript", usage_instructions="", capabilities=None):
         self.script = list(script or [])
         self.sessions = []
@@ -278,9 +279,9 @@ class FakeCodeRuntime(AxCodeRuntime):
     def get_usage_instructions(self) -> str:
         return self._usage_instructions
 
-    def create_session(self, globals: dict[str, Any], options: dict[str, Any] | None = None) -> FakeCodeSession:
+    def create_session(self, globals: dict[str, Any], options: dict[str, Any] | None = None) -> ScriptedCodeSession:
         self.create_requests.append({"globals": copy.deepcopy(globals or {}), "options": copy.deepcopy(options or {})})
-        session = FakeCodeSession(self, globals, options)
+        session = ScriptedCodeSession(self, globals, options)
         self.sessions.append(session)
         return session
 
@@ -495,6 +496,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_flow(fixture)
         elif kind == "optimize":
             _run_optimize(fixture)
+        elif kind == "mcp":
+            run_mcp_conformance_fixture(fixture)
         else:
             raise FixtureError(f"unknown fixture kind {kind!r}")
     except Exception as exc:
@@ -662,7 +665,7 @@ def _run_forward(fixture):
         gen.add_field_processor(processor.get("field"), processor.get("processor", processor.get("op")))
     if "stop_functions" in fixture or "stopFunctions" in fixture:
         gen.set_stop_functions(fixture.get("stop_functions") or fixture.get("stopFunctions") or [])
-    client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
+    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
     try:
         output = gen.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))
     except Exception as exc:
@@ -798,7 +801,7 @@ def _run_flow(fixture):
             _assert_list_subset(fl.get_plan(), fixture["expected_plan_subset"], "flow plan")
         if fixture.get("operation") == "plan":
             return
-        client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
+        client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
         forward_options = copy.deepcopy(fixture.get("forward_options") or {})
         if "cache_seed_value" in fixture:
             cache_store = forward_options.setdefault("cache_store", {})
@@ -844,8 +847,8 @@ def _run_flow(fixture):
 
 
 def _run_optimize(fixture):
-    class FakeOptimizer(OptimizerEngine):
-        name = "fake"
+    class ScriptedOptimizer(OptimizerEngine):
+        name = "scripted"
         version = "1"
 
         def __init__(self, response):
@@ -1025,7 +1028,7 @@ def _run_optimize(fixture):
         if operation == "evaluate":
             if not hasattr(program, "evaluate_optimization"):
                 raise FixtureError("evaluate operation requires an optimizable program")
-            client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
+            client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
             result = program.evaluate_optimization(client, fixture.get("dataset") or [], fixture.get("candidate_map") or {}, fixture.get("eval_options") or {})
             if "expected_evaluation_subset" in fixture:
                 _assert_subset(result, fixture["expected_evaluation_subset"], "optimization evaluation")
@@ -1035,10 +1038,10 @@ def _run_optimize(fixture):
                 _assert_list_subset(program.get_optimizable_components(), fixture["expected_components_subset_after"], "post-eval components")
             return
         if operation == "engine":
-            engine = FakeOptimizer(fixture.get("engine_response") or {})
+            engine = ScriptedOptimizer(fixture.get("engine_response") or {})
             opts = copy.deepcopy(fixture.get("optimize_options") or {})
             if fixture.get("engine_uses_evaluator"):
-                opts["client"] = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
+                opts["client"] = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
             artifact = program.optimize_with(engine, fixture.get("dataset") or [], opts)
             if "expected_engine_request_subset" in fixture:
                 if not engine.requests:
@@ -1054,7 +1057,7 @@ def _run_optimize(fixture):
                 _assert_list_subset(program.get_optimizable_components(), fixture["expected_components_subset"], "optimized components")
             return
         if operation == "gepa":
-            reflection = FakeAIService(fixture.get("reflection_responses") or [], fixture.get("stream_events") or [])
+            reflection = ConformanceScriptedAI(fixture.get("reflection_responses") or [], fixture.get("stream_events") or [])
             engine = AxGEPA(reflection, **copy.deepcopy(fixture.get("gepa_options") or {}))
             evaluator = ScriptedGEPAEvaluator(fixture)
             artifact = engine.optimize(build_gepa_request(), evaluator)
@@ -1066,7 +1069,7 @@ def _run_optimize(fixture):
         if operation == "eval":
             if not isinstance(program, AxAgent):
                 raise FixtureError("eval operation requires agent program")
-            client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
+            client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
             prediction = program.evaluate_optimization_task(client, fixture.get("task") or {"input": fixture.get("input") or {}}, fixture.get("eval_options") or {})
             if "expected_prediction_subset" in fixture:
                 _assert_subset(prediction, fixture["expected_prediction_subset"], "eval prediction")
@@ -1080,12 +1083,12 @@ def _run_optimize(fixture):
 
 
 def _run_agent_forward(fixture):
-    client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
+    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
     runtime = None
     agent_options = copy.deepcopy(fixture.get("options") or {})
     if "runtime_script" in fixture:
         runtime_config = agent_options.get("runtime") if isinstance(agent_options.get("runtime"), dict) else {}
-        runtime = FakeCodeRuntime(
+        runtime = ScriptedCodeRuntime(
             fixture.get("runtime_script") or [],
             language=runtime_config.get("language", fixture.get("runtime_language", "JavaScript")),
             usage_instructions=runtime_config.get("usageInstructions", runtime_config.get("usage_instructions", "")),
@@ -1278,7 +1281,7 @@ def _run_agent_runtime_policy(fixture):
 
 def _run_agent_runtime_session(fixture):
     ag = agent(fixture.get("signature", "question:string -> answer:string"), fixture.get("options") or {})
-    runtime = FakeCodeRuntime(
+    runtime = ScriptedCodeRuntime(
         fixture.get("runtime_script") or [],
         capabilities=fixture.get("runtime_capabilities") or {},
     )
@@ -1847,7 +1850,7 @@ def _error_category(exc):
 
 
 def _openai_fixture_client(fixture):
-    transport = FakeTransport(fixture.get("transport_responses") or fixture.get("responses") or [])
+    transport = ScriptedTransport(fixture.get("transport_responses") or fixture.get("responses") or [])
     provider = provider_normalize_profile(str(fixture.get("provider", "openai-compatible")))
     if provider == "openai-responses":
         client_cls = OpenAIResponsesClient

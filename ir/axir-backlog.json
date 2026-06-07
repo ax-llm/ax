@@ -1,4 +1,24 @@
 {
   "schemaVersion": 1,
-  "entries": []
+  "entries": [
+    {
+      "id": "axir-2026-06-07-port-mcp-client-and-transports",
+      "status": "done",
+      "title": "Port MCP client and transports",
+      "createdAt": "2026-06-07",
+      "sourcePR": null,
+      "sourceCommit": "4e8da4ba",
+      "tsPaths": ["src/ax/mcp"],
+      "portableSurface": "axmcp",
+      "impact": "Generated Python, Java, C++, Go, and Rust packages do not yet expose the modern MCP client, transports, OAuth discovery, or SSRF guard behavior.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-06-07",
+      "completedByCommit": "working-tree",
+      "verification": "npm run test:axir"
+    }
+  ]
 }

@@ -1,0 +1,67 @@
+{
+  "name": "mcp prompts resources and templates become functions",
+  "kind": "mcp",
+  "operation": "prompts_resources",
+  "responses": [
+    {
+      "method": "initialize",
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "prompts": {},
+          "resources": {}
+        },
+        "serverInfo": {
+          "name": "scripted-mcp",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "method": "prompts/list",
+      "result": {
+        "prompts": [
+          {
+            "name": "ask",
+            "description": "Ask prompt",
+            "arguments": [
+              {
+                "name": "topic",
+                "description": "Topic"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "method": "resources/list",
+      "result": {
+        "resources": [
+          {
+            "uri": "file:///doc.md",
+            "name": "doc",
+            "description": "Document"
+          }
+        ]
+      }
+    },
+    {
+      "method": "resources/templates/list",
+      "result": {
+        "resourceTemplates": [
+          {
+            "uriTemplate": "file:///{name}.md",
+            "name": "page",
+            "description": "Page template"
+          }
+        ]
+      }
+    }
+  ],
+  "expected_function_names": [
+    "prompt_ask",
+    "resource_doc",
+    "resource_template_page"
+  ]
+}

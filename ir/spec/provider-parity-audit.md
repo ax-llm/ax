@@ -13,7 +13,7 @@ media-device handling, and network execution remain target-owned boundaries.
 | Area | Status | Notes |
 | --- | --- | --- |
 | OpenAI-compatible chat/embed/stream/errors | complete | Core helpers own mapping and generated targets call them through thin clients. |
-| OpenAI Responses/audio/realtime normalization | descriptor-covered | Requests, stream folding, usage, audio request shaping, realtime-audio setup/input, and fake realtime event normalization are fixture-backed; live multipart/WebSocket transport remains host-owned. |
+| OpenAI Responses/audio/realtime normalization | descriptor-covered | Requests, stream folding, usage, audio request shaping, realtime-audio setup/input, and scripted realtime event normalization are fixture-backed; live multipart/WebSocket transport remains host-owned. |
 | Google Gemini Developer API | descriptor-covered | Chat, stream, media parts, tool/schema mapping, usage, embeddings, and Gemini Live realtime-audio setup/input/event folding are fixture-backed. Vertex routing and explicit context-cache resources are deferred. |
 | Anthropic Developer API | descriptor-covered | System handling, cache-control placement, tool-use, thinking, citations, stream events, and usage/cache tokens are fixture-backed. Vertex Anthropic and live web-search transport are deferred. |
 | OpenAI-compatible catalog clients | descriptor-covered | Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok route through shared OpenAI-compatible helpers with provider-specific descriptor quirks for base URLs, auth/versioning, model defaults, thinking/search fields, unsupported options, stream/usage normalization, generated thin clients, and Grok realtime audio through the shared OpenAI-compatible realtime grammar. |
@@ -27,7 +27,7 @@ media-device handling, and network execution remain target-owned boundaries.
 ## Classification
 
 - `complete`: Provider descriptor identity, OpenAI-compatible mapping, generated target dispatch for currently supported provider profiles, model catalog runtime APIs, and multi-service model-key routing.
-- `descriptor-covered`: OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok wire-shape semantics that are Core-owned and conformance-tested with fake transports, including Grok and Gemini Live realtime-audio setup/input/event folding.
+- `descriptor-covered`: OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok wire-shape semantics that are Core-owned and conformance-tested with scripted transports, including Grok and Gemini Live realtime-audio setup/input/event folding.
 - `intentional host boundary`: HTTP/SSE/WebSocket/multipart transports, auth loading, live network execution, binary upload, retries, media-device handling, and provider-side realtime sessions.
 - `deferred feature`: Timer-backed live backoff/product retry policy, Vertex routes, Anthropic Vertex/web-search transport, and any removed/non-generated provider client selected later by product priority.
 - `missing fixture`: None for the current descriptor-backed provider profiles after the catalog audit fixture.

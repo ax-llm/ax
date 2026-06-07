@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,12 +11,12 @@ const repoRoot = path.resolve(scriptDir, '..');
 const axirDir = path.join(repoRoot, 'tools', 'axir');
 const rootAxir = path.join(repoRoot, 'ir', 'axcore', 'root.axir');
 const cacheRoot = process.env.GOCACHE || path.join(tmpdir(), 'go-build');
-const verifyDir = path.join(tmpdir(), 'axir-verify-ci');
+const verifyDir = mkdtempSync(path.join(tmpdir(), 'axir-verify-ci-'));
 const env = { ...process.env, GOCACHE: cacheRoot };
 
 mkdirSync(cacheRoot, { recursive: true });
 
-run('go', ['test', '-count=1', './...'], { cwd: axirDir, env });
+run('go', ['test', '-count=1', '-timeout=30m', './...'], { cwd: axirDir, env });
 run('go', ['run', '.', 'check', rootAxir], { cwd: axirDir, env });
 runLower();
 run(

@@ -18,7 +18,7 @@ public final class JavaScriptQuickJsExample {
 
     public Map<String, Object> complete(Map<String, Object> request) {
       requests.add(new LinkedHashMap<>(request));
-      if (responses.isEmpty()) throw new RuntimeException("fake client exhausted");
+      if (responses.isEmpty()) throw new RuntimeException("scripted client exhausted");
       return responses.remove(0);
     }
   }

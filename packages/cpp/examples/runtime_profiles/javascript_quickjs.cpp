@@ -16,7 +16,7 @@ struct ProfileAIClient : axllm::AIClient {
 
   axllm::Value complete(axllm::Value request) override {
     requests.push_back(request);
-    if (index >= responses.size()) throw axllm::AxError("runtime", "fake client exhausted");
+    if (index >= responses.size()) throw axllm::AxError("runtime", "scripted client exhausted");
     return responses[index++];
   }
 };

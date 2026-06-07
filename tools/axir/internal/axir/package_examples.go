@@ -8,10 +8,10 @@ assert "answer" in schema["properties"], schema
 print("python-signature-schema-ok")
 `
 
-const pyAxGenFakeClientToolExample = `from axllm import ax, f, fn
+const pyAxGenScriptedClientToolExample = `from axllm import ax, f, fn
 
 
-class FakeClient:
+class ScriptedClient:
     def __init__(self):
         self.calls = 0
 
@@ -38,7 +38,7 @@ search = (
 qa = ax("query:string -> answer:string", {"functions": [search]})
 qa.add_assert({"field": "answer", "contains": "Ax", "message": "answer should mention Ax"})
 qa.add_field_processor("answer", "trim")
-out = qa.forward(FakeClient(), {"query": "ax docs"})
+out = qa.forward(ScriptedClient(), {"query": "ax docs"})
 assert out == {"answer": "Found Ax docs"}, out
 assert qa.get_traces()[-1]["output"] == out
 print("python-axgen-ok")
@@ -69,10 +69,10 @@ out = program.forward(
 print(json.dumps(out, indent=2, sort_keys=True))
 `
 
-const pyAxAIFakeTransportExample = `from axllm import ai
+const pyProviderMappingNoKeyExample = `from axllm import ai
 
 
-def fake_transport(request):
+def scripted_transport(request):
     return {
         "status": 200,
         "json": {
@@ -82,7 +82,7 @@ def fake_transport(request):
                 {
                     "index": 0,
                     "finish_reason": "stop",
-                    "message": {"content": "hello from fake transport"},
+                    "message": {"content": "hello from scripted transport"},
                 }
             ],
             "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
@@ -90,16 +90,16 @@ def fake_transport(request):
     }
 
 
-service = ai("openai", model="gpt-4.1-mini", api_key="test-key", transport=fake_transport)
+service = ai("openai", model="gpt-4.1-mini", api_key="test-key", transport=scripted_transport)
 response = service.chat({"chat_prompt": [{"role": "user", "content": "hello"}]})
-assert response["results"][0]["content"] == "hello from fake transport", response
+assert response["results"][0]["content"] == "hello from scripted transport", response
 print("python-axai-ok")
 `
 
 const pyAxAgentPipelineExample = `from axllm import AxCodeRuntime, AxCodeSession, agent
 
 
-class FakeService:
+class ScriptedService:
     def __init__(self):
         self.responses = [
             {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"},
@@ -109,12 +109,12 @@ class FakeService:
 
     def chat(self, request):
         if not self.responses:
-            raise RuntimeError("fake service exhausted")
+            raise RuntimeError("scripted service exhausted")
         raw = self.responses.pop(0)
         return {"results": [{"content": raw["content"], "function_calls": []}]}
 
 
-class FakeSession(AxCodeSession):
+class ScriptedSession(AxCodeSession):
     def execute(self, code, options=None):
         return {"type": "final", "args": [{"answer": "runtime"}]}
 
@@ -128,16 +128,16 @@ class FakeSession(AxCodeSession):
         return snapshot
 
 
-class FakeRuntime(AxCodeRuntime):
+class ScriptedRuntime(AxCodeRuntime):
     def create_session(self, globals, options=None):
-        return FakeSession()
+        return ScriptedSession()
 
 
 qa = agent("question:string -> answer:string", {"contextFields": []})
-out = qa.forward(FakeService(), {"question": "Capital of France?"})
+out = qa.forward(ScriptedService(), {"question": "Capital of France?"})
 assert out == {"answer": "Paris"}, out
 assert qa.get_chat_log()[-1]["name"] == "responder"
-runtime_out = qa.test(FakeRuntime(), "final({answer: 'runtime'})", {"question": "runtime?"})
+runtime_out = qa.test(ScriptedRuntime(), "final({answer: 'runtime'})", {"question": "runtime?"})
 assert runtime_out["kind"] == "final", runtime_out
 print("python-axagent-ok")
 `
@@ -145,14 +145,14 @@ print("python-axagent-ok")
 const pyAxFlowProgramGraphExample = `from axllm import ax, flow
 
 
-class FakeClient:
+class ScriptedClient:
     def complete(self, request):
         return {"content": "{\"answer\":\"Paris\"}"}
 
 
 qa = ax("question:string -> answer:string")
 program = flow({"id": "example.flow"}).execute("qa", qa).returns({"answer": "answer"})
-out = program.forward(FakeClient(), {"question": "Capital of France?"})
+out = program.forward(ScriptedClient(), {"question": "Capital of France?"})
 assert out == {"answer": "Paris"}, out
 assert program.get_plan()["steps"][0]["name"] == "qa"
 print("python-axflow-ok")
@@ -257,7 +257,7 @@ const pyOptimizerArtifactExample = `import json
 from axllm import OptimizerEngine, ax
 
 
-class FakeOptimizer(OptimizerEngine):
+class ScriptedOptimizer(OptimizerEngine):
     name = "fixture"
     version = "1"
 
@@ -272,7 +272,7 @@ class FakeOptimizer(OptimizerEngine):
 
 
 qa = ax("question:string -> answer:string", {"id": "qa", "instruction": "Base."})
-artifact = qa.optimize_with(FakeOptimizer(), [], {"apply": False})
+artifact = qa.optimize_with(ScriptedOptimizer(), [], {"apply": False})
 assert any(item["id"] == "qa::instruction" and item["current"] == "Base." for item in qa.get_optimizable_components())
 qa.apply_optimization(json.dumps(artifact))
 assert any(
@@ -296,11 +296,11 @@ public final class SignatureSchemaExample {
 }
 `
 
-const javaAxGenFakeClientToolExample = `import dev.axllm.ax.*;
+const javaAxGenScriptedClientToolExample = `import dev.axllm.ax.*;
 import java.util.*;
 
-public final class AxGenFakeClientToolExample {
-  static final class FakeClient implements AiClient {
+public final class AxGenScriptedClientToolExample {
+  static final class ScriptedClient implements AiClient {
     int calls = 0;
 
     public Map<String, Object> complete(Map<String, Object> request) {
@@ -325,7 +325,7 @@ public final class AxGenFakeClientToolExample {
       .addTool(search)
       .addAssert(Map.of("field", "answer", "contains", "Ax", "message", "answer should mention Ax"))
       .addFieldProcessor("answer", "trim");
-    Map<String, Object> out = qa.forward(new FakeClient(), Map.of("query", "ax docs"));
+    Map<String, Object> out = qa.forward(new ScriptedClient(), Map.of("query", "ax docs"));
     if (!"Found Ax docs".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
     if (qa.getTraces().isEmpty()) throw new RuntimeException("missing trace");
     System.out.println("java-axgen-ok");
@@ -357,10 +357,10 @@ public final class AxGenOpenAIExample {
 }
 `
 
-const javaAxAIFakeTransportExample = `import dev.axllm.ax.*;
+const javaProviderMappingNoKeyExample = `import dev.axllm.ax.*;
 import java.util.*;
 
-public final class AxAIFakeTransportExample {
+public final class ProviderMappingNoKeyExample {
   public static void main(String[] args) throws Exception {
     OpenAICompatibleClient.Transport transport = request -> Map.of(
       "status", 200,
@@ -370,7 +370,7 @@ public final class AxAIFakeTransportExample {
         "choices", List.of(Map.of(
           "index", 0,
           "finish_reason", "stop",
-          "message", Map.of("content", "hello from fake transport")
+          "message", Map.of("content", "hello from scripted transport")
         )),
         "usage", Map.of("prompt_tokens", 1, "completion_tokens", 2, "total_tokens", 3)
       )
@@ -379,7 +379,7 @@ public final class AxAIFakeTransportExample {
     Map<String, Object> response = service.chat(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "hello"))));
     List<?> results = (List<?>) response.get("results");
     Map<?, ?> first = (Map<?, ?>) results.get(0);
-    if (!"hello from fake transport".equals(first.get("content"))) {
+    if (!"hello from scripted transport".equals(first.get("content"))) {
       throw new RuntimeException("bad response: " + response);
     }
     System.out.println("java-axai-ok");
@@ -391,7 +391,7 @@ const javaAxAgentPipelineExample = `import dev.axllm.ax.*;
 import java.util.*;
 
 public final class AxAgentPipelineExample {
-  static final class FakeService implements AiClient {
+  static final class ScriptedService implements AiClient {
     final List<Map<String, Object>> responses = new ArrayList<>(List.of(
       Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"),
       Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"),
@@ -399,18 +399,18 @@ public final class AxAgentPipelineExample {
     ));
 
     public Map<String, Object> complete(Map<String, Object> request) {
-      if (responses.isEmpty()) throw new RuntimeException("fake service exhausted");
+      if (responses.isEmpty()) throw new RuntimeException("scripted service exhausted");
       return responses.remove(0);
     }
   }
 
-  static final class FakeRuntime implements AxCodeRuntime {
+  static final class ScriptedRuntime implements AxCodeRuntime {
     public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
-      return new FakeSession();
+      return new ScriptedSession();
     }
   }
 
-  static final class FakeSession implements AxCodeSession {
+  static final class ScriptedSession implements AxCodeSession {
     public Object execute(String code, Map<String, Object> options) {
       return Map.of("type", "final", "args", List.of(Map.of("answer", "runtime")));
     }
@@ -422,10 +422,10 @@ public final class AxAgentPipelineExample {
 
   public static void main(String[] args) {
     AxAgent qa = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of()));
-    Map<String, Object> out = qa.forward(new FakeService(), Map.of("question", "Capital of France?"));
+    Map<String, Object> out = qa.forward(new ScriptedService(), Map.of("question", "Capital of France?"));
     if (!"Paris".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
     if (!"responder".equals(((Map<?, ?>) qa.getChatLog().get(qa.getChatLog().size() - 1)).get("name"))) throw new RuntimeException("bad chat log");
-    Map<String, Object> runtimeOut = qa.test(new FakeRuntime(), "final({answer:'runtime'})");
+    Map<String, Object> runtimeOut = qa.test(new ScriptedRuntime(), "final({answer:'runtime'})");
     if (!"final".equals(runtimeOut.get("kind"))) throw new RuntimeException("bad runtime output: " + runtimeOut);
     System.out.println("java-axagent-ok");
   }
@@ -436,7 +436,7 @@ const javaAxFlowProgramGraphExample = `import dev.axllm.ax.*;
 import java.util.*;
 
 public final class AxFlowProgramGraphExample {
-  static final class FakeClient implements AiClient {
+  static final class ScriptedClient implements AiClient {
     public Map<String, Object> complete(Map<String, Object> request) {
       return Map.of("content", "{\"answer\":\"Paris\"}");
     }
@@ -445,7 +445,7 @@ public final class AxFlowProgramGraphExample {
   public static void main(String[] args) {
     AxGen qa = Ax.ax("question:string -> answer:string");
     AxFlow program = Ax.flow(Map.of("id", "example.flow")).execute("qa", qa).returns(Map.of("answer", "answer"));
-    Map<String, Object> out = program.forward(new FakeClient(), Map.of("question", "Capital of France?"));
+    Map<String, Object> out = program.forward(new ScriptedClient(), Map.of("question", "Capital of France?"));
     if (!"Paris".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
     if (!"qa".equals(((Map<?, ?>) ((List<?>) program.getPlan().get("steps")).get(0)).get("name"))) throw new RuntimeException("bad plan");
     System.out.println("java-axflow-ok");
@@ -566,7 +566,7 @@ const javaOptimizerArtifactExample = `import dev.axllm.ax.*;
 import java.util.*;
 
 public final class OptimizerArtifactExample {
-  static final class FakeOptimizer implements OptimizerEngine {
+  static final class ScriptedOptimizer implements OptimizerEngine {
     public String name() { return "fixture"; }
     public String version() { return "1"; }
     public Map<String, Object> optimize(Map<String, Object> request) {
@@ -589,7 +589,7 @@ public final class OptimizerArtifactExample {
 
   public static void main(String[] args) {
     AxGen qa = new AxGen(Ax.s("question:string -> answer:string"), Map.of("id", "qa", "instruction", "Base."));
-    Map<String, Object> artifact = qa.optimizeWith(new FakeOptimizer(), List.of(), Map.of("apply", false));
+    Map<String, Object> artifact = qa.optimizeWith(new ScriptedOptimizer(), List.of(), Map.of("apply", false));
     if (!hasInstruction(qa, "Base.")) throw new RuntimeException("apply=false mutated components");
     qa.applyOptimization(Json.stringify(artifact));
     if (!hasInstruction(qa, "Prefer artifact-backed answers.")) throw new RuntimeException("artifact not applied");
@@ -609,10 +609,10 @@ int main() {
 }
 `
 
-const cppAxGenFakeClientToolExample = `#include "axllm/axllm.hpp"
+const cppAxGenScriptedClientToolExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeClient : axllm::AIClient {
+struct ScriptedClient : axllm::AIClient {
   int calls = 0;
 
   axllm::Value complete(axllm::Value) override {
@@ -642,7 +642,7 @@ int main() {
       .add_tool(search)
       .add_assert(axllm::object({{"field", "answer"}, {"contains", "Ax"}, {"message", "answer should mention Ax"}}))
       .add_field_processor("answer", "trim");
-  FakeClient client;
+  ScriptedClient client;
   axllm::Value out = qa.forward(client, axllm::object({{"query", "ax docs"}}));
   if (!axllm::equal(axllm::Core::get(out, "answer"), "Found Ax docs")) return 1;
   if (axllm::Core::truthy(axllm::Core::is_none(axllm::Core::get(qa.get_traces(), 0)))) return 1;
@@ -675,10 +675,10 @@ int main() {
 }
 `
 
-const cppAxAIFakeTransportExample = `#include "axllm/axllm.hpp"
+const cppProviderMappingNoKeyExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeTransport : axllm::Transport {
+struct ScriptedTransport : axllm::Transport {
   axllm::Value call(axllm::Value) override {
     return axllm::object({
       {"status", 200},
@@ -689,7 +689,7 @@ struct FakeTransport : axllm::Transport {
           axllm::object({
             {"index", 0},
             {"finish_reason", "stop"},
-            {"message", axllm::object({{"content", "hello from fake transport"}})}
+            {"message", axllm::object({{"content", "hello from scripted transport"}})}
           })
         })},
         {"usage", axllm::object({{"prompt_tokens", 1}, {"completion_tokens", 2}, {"total_tokens", 3}})}
@@ -699,13 +699,13 @@ struct FakeTransport : axllm::Transport {
 };
 
 int main() {
-  FakeTransport transport;
+  ScriptedTransport transport;
   axllm::OpenAICompatibleClient service(axllm::object({{"model", "gpt-4.1-mini"}, {"api_key", "test-key"}}), &transport);
   axllm::Value response = service.chat(axllm::object({
     {"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "hello"}})})}
   }));
   axllm::Value first = axllm::Core::get(axllm::Core::get(response, "results"), 0);
-  if (!axllm::equal(axllm::Core::get(first, "content"), "hello from fake transport")) return 1;
+  if (!axllm::equal(axllm::Core::get(first, "content"), "hello from scripted transport")) return 1;
   std::cout << "cpp-axai-ok\n";
 }
 `
@@ -713,7 +713,7 @@ int main() {
 const cppAxAgentPipelineExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeService : axllm::AIClient {
+struct ScriptedService : axllm::AIClient {
   axllm::Array responses = {
     axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"}}),
     axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"}}),
@@ -721,14 +721,14 @@ struct FakeService : axllm::AIClient {
   };
 
   axllm::Value complete(axllm::Value) override {
-    if (responses.empty()) throw axllm::AxError("fixture", "fake service exhausted");
+    if (responses.empty()) throw axllm::AxError("fixture", "scripted service exhausted");
     axllm::Value out = responses.front();
     responses.erase(responses.begin());
     return out;
   }
 };
 
-struct FakeSession : axllm::AxCodeSession {
+struct ScriptedSession : axllm::AxCodeSession {
   axllm::Value execute(axllm::Value, axllm::Value = axllm::Value::object()) override {
     return axllm::object({{"type", "final"}, {"args", axllm::array({axllm::object({{"answer", "runtime"}})})}});
   }
@@ -738,19 +738,19 @@ struct FakeSession : axllm::AxCodeSession {
   axllm::Value close() override { return axllm::object({{"closed", true}}); }
 };
 
-struct FakeRuntime : axllm::AxCodeRuntime {
-  FakeSession session;
+struct ScriptedRuntime : axllm::AxCodeRuntime {
+  ScriptedSession session;
   axllm::AxCodeSession* create_session(axllm::Value, axllm::Value = axllm::Value::object()) override { return &session; }
 };
 
 int main() {
   auto qa = axllm::agent("question:string -> answer:string", axllm::object({{"contextFields", axllm::array({})}}));
-  FakeService service;
+  ScriptedService service;
   axllm::Value out = qa.forward(service, axllm::object({{"question", "Capital of France?"}}));
   if (!axllm::equal(axllm::Core::get(out, "answer"), "Paris")) return 1;
   axllm::Value last = axllm::Core::get(qa.get_chat_log(), 2);
   if (!axllm::equal(axllm::Core::get(last, "name"), "responder")) return 2;
-  FakeRuntime runtime;
+  ScriptedRuntime runtime;
   axllm::Value runtime_out = qa.test(runtime, "final({answer:'runtime'})");
   if (!axllm::equal(axllm::Core::get(runtime_out, "kind"), "final")) return 3;
   std::cout << "cpp-axagent-ok\n";
@@ -760,7 +760,7 @@ int main() {
 const cppAxFlowProgramGraphExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeClient : axllm::AIClient {
+struct ScriptedClient : axllm::AIClient {
   axllm::Value complete(axllm::Value) override {
     return axllm::object({{"content", "{\"answer\":\"Paris\"}"}});
   }
@@ -769,7 +769,7 @@ struct FakeClient : axllm::AIClient {
 int main() {
   axllm::AxGen qa = axllm::ax("question:string -> answer:string");
   axllm::AxFlow program = axllm::flow(axllm::object({{"id", "example.flow"}})).execute("qa", qa).returns(axllm::object({{"answer", "answer"}}));
-  FakeClient client;
+  ScriptedClient client;
   axllm::Value out = program.forward(client, axllm::object({{"question", "Capital of France?"}}));
   if (!axllm::equal(axllm::Core::get(out, "answer"), "Paris")) return 1;
   if (!axllm::equal(axllm::Core::get(axllm::Core::get(axllm::Core::get(program.get_plan(), "steps"), 0), "name"), "qa")) return 2;
@@ -846,14 +846,14 @@ int main() {
 const cppRuntimeProtocolExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeRuntimeTransport : axllm::RuntimeTransport {
+struct ScriptedRuntimeTransport : axllm::RuntimeTransport {
   int next_session = 0;
 
   axllm::Value call(axllm::Value message) override {
     axllm::Value id = axllm::Core::get(message, "id");
     axllm::Value op = axllm::Core::get(message, "op");
     if (axllm::equal(op, "capabilities")) {
-      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::object({{"language", "JavaScript"}, {"usage_instructions", "fake protocol"}})}});
+      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::object({{"language", "JavaScript"}, {"usage_instructions", "scripted protocol"}})}});
     }
     if (axllm::equal(op, "create_session")) {
       std::string session_id = "s" + std::to_string(++next_session);
@@ -883,7 +883,7 @@ struct FakeRuntimeTransport : axllm::RuntimeTransport {
 };
 
 int main() {
-  FakeRuntimeTransport transport;
+  ScriptedRuntimeTransport transport;
   axllm::RuntimeProtocolClient runtime(transport);
   auto qa = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "JavaScript"}})}}));
   axllm::Value out = qa.test(runtime, "final()", axllm::object({{"question", "protocol"}}));
@@ -905,7 +905,7 @@ int main() {
 const cppOptimizerArtifactExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeOptimizer : axllm::OptimizerEngine {
+struct ScriptedOptimizer : axllm::OptimizerEngine {
   std::string name() const override { return "fixture"; }
   std::string version() const override { return "1"; }
   axllm::Value optimize(axllm::Value) override {
@@ -932,11 +932,939 @@ static bool has_instruction(const axllm::AxGen& gen, const std::string& value) {
 
 int main() {
   axllm::AxGen qa = axllm::ax("question:string -> answer:string", axllm::object({{"id", "qa"}, {"instruction", "Base."}}));
-  FakeOptimizer engine;
+  ScriptedOptimizer engine;
   axllm::Value artifact = qa.optimize_with(engine, axllm::Value::array(), axllm::object({{"apply", false}}));
   if (!has_instruction(qa, "Base.")) return 1;
   qa.apply_optimization(axllm::Value(axllm::stringify(artifact)));
   if (!has_instruction(qa, "Prefer artifact-backed answers.")) return 2;
   std::cout << "cpp-optimizer-artifact-ok\n";
+}
+`
+
+const pyProviderStreamNoKeyExample = `from axllm import OpenAICompatibleClient
+
+
+def scripted_transport(request):
+    return {
+        "status": 200,
+        "body": (
+            'data: {"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":{"content":"hel"}}]}' + "\n\n"
+            'data: {"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":"stop"}]}' + "\n\n"
+            "data: [DONE]\n\n"
+        ),
+    }
+
+
+client = OpenAICompatibleClient(api_key="test-key", model="gpt-4.1-mini", transport=scripted_transport)
+events = list(client.stream({"chat_prompt": [{"role": "user", "content": "stream"}]}))
+text = "".join((event["results"][0].get("content") or "") for event in events)
+assert text == "hello", events
+print("python-provider-stream-no-key", text)
+`
+
+const pyAxAgentOpenAIExample = `import json
+import os
+
+from axllm import OpenAICompatibleClient, agent
+
+
+api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
+if not api_key:
+    raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.")
+
+client = OpenAICompatibleClient(
+    api_key=api_key,
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-4.1-mini"),
+    model_config={"temperature": 0},
+)
+
+
+class ProviderAgentClient:
+    def __init__(self, inner):
+        self.inner = inner
+        self.raw_model_answer = None
+        self.calls = 0
+
+    def complete(self, _request):
+        self.calls += 1
+        if self.raw_model_answer is None:
+            response = self.inner.complete(
+                {
+                    "chat_prompt": [
+                        {
+                            "role": "user",
+                            "content": "In one sentence, explain what Ax helps developers build.",
+                        }
+                    ]
+                }
+            )
+            self.raw_model_answer = response["content"]
+        if self.calls == 1:
+            payload = {"completion": {"type": "final", "args": ["Answer", {}]}}
+        elif self.calls == 2:
+            payload = {
+                "completion": {
+                    "type": "final",
+                    "args": ["Answer", {"answer": self.raw_model_answer}],
+                }
+            }
+        else:
+            payload = {"answer": self.raw_model_answer}
+        return {"content": json.dumps(payload)}
+
+
+assistant = agent("question:string -> answer:string", {"contextFields": []})
+stage_client = ProviderAgentClient(client)
+output = assistant.forward(
+    stage_client,
+    {"question": "In one sentence, explain what Ax helps developers build."},
+)
+
+print(json.dumps({"agentOutput": output, "rawModelAnswer": stage_client.raw_model_answer}, indent=2, sort_keys=True))
+`
+
+const pyAxFlowOpenAIExample = `import json
+import os
+
+from axllm import OpenAICompatibleClient, ax, flow
+
+
+api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
+if not api_key:
+    raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.")
+
+client = OpenAICompatibleClient(
+    api_key=api_key,
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-4.1-mini"),
+    model_config={"temperature": 0},
+)
+outline = ax("topic:string -> outline:string")
+program = (
+    flow({"id": "examples.openaiApiFlow"})
+    .execute("outline", outline)
+    .map("summary", lambda state: {"summary": "Generated outline with typed Ax program steps."})
+    .returns({"outline": "outline", "summary": "summary"})
+)
+output = program.forward(client, {"topic": "how Ax composes typed LLM programs"})
+
+print(json.dumps(output, indent=2, sort_keys=True))
+`
+
+const pyAudioResponsesMappingExample = `import json
+
+from axllm import OpenAIResponsesClient
+
+
+transport_requests = []
+
+
+def scripted_transport(request):
+    transport_requests.append(request)
+    if request["url"].endswith("/audio/speech"):
+        return {"status": 200, "json": {"audio": "base64-speech"}}
+    if request["url"].endswith("/audio/transcriptions"):
+        return {
+            "status": 200,
+            "json": {"text": "hello world", "language": "en", "duration": 1.25},
+        }
+    raise RuntimeError(f"unexpected request: {request}")
+
+
+client = OpenAIResponsesClient(api_key="test-key", transport=scripted_transport)
+speech = client.speak({"text": "hello", "voice": "alloy", "format": "mp3"})
+transcript = client.transcribe(
+    {"audio": "base64-audio", "language": "en", "model": "whisper-1", "format": "json"}
+)
+assert speech["audio"] == "base64-speech", speech
+assert transcript["text"] == "hello world", transcript
+
+print("normalized output:")
+print(json.dumps({"speak": speech, "transcribe": transcript}, indent=2, sort_keys=True))
+print("transport requests:")
+print(json.dumps(transport_requests, indent=2, sort_keys=True))
+`
+
+const pyRealtimeAudioEventsExample = `import json
+
+from axllm import GoogleGeminiClient, GrokClient
+
+
+grok = GrokClient(model="grok-voice-think-fast-1.0", api_key="test-key")
+grok_request = {
+    "model": "grok-voice-think-fast-1.0",
+    "chat_prompt": [
+        {"role": "system", "content": "You are a concise voice agent."},
+        {"role": "user", "content": "Say hello."},
+    ],
+    "audio": {"input": {"sampleRate": 24000}, "output": {"sampleRate": 24000, "voice": "eve"}},
+}
+grok_events = [
+    {"type": "response.output_audio_transcript.delta", "response_id": "grok_rt", "delta": "hello "},
+    {"type": "response.output_audio.delta", "response_id": "grok_rt", "delta": "AQI="},
+    {
+        "type": "response.done",
+        "response": {
+            "id": "grok_rt",
+            "usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5},
+        },
+    },
+]
+
+gemini = GoogleGeminiClient(
+    model="gemini-2.5-flash-native-audio-preview-12-2025",
+    api_key="test-key",
+)
+gemini_request = {
+    "model": "gemini-2.5-flash-native-audio-preview-12-2025",
+    "chat_prompt": [
+        {"role": "system", "content": "Answer with audio."},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Realtime question"},
+                {"type": "audio", "data": "AAAA", "format": "pcm16", "sampleRate": 16000},
+            ],
+        },
+    ],
+    "audio": {"output": {"transcript": True, "voice": "Kore"}},
+}
+gemini_events = [
+    {"id": "gemini_live_1", "serverContent": {"outputTranscription": {"text": "spoken "}}},
+    {
+        "id": "gemini_live_2",
+        "serverContent": {
+            "modelTurn": {
+                "parts": [{"inlineData": {"data": "AQI=", "mimeType": "audio/pcm"}}]
+            }
+        },
+    },
+    {
+        "id": "gemini_live_3",
+        "toolCall": {"functionCalls": [{"name": "lookup", "args": {"q": "ax"}}]},
+    },
+    {
+        "id": "gemini_live_done",
+        "serverContent": {"turnComplete": True},
+        "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 4, "totalTokenCount": 7},
+    },
+]
+
+grok_normalized = list(grok.realtime(grok_events))
+gemini_normalized = list(gemini.realtime(gemini_events))
+assert grok_normalized[-1]["results"][0]["finish_reason"] == "stop", grok_normalized
+assert gemini_normalized[-1]["results"][0]["finish_reason"] == "stop", gemini_normalized
+
+print("grok setup:")
+print(json.dumps(grok.realtime_audio_setup(grok_request), indent=2, sort_keys=True))
+print("grok normalized events:")
+print(json.dumps(grok_normalized, indent=2, sort_keys=True))
+
+print("gemini setup:")
+print(json.dumps(gemini.realtime_audio_setup(gemini_request), indent=2, sort_keys=True))
+print("gemini input messages:")
+print(json.dumps(gemini.realtime_audio_input(gemini_request), indent=2, sort_keys=True))
+print("gemini normalized events:")
+print(json.dumps(gemini_normalized, indent=2, sort_keys=True))
+`
+
+const pyGEPALocalOptimizerExample = `import json
+
+from axllm import AxGEPA, OptimizerEvaluator
+
+
+class LocalEvaluator(OptimizerEvaluator):
+    def evaluate(self, candidate_map, options=None):
+        rows = []
+        examples = ((options or {}).get("dataset") or {}).get("train") or []
+        instruction = candidate_map.get("qa::instruction", "")
+        for example in examples:
+            quality = 0.9 if "concise" in instruction.lower() else 0.65
+            brevity = 0.8
+            scalar = (quality + brevity) / 2
+            rows.append(
+                {
+                    "input": example,
+                    "prediction": {"answer": "Ax composes typed LLM programs."},
+                    "scores": {"quality": quality, "brevity": brevity},
+                    "scalar": scalar,
+                }
+            )
+        total = sum(row["scalar"] for row in rows)
+        return {"rows": rows, "avg": total / len(rows), "sum": total, "count": len(rows)}
+
+
+request = {
+    "programKind": "axgen",
+    "components": [
+        {
+            "id": "qa::instruction",
+            "owner": "qa",
+            "kind": "instruction",
+            "current": "Answer clearly and concisely.",
+        }
+    ],
+    "dataset": {
+        "train": [{"question": "What is Ax?"}, {"question": "Why use typed signatures?"}],
+        "validation": [{"question": "Summarize Ax."}],
+    },
+    "options": {"numTrials": 0, "maxMetricCalls": 8, "seed": 7},
+}
+
+artifact = AxGEPA(seed=7).optimize(request, LocalEvaluator())
+assert "qa::instruction" in artifact["componentMap"], artifact
+print(json.dumps({"componentMap": artifact["componentMap"], "metadata": artifact["metadata"]}, indent=2, sort_keys=True))
+`
+
+const javaProviderStreamNoKeyExample = `import dev.axllm.ax.*;
+import java.util.*;
+
+public final class ProviderStreamNoKeyExample {
+  public static void main(String[] args) throws Exception {
+    OpenAICompatibleClient.Transport transport = request -> Map.of(
+      "status", 200,
+      "body", "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\n"
+        + "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
+        + "data: [DONE]\n\n"
+    );
+    OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
+      "api_key", "test-key",
+      "model", "gpt-4.1-mini",
+      "transport", transport
+    ));
+    StringBuilder text = new StringBuilder();
+    for (Map<String, Object> event : client.stream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "stream"))))) {
+      List<?> results = (List<?>) event.get("results");
+      Object content = ((Map<?, ?>) results.get(0)).get("content");
+      if (content != null) text.append(content);
+    }
+    if (!"hello".contentEquals(text)) throw new RuntimeException("bad stream: " + text);
+    System.out.println("java-provider-stream-no-key " + text);
+  }
+}
+`
+
+const javaAgentOpenAIExample = `import dev.axllm.ax.*;
+import java.util.*;
+
+public final class AgentOpenAIExample {
+  static final class ProviderAgentClient implements AiClient {
+    final OpenAICompatibleClient inner;
+    String rawModelAnswer;
+    int calls = 0;
+
+    ProviderAgentClient(OpenAICompatibleClient inner) {
+      this.inner = inner;
+    }
+
+    public Map<String, Object> complete(Map<String, Object> request) throws Exception {
+      calls += 1;
+      if (rawModelAnswer == null) {
+        Map<String, Object> response =
+            inner.complete(
+                Map.of(
+                    "chat_prompt",
+                    List.of(
+                        Map.of(
+                            "role",
+                            "user",
+                            "content",
+                            "In one sentence, explain what Ax helps developers build."))));
+        rawModelAnswer = String.valueOf(response.get("content"));
+      }
+      Map<String, Object> payload;
+      if (calls == 1) {
+        payload = Map.of("completion", Map.of("type", "final", "args", List.of("Answer", Map.of())));
+      } else if (calls == 2) {
+        payload =
+            Map.of(
+                "completion",
+                Map.of("type", "final", "args", List.of("Answer", Map.of("answer", rawModelAnswer))));
+      } else {
+        payload = Map.of("answer", rawModelAnswer);
+      }
+      return Map.of("content", Json.stringify(payload));
+    }
+  }
+
+  public static void main(String[] args) throws Exception {
+    String apiKey = System.getenv("OPENAI_API_KEY");
+    if (apiKey == null || apiKey.isBlank()) apiKey = System.getenv("OPENAI_APIKEY");
+    if (apiKey == null || apiKey.isBlank()) {
+      throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.");
+    }
+    String model = System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini");
+    OpenAICompatibleClient client =
+        new OpenAICompatibleClient(
+            Map.of("api_key", apiKey, "model", model, "model_config", Map.of("temperature", 0.0)));
+
+    AxAgent assistant = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of()));
+    ProviderAgentClient stageClient = new ProviderAgentClient(client);
+    Map<String, Object> output =
+        assistant.forward(
+            stageClient,
+            Map.of("question", "In one sentence, explain what Ax helps developers build."));
+    System.out.println(Json.stringify(Map.of("agentOutput", output, "rawModelAnswer", stageClient.rawModelAnswer)));
+  }
+}
+`
+
+const javaFlowOpenAIExample = `import dev.axllm.ax.*;
+import java.util.*;
+
+public final class FlowOpenAIExample {
+  public static void main(String[] args) throws Exception {
+    String apiKey = System.getenv("OPENAI_API_KEY");
+    if (apiKey == null || apiKey.isBlank()) apiKey = System.getenv("OPENAI_APIKEY");
+    if (apiKey == null || apiKey.isBlank()) {
+      throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.");
+    }
+    String model = System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini");
+    OpenAICompatibleClient client =
+        new OpenAICompatibleClient(
+            Map.of("api_key", apiKey, "model", model, "model_config", Map.of("temperature", 0.0)));
+
+    AxGen outline = Ax.ax("topic:string -> outline:string");
+    AxFlow program =
+        Ax.flow(Map.of("id", "examples.openaiApiFlow"))
+            .execute("outline", outline)
+            .map(
+                "summary",
+                state -> Map.of("summary", "Generated outline with typed Ax program steps."))
+            .returns(Map.of("outline", "outline", "summary", "summary"));
+    Map<String, Object> output =
+        program.forward(client, Map.of("topic", "how Ax composes typed LLM programs"));
+    System.out.println(Json.stringify(output));
+  }
+}
+`
+
+const javaAudioResponsesMappingExample = `import dev.axllm.ax.*;
+import java.util.*;
+
+public final class AudioResponsesMappingExample {
+  public static void main(String[] args) throws Exception {
+    List<Map<String, Object>> transportRequests = new ArrayList<>();
+    OpenAICompatibleClient.Transport transport =
+        request -> {
+          transportRequests.add(new LinkedHashMap<>(request));
+          String url = String.valueOf(request.get("url"));
+          if (url.endsWith("/audio/speech")) {
+            return Map.of("status", 200, "json", Map.of("audio", "base64-speech"));
+          }
+          if (url.endsWith("/audio/transcriptions")) {
+            return Map.of(
+                "status",
+                200,
+                "json",
+                Map.of("text", "hello world", "language", "en", "duration", 1.25));
+          }
+          throw new RuntimeException("unexpected request: " + request);
+        };
+
+    OpenAIResponsesClient client =
+        new OpenAIResponsesClient(Map.of("api_key", "test-key", "transport", transport));
+    Map<String, Object> speech =
+        client.speak(Map.of("text", "hello", "voice", "alloy", "format", "mp3"));
+    Map<String, Object> transcript =
+        client.transcribe(
+            Map.of("audio", "base64-audio", "language", "en", "model", "whisper-1", "format", "json"));
+    if (!"base64-speech".equals(speech.get("audio"))) throw new RuntimeException("bad speech: " + speech);
+    if (!"hello world".equals(transcript.get("text"))) throw new RuntimeException("bad transcript: " + transcript);
+
+    System.out.println("normalized output:");
+    System.out.println(Json.stringify(Map.of("speak", speech, "transcribe", transcript)));
+    System.out.println("transport requests:");
+    System.out.println(Json.stringify(transportRequests));
+  }
+}
+`
+
+const javaRealtimeAudioEventsExample = `import dev.axllm.ax.*;
+import java.util.*;
+
+public final class RealtimeAudioEventsExample {
+  public static void main(String[] args) {
+    GrokClient grok =
+        new GrokClient(Map.of("model", "grok-voice-think-fast-1.0", "api_key", "test-key"));
+    Map<String, Object> grokRequest =
+        Map.of(
+            "model",
+            "grok-voice-think-fast-1.0",
+            "chat_prompt",
+            List.of(
+                Map.of("role", "system", "content", "You are a concise voice agent."),
+                Map.of("role", "user", "content", "Say hello.")),
+            "audio",
+            Map.of(
+                "input",
+                Map.of("sampleRate", 24000),
+                "output",
+                Map.of("sampleRate", 24000, "voice", "eve")));
+    List<Object> grokEvents =
+        List.of(
+            Map.of("type", "response.output_audio_transcript.delta", "response_id", "grok_rt", "delta", "hello "),
+            Map.of("type", "response.output_audio.delta", "response_id", "grok_rt", "delta", "AQI="),
+            Map.of(
+                "type",
+                "response.done",
+                "response",
+                Map.of(
+                    "id",
+                    "grok_rt",
+                    "usage",
+                    Map.of("input_tokens", 3, "output_tokens", 2, "total_tokens", 5))));
+
+    GoogleGeminiClient gemini =
+        new GoogleGeminiClient(
+            Map.of("model", "gemini-2.5-flash-native-audio-preview-12-2025", "api_key", "test-key"));
+    Map<String, Object> geminiRequest =
+        Map.of(
+            "model",
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+            "chat_prompt",
+            List.of(
+                Map.of("role", "system", "content", "Answer with audio."),
+                Map.of(
+                    "role",
+                    "user",
+                    "content",
+                    List.of(
+                        Map.of("type", "text", "text", "Realtime question"),
+                        Map.of("type", "audio", "data", "AAAA", "format", "pcm16", "sampleRate", 16000)))),
+            "audio",
+            Map.of("output", Map.of("transcript", true, "voice", "Kore")));
+    List<Object> geminiEvents =
+        List.of(
+            Map.of("id", "gemini_live_1", "serverContent", Map.of("outputTranscription", Map.of("text", "spoken "))),
+            Map.of(
+                "id",
+                "gemini_live_2",
+                "serverContent",
+                Map.of(
+                    "modelTurn",
+                    Map.of("parts", List.of(Map.of("inlineData", Map.of("data", "AQI=", "mimeType", "audio/pcm")))))),
+            Map.of(
+                "id",
+                "gemini_live_3",
+                "toolCall",
+                Map.of("functionCalls", List.of(Map.of("name", "lookup", "args", Map.of("q", "ax"))))),
+            Map.of(
+                "id",
+                "gemini_live_done",
+                "serverContent",
+                Map.of("turnComplete", true),
+                "usageMetadata",
+                Map.of("promptTokenCount", 3, "candidatesTokenCount", 4, "totalTokenCount", 7)));
+
+    System.out.println("grok setup:");
+    System.out.println(Json.stringify(grok.realtimeAudioSetup(grokRequest)));
+    System.out.println("grok normalized events:");
+    System.out.println(Json.stringify(grok.realtime(grokEvents)));
+    System.out.println("gemini setup:");
+    System.out.println(Json.stringify(gemini.realtimeAudioSetup(geminiRequest)));
+    System.out.println("gemini input messages:");
+    System.out.println(Json.stringify(gemini.realtimeAudioInput(geminiRequest)));
+    System.out.println("gemini normalized events:");
+    System.out.println(Json.stringify(gemini.realtime(geminiEvents)));
+  }
+}
+`
+
+const javaGEPALocalOptimizerExample = `import dev.axllm.ax.*;
+import java.util.*;
+
+public final class GEPALocalOptimizerExample {
+  static final class LocalEvaluator implements OptimizerEvaluator {
+    public Map<String, Object> evaluate(Map<String, Object> candidateMap, Map<String, Object> options) {
+      String instruction = String.valueOf(candidateMap.getOrDefault("qa::instruction", ""));
+      List<?> examples = (List<?>) ((Map<?, ?>) options.get("dataset")).get("train");
+      List<Map<String, Object>> rows = new ArrayList<>();
+      double total = 0;
+      for (Object example : examples) {
+        double quality = instruction.toLowerCase(Locale.ROOT).contains("concise") ? 0.9 : 0.65;
+        double brevity = 0.8;
+        double scalar = (quality + brevity) / 2.0;
+        total += scalar;
+        rows.add(
+            Map.of(
+                "input",
+                example,
+                "prediction",
+                Map.of("answer", "Ax composes typed LLM programs."),
+                "scores",
+                Map.of("quality", quality, "brevity", brevity),
+                "scalar",
+                scalar));
+      }
+      return Map.of("rows", rows, "avg", total / rows.size(), "sum", total, "count", rows.size());
+    }
+  }
+
+  public static void main(String[] args) {
+    Map<String, Object> request =
+        Map.of(
+            "programKind",
+            "axgen",
+            "components",
+            List.of(
+                Map.of(
+                    "id",
+                    "qa::instruction",
+                    "owner",
+                    "qa",
+                    "kind",
+                    "instruction",
+                    "current",
+                    "Answer clearly and concisely.")),
+            "dataset",
+            Map.of(
+                "train",
+                List.of(Map.of("question", "What is Ax?"), Map.of("question", "Why use typed signatures?")),
+                "validation",
+                List.of(Map.of("question", "Summarize Ax."))),
+            "options",
+            Map.of("numTrials", 0, "maxMetricCalls", 8, "seed", 7));
+
+    Map<String, Object> artifact = new AxGEPA(null, Map.of("seed", 7)).optimize(request, new LocalEvaluator());
+    System.out.println(
+        Json.stringify(
+            Map.of("componentMap", artifact.get("componentMap"), "metadata", artifact.get("metadata"))));
+  }
+}
+`
+
+const cppProviderStreamNoKeyExample = `#include "axllm/axllm.hpp"
+#include <iostream>
+#include <string>
+
+struct ScriptedTransport : axllm::Transport {
+  axllm::Value call(axllm::Value) override {
+    return axllm::object({
+      {"status", 200},
+      {"body",
+       "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\n"
+       "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
+       "data: [DONE]\n\n"}
+    });
+  }
+};
+
+int main() {
+  ScriptedTransport transport;
+  axllm::OpenAICompatibleClient client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-4.1-mini"}}), &transport);
+  std::string text;
+  for (const auto& event : client.stream(axllm::object({
+         {"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "stream"}})})}
+       }))) {
+    text += axllm::display(axllm::Core::get(axllm::Core::get(axllm::Core::get(event, "results"), 0), "content", ""));
+  }
+  if (text != "hello") return 1;
+  std::cout << "cpp-provider-stream-no-key " << text << "\n";
+}
+`
+
+const cppAgentOpenAIExample = `#include "axllm/axllm.hpp"
+
+#include <cstdlib>
+#include <iostream>
+
+struct ProviderAgentClient : axllm::AIClient {
+  axllm::OpenAICompatibleClient& inner;
+  axllm::Value raw_model_answer;
+  int calls = 0;
+
+  explicit ProviderAgentClient(axllm::OpenAICompatibleClient& inner_) : inner(inner_) {}
+
+  axllm::Value complete(axllm::Value) override {
+    calls += 1;
+    if (raw_model_answer.is_null()) {
+      axllm::Value response = inner.complete(axllm::object({
+          {"chat_prompt",
+           axllm::array({
+               axllm::object({
+                   {"role", "user"},
+                   {"content", "In one sentence, explain what Ax helps developers build."},
+               }),
+           })},
+      }));
+      raw_model_answer = axllm::Core::get(response, "content");
+    }
+    axllm::Value payload;
+    if (calls == 1) {
+      payload = axllm::object({
+          {"completion", axllm::object({{"type", "final"}, {"args", axllm::array({"Answer", axllm::Value::object()})}})},
+      });
+    } else if (calls == 2) {
+      payload = axllm::object({
+          {"completion",
+           axllm::object({
+               {"type", "final"},
+               {"args", axllm::array({"Answer", axllm::object({{"answer", raw_model_answer}})})},
+           })},
+      });
+    } else {
+      payload = axllm::object({{"answer", raw_model_answer}});
+    }
+    return axllm::object({{"content", axllm::stringify(payload)}});
+  }
+};
+
+int main() {
+  const char* key = std::getenv("OPENAI_API_KEY");
+  if (key == nullptr || std::string(key).empty()) key = std::getenv("OPENAI_APIKEY");
+  if (key == nullptr || std::string(key).empty()) {
+    std::cerr << "Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.\n";
+    return 2;
+  }
+
+  const char* model = std::getenv("AX_OPENAI_MODEL");
+  axllm::OpenAICompatibleClient client(axllm::object({
+      {"api_key", key},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-4.1-mini" : model},
+      {"model_config", axllm::object({{"temperature", 0}})},
+  }));
+  auto assistant = axllm::agent(
+      "question:string -> answer:string",
+      axllm::object({{"contextFields", axllm::array({})}}));
+  ProviderAgentClient stage_client(client);
+  axllm::Value output = assistant.forward(
+      stage_client,
+      axllm::object({{"question", "In one sentence, explain what Ax helps developers build."}}));
+  std::cout << axllm::stringify(axllm::object({{"agentOutput", output}, {"rawModelAnswer", stage_client.raw_model_answer}}))
+            << "\n";
+}
+`
+
+const cppFlowOpenAIExample = `#include "axllm/axllm.hpp"
+
+#include <cstdlib>
+#include <iostream>
+
+int main() {
+  const char* key = std::getenv("OPENAI_API_KEY");
+  if (key == nullptr || std::string(key).empty()) key = std::getenv("OPENAI_APIKEY");
+  if (key == nullptr || std::string(key).empty()) {
+    std::cerr << "Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.\n";
+    return 2;
+  }
+
+  const char* model = std::getenv("AX_OPENAI_MODEL");
+  axllm::OpenAICompatibleClient client(axllm::object({
+      {"api_key", key},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-4.1-mini" : model},
+      {"model_config", axllm::object({{"temperature", 0}})},
+  }));
+  axllm::AxGen outline = axllm::ax("topic:string -> outline:string");
+  axllm::AxFlow program = axllm::flow(axllm::object({{"id", "examples.openaiApiFlow"}}))
+      .execute("outline", outline)
+      .map("summary",
+           [](axllm::Value) {
+             return axllm::object({{"summary", "Generated outline with typed Ax program steps."}});
+           })
+      .returns(axllm::object({{"outline", "outline"}, {"summary", "summary"}}));
+  axllm::Value output = program.forward(
+      client,
+      axllm::object({{"topic", "how Ax composes typed LLM programs"}}));
+  std::cout << axllm::stringify(output) << "\n";
+}
+`
+
+const cppAudioResponsesMappingExample = `#include "axllm/axllm.hpp"
+
+#include <iostream>
+#include <string>
+
+struct ScriptedTransport : axllm::Transport {
+  axllm::Array requests;
+
+  axllm::Value call(axllm::Value request) override {
+    requests.push_back(request);
+    std::string url = axllm::stringify(axllm::Core::get(request, "url"));
+    if (url.find("/audio/speech") != std::string::npos) {
+      return axllm::object({{"status", 200}, {"json", axllm::object({{"audio", "base64-speech"}})}});
+    }
+    if (url.find("/audio/transcriptions") != std::string::npos) {
+      return axllm::object({
+          {"status", 200},
+          {"json", axllm::object({{"text", "hello world"}, {"language", "en"}, {"duration", 1.25}})},
+      });
+    }
+    throw axllm::AxError("fixture", "unexpected audio request");
+  }
+};
+
+int main() {
+  ScriptedTransport transport;
+  axllm::OpenAIResponsesClient client(axllm::object({{"api_key", "test-key"}}), &transport);
+  axllm::Value speech =
+      client.speak(axllm::object({{"text", "hello"}, {"voice", "alloy"}, {"format", "mp3"}}));
+  axllm::Value transcript = client.transcribe(axllm::object({
+      {"audio", "base64-audio"},
+      {"language", "en"},
+      {"model", "whisper-1"},
+      {"format", "json"},
+  }));
+  if (!axllm::equal(axllm::Core::get(speech, "audio"), "base64-speech")) return 1;
+  if (!axllm::equal(axllm::Core::get(transcript, "text"), "hello world")) return 2;
+
+  std::cout << "normalized output:\n"
+            << axllm::stringify(axllm::object({{"speak", speech}, {"transcribe", transcript}})) << "\n";
+  std::cout << "transport requests:\n" << axllm::stringify(axllm::Value(transport.requests)) << "\n";
+}
+`
+
+const cppRealtimeAudioEventsExample = `#include "axllm/axllm.hpp"
+
+#include <iostream>
+
+int main() {
+  axllm::GrokClient grok(axllm::object({
+      {"model", "grok-voice-think-fast-1.0"},
+      {"api_key", "test-key"},
+  }));
+  axllm::Value grok_request = axllm::object({
+      {"model", "grok-voice-think-fast-1.0"},
+      {"chat_prompt",
+       axllm::array({
+           axllm::object({{"role", "system"}, {"content", "You are a concise voice agent."}}),
+           axllm::object({{"role", "user"}, {"content", "Say hello."}}),
+       })},
+      {"audio",
+       axllm::object({
+           {"input", axllm::object({{"sampleRate", 24000}})},
+           {"output", axllm::object({{"sampleRate", 24000}, {"voice", "eve"}})},
+       })},
+  });
+  axllm::Value grok_events = axllm::array({
+      axllm::object({{"type", "response.output_audio_transcript.delta"}, {"response_id", "grok_rt"}, {"delta", "hello "}}),
+      axllm::object({{"type", "response.output_audio.delta"}, {"response_id", "grok_rt"}, {"delta", "AQI="}}),
+      axllm::object({
+          {"type", "response.done"},
+          {"response",
+           axllm::object({
+               {"id", "grok_rt"},
+               {"usage", axllm::object({{"input_tokens", 3}, {"output_tokens", 2}, {"total_tokens", 5}})},
+           })},
+      }),
+  });
+
+  axllm::GoogleGeminiClient gemini(axllm::object({
+      {"model", "gemini-2.5-flash-native-audio-preview-12-2025"},
+      {"api_key", "test-key"},
+  }));
+  axllm::Value gemini_request = axllm::object({
+      {"model", "gemini-2.5-flash-native-audio-preview-12-2025"},
+      {"chat_prompt",
+       axllm::array({
+           axllm::object({{"role", "system"}, {"content", "Answer with audio."}}),
+           axllm::object({
+               {"role", "user"},
+               {"content",
+                axllm::array({
+                    axllm::object({{"type", "text"}, {"text", "Realtime question"}}),
+                    axllm::object({{"type", "audio"}, {"data", "AAAA"}, {"format", "pcm16"}, {"sampleRate", 16000}}),
+                })},
+           }),
+       })},
+      {"audio", axllm::object({{"output", axllm::object({{"transcript", true}, {"voice", "Kore"}})}})},
+  });
+  axllm::Value gemini_audio_part = axllm::object({
+      {"inlineData", axllm::object({{"data", "AQI="}, {"mimeType", "audio/pcm"}})},
+  });
+  axllm::Value gemini_turn_event = axllm::object({
+      {"id", "gemini_live_2"},
+      {"serverContent",
+       axllm::object({
+           {"modelTurn", axllm::object({{"parts", axllm::array({gemini_audio_part})}})},
+       })},
+  });
+  axllm::Value gemini_tool_event = axllm::object({
+      {"id", "gemini_live_3"},
+      {"toolCall",
+       axllm::object({
+           {"functionCalls",
+            axllm::array({axllm::object({{"name", "lookup"}, {"args", axllm::object({{"q", "ax"}})}})})},
+       })},
+  });
+  axllm::Value gemini_events = axllm::array({
+      axllm::object({{"id", "gemini_live_1"}, {"serverContent", axllm::object({{"outputTranscription", axllm::object({{"text", "spoken "}})}})}}),
+      gemini_turn_event,
+      gemini_tool_event,
+      axllm::object({
+          {"id", "gemini_live_done"},
+          {"serverContent", axllm::object({{"turnComplete", true}})},
+          {"usageMetadata", axllm::object({{"promptTokenCount", 3}, {"candidatesTokenCount", 4}, {"totalTokenCount", 7}})},
+      }),
+  });
+
+  std::cout << "grok setup:\n" << axllm::stringify(grok.realtime_audio_setup(grok_request)) << "\n";
+  std::cout << "grok normalized events:\n" << axllm::stringify(axllm::Value(grok.realtime(grok_events))) << "\n";
+  std::cout << "gemini setup:\n" << axllm::stringify(gemini.realtime_audio_setup(gemini_request)) << "\n";
+  std::cout << "gemini input messages:\n" << axllm::stringify(gemini.realtime_audio_input(gemini_request)) << "\n";
+  std::cout << "gemini normalized events:\n" << axllm::stringify(axllm::Value(gemini.realtime(gemini_events))) << "\n";
+}
+`
+
+const cppGEPALocalOptimizerExample = `#include "axllm/axllm.hpp"
+
+#include <iostream>
+
+struct LocalEvaluator : axllm::OptimizerEvaluator {
+  axllm::Value evaluate(axllm::Value candidate_map, axllm::Value options = axllm::Value::object()) override {
+    axllm::Value rows = axllm::Value::array();
+    double total = 0.0;
+    axllm::Value examples = axllm::Core::get(axllm::Core::get(options, "dataset"), "train", axllm::Value::array());
+    std::string instruction = axllm::stringify(axllm::Core::get(candidate_map, "qa::instruction"));
+    for (const auto& example : axllm::Core::iter(examples)) {
+      double quality = instruction.find("concise") != std::string::npos ? 0.9 : 0.65;
+      double brevity = 0.8;
+      double scalar = (quality + brevity) / 2.0;
+      total += scalar;
+      axllm::Core::append(
+          rows,
+          axllm::object({
+              {"input", example},
+              {"prediction", axllm::object({{"answer", "Ax composes typed LLM programs."}})},
+              {"scores", axllm::object({{"quality", quality}, {"brevity", brevity}})},
+              {"scalar", scalar},
+          }));
+    }
+    double count = axllm::Core::iter(rows).size();
+    return axllm::object({{"rows", rows}, {"avg", total / count}, {"sum", total}, {"count", count}});
+  }
+};
+
+int main() {
+  axllm::Value request = axllm::object({
+      {"programKind", "axgen"},
+      {"components",
+       axllm::array({
+           axllm::object({
+               {"id", "qa::instruction"},
+               {"owner", "qa"},
+               {"kind", "instruction"},
+               {"current", "Answer clearly and concisely."},
+           }),
+       })},
+      {"dataset",
+       axllm::object({
+           {"train",
+            axllm::array({
+                axllm::object({{"question", "What is Ax?"}}),
+                axllm::object({{"question", "Why use typed signatures?"}}),
+            })},
+           {"validation", axllm::array({axllm::object({{"question", "Summarize Ax."}})})},
+       })},
+      {"options", axllm::object({{"numTrials", 0}, {"maxMetricCalls", 8}, {"seed", 7}})},
+  });
+
+  LocalEvaluator evaluator;
+  axllm::AxGEPA gepa(nullptr, axllm::object({{"seed", 7}}));
+  axllm::Value artifact = gepa.optimize(request, &evaluator);
+  std::cout << axllm::stringify(axllm::object({
+                   {"componentMap", axllm::Core::get(artifact, "componentMap")},
+                   {"metadata", axllm::Core::get(artifact, "metadata")},
+               }))
+            << "\n";
 }
 `

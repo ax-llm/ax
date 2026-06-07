@@ -10,7 +10,9 @@ func BuildRustCore(model AxRuntimeModel) (string, error) {
 		return "", err
 	}
 	body := "// Rust v1 exposes Core-owned behavior through the Rust-native wrappers above.\n"
-	return strings.Replace(rustLib, "// AXIR_CORE_RUST_FUNCTIONS\n", body, 1), nil
+	lib := strings.Replace(rustLib, "// AXIR_CORE_RUST_FUNCTIONS\n", body, 1)
+	exports := "pub mod mcp;\npub use mcp::{AxMCPClient, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport};\n"
+	return strings.Replace(lib, "use reqwest::blocking::Client as HttpClient;\n", exports+"use reqwest::blocking::Client as HttpClient;\n", 1), nil
 }
 
 func validateRustCoreSymbols(model AxRuntimeModel) error {

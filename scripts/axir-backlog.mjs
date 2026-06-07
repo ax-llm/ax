@@ -14,6 +14,7 @@ export const PORTABLE_SURFACES = new Set([
   'axai',
   'axagent',
   'axflow',
+  'axmcp',
   'axoptimize',
   'axprogram',
   'runtime',
@@ -29,6 +30,7 @@ const portableRoots = [
   ['src/ax/dsp/', 'axgen'],
   ['src/ax/agent/', 'axagent'],
   ['src/ax/flow/', 'axflow'],
+  ['src/ax/mcp/', 'axmcp'],
 ];
 
 const axirSemanticRoots = ['ir/axcore/', 'ir/conformance/', 'tools/axir/'];
@@ -589,7 +591,7 @@ function checkPr(root, flags) {
 Changed portable TypeScript paths:
 ${result.changedPortable.map((item) => `- ${item}`).join('\n')}
 
-These paths can affect generated Python/Java/C++/Go behavior. Either update AxIR/conformance in this PR, or add a tracked backlog item:
+These paths can affect generated Python/Java/C++/Go/Rust behavior. Either update AxIR/conformance in this PR, or add a tracked backlog item:
 
   ${command}
 

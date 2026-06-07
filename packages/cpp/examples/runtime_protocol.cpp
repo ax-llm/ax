@@ -1,14 +1,14 @@
 #include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeRuntimeTransport : axllm::RuntimeTransport {
+struct ScriptedRuntimeTransport : axllm::RuntimeTransport {
   int next_session = 0;
 
   axllm::Value call(axllm::Value message) override {
     axllm::Value id = axllm::Core::get(message, "id");
     axllm::Value op = axllm::Core::get(message, "op");
     if (axllm::equal(op, "capabilities")) {
-      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::object({{"language", "JavaScript"}, {"usage_instructions", "fake protocol"}})}});
+      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::object({{"language", "JavaScript"}, {"usage_instructions", "scripted protocol"}})}});
     }
     if (axllm::equal(op, "create_session")) {
       std::string session_id = "s" + std::to_string(++next_session);
@@ -38,7 +38,7 @@ struct FakeRuntimeTransport : axllm::RuntimeTransport {
 };
 
 int main() {
-  FakeRuntimeTransport transport;
+  ScriptedRuntimeTransport transport;
   axllm::RuntimeProtocolClient runtime(transport);
   auto qa = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "JavaScript"}})}}));
   axllm::Value out = qa.test(runtime, "final()", axllm::object({{"question", "protocol"}}));
