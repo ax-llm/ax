@@ -2,6 +2,7 @@ package axir
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -280,7 +281,7 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	if err := runVerifyCommand(&report, "cargo fmt", report.OutDir, env, cargo, "fmt", "--check", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml")); err != nil {
 		return report, err
 	}
-	if err := runVerifyCommand(&report, "cargo test", report.OutDir, env, cargo, "test", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--all-targets"); err != nil {
+	if err := runCargoVerifyCommand(&report, "cargo test", report.OutDir, env, cargo, "test", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--all-targets"); err != nil {
 		return report, err
 	}
 	for _, example := range []string{
@@ -293,12 +294,12 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"axflow_program_graph",
 		"optimizer_artifact",
 	} {
-		if err := runVerifyCommand(&report, "example "+example, report.OutDir, env, cargo, "run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--example", example); err != nil {
+		if err := runCargoVerifyCommand(&report, "example "+example, report.OutDir, env, cargo, "run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--example", example); err != nil {
 			return report, err
 		}
 	}
 	args := append([]string{"run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--bin", "axllm-conformance", "--"}, conformanceSuitePaths(conformanceRoot)...)
-	if err := runVerifyCommand(&report, "conformance", report.OutDir, env, cargo, args...); err != nil {
+	if err := runCargoVerifyCommand(&report, "conformance", report.OutDir, env, cargo, args...); err != nil {
 		return report, err
 	}
 	if err := verifyRustPackageSmoke(&report, cargo); err != nil {
@@ -337,7 +338,7 @@ fn main() -> AxResult<()> {
 	if err := os.WriteFile(filepath.Join(consumerDir, "src", "main.rs"), []byte(mainRs), 0o644); err != nil {
 		return err
 	}
-	return runVerifyCommand(report, "package rust consumer", consumerDir, os.Environ(), cargo, "run", "--quiet", "--manifest-path", filepath.Join(consumerDir, "Cargo.toml"))
+	return runCargoVerifyCommand(report, "package rust consumer", consumerDir, os.Environ(), cargo, "run", "--quiet", "--manifest-path", filepath.Join(consumerDir, "Cargo.toml"))
 }
 
 func conformanceRootFor(rootFile string) string {
@@ -368,6 +369,10 @@ func verifyManifest(outDir, target string) error {
 	if err != nil {
 		return err
 	}
+	var manifest CapabilityManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return fmt.Errorf("read axir-capabilities.json: %w", err)
+	}
 	if !bytes.Contains(data, []byte(`"target": "`+target+`"`)) {
 		return fmt.Errorf("manifest missing target %q", target)
 	}
@@ -375,6 +380,17 @@ func verifyManifest(outDir, target string) error {
 		if !bytes.Contains(data, []byte(`"`+suite+`"`)) {
 			return fmt.Errorf("manifest missing suite %q", suite)
 		}
+	}
+	coverageData, err := os.ReadFile(filepath.Join(outDir, "conformance-coverage.json"))
+	if err != nil {
+		return err
+	}
+	var coverage ConformanceCoverageManifest
+	if err := json.Unmarshal(coverageData, &coverage); err != nil {
+		return fmt.Errorf("read conformance-coverage.json: %w", err)
+	}
+	if err := ValidateConformanceCoverage(manifest, coverage); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1033,6 +1049,44 @@ func runtimeProtocolEnv(conformanceRoot string, env []string) []string {
 }
 
 func runVerifyCommand(report *VerifyTargetReport, name, dir string, env []string, command string, args ...string) error {
+	message, err := runCommandMessage(dir, env, command, args...)
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: name, Status: "fail", Message: message})
+		return fmt.Errorf("%s failed: %s", name, message)
+	}
+	if message == "" {
+		message = filepath.Base(command)
+	}
+	report.Steps = append(report.Steps, VerifyStep{Name: name, Status: "ok", Message: message})
+	return nil
+}
+
+func runCargoVerifyCommand(report *VerifyTargetReport, name, dir string, env []string, cargo string, args ...string) error {
+	message, err := runCommandMessage(dir, env, cargo, args...)
+	if err == nil {
+		if message == "" {
+			message = filepath.Base(cargo)
+		}
+		report.Steps = append(report.Steps, VerifyStep{Name: name, Status: "ok", Message: message})
+		return nil
+	}
+	if isCargoRegistryNetworkFailure(message) && !envHas(env, "CARGO_NET_OFFLINE") {
+		offlineEnv := append(append([]string{}, env...), "CARGO_NET_OFFLINE=true")
+		offlineMessage, offlineErr := runCommandMessage(dir, offlineEnv, cargo, args...)
+		if offlineErr == nil {
+			if offlineMessage == "" {
+				offlineMessage = filepath.Base(cargo)
+			}
+			report.Steps = append(report.Steps, VerifyStep{Name: name, Status: "ok", Message: "offline retry\n" + offlineMessage})
+			return nil
+		}
+		message = message + "\n\noffline retry failed:\n" + offlineMessage
+	}
+	report.Steps = append(report.Steps, VerifyStep{Name: name, Status: "fail", Message: message})
+	return fmt.Errorf("%s failed: %s", name, message)
+}
+
+func runCommandMessage(dir string, env []string, command string, args ...string) (string, error) {
 	cmd := exec.Command(command, args...)
 	if dir != "" {
 		cmd.Dir = dir
@@ -1048,14 +1102,25 @@ func runVerifyCommand(report *VerifyTargetReport, name, dir string, env []string
 		} else {
 			message = err.Error() + "\n" + message
 		}
-		report.Steps = append(report.Steps, VerifyStep{Name: name, Status: "fail", Message: message})
-		return fmt.Errorf("%s failed: %s", name, message)
+		return message, err
 	}
-	if message == "" {
-		message = filepath.Base(command)
+	return message, nil
+}
+
+func isCargoRegistryNetworkFailure(message string) bool {
+	return strings.Contains(message, "failed to download from `https://index.crates.io/config.json`") ||
+		strings.Contains(message, "Could not resolve host: index.crates.io") ||
+		strings.Contains(message, "failed to get `") && strings.Contains(message, "Updating crates.io index")
+}
+
+func envHas(env []string, key string) bool {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return true
+		}
 	}
-	report.Steps = append(report.Steps, VerifyStep{Name: name, Status: "ok", Message: message})
-	return nil
+	return false
 }
 
 func findJavaTool(name string) (string, error) {

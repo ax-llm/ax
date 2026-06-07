@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import copy
 import json
 import math
@@ -22,9 +23,10 @@ class AxAgentClarificationError(RuntimeError):
         self.payload = payload
 
 
-class AxCodeSession:
+class AxCodeSession(ABC):
+    @abstractmethod
     def execute(self, code: str, options: dict[str, Any] | None = None) -> Any:
-        raise NotImplementedError
+        ...
 
     def inspect_globals(self, options: dict[str, Any] | None = None) -> Any:
         return "[runtime state inspection unavailable: runtime session does not implement inspect_globals()]"
@@ -45,27 +47,30 @@ class AxCodeSession:
         return {"closed": True}
 
 
-class AxCodeRuntime:
+class AxCodeRuntime(ABC):
     language = "JavaScript"
 
     def get_usage_instructions(self) -> str:
         return ""
 
+    @abstractmethod
     def create_session(self, globals: dict[str, Any], options: dict[str, Any] | None = None) -> AxCodeSession:
-        raise NotImplementedError
+        ...
 
 
-class OptimizerEngine:
+class OptimizerEngine(ABC):
     name = "host"
     version = "host"
 
+    @abstractmethod
     def optimize(self, request: dict[str, Any], evaluator: "OptimizerEvaluator | None" = None) -> dict[str, Any]:
-        raise NotImplementedError
+        ...
 
 
-class OptimizerEvaluator:
+class OptimizerEvaluator(ABC):
+    @abstractmethod
     def evaluate(self, candidate_map: dict[str, Any], options: dict[str, Any] | None = None) -> dict[str, Any]:
-        raise NotImplementedError
+        ...
 
 
 def _call_optimizer_engine(engine: OptimizerEngine, request: dict[str, Any], evaluator: OptimizerEvaluator | None):
@@ -991,10 +996,7 @@ def _core_agent_runtime_execute(session, code, options):
 
 def _core_agent_runtime_inspect(session, options):
     if hasattr(session, "inspect_globals"):
-        try:
-            return session.inspect_globals(options or {})
-        except NotImplementedError:
-            return "[runtime state inspection unavailable: runtime session does not implement inspect_globals()]"
+        return session.inspect_globals(options or {})
     if hasattr(session, "inspect"):
         return session.inspect(options or {})
     return "[runtime state inspection unavailable: runtime session does not implement inspect_globals()]"

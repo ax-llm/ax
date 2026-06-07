@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import copy
 import json
 import os
@@ -120,21 +121,25 @@ def default_metrics() -> dict[str, Any]:
     }
 
 
-class AxAIService:
+class AxAIService(ABC):
+    @abstractmethod
     def get_id(self) -> str:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def get_name(self) -> str:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def get_features(self, model: str | None = None) -> dict[str, Any]:
-        raise NotImplementedError
+        ...
 
     def get_model_list(self):
         return []
 
+    @abstractmethod
     def get_metrics(self) -> dict[str, Any]:
-        raise NotImplementedError
+        ...
 
     def get_logger(self):
         return lambda _message: None
@@ -148,8 +153,9 @@ class AxAIService:
     def get_last_used_model_config(self):
         return None
 
+    @abstractmethod
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        raise NotImplementedError
+        ...
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         stream_request = copy.deepcopy(_coerce_chat_request(request))
@@ -160,23 +166,28 @@ class AxAIService:
         else:
             yield from result
 
+    @abstractmethod
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        raise NotImplementedError
+        ...
 
     def get_estimated_cost(self, model_usage: dict[str, Any] | None = None) -> float:
         return 0.0
 
+    @abstractmethod
     def set_options(self, options: dict[str, Any]):
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def get_options(self) -> dict[str, Any]:
-        raise NotImplementedError
+        ...
 
     def complete(self, request: dict[str, Any]) -> dict[str, Any]:
         return chat_response_to_completion(self.chat(_coerce_chat_request(request)))
@@ -286,11 +297,13 @@ class AxBaseAI(AIClient):
         finally:
             self._record_metrics("embed", time.perf_counter() - started, is_error)
 
+    @abstractmethod
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
-        raise NotImplementedError
+        ...
 
     def _record_metrics(self, kind: str, duration_seconds: float, is_error: bool):
         bucket = self.metrics["latency"][kind]

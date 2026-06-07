@@ -450,12 +450,13 @@ def _core_string_ends_with(value, suffix):
 
 
 def _core_ai_complete_once(client, request):
-    if hasattr(client, "chat"):
-        try:
-            return chat_response_to_completion(client.chat(request))
-        except NotImplementedError:
-            pass
-    return client.complete(request)
+    chat = getattr(client, "chat", None)
+    if callable(chat):
+        return chat_response_to_completion(chat(request))
+    complete = getattr(client, "complete", None)
+    if callable(complete):
+        return complete(request)
+    raise TypeError("AI client must implement chat() or complete()")
 
 
 def _core_retry_sleep(attempt):

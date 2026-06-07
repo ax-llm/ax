@@ -85,6 +85,14 @@ class FakeAIService(AxBaseAI):
         for event in self.stream_events:
             yield copy.deepcopy(event)
 
+    def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        self.requests.append(copy.deepcopy(request))
+        return {"text": "fixture transcript"}
+
+    def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        self.requests.append(copy.deepcopy(request))
+        return {"audio": "fixture-audio", "format": (request or {}).get("format", "pcm")}
+
 
 def _fixture_ai_service_error(spec):
     error_type = (spec or {}).get("type", "network")

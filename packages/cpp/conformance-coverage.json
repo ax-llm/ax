@@ -1,0 +1,336 @@
+{
+  "axir_version": "0.1",
+  "target": "cpp",
+  "package_name": "axllm",
+  "suites": {
+    "axagent": [
+      {
+        "suite": "axagent",
+        "kind": "agent_forward",
+        "runner": "cpp:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_adapter",
+        "runner": "cpp:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_policy",
+        "runner": "cpp:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_protocol",
+        "runner": "cpp:axagent",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_session",
+        "runner": "cpp:axagent",
+        "category": "semantic"
+      }
+    ],
+    "axai": [
+      {
+        "suite": "axai",
+        "kind": "ai_chat",
+        "runner": "cpp:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_stream",
+        "runner": "cpp:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_embed",
+        "runner": "cpp:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_transcribe",
+        "runner": "cpp:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_speak",
+        "runner": "cpp:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_realtime",
+        "runner": "cpp:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_descriptor",
+        "runner": "cpp:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_registry",
+        "runner": "cpp:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_model_catalog_audit",
+        "runner": "cpp:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_model_catalog_runtime",
+        "runner": "cpp:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_multiservice_router",
+        "runner": "cpp:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_router",
+        "runner": "cpp:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_balancer",
+        "runner": "cpp:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_error",
+        "runner": "cpp:axai",
+        "category": "validation-error"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_unsupported",
+        "runner": "cpp:axai",
+        "category": "validation-error"
+      }
+    ],
+    "axflow": [
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "runner": "cpp:axflow",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "plan",
+        "runner": "cpp:axflow.plan",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "cache_key",
+        "runner": "cpp:axflow.cache_key",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "streaming",
+        "runner": "cpp:axflow.streaming",
+        "category": "semantic"
+      }
+    ],
+    "axgen": [
+      {
+        "suite": "axgen",
+        "kind": "forward",
+        "runner": "cpp:axgen",
+        "category": "semantic"
+      },
+      {
+        "suite": "axgen",
+        "kind": "stream",
+        "runner": "cpp:axgen",
+        "category": "semantic"
+      }
+    ],
+    "axoptimize": [
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "components",
+        "runner": "cpp:axoptimize.components",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "filter",
+        "runner": "cpp:axoptimize.filter",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "apply",
+        "runner": "cpp:axoptimize.apply",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "artifact",
+        "runner": "cpp:axoptimize.artifact",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "dataset",
+        "runner": "cpp:axoptimize.dataset",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "score",
+        "runner": "cpp:axoptimize.score",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "judge_payload",
+        "runner": "cpp:axoptimize.judge_payload",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "evidence",
+        "runner": "cpp:axoptimize.evidence",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "evaluate",
+        "runner": "cpp:axoptimize.evaluate",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "engine",
+        "runner": "cpp:axoptimize.engine",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "gepa",
+        "runner": "cpp:axoptimize.gepa",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "eval",
+        "runner": "cpp:axoptimize.eval",
+        "category": "semantic"
+      }
+    ],
+    "axprogram": [
+      {
+        "suite": "axprogram",
+        "kind": "program_contract",
+        "runner": "cpp:axprogram",
+        "category": "semantic"
+      }
+    ],
+    "prompt": [
+      {
+        "suite": "prompt",
+        "kind": "prompt",
+        "runner": "cpp:prompt",
+        "category": "semantic"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template",
+        "runner": "cpp:prompt",
+        "category": "semantic"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template_error",
+        "runner": "cpp:prompt",
+        "category": "validation-error"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template_validate",
+        "runner": "cpp:prompt",
+        "category": "semantic"
+      }
+    ],
+    "schema": [
+      {
+        "suite": "schema",
+        "kind": "json_schema",
+        "runner": "cpp:schema",
+        "category": "semantic"
+      }
+    ],
+    "signature": [
+      {
+        "suite": "signature",
+        "kind": "signature",
+        "runner": "cpp:signature",
+        "category": "semantic"
+      },
+      {
+        "suite": "signature",
+        "kind": "signature_error",
+        "runner": "cpp:signature",
+        "category": "validation-error"
+      }
+    ],
+    "validation": [
+      {
+        "suite": "validation",
+        "kind": "validate_output",
+        "runner": "cpp:validation",
+        "category": "semantic"
+      },
+      {
+        "suite": "validation",
+        "kind": "validate_value",
+        "runner": "cpp:validation",
+        "category": "semantic"
+      },
+      {
+        "suite": "validation",
+        "kind": "strip_internal",
+        "runner": "cpp:validation",
+        "category": "semantic"
+      }
+    ]
+  }
+}

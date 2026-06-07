@@ -1,0 +1,336 @@
+{
+  "axir_version": "0.1",
+  "target": "go",
+  "package_name": "github.com/ax-llm/ax/go",
+  "suites": {
+    "axagent": [
+      {
+        "suite": "axagent",
+        "kind": "agent_forward",
+        "runner": "go:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_adapter",
+        "runner": "go:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_policy",
+        "runner": "go:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_protocol",
+        "runner": "go:axagent",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_session",
+        "runner": "go:axagent",
+        "category": "semantic"
+      }
+    ],
+    "axai": [
+      {
+        "suite": "axai",
+        "kind": "ai_chat",
+        "runner": "go:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_stream",
+        "runner": "go:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_embed",
+        "runner": "go:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_transcribe",
+        "runner": "go:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_speak",
+        "runner": "go:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_realtime",
+        "runner": "go:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_descriptor",
+        "runner": "go:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_registry",
+        "runner": "go:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_model_catalog_audit",
+        "runner": "go:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_model_catalog_runtime",
+        "runner": "go:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_multiservice_router",
+        "runner": "go:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_router",
+        "runner": "go:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_balancer",
+        "runner": "go:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_error",
+        "runner": "go:axai",
+        "category": "validation-error"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_unsupported",
+        "runner": "go:axai",
+        "category": "validation-error"
+      }
+    ],
+    "axflow": [
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "runner": "go:axflow",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "plan",
+        "runner": "go:axflow.plan",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "cache_key",
+        "runner": "go:axflow.cache_key",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "streaming",
+        "runner": "go:axflow.streaming",
+        "category": "semantic"
+      }
+    ],
+    "axgen": [
+      {
+        "suite": "axgen",
+        "kind": "forward",
+        "runner": "go:axgen",
+        "category": "semantic"
+      },
+      {
+        "suite": "axgen",
+        "kind": "stream",
+        "runner": "go:axgen",
+        "category": "semantic"
+      }
+    ],
+    "axoptimize": [
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "components",
+        "runner": "go:axoptimize.components",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "filter",
+        "runner": "go:axoptimize.filter",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "apply",
+        "runner": "go:axoptimize.apply",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "artifact",
+        "runner": "go:axoptimize.artifact",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "dataset",
+        "runner": "go:axoptimize.dataset",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "score",
+        "runner": "go:axoptimize.score",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "judge_payload",
+        "runner": "go:axoptimize.judge_payload",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "evidence",
+        "runner": "go:axoptimize.evidence",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "evaluate",
+        "runner": "go:axoptimize.evaluate",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "engine",
+        "runner": "go:axoptimize.engine",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "gepa",
+        "runner": "go:axoptimize.gepa",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "eval",
+        "runner": "go:axoptimize.eval",
+        "category": "semantic"
+      }
+    ],
+    "axprogram": [
+      {
+        "suite": "axprogram",
+        "kind": "program_contract",
+        "runner": "go:axprogram",
+        "category": "semantic"
+      }
+    ],
+    "prompt": [
+      {
+        "suite": "prompt",
+        "kind": "prompt",
+        "runner": "go:prompt",
+        "category": "semantic"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template",
+        "runner": "go:prompt",
+        "category": "semantic"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template_error",
+        "runner": "go:prompt",
+        "category": "validation-error"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template_validate",
+        "runner": "go:prompt",
+        "category": "semantic"
+      }
+    ],
+    "schema": [
+      {
+        "suite": "schema",
+        "kind": "json_schema",
+        "runner": "go:schema",
+        "category": "semantic"
+      }
+    ],
+    "signature": [
+      {
+        "suite": "signature",
+        "kind": "signature",
+        "runner": "go:signature",
+        "category": "semantic"
+      },
+      {
+        "suite": "signature",
+        "kind": "signature_error",
+        "runner": "go:signature",
+        "category": "validation-error"
+      }
+    ],
+    "validation": [
+      {
+        "suite": "validation",
+        "kind": "validate_output",
+        "runner": "go:validation",
+        "category": "semantic"
+      },
+      {
+        "suite": "validation",
+        "kind": "validate_value",
+        "runner": "go:validation",
+        "category": "semantic"
+      },
+      {
+        "suite": "validation",
+        "kind": "strip_internal",
+        "runner": "go:validation",
+        "category": "semantic"
+      }
+    ]
+  }
+}

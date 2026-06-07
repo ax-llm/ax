@@ -24,6 +24,8 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 - Concrete public generated methods must never be placeholder-only bodies such as `pass`, `return None`, `return null`, `return nil`, `Value::Null`, empty vectors, or generic "not implemented"/"unsupported" fallbacks. Validation errors remain acceptable for invalid inputs, unknown provider names, and unknown runtime protocol ops.
 - Abstract/base interfaces may describe fallible boundaries, but every concrete generated class/struct that is advertised by the manifest must implement claimed provider, router, balancer, runtime session, AxGen, AxAgent, AxFlow, and optimizer operations.
 - Conformance dispatch must be explicit for all claimed feature groups. Do not add a silent catch-all that makes unsupported fixture kinds pass without executing an implementation path.
+- Conformance coverage must be semantic, not just dispatch-shaped. Every generated package must emit `conformance-coverage.json` with each claimed fixture kind/operation classified as `semantic`, `validation-error`, `transport-boundary`, or `explicitly-not-claimed`; default-verified targets must not use `presence-only`.
+- Runner code must reject guard-only shortcuts: no broad expectation helpers, empty fixture arms, suite-name-only dispatch, self-comparisons, or checks that only prove an expected key exists. If a fixture expects a validation error, tie the generated error to the fixture expectation and keep the implementation path explicit.
 - Provider API and no-key examples must cover every claimed public surface class: chat, stream, embeddings, audio/realtime mapping helpers when claimed, routers/balancers, runtime protocol, AxGen, AxAgent, AxFlow, and optimizer artifacts.
 
 ## Required Touchpoints
@@ -31,6 +33,7 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 - Compiler target registration: `Compile`, CLI help, default verify target list, package name mapping, capability manifest, target idiom metadata.
 - Code generation: target Core emitter, target templates, package metadata, README text, examples, conformance runner, runtime protocol/client support.
 - Verification: target compile, manifest guard, no-key examples, conformance suites, package smoke/install or external-consumer smoke, and optional runtime-profile checks where applicable.
+- Coverage gates: add target entries to generated-output audits in `tools/axir/internal/axir/axir_test.go`, including negative cases for fake runner patterns and positive markers for AxAgent, AxFlow, AxAI, runtime protocol, and optimizer coverage.
 - Repo examples: `scripts/run-example.mjs`, `src/examples/<language>/`, `src/examples/README.md`, and root `package.json` convenience scripts if needed.
 - User-facing example lists: update `npm run example -- list`, the root README "Run examples" block, examples README command blocks, package convenience scripts, and release/compiler docs so the new backend is discoverable without reading compiler internals.
 - Docs: `README.md`, `docs/COMPILER.md`, `docs/RELEASE.md`, and `docs/ARCHITECTURE.md`. Edit canonical docs in `docs/`, not generated docs under `src/docs/`.
@@ -42,6 +45,7 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 - Generated package metadata is shippable for the ecosystem and uses the Ax product namespace.
 - User-facing examples are honest: no-key examples are deterministic, provider API examples use real provider transport and require explicit environment keys.
 - Generated-output audits pass for the target: no unsupported manifest entries, no placeholder concrete public methods, no dead Core helper stubs, and explicit conformance/example guards for every claimed Core-owned feature group.
+- The conformance runner proves claimed behavior with fixture-level assertions over outputs, requests, state, traces, artifacts, runtime envelopes, and expected errors. Placeholder-free code is necessary but not sufficient for default `test:axir` inclusion.
 
 ## Avoid
 

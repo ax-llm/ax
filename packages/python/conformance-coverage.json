@@ -1,0 +1,336 @@
+{
+  "axir_version": "0.1",
+  "target": "python",
+  "package_name": "axllm",
+  "suites": {
+    "axagent": [
+      {
+        "suite": "axagent",
+        "kind": "agent_forward",
+        "runner": "python:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_adapter",
+        "runner": "python:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_policy",
+        "runner": "python:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_protocol",
+        "runner": "python:axagent",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_session",
+        "runner": "python:axagent",
+        "category": "semantic"
+      }
+    ],
+    "axai": [
+      {
+        "suite": "axai",
+        "kind": "ai_chat",
+        "runner": "python:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_stream",
+        "runner": "python:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_embed",
+        "runner": "python:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_transcribe",
+        "runner": "python:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_speak",
+        "runner": "python:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_realtime",
+        "runner": "python:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_descriptor",
+        "runner": "python:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_registry",
+        "runner": "python:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_model_catalog_audit",
+        "runner": "python:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_model_catalog_runtime",
+        "runner": "python:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_multiservice_router",
+        "runner": "python:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_router",
+        "runner": "python:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_balancer",
+        "runner": "python:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_error",
+        "runner": "python:axai",
+        "category": "validation-error"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_unsupported",
+        "runner": "python:axai",
+        "category": "validation-error"
+      }
+    ],
+    "axflow": [
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "runner": "python:axflow",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "plan",
+        "runner": "python:axflow.plan",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "cache_key",
+        "runner": "python:axflow.cache_key",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "streaming",
+        "runner": "python:axflow.streaming",
+        "category": "semantic"
+      }
+    ],
+    "axgen": [
+      {
+        "suite": "axgen",
+        "kind": "forward",
+        "runner": "python:axgen",
+        "category": "semantic"
+      },
+      {
+        "suite": "axgen",
+        "kind": "stream",
+        "runner": "python:axgen",
+        "category": "semantic"
+      }
+    ],
+    "axoptimize": [
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "components",
+        "runner": "python:axoptimize.components",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "filter",
+        "runner": "python:axoptimize.filter",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "apply",
+        "runner": "python:axoptimize.apply",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "artifact",
+        "runner": "python:axoptimize.artifact",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "dataset",
+        "runner": "python:axoptimize.dataset",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "score",
+        "runner": "python:axoptimize.score",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "judge_payload",
+        "runner": "python:axoptimize.judge_payload",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "evidence",
+        "runner": "python:axoptimize.evidence",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "evaluate",
+        "runner": "python:axoptimize.evaluate",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "engine",
+        "runner": "python:axoptimize.engine",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "gepa",
+        "runner": "python:axoptimize.gepa",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "eval",
+        "runner": "python:axoptimize.eval",
+        "category": "semantic"
+      }
+    ],
+    "axprogram": [
+      {
+        "suite": "axprogram",
+        "kind": "program_contract",
+        "runner": "python:axprogram",
+        "category": "semantic"
+      }
+    ],
+    "prompt": [
+      {
+        "suite": "prompt",
+        "kind": "prompt",
+        "runner": "python:prompt",
+        "category": "semantic"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template",
+        "runner": "python:prompt",
+        "category": "semantic"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template_error",
+        "runner": "python:prompt",
+        "category": "validation-error"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template_validate",
+        "runner": "python:prompt",
+        "category": "semantic"
+      }
+    ],
+    "schema": [
+      {
+        "suite": "schema",
+        "kind": "json_schema",
+        "runner": "python:schema",
+        "category": "semantic"
+      }
+    ],
+    "signature": [
+      {
+        "suite": "signature",
+        "kind": "signature",
+        "runner": "python:signature",
+        "category": "semantic"
+      },
+      {
+        "suite": "signature",
+        "kind": "signature_error",
+        "runner": "python:signature",
+        "category": "validation-error"
+      }
+    ],
+    "validation": [
+      {
+        "suite": "validation",
+        "kind": "validate_output",
+        "runner": "python:validation",
+        "category": "semantic"
+      },
+      {
+        "suite": "validation",
+        "kind": "validate_value",
+        "runner": "python:validation",
+        "category": "semantic"
+      },
+      {
+        "suite": "validation",
+        "kind": "strip_internal",
+        "runner": "python:validation",
+        "category": "semantic"
+      }
+    ]
+  }
+}

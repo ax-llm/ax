@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -458,6 +459,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"pyproject.toml",
 				"MANIFEST.in",
 				"axir-capabilities.json",
+				"conformance-coverage.json",
 				"axllm/__init__.py",
 				"axllm/py.typed",
 				"axllm/ai.py",
@@ -492,6 +494,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"build.gradle",
 				"settings.gradle",
 				"axir-capabilities.json",
+				"conformance-coverage.json",
 				"dev/axllm/ax/Ax.java",
 				"dev/axllm/ax/AxProgram.java",
 				"dev/axllm/ax/Core.java",
@@ -554,6 +557,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"CMakeLists.txt",
 				"cmake/axllmConfig.cmake.in",
 				"axir-capabilities.json",
+				"conformance-coverage.json",
 				"axllm/axllm.hpp",
 				"axllm/axllm.cpp",
 				"conformance.cpp",
@@ -585,6 +589,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"axllm.go",
 				"runtime/goja/goja.go",
 				"axir-capabilities.json",
+				"conformance-coverage.json",
 				"conformance/main.go",
 				"examples/signature_schema/main.go",
 				"examples/axgen_fake_client_tool/main.go",
@@ -606,6 +611,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"src/lib.rs",
 				"src/bin/axllm-conformance.rs",
 				"axir-capabilities.json",
+				"conformance-coverage.json",
 				"examples/signature_schema.rs",
 				"examples/provider_mapping_no_key.rs",
 				"examples/provider_stream_no_key.rs",
@@ -673,6 +679,22 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing suite %s: %#v", want, manifest.SupportedSuites)
 				}
 			}
+			coverageData, err := os.ReadFile(filepath.Join(dir, "conformance-coverage.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var coverage ConformanceCoverageManifest
+			if err := json.Unmarshal(coverageData, &coverage); err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateConformanceCoverage(manifest, coverage); err != nil {
+				t.Fatalf("%s generated conformance coverage is not valid: %v", tc.target, err)
+			}
+			for _, want := range []string{"agent_runtime_protocol", "agent_runtime_session", "optimize"} {
+				if !conformanceCoverageContainsKind(coverage, want) {
+					t.Fatalf("%s conformance coverage missing kind %q: %#v", tc.target, want, coverage.Suites)
+				}
+			}
 			for _, want := range []string{"axagent-runtime-profile-javascript-quickjs", "axagent-runtime-quickjs-session-state", "axagent-runtime-quickjs-host-calls", "axagent-runtime-quickjs-native-host-calls", "axagent-runtime-quickjs-callback-errors", "axagent-runtime-quickjs-limits", "axagent-runtime-quickjs-diagnostics", "axagent-runtime-profile-python-pyodide", "axagent-runtime-pyodide-session-state", "axagent-runtime-pyodide-host-calls", "axagent-runtime-pyodide-diagnostics", "axagent-runtime-profile-parity", "axagent-runtime-axjs-reference", "axagent-runtime-profile-state-parity", "axagent-runtime-profile-diagnostics", "axagent-runtime-profile-agent-forward", "axagent-runtime-profile-actor-loop", "axagent-runtime-profile-productization-alpha", "axagent-runtime-profile-policy", "axagent-runtime-profile-package-policy", "axagent-runtime-profile-javascript-goja", "axagent-runtime-goja-session-state", "axagent-runtime-goja-host-calls", "axagent-runtime-goja-policy", "axagent-runtime-goja-diagnostics"} {
 				if !containsString(manifest.CoreOwnedFeatureGroups, want) {
 					t.Fatalf("manifest missing runtime profile feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
@@ -738,6 +760,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "examples/runtime_protocol.rs", "ProcessCodeRuntime", "rust-runtime-protocol-ok")
 			}
 			auditGeneratedRuntimePlaceholders(t, dir, tc.target)
+			auditGeneratedConformanceRunnerSemantics(t, dir, tc.target)
 			auditGeneratedCapabilityCompleteness(t, dir, tc.target, manifest)
 			assertNoRemovedProviderReferences(t, dir)
 			assertNoUserFacingInternalPackageNames(t, dir, tc.target)
@@ -1016,6 +1039,93 @@ func auditGeneratedCapabilityCompleteness(t *testing.T, root, target string, man
 	}
 }
 
+func auditGeneratedConformanceRunnerSemantics(t *testing.T, root, target string) {
+	t.Helper()
+	for _, rel := range generatedConformanceRunnerFiles(target) {
+		text := readRepoFile(t, root, filepath.FromSlash(rel))
+		if label, found := conformanceRunnerFakeCoveragePattern(text); found {
+			t.Fatalf("%s generated conformance audit found %s in %s:\n%s", target, label, rel, text)
+		}
+	}
+	if target == "rust" {
+		text := readRepoFile(t, root, "src", "lib.rs")
+		for _, want := range []string{
+			"fn run_agent_runtime_protocol_fixture",
+			"fn run_agent_runtime_session_fixture",
+			"fn run_agent_runtime_policy_fixture",
+			"match operation.as_str()",
+			"\"components\" =>",
+			"\"filter\" =>",
+			"\"apply\" =>",
+			"\"artifact\" =>",
+			"\"dataset\" =>",
+			"\"score\" =>",
+			"\"judge_payload\" =>",
+			"\"evidence\" =>",
+			"\"evaluate\" =>",
+			"\"engine\" =>",
+			"\"gepa\" =>",
+			"\"eval\" =>",
+			"expected_engine_request_subset",
+			"expected_gepa_evaluations_subset",
+			"expected_trace_event_kinds",
+		} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("rust generated conformance audit missing semantic runner marker %q", want)
+			}
+		}
+	}
+}
+
+func generatedConformanceRunnerFiles(target string) []string {
+	switch target {
+	case "python":
+		return []string{"axllm/conformance.py"}
+	case "java":
+		return []string{"dev/axllm/ax/Conformance.java"}
+	case "cpp":
+		return []string{"conformance.cpp"}
+	case "go":
+		return []string{"axllm.go", "conformance/main.go"}
+	case "rust":
+		return []string{"src/lib.rs", "src/bin/axllm-conformance.rs"}
+	default:
+		return nil
+	}
+}
+
+func conformanceRunnerFakeCoveragePattern(text string) (string, bool) {
+	for _, tc := range []struct {
+		label string
+		re    *regexp.Regexp
+	}{
+		{label: "broad expectation guard", re: regexp.MustCompile(`\brequire_any_expectation\s*\(`)},
+		{label: "presence-only expectation error", re: regexp.MustCompile(`missing executable expectation`)},
+		{label: "presence-only coverage category", re: regexp.MustCompile(`presence-only`)},
+		{label: "flow self-comparison", re: regexp.MustCompile(`expect_json_equal\([^,\n]+,\s*expected,\s*expected\s*\)`)},
+		{label: "generic self-comparison", re: regexp.MustCompile(`(?m)(assertEqual|assert_equal|_assert_equal)\([^,\n]+,\s*expected,\s*expected`)},
+		{label: "Rust fixture arm returning success", re: regexp.MustCompile(`(?m)"[^"]+"\s*=>\s*Ok\(\(\)\)`)},
+		{label: "Rust grouped fixture arm returning success", re: regexp.MustCompile(`(?m)\|\s*"[^"]+"\s*=>\s*Ok\(\(\)\)`)},
+		{label: "expected-key-only validation", re: regexp.MustCompile(`expected key exists|expected keys exist|key exists`)},
+	} {
+		if tc.re.MatchString(text) {
+			return tc.label, true
+		}
+	}
+	return "", false
+}
+
+func conformanceCoverageContainsKind(coverage ConformanceCoverageManifest, kind string) bool {
+	for _, entries := range coverage.Suites {
+		for _, entry := range entries {
+			if entry.Kind == kind && entry.Category != "explicitly-not-claimed" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type generatedCapabilityGuard struct {
 	category  string
 	rel       string
@@ -1116,9 +1226,10 @@ func generatedCapabilityGuards(target string) []generatedCapabilityGuard {
 			{
 				category: "conformance",
 				rel:      "src/lib.rs",
-				contains: []string{"\"ai_stream\" => run_ai_stream_fixture(&fixture)?", "\"ai_embed\" => run_ai_embed_fixture(&fixture)?", "\"ai_transcribe\" => run_ai_transcribe_fixture(&fixture)?", "\"ai_speak\" => run_ai_speak_fixture(&fixture)?", "\"ai_realtime\" => run_ai_realtime_fixture(&fixture)?", "run_explicit_non_ai_conformance_fixture", "unsupported Rust conformance fixture kind", "expect_transport_request_subset"},
+				contains: []string{"\"signature\" => run_signature_fixture(&fixture)?", "\"json_schema\" => run_json_schema_fixture(&fixture)?", "\"validate_output\" => run_validate_output_fixture(&fixture)?", "\"prompt\" => run_prompt_fixture(&fixture)?", "\"forward\" => run_simple_forward_fixture(&fixture)?", "\"stream\" => run_stream_fixture(&fixture)?", "\"ai_stream\" => run_ai_stream_fixture(&fixture)?", "\"ai_embed\" => run_ai_embed_fixture(&fixture)?", "\"ai_transcribe\" => run_ai_transcribe_fixture(&fixture)?", "\"ai_speak\" => run_ai_speak_fixture(&fixture)?", "\"ai_realtime\" => run_ai_realtime_fixture(&fixture)?", "\"agent_forward\"", "\"flow\" => run_flow_fixture(&fixture)?", "\"optimize\" => run_optimize_fixture(&fixture)?", "unsupported Rust conformance fixture kind", "expect_transport_request_subset"},
 				forbidden: []string{
-					"_ => {}\n    }\n    Ok(())",
+					"| \"flow\"\n        | \"json_schema\"",
+					"| \"validate_value\" => Ok(())",
 				},
 			},
 			{category: "agent-flow-optimizer-runtime", rel: "src/lib.rs", contains: []string{"pub struct AxAgent", "pub struct AxFlow", "pub struct AxGEPA", "pub struct ProcessCodeRuntime"}},
@@ -1377,6 +1488,47 @@ func TestGeneratedRuntimePlaceholderDetectorRejectsDefaultBodies(t *testing.T) {
 				t.Fatalf("placeholder detector rejected real %s body %#v", tc.target, tc.lines)
 			}
 		})
+	}
+}
+
+func TestGeneratedConformanceRunnerAuditRejectsFakeCoverage(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		text string
+	}{
+		{name: "broad expectation guard", text: `fn run_optimize_fixture(fixture: &Value) -> AxResult<()> { require_any_expectation(fixture, &["expected_output"]) }`},
+		{name: "fixture arm ok", text: `match kind { "agent_forward" => Ok(()), _ => run_fixture()? }`},
+		{name: "grouped fixture arm ok", text: `match kind { "agent_runtime_policy" | "agent_runtime_session" => Ok(()), _ => run_fixture()? }`},
+		{name: "self comparison", text: `expect_json_equal("flow plan", expected, expected)?;`},
+		{name: "expected key only", text: `if expected key exists then accept fixture`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, found := conformanceRunnerFakeCoveragePattern(tc.text); !found {
+				t.Fatalf("conformance runner audit accepted fake coverage snippet: %s", tc.text)
+			}
+		})
+	}
+	manifest := CapabilityManifest{
+		AxIRVersion:     "0.1",
+		Target:          "rust",
+		PackageName:     "axllm",
+		SupportedSuites: []string{"axoptimize"},
+	}
+	coverage := ConformanceCoverageManifest{
+		AxIRVersion: "0.1",
+		Target:      "rust",
+		PackageName: "axllm",
+		Suites: map[string][]ConformanceCoverageEntry{
+			"axoptimize": {{
+				Suite:    "axoptimize",
+				Kind:     "optimize",
+				Runner:   "rust:axoptimize",
+				Category: "presence-only",
+			}},
+		},
+	}
+	if err := ValidateConformanceCoverage(manifest, coverage); err == nil {
+		t.Fatal("conformance coverage validator accepted presence-only claimed suite")
 	}
 }
 
@@ -2265,31 +2417,45 @@ assert nested.has_complex_fields()
 
 search = fn('search').description('Search docs').arg('query', f.string().min(1)).handler(lambda args: {'title': 'Docs'}).build()
 
-class Fake(AIClient):
+class Fake(AxBaseAI):
     def __init__(self):
+        super().__init__(name='fake', model='fake-chat', embed_model='fake-embed')
         self.calls = 0
-    def complete(self, request):
+    def _chat(self, request, options):
         self.calls += 1
         if self.calls == 1:
-            return {'content': '', 'function_calls': [{'id': 'c1', 'name': 'search', 'params': {'query': 'q'}}]}
+            return {'results': [{'index': 0, 'content': '', 'function_calls': [{'id': 'c1', 'function': {'name': 'search', 'params': {'query': 'q'}}}]}]}
         if self.calls == 2:
-            return {'content': '{}'}
-        return {'content': '{"answer": "done"}'}
+            return {'results': [{'index': 0, 'content': '{}'}]}
+        return {'results': [{'index': 0, 'content': '{"answer": "done"}'}]}
+    def _embed(self, request, options):
+        return {'embeddings': [[0.0]], 'model_usage': {'ai': 'fake'}}
+    def transcribe(self, request, options=None):
+        return {'text': 'fake transcript'}
+    def speak(self, request, options=None):
+        return {'audio': 'fake-audio'}
 
 gen = ax('query:string -> answer:string', {'functions': [search], 'validation_retries': 2})
 out = gen.forward(Fake(), {'query': 'q'})
 assert out == {'answer': 'done'}, out
 
-class AgentFake(AIClient):
+class AgentFake(AxBaseAI):
     def __init__(self):
+        super().__init__(name='agent-fake', model='fake-chat', embed_model='fake-embed')
         self.calls = 0
-    def complete(self, request):
+    def _chat(self, request, options):
         self.calls += 1
         if self.calls == 1:
-            return {'content': '{"completion":{"type":"final","args":["Answer",{}]}}'}
+            return {'results': [{'index': 0, 'content': '{"completion":{"type":"final","args":["Answer",{}]}}'}]}
         if self.calls == 2:
-            return {'content': '{"completion":{"type":"final","args":["Answer",{"answer":"done"}]}}'}
-        return {'content': '{"answer": "done"}'}
+            return {'results': [{'index': 0, 'content': '{"completion":{"type":"final","args":["Answer",{"answer":"done"}]}}'}]}
+        return {'results': [{'index': 0, 'content': '{"answer": "done"}'}]}
+    def _embed(self, request, options):
+        return {'embeddings': [[0.0]], 'model_usage': {'ai': 'agent-fake'}}
+    def transcribe(self, request, options=None):
+        return {'text': 'fake transcript'}
+    def speak(self, request, options=None):
+        return {'audio': 'fake-audio'}
 
 ag = agent('question:string -> answer:string', {'contextFields': []})
 agent_out = ag.forward(AgentFake(), {'question': 'q'})

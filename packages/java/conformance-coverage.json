@@ -1,0 +1,336 @@
+{
+  "axir_version": "0.1",
+  "target": "java",
+  "package_name": "dev.axllm:ax",
+  "suites": {
+    "axagent": [
+      {
+        "suite": "axagent",
+        "kind": "agent_forward",
+        "runner": "java:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_adapter",
+        "runner": "java:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_policy",
+        "runner": "java:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_protocol",
+        "runner": "java:axagent",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_session",
+        "runner": "java:axagent",
+        "category": "semantic"
+      }
+    ],
+    "axai": [
+      {
+        "suite": "axai",
+        "kind": "ai_chat",
+        "runner": "java:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_stream",
+        "runner": "java:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_embed",
+        "runner": "java:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_transcribe",
+        "runner": "java:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_speak",
+        "runner": "java:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_realtime",
+        "runner": "java:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_descriptor",
+        "runner": "java:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_registry",
+        "runner": "java:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_model_catalog_audit",
+        "runner": "java:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_model_catalog_runtime",
+        "runner": "java:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_multiservice_router",
+        "runner": "java:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_router",
+        "runner": "java:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_balancer",
+        "runner": "java:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_error",
+        "runner": "java:axai",
+        "category": "validation-error"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_unsupported",
+        "runner": "java:axai",
+        "category": "validation-error"
+      }
+    ],
+    "axflow": [
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "runner": "java:axflow",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "plan",
+        "runner": "java:axflow.plan",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "cache_key",
+        "runner": "java:axflow.cache_key",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "streaming",
+        "runner": "java:axflow.streaming",
+        "category": "semantic"
+      }
+    ],
+    "axgen": [
+      {
+        "suite": "axgen",
+        "kind": "forward",
+        "runner": "java:axgen",
+        "category": "semantic"
+      },
+      {
+        "suite": "axgen",
+        "kind": "stream",
+        "runner": "java:axgen",
+        "category": "semantic"
+      }
+    ],
+    "axoptimize": [
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "components",
+        "runner": "java:axoptimize.components",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "filter",
+        "runner": "java:axoptimize.filter",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "apply",
+        "runner": "java:axoptimize.apply",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "artifact",
+        "runner": "java:axoptimize.artifact",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "dataset",
+        "runner": "java:axoptimize.dataset",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "score",
+        "runner": "java:axoptimize.score",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "judge_payload",
+        "runner": "java:axoptimize.judge_payload",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "evidence",
+        "runner": "java:axoptimize.evidence",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "evaluate",
+        "runner": "java:axoptimize.evaluate",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "engine",
+        "runner": "java:axoptimize.engine",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "gepa",
+        "runner": "java:axoptimize.gepa",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "eval",
+        "runner": "java:axoptimize.eval",
+        "category": "semantic"
+      }
+    ],
+    "axprogram": [
+      {
+        "suite": "axprogram",
+        "kind": "program_contract",
+        "runner": "java:axprogram",
+        "category": "semantic"
+      }
+    ],
+    "prompt": [
+      {
+        "suite": "prompt",
+        "kind": "prompt",
+        "runner": "java:prompt",
+        "category": "semantic"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template",
+        "runner": "java:prompt",
+        "category": "semantic"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template_error",
+        "runner": "java:prompt",
+        "category": "validation-error"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template_validate",
+        "runner": "java:prompt",
+        "category": "semantic"
+      }
+    ],
+    "schema": [
+      {
+        "suite": "schema",
+        "kind": "json_schema",
+        "runner": "java:schema",
+        "category": "semantic"
+      }
+    ],
+    "signature": [
+      {
+        "suite": "signature",
+        "kind": "signature",
+        "runner": "java:signature",
+        "category": "semantic"
+      },
+      {
+        "suite": "signature",
+        "kind": "signature_error",
+        "runner": "java:signature",
+        "category": "validation-error"
+      }
+    ],
+    "validation": [
+      {
+        "suite": "validation",
+        "kind": "validate_output",
+        "runner": "java:validation",
+        "category": "semantic"
+      },
+      {
+        "suite": "validation",
+        "kind": "validate_value",
+        "runner": "java:validation",
+        "category": "semantic"
+      },
+      {
+        "suite": "validation",
+        "kind": "strip_internal",
+        "runner": "java:validation",
+        "category": "semantic"
+      }
+    ]
+  }
+}

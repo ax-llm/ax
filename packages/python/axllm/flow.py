@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import copy
 import json
 from typing import Any, Callable
@@ -121,9 +122,10 @@ def _flow_mapper_from_spec(spec):
     return _FlowCallable(_mapper)
 
 
-class AxProgram:
+class AxProgram(ABC):
+    @abstractmethod
     def forward(self, client, values, options=None):
-        raise NotImplementedError
+        ...
 
     def get_optimizable_components(self):
         return []

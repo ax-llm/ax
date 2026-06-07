@@ -1502,6 +1502,7 @@ class AxPromptTemplate:
 
 const pyAI = `from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import copy
 import json
 import os
@@ -1622,21 +1623,25 @@ def default_metrics() -> dict[str, Any]:
     }
 
 
-class AxAIService:
+class AxAIService(ABC):
+    @abstractmethod
     def get_id(self) -> str:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def get_name(self) -> str:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def get_features(self, model: str | None = None) -> dict[str, Any]:
-        raise NotImplementedError
+        ...
 
     def get_model_list(self):
         return []
 
+    @abstractmethod
     def get_metrics(self) -> dict[str, Any]:
-        raise NotImplementedError
+        ...
 
     def get_logger(self):
         return lambda _message: None
@@ -1650,8 +1655,9 @@ class AxAIService:
     def get_last_used_model_config(self):
         return None
 
+    @abstractmethod
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        raise NotImplementedError
+        ...
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         stream_request = copy.deepcopy(_coerce_chat_request(request))
@@ -1662,23 +1668,28 @@ class AxAIService:
         else:
             yield from result
 
+    @abstractmethod
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        raise NotImplementedError
+        ...
 
     def get_estimated_cost(self, model_usage: dict[str, Any] | None = None) -> float:
         return 0.0
 
+    @abstractmethod
     def set_options(self, options: dict[str, Any]):
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def get_options(self) -> dict[str, Any]:
-        raise NotImplementedError
+        ...
 
     def complete(self, request: dict[str, Any]) -> dict[str, Any]:
         return chat_response_to_completion(self.chat(_coerce_chat_request(request)))
@@ -1788,11 +1799,13 @@ class AxBaseAI(AIClient):
         finally:
             self._record_metrics("embed", time.perf_counter() - started, is_error)
 
+    @abstractmethod
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
-        raise NotImplementedError
+        ...
 
     def _record_metrics(self, kind: str, duration_seconds: float, is_error: bool):
         bucket = self.metrics["latency"][kind]
@@ -3374,12 +3387,13 @@ def _core_string_ends_with(value, suffix):
 
 
 def _core_ai_complete_once(client, request):
-    if hasattr(client, "chat"):
-        try:
-            return chat_response_to_completion(client.chat(request))
-        except NotImplementedError:
-            pass
-    return client.complete(request)
+    chat = getattr(client, "chat", None)
+    if callable(chat):
+        return chat_response_to_completion(chat(request))
+    complete = getattr(client, "complete", None)
+    if callable(complete):
+        return complete(request)
+    raise TypeError("AI client must implement chat() or complete()")
 
 
 def _core_retry_sleep(attempt):
@@ -3708,6 +3722,7 @@ def _core_axgen_record_function_call(gen, call, result, status):
 
 const pyFlow = `from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import copy
 import json
 from typing import Any, Callable
@@ -3829,9 +3844,10 @@ def _flow_mapper_from_spec(spec):
     return _FlowCallable(_mapper)
 
 
-class AxProgram:
+class AxProgram(ABC):
+    @abstractmethod
     def forward(self, client, values, options=None):
-        raise NotImplementedError
+        ...
 
     def get_optimizable_components(self):
         return []
@@ -4121,6 +4137,7 @@ def _core_program_apply_components(program, component_map):
 
 const pyAgent = `from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import copy
 import json
 import math
@@ -4143,9 +4160,10 @@ class AxAgentClarificationError(RuntimeError):
         self.payload = payload
 
 
-class AxCodeSession:
+class AxCodeSession(ABC):
+    @abstractmethod
     def execute(self, code: str, options: dict[str, Any] | None = None) -> Any:
-        raise NotImplementedError
+        ...
 
     def inspect_globals(self, options: dict[str, Any] | None = None) -> Any:
         return "[runtime state inspection unavailable: runtime session does not implement inspect_globals()]"
@@ -4166,27 +4184,30 @@ class AxCodeSession:
         return {"closed": True}
 
 
-class AxCodeRuntime:
+class AxCodeRuntime(ABC):
     language = "JavaScript"
 
     def get_usage_instructions(self) -> str:
         return ""
 
+    @abstractmethod
     def create_session(self, globals: dict[str, Any], options: dict[str, Any] | None = None) -> AxCodeSession:
-        raise NotImplementedError
+        ...
 
 
-class OptimizerEngine:
+class OptimizerEngine(ABC):
     name = "host"
     version = "host"
 
+    @abstractmethod
     def optimize(self, request: dict[str, Any], evaluator: "OptimizerEvaluator | None" = None) -> dict[str, Any]:
-        raise NotImplementedError
+        ...
 
 
-class OptimizerEvaluator:
+class OptimizerEvaluator(ABC):
+    @abstractmethod
     def evaluate(self, candidate_map: dict[str, Any], options: dict[str, Any] | None = None) -> dict[str, Any]:
-        raise NotImplementedError
+        ...
 
 
 def _call_optimizer_engine(engine: OptimizerEngine, request: dict[str, Any], evaluator: OptimizerEvaluator | None):
@@ -5112,10 +5133,7 @@ def _core_agent_runtime_execute(session, code, options):
 
 def _core_agent_runtime_inspect(session, options):
     if hasattr(session, "inspect_globals"):
-        try:
-            return session.inspect_globals(options or {})
-        except NotImplementedError:
-            return "[runtime state inspection unavailable: runtime session does not implement inspect_globals()]"
+        return session.inspect_globals(options or {})
     if hasattr(session, "inspect"):
         return session.inspect(options or {})
     return "[runtime state inspection unavailable: runtime session does not implement inspect_globals()]"
@@ -5297,6 +5315,14 @@ class FakeAIService(AxBaseAI):
         self.requests.append(copy.deepcopy(request))
         for event in self.stream_events:
             yield copy.deepcopy(event)
+
+    def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        self.requests.append(copy.deepcopy(request))
+        return {"text": "fixture transcript"}
+
+    def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        self.requests.append(copy.deepcopy(request))
+        return {"audio": "fixture-audio", "format": (request or {}).get("format", "pcm")}
 
 
 def _fixture_ai_service_error(spec):

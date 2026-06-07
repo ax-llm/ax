@@ -131,6 +131,12 @@ const exampleCatalog = {
   go: [
     ['no-key', 'signature_schema.go', 'Signature and schema smoke'],
     ['no-key', 'provider_mapping_no_key.go', 'OpenAI-compatible mapping smoke'],
+    ['no-key', 'axgen_fake_client_tool.go', 'AxGen fake client and tool'],
+    ['no-key', 'axagent_pipeline.go', 'Deterministic AxAgent forward and logs'],
+    ['no-key', 'axflow_program_graph.go', 'Deterministic AxFlow graph'],
+    ['no-key', 'runtime_adapter.go', 'Custom AxCodeRuntime session'],
+    ['no-key', 'runtime_protocol.go', 'Process AxCodeRuntime protocol'],
+    ['no-key', 'optimizer_artifact.go', 'Optimizer artifact smoke'],
     ['provider-api', 'axgen_openai_api.go', 'AxGen OpenAI API run'],
   ],
   rust: [
@@ -285,6 +291,17 @@ function resolveExample(language, exampleArg) {
   if (path.isAbsolute(withExt)) candidates.push(withExt);
   candidates.push(path.resolve(process.cwd(), withExt));
   candidates.push(path.join(examplesRoot, languageDir[language], withExt));
+  if (language === 'go') {
+    candidates.push(
+      path.join(
+        packagesRoot,
+        'go',
+        'examples',
+        path.basename(withExt, '.go'),
+        'main.go'
+      )
+    );
+  }
   if (language === 'ts') candidates.push(path.join(examplesRoot, withExt));
 
   const found = candidates.find((candidate) => existsSync(candidate));

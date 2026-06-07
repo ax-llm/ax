@@ -1,0 +1,336 @@
+{
+  "axir_version": "0.1",
+  "target": "rust",
+  "package_name": "axllm",
+  "suites": {
+    "axagent": [
+      {
+        "suite": "axagent",
+        "kind": "agent_forward",
+        "runner": "rust:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_adapter",
+        "runner": "rust:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_policy",
+        "runner": "rust:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_protocol",
+        "runner": "rust:axagent",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axagent",
+        "kind": "agent_runtime_session",
+        "runner": "rust:axagent",
+        "category": "semantic"
+      }
+    ],
+    "axai": [
+      {
+        "suite": "axai",
+        "kind": "ai_chat",
+        "runner": "rust:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_stream",
+        "runner": "rust:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_embed",
+        "runner": "rust:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_transcribe",
+        "runner": "rust:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_speak",
+        "runner": "rust:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_realtime",
+        "runner": "rust:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_descriptor",
+        "runner": "rust:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_registry",
+        "runner": "rust:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_model_catalog_audit",
+        "runner": "rust:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_model_catalog_runtime",
+        "runner": "rust:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_multiservice_router",
+        "runner": "rust:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_provider_router",
+        "runner": "rust:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_balancer",
+        "runner": "rust:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_error",
+        "runner": "rust:axai",
+        "category": "validation-error"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_unsupported",
+        "runner": "rust:axai",
+        "category": "validation-error"
+      }
+    ],
+    "axflow": [
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "runner": "rust:axflow",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "plan",
+        "runner": "rust:axflow.plan",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "cache_key",
+        "runner": "rust:axflow.cache_key",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow",
+        "operation": "streaming",
+        "runner": "rust:axflow.streaming",
+        "category": "semantic"
+      }
+    ],
+    "axgen": [
+      {
+        "suite": "axgen",
+        "kind": "forward",
+        "runner": "rust:axgen",
+        "category": "semantic"
+      },
+      {
+        "suite": "axgen",
+        "kind": "stream",
+        "runner": "rust:axgen",
+        "category": "semantic"
+      }
+    ],
+    "axoptimize": [
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "components",
+        "runner": "rust:axoptimize.components",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "filter",
+        "runner": "rust:axoptimize.filter",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "apply",
+        "runner": "rust:axoptimize.apply",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "artifact",
+        "runner": "rust:axoptimize.artifact",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "dataset",
+        "runner": "rust:axoptimize.dataset",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "score",
+        "runner": "rust:axoptimize.score",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "judge_payload",
+        "runner": "rust:axoptimize.judge_payload",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "evidence",
+        "runner": "rust:axoptimize.evidence",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "evaluate",
+        "runner": "rust:axoptimize.evaluate",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "engine",
+        "runner": "rust:axoptimize.engine",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "gepa",
+        "runner": "rust:axoptimize.gepa",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "eval",
+        "runner": "rust:axoptimize.eval",
+        "category": "semantic"
+      }
+    ],
+    "axprogram": [
+      {
+        "suite": "axprogram",
+        "kind": "program_contract",
+        "runner": "rust:axprogram",
+        "category": "semantic"
+      }
+    ],
+    "prompt": [
+      {
+        "suite": "prompt",
+        "kind": "prompt",
+        "runner": "rust:prompt",
+        "category": "semantic"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template",
+        "runner": "rust:prompt",
+        "category": "semantic"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template_error",
+        "runner": "rust:prompt",
+        "category": "validation-error"
+      },
+      {
+        "suite": "prompt",
+        "kind": "template_validate",
+        "runner": "rust:prompt",
+        "category": "semantic"
+      }
+    ],
+    "schema": [
+      {
+        "suite": "schema",
+        "kind": "json_schema",
+        "runner": "rust:schema",
+        "category": "semantic"
+      }
+    ],
+    "signature": [
+      {
+        "suite": "signature",
+        "kind": "signature",
+        "runner": "rust:signature",
+        "category": "semantic"
+      },
+      {
+        "suite": "signature",
+        "kind": "signature_error",
+        "runner": "rust:signature",
+        "category": "validation-error"
+      }
+    ],
+    "validation": [
+      {
+        "suite": "validation",
+        "kind": "validate_output",
+        "runner": "rust:validation",
+        "category": "semantic"
+      },
+      {
+        "suite": "validation",
+        "kind": "validate_value",
+        "runner": "rust:validation",
+        "category": "semantic"
+      },
+      {
+        "suite": "validation",
+        "kind": "strip_internal",
+        "runner": "rust:validation",
+        "category": "semantic"
+      }
+    ]
+  }
+}

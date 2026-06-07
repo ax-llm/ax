@@ -46,17 +46,17 @@ npm run example -- rust axgen_openai_api.rs
 | Signature/schema | `signature_schema.py` | `SignatureSchemaExample.java` | `signature_schema.cpp` | `signature_schema.go` | `signature_schema.rs` | no-key |
 | OpenAI-compatible provider mapping | `axai_fake_transport.py` | `AxAIFakeTransportExample.java` | `axai_fake_transport.cpp` | `provider_mapping_no_key.go` | `provider_mapping_no_key.rs` | no-key |
 | OpenAI-compatible provider stream | - | - | - | - | `provider_stream_no_key.rs` | no-key |
-| AxGen fake client/tool | `axgen_fake_client_tool.py` | `AxGenFakeClientToolExample.java` | `axgen_fake_client_tool.cpp` | - | `axgen_fake_client_tool.rs` | no-key |
+| AxGen fake client/tool | `axgen_fake_client_tool.py` | `AxGenFakeClientToolExample.java` | `axgen_fake_client_tool.cpp` | `axgen_fake_client_tool.go` | `axgen_fake_client_tool.rs` | no-key |
 | AxGen OpenAI API | `axgen_openai_api.py` | `AxGenOpenAIExample.java` | `axgen_openai_api.cpp` | `axgen_openai_api.go` | `axgen_openai_api.rs` | provider-api |
-| AxAgent deterministic pipeline | `agent_pipeline.py` | `AgentPipelineExample.java` | `agent_pipeline.cpp` | - | `axagent_pipeline.rs` | no-key |
+| AxAgent deterministic pipeline | `agent_pipeline.py` | `AgentPipelineExample.java` | `agent_pipeline.cpp` | `axagent_pipeline.go` | `axagent_pipeline.rs` | no-key |
 | AxAgent OpenAI API | `agent_openai_api.py` | `AgentOpenAIExample.java` | `agent_openai_api.cpp` | - | - | provider-api |
-| AxFlow deterministic graph | `flow_program_graph.py` | `FlowProgramGraphExample.java` | `flow_program_graph.cpp` | - | `axflow_program_graph.rs` | no-key |
+| AxFlow deterministic graph | `flow_program_graph.py` | `FlowProgramGraphExample.java` | `flow_program_graph.cpp` | `axflow_program_graph.go` | `axflow_program_graph.rs` | no-key |
 | AxFlow OpenAI API | `flow_openai_api.py` | `FlowOpenAIExample.java` | `flow_openai_api.cpp` | - | - | provider-api |
 | OpenAI Responses audio mapping | `audio_responses_mapping.py` | `AudioResponsesMappingExample.java` | `audio_responses_mapping.cpp` | - | - | no-key |
 | Grok/Gemini realtime event folding | `realtime_audio_events.py` | `RealtimeAudioEventsExample.java` | `realtime_audio_events.cpp` | - | - | no-key |
-| Runtime adapter | `runtime_adapter.py` | `RuntimeAdapterExample.java` | `runtime_adapter.cpp` | - | `runtime_adapter.rs` | no-key |
-| Runtime protocol | `runtime_protocol.py` | `RuntimeProtocolExample.java` | `runtime_protocol.cpp` | - | `runtime_protocol.rs` | no-key |
-| Optimizer artifact round trip | `optimizer_artifact.py` | `OptimizerArtifactExample.java` | `optimizer_artifact.cpp` | - | `optimizer_artifact.rs` | no-key |
+| Runtime adapter | `runtime_adapter.py` | `RuntimeAdapterExample.java` | `runtime_adapter.cpp` | `runtime_adapter.go` | `runtime_adapter.rs` | no-key |
+| Runtime protocol | `runtime_protocol.py` | `RuntimeProtocolExample.java` | `runtime_protocol.cpp` | `runtime_protocol.go` | `runtime_protocol.rs` | no-key |
+| Optimizer artifact round trip | `optimizer_artifact.py` | `OptimizerArtifactExample.java` | `optimizer_artifact.cpp` | `optimizer_artifact.go` | `optimizer_artifact.rs` | no-key |
 | GEPA local optimizer | `gepa_local_optimizer.py` | `GEPALocalOptimizerExample.java` | `gepa_local_optimizer.cpp` | - | - | no-key |
 
 Example commands:
@@ -67,6 +67,8 @@ npm run example -- java FlowProgramGraphExample.java
 npm run example -- cpp realtime_audio_events.cpp
 npm run example -- go signature_schema.go
 npm run example -- go provider_mapping_no_key.go
+npm run example -- go axagent_pipeline.go
+npm run example -- go axflow_program_graph.go
 npm run example -- go axgen_openai_api.go
 npm run example -- rust signature_schema.rs
 npm run example -- rust axagent_pipeline.rs

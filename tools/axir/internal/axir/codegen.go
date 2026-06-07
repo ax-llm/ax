@@ -103,6 +103,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"axllm/providers/__init__.py":                           pyProvidersInit,
 		"axllm/providers/openai.py":                             pyOpenAIProvider,
 		"axir-capabilities.json":                                mustCapabilityManifest(model, "python"),
+		"conformance-coverage.json":                             mustConformanceCoverageManifest(model, "python"),
 		"examples/signature_schema.py":                          pySignatureSchemaExample,
 		"examples/axgen_fake_client_tool.py":                    pyAxGenFakeClientToolExample,
 		"examples/axgen_openai_api.py":                          pyAxGenOpenAIExample,
@@ -179,6 +180,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/Json.java":                                      javaJson,
 		"dev/axllm/ax/Conformance.java":                               javaConformance,
 		"axir-capabilities.json":                                      mustCapabilityManifest(model, "java"),
+		"conformance-coverage.json":                                   mustConformanceCoverageManifest(model, "java"),
 		"examples/SignatureSchemaExample.java":                        javaSignatureSchemaExample,
 		"examples/AxGenFakeClientToolExample.java":                    javaAxGenFakeClientToolExample,
 		"examples/AxGenOpenAIExample.java":                            javaAxGenOpenAIExample,
@@ -216,6 +218,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"axllm/axllm.cpp":                                       strings.Replace(cppRuntime, "// AXIR_CORE_CPP_FUNCTIONS\n", core, 1),
 		"conformance.cpp":                                       cppConformance,
 		"axir-capabilities.json":                                mustCapabilityManifest(model, "cpp"),
+		"conformance-coverage.json":                             mustConformanceCoverageManifest(model, "cpp"),
 		"examples/signature_schema.cpp":                         cppSignatureSchemaExample,
 		"examples/axgen_fake_client_tool.cpp":                   cppAxGenFakeClientToolExample,
 		"examples/axgen_openai_api.cpp":                         cppAxGenOpenAIExample,
@@ -244,13 +247,14 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		return err
 	}
 	files := map[string]string{
-		"go.mod":                            renderPackageTemplate(goMod, version),
-		"go.sum":                            goSum,
-		"axllm.go":                          renderPackageTemplate(core, version),
-		"runtime/goja/goja.go":              goGojaRuntime,
-		"axir-capabilities.json":            mustCapabilityManifest(model, "go"),
-		"conformance/main.go":               goConformance,
-		"examples/signature_schema/main.go": goSignatureSchemaExample,
+		"go.mod":                                            renderPackageTemplate(goMod, version),
+		"go.sum":                                            goSum,
+		"axllm.go":                                          renderPackageTemplate(core, version),
+		"runtime/goja/goja.go":                              goGojaRuntime,
+		"axir-capabilities.json":                            mustCapabilityManifest(model, "go"),
+		"conformance-coverage.json":                         mustConformanceCoverageManifest(model, "go"),
+		"conformance/main.go":                               goConformance,
+		"examples/signature_schema/main.go":                 goSignatureSchemaExample,
 		"examples/axgen_fake_client_tool/main.go":           goAxGenFakeClientToolExample,
 		"examples/axai_fake_transport/main.go":              goAxAIFakeTransportExample,
 		"examples/axagent_pipeline/main.go":                 goAxAgentPipelineExample,
@@ -275,6 +279,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"src/lib.rs":                          renderPackageTemplate(core, version),
 		"src/bin/axllm-conformance.rs":        rustConformanceMain,
 		"axir-capabilities.json":              mustCapabilityManifest(model, "rust"),
+		"conformance-coverage.json":           mustConformanceCoverageManifest(model, "rust"),
 		"examples/signature_schema.rs":        rustSignatureSchemaExample,
 		"examples/provider_mapping_no_key.rs": rustProviderMappingNoKeyExample,
 		"examples/provider_stream_no_key.rs":  rustProviderStreamNoKeyExample,
@@ -380,6 +385,21 @@ type CapabilityManifest struct {
 	CoreOwnedFeatureGroups  []string    `json:"core_owned_feature_groups"`
 	PublicSymbols           []string    `json:"public_symbols"`
 	TargetIdiom             TargetIdiom `json:"target_idiom"`
+}
+
+type ConformanceCoverageManifest struct {
+	AxIRVersion string                                `json:"axir_version"`
+	Target      string                                `json:"target"`
+	PackageName string                                `json:"package_name"`
+	Suites      map[string][]ConformanceCoverageEntry `json:"suites"`
+}
+
+type ConformanceCoverageEntry struct {
+	Suite     string `json:"suite"`
+	Kind      string `json:"kind"`
+	Operation string `json:"operation,omitempty"`
+	Runner    string `json:"runner"`
+	Category  string `json:"category"`
 }
 
 func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityManifest, error) {
@@ -569,6 +589,162 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 	}, nil
 }
 
+func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (ConformanceCoverageManifest, error) {
+	manifest, err := BuildCapabilityManifest(model, target)
+	if err != nil {
+		return ConformanceCoverageManifest{}, err
+	}
+	suites := map[string][]ConformanceCoverageEntry{}
+	add := func(suite, kind, operation, category string) {
+		suites[suite] = append(suites[suite], ConformanceCoverageEntry{
+			Suite:     suite,
+			Kind:      kind,
+			Operation: operation,
+			Runner:    conformanceCoverageRunner(target, suite, kind, operation),
+			Category:  category,
+		})
+	}
+	for _, entry := range []struct {
+		suite     string
+		kind      string
+		operation string
+		category  string
+	}{
+		{"signature", "signature", "", "semantic"},
+		{"signature", "signature_error", "", "validation-error"},
+		{"schema", "json_schema", "", "semantic"},
+		{"validation", "validate_output", "", "semantic"},
+		{"validation", "validate_value", "", "semantic"},
+		{"validation", "strip_internal", "", "semantic"},
+		{"prompt", "prompt", "", "semantic"},
+		{"prompt", "template", "", "semantic"},
+		{"prompt", "template_error", "", "validation-error"},
+		{"prompt", "template_validate", "", "semantic"},
+		{"axgen", "forward", "", "semantic"},
+		{"axgen", "stream", "", "semantic"},
+		{"axai", "ai_chat", "", "transport-boundary"},
+		{"axai", "ai_stream", "", "transport-boundary"},
+		{"axai", "ai_embed", "", "transport-boundary"},
+		{"axai", "ai_transcribe", "", "transport-boundary"},
+		{"axai", "ai_speak", "", "transport-boundary"},
+		{"axai", "ai_realtime", "", "semantic"},
+		{"axai", "ai_provider_descriptor", "", "semantic"},
+		{"axai", "ai_provider_registry", "", "semantic"},
+		{"axai", "ai_model_catalog_audit", "", "semantic"},
+		{"axai", "ai_model_catalog_runtime", "", "semantic"},
+		{"axai", "ai_multiservice_router", "", "transport-boundary"},
+		{"axai", "ai_provider_router", "", "transport-boundary"},
+		{"axai", "ai_balancer", "", "transport-boundary"},
+		{"axai", "ai_error", "", "validation-error"},
+		{"axai", "ai_unsupported", "", "validation-error"},
+		{"axagent", "agent_forward", "", "semantic"},
+		{"axagent", "agent_runtime_adapter", "", "semantic"},
+		{"axagent", "agent_runtime_policy", "", "semantic"},
+		{"axagent", "agent_runtime_protocol", "", "transport-boundary"},
+		{"axagent", "agent_runtime_session", "", "semantic"},
+		{"axflow", "flow", "", "semantic"},
+		{"axflow", "flow", "plan", "semantic"},
+		{"axflow", "flow", "cache_key", "semantic"},
+		{"axflow", "flow", "streaming", "semantic"},
+		{"axprogram", "program_contract", "", "semantic"},
+		{"axoptimize", "optimize", "components", "semantic"},
+		{"axoptimize", "optimize", "filter", "semantic"},
+		{"axoptimize", "optimize", "apply", "semantic"},
+		{"axoptimize", "optimize", "artifact", "semantic"},
+		{"axoptimize", "optimize", "dataset", "semantic"},
+		{"axoptimize", "optimize", "score", "semantic"},
+		{"axoptimize", "optimize", "judge_payload", "semantic"},
+		{"axoptimize", "optimize", "evidence", "semantic"},
+		{"axoptimize", "optimize", "evaluate", "semantic"},
+		{"axoptimize", "optimize", "engine", "semantic"},
+		{"axoptimize", "optimize", "gepa", "semantic"},
+		{"axoptimize", "optimize", "eval", "semantic"},
+	} {
+		add(entry.suite, entry.kind, entry.operation, entry.category)
+	}
+	return ConformanceCoverageManifest{
+		AxIRVersion: manifest.AxIRVersion,
+		Target:      target,
+		PackageName: manifest.PackageName,
+		Suites:      suites,
+	}, nil
+}
+
+func conformanceCoverageRunner(target, suite, kind, operation string) string {
+	base := suite
+	if operation != "" {
+		base += "." + operation
+	}
+	switch target {
+	case "python":
+		return "python:" + base
+	case "java":
+		return "java:" + base
+	case "cpp":
+		return "cpp:" + base
+	case "go":
+		return "go:" + base
+	case "rust":
+		return "rust:" + base
+	default:
+		return target + ":" + kind
+	}
+}
+
+func ValidateConformanceCoverage(manifest CapabilityManifest, coverage ConformanceCoverageManifest) error {
+	if coverage.Target != manifest.Target {
+		return fmt.Errorf("conformance coverage target %q does not match capability manifest target %q", coverage.Target, manifest.Target)
+	}
+	if coverage.PackageName != manifest.PackageName {
+		return fmt.Errorf("conformance coverage package %q does not match capability manifest package %q", coverage.PackageName, manifest.PackageName)
+	}
+	if coverage.AxIRVersion != manifest.AxIRVersion {
+		return fmt.Errorf("conformance coverage axir_version %q does not match capability manifest axir_version %q", coverage.AxIRVersion, manifest.AxIRVersion)
+	}
+	allowedCategories := map[string]bool{
+		"semantic":               true,
+		"validation-error":       true,
+		"transport-boundary":     true,
+		"explicitly-not-claimed": true,
+	}
+	for suite, entries := range coverage.Suites {
+		for _, entry := range entries {
+			if entry.Suite != suite {
+				return fmt.Errorf("conformance coverage entry kind %q records suite %q under suite %q", entry.Kind, entry.Suite, suite)
+			}
+			if strings.TrimSpace(entry.Kind) == "" {
+				return fmt.Errorf("conformance coverage suite %q has an entry with empty kind", suite)
+			}
+			if strings.TrimSpace(entry.Runner) == "" {
+				return fmt.Errorf("conformance coverage suite %q kind %q has empty runner", suite, entry.Kind)
+			}
+			if entry.Category == "presence-only" {
+				return fmt.Errorf("conformance coverage suite %q kind %q is presence-only; claimed suites require semantic validation", suite, entry.Kind)
+			}
+			if !allowedCategories[entry.Category] {
+				return fmt.Errorf("conformance coverage suite %q kind %q has unsupported category %q", suite, entry.Kind, entry.Category)
+			}
+		}
+	}
+	for _, suite := range manifest.SupportedSuites {
+		entries := coverage.Suites[suite]
+		if len(entries) == 0 {
+			return fmt.Errorf("conformance coverage missing claimed suite %q", suite)
+		}
+		hasClaimedRunner := false
+		for _, entry := range entries {
+			if entry.Category != "explicitly-not-claimed" {
+				hasClaimedRunner = true
+				break
+			}
+		}
+		if !hasClaimedRunner {
+			return fmt.Errorf("conformance coverage suite %q is claimed but only explicitly-not-claimed entries exist", suite)
+		}
+	}
+	return nil
+}
+
 func publicSymbolsForTarget(model AxRuntimeModel, target string) []string {
 	symbols := append([]string(nil), model.PublicSymbols...)
 	if target != "rust" {
@@ -606,8 +782,28 @@ func CapabilityManifestJSON(model AxRuntimeModel, target string) (string, error)
 	return string(data) + "\n", nil
 }
 
+func ConformanceCoverageManifestJSON(model AxRuntimeModel, target string) (string, error) {
+	coverage, err := BuildConformanceCoverageManifest(model, target)
+	if err != nil {
+		return "", err
+	}
+	data, err := json.MarshalIndent(coverage, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
+}
+
 func mustCapabilityManifest(model AxRuntimeModel, target string) string {
 	text, err := CapabilityManifestJSON(model, target)
+	if err != nil {
+		panic(err)
+	}
+	return text
+}
+
+func mustConformanceCoverageManifest(model AxRuntimeModel, target string) string {
+	text, err := ConformanceCoverageManifestJSON(model, target)
 	if err != nil {
 		panic(err)
 	}
