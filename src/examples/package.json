@@ -32,7 +32,7 @@
     "@opentelemetry/exporter-prometheus": "^0.218.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.203.0",
     "@opentelemetry/resources": "^2.0.1",
-    "@opentelemetry/sdk-metrics": "^2.0.1",
+    "@opentelemetry/sdk-metrics": "^2.7.1",
     "@opentelemetry/sdk-node": "^0.218.0",
     "@opentelemetry/sdk-trace-base": "^2.0.1",
     "@pipedream/sdk": "^1.6.4",
