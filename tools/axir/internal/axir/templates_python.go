@@ -33,7 +33,7 @@ from .ai import (
     get_supported_ai_models,
 )
 from .gen import AxGen, AxMemory, ax
-from .agent import AxAgent, AxAgentClarificationError, AxCodeRuntime, AxCodeSession, AxGEPA, OptimizerEngine, OptimizerEvaluator, agent
+from .agent import AxAgent, AxAgentClarificationError, AxBootstrapFewShot, AxCodeRuntime, AxCodeSession, AxGEPA, OptimizerEngine, OptimizerEvaluator, agent, optimize
 from .flow import AxFlow, AxProgram, flow
 from .mcp import AxMCPClient, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport
 from .prompt import AxPromptTemplate, TemplateError, render_template_content, validate_prompt_template_syntax
@@ -56,6 +56,7 @@ __all__ = [
     "AxFlow",
     "AxAgent",
     "AxAgentClarificationError",
+    "AxBootstrapFewShot",
     "AxCodeRuntime",
     "AxCodeSession",
     "AxGEPA",
@@ -102,6 +103,7 @@ __all__ = [
     "fn",
     "flow",
     "get_supported_ai_models",
+    "optimize",
     "render_template_content",
     "s",
     "validate_prompt_template_syntax",
@@ -2967,6 +2969,64 @@ def _call_optimizer_engine(engine, request: dict[str, Any], evaluator):
             raise exc
 
 
+def _normalize_optimization_metric_scores_local(raw):
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return {"score": raw}
+    if isinstance(raw, dict):
+        return dict(raw)
+    return {"score": 0}
+
+
+def _scalarize_optimization_scores_local(scores, options):
+    key = (options or {}).get("paretoMetricKey")
+    if key:
+        try:
+            return float((scores or {}).get(key, 0))
+        except (TypeError, ValueError):
+            return 0
+    values = []
+    for value in (scores or {}).values():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            values.append(float(value))
+    return sum(values) / len(values) if values else 0
+
+
+def _optimization_action_name_matches_local(expected, call):
+    qualified = str((call or {}).get("qualifiedName") or "")
+    name = str((call or {}).get("name") or "")
+    return qualified == expected or name == expected or qualified.endswith(f".{expected}")
+
+
+def _adjust_optimization_score_for_actions_local(score, task, prediction):
+    adjusted = float(score)
+    calls = (prediction or {}).get("functionCalls") or (prediction or {}).get("function_calls") or []
+    expected = (task or {}).get("expectedActions") or []
+    if expected:
+        matched = sum(1 for item in expected if any(_optimization_action_name_matches_local(str(item), call) for call in calls))
+        adjusted *= 0.5 + 0.5 * (matched / max(1, len(expected)))
+    forbidden = (task or {}).get("forbiddenActions") or []
+    if forbidden and any(_optimization_action_name_matches_local(str(item), call) for item in forbidden for call in calls):
+        adjusted *= 0.25
+    return adjusted
+
+
+def _score_optimization_prediction_local(task, prediction, options):
+    if "metric_score" in task:
+        raw_scores = task.get("metric_score")
+    elif "scores" in task:
+        raw_scores = task.get("scores")
+    elif "score" in task:
+        raw_scores = task.get("score")
+    elif (prediction or {}).get("completionType") == "error":
+        raw_scores = 0
+    else:
+        raw_scores = 1
+    scores = _normalize_optimization_metric_scores_local(raw_scores)
+    scalar = _scalarize_optimization_scores_local(scores, options or {})
+    scalar = _adjust_optimization_score_for_actions_local(scalar, task or {}, prediction or {})
+    return scores, scalar
+
+
 class AxMemory:
     def __init__(self):
         self.items: list[dict[str, Any]] = []
@@ -3202,7 +3262,7 @@ class AxGen:
                 except Exception as exc:
                     error = {"message": str(exc)}
                     prediction = {"completionType": "error", "error": error, "functionCalls": self.get_function_call_traces(), "actionLog": self.get_chat_log(), "usage": {}, "trace": {"traces": self.get_traces()}}
-                scores, scalar = _score_optimization_prediction(task if isinstance(task, dict) else {}, prediction, opts)
+                scores, scalar = _score_optimization_prediction_local(task if isinstance(task, dict) else {}, prediction, opts)
                 rows.append(_build_optimization_eval_row(task, prediction, scores, scalar, prediction.get("trace"), error))
             return _build_optimization_eval_result(rows, candidate, phase)
         finally:
@@ -3218,7 +3278,7 @@ class AxGen:
         if client is not None:
             outer = self
 
-            class _Evaluator(OptimizerEvaluator):
+            class _Evaluator:
                 def evaluate(self, candidate_map, options=None):
                     merged = {**opts, **(options or {})}
                     eval_dataset = merged.pop("dataset", None) or merged.pop("_dataset", None) or dataset or []
@@ -3982,7 +4042,7 @@ class AxFlow(AxProgram):
         if client is not None:
             outer = self
 
-            class _Evaluator(OptimizerEvaluator):
+            class _Evaluator:
                 def evaluate(self, candidate_map, options=None):
                     merged = {**opts, **(options or {})}
                     eval_dataset = merged.pop("dataset", None) or merged.pop("_dataset", None) or dataset or []
@@ -4365,6 +4425,68 @@ def _gepa_option(options, *keys, default=None):
     return default
 
 
+class AxBootstrapFewShot(OptimizerEngine):
+    name = "BootstrapFewShot"
+    version = "axir-bootstrap-fewshot-v1"
+
+    def __init__(self, **options):
+        self.options = dict(options or {})
+
+    def optimize(self, request: dict[str, Any], evaluator: OptimizerEvaluator | None = None) -> dict[str, Any]:
+        if evaluator is None:
+            raise RuntimeError("AxBootstrapFewShot requires an OptimizerEvaluator")
+        options = {**self.options, **((request or {}).get("options") or {})}
+        components = [copy.deepcopy(c) for c in ((request or {}).get("components") or []) if isinstance(c, dict) and isinstance(c.get("current", ""), str)]
+        dataset = (request or {}).get("dataset") or {}
+        train = list(dataset.get("train") or [])
+        threshold = _gepa_num(_gepa_option(options, "qualityThreshold", "quality_threshold", default=0.5), 0.5)
+        max_rounds = _gepa_int(_gepa_option(options, "maxRounds", "max_rounds", default=3), 3, 1)
+        max_examples = _gepa_int(_gepa_option(options, "maxExamples", "max_examples", default=16), 16, 1)
+        max_demos = _gepa_int(_gepa_option(options, "maxDemos", "max_demos", default=4), 4, 1)
+        batch_size = _gepa_int(_gepa_option(options, "batchSize", "batch_size", default=1), 1, 1)
+        base_cfg = _gepa_current_map(components)
+        demos = []
+        accepted = set()
+        total_calls = 0
+        sampled = train[:max_examples]
+        for round_index in range(max_rounds):
+            if len(demos) >= max_demos:
+                break
+            for offset in range(0, len(sampled), batch_size):
+                if len(demos) >= max_demos:
+                    break
+                for example in sampled[offset : offset + batch_size]:
+                    if len(demos) >= max_demos:
+                        break
+                    example_key = json.dumps(example, sort_keys=True, default=str)
+                    if example_key in accepted:
+                        continue
+                    result = evaluator.evaluate(dict(base_cfg), {"dataset": {"train": [example], "validation": []}, "phase": "bootstrap", "round": round_index})
+                    rows = list((result or {}).get("rows") or [])
+                    total_calls += int((result or {}).get("count", len(rows) or 1))
+                    if not rows:
+                        continue
+                    row = rows[0]
+                    if _gepa_num(row.get("scalar"), 0) >= threshold:
+                        accepted.add(example_key)
+                        demos.append({"programId": "root", "traces": [copy.deepcopy(row.get("prediction", row.get("input", {})))]})
+        return {
+            "artifactVersion": "axir-optimized-artifact-v1",
+            "optimizerName": self.name,
+            "optimizerVersion": self.version,
+            "componentMap": {},
+            "demos": demos,
+            "metadata": {
+                "optimizer": self.name,
+                "qualityThreshold": threshold,
+                "totalMetricCalls": total_calls,
+                "demosGenerated": len(demos),
+            },
+            "evidence": {"count": total_calls},
+            "provenance": {"sourceProgramKind": (request or {}).get("programKind", "unknown")},
+        }
+
+
 class AxGEPA(OptimizerEngine):
     name = "GEPA"
     version = "axir-gepa-v1"
@@ -4645,6 +4767,45 @@ class AxGEPA(OptimizerEngine):
         }
 
 
+def _optimize_option(options, *keys, default=None):
+    for key in keys:
+        if key in options and options.get(key) is not None:
+            return options.get(key)
+    return default
+
+
+def optimize(program, examples, options: dict[str, Any] | None = None):
+    opts = dict(options or {})
+    student = _optimize_option(opts, "studentAI", "student_ai", "student", "client", "ai")
+    if student is None:
+        raise ValueError("optimize() requires studentAI or client")
+    teacher = _optimize_option(opts, "teacherAI", "teacher_ai", "teacher", "reflectionAI", "reflection_ai", "reflection_client", default=student)
+    max_metric_calls = _gepa_int(_optimize_option(opts, "maxMetricCalls", "max_metric_calls", default=100), 100, 1)
+    bootstrap_setting = opts.get("bootstrap") if "bootstrap" in opts else (len(examples or []) <= 8)
+    demos = []
+    if bootstrap_setting is not False:
+        bootstrap_options = dict(opts)
+        if isinstance(bootstrap_setting, dict):
+            bootstrap_options.update(bootstrap_setting)
+        bootstrap_options["client"] = teacher or student
+        bootstrap_options["apply"] = False
+        bootstrap = AxBootstrapFewShot(**bootstrap_options)
+        bootstrap_artifact = program.optimize_with(bootstrap, examples or [], bootstrap_options)
+        demos = list((bootstrap_artifact or {}).get("demos") or [])
+        if demos and hasattr(program, "set_demos"):
+            program.set_demos(demos)
+    gepa_options = dict(opts)
+    gepa_options["bootstrap"] = False
+    gepa_options["maxMetricCalls"] = max_metric_calls
+    gepa_options["client"] = student
+    gepa_options["apply"] = False
+    engine = AxGEPA(teacher, **gepa_options)
+    artifact = program.optimize_with(engine, examples or [], gepa_options)
+    if demos:
+        artifact["demos"] = demos
+    return artifact
+
+
 def _score_optimization_prediction(task, prediction, options):
     opts = options or {}
     if "metric_score" in task:
@@ -4887,7 +5048,7 @@ class AxAgent:
         if client is not None:
             outer = self
 
-            class _Evaluator(OptimizerEvaluator):
+            class _Evaluator:
                 def evaluate(self, candidate_map, options=None):
                     merged = {**opts, **(options or {})}
                     eval_dataset = merged.pop("dataset", None) or merged.pop("_dataset", None) or dataset or []
@@ -5259,6 +5420,7 @@ from .flow import (
 from .agent import (
     AxAgent,
     AxAgentClarificationError,
+    AxBootstrapFewShot,
     AxCodeRuntime,
     AxCodeSession,
     AxGEPA,
@@ -5285,6 +5447,7 @@ from .agent import (
     _normalize_agent_final_payload,
     _normalize_agent_runtime_step_result,
     agent,
+    optimize,
 )
 from .prompt import AxPromptTemplate, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, RuntimeCapabilities, RuntimeEnvelope, RuntimeProtocolError
@@ -6152,12 +6315,19 @@ def _run_optimize(fixture):
             if not score_component and components:
                 score_component = components[0].get("id")
             component_value = (candidate_map or {}).get(score_component, self.fixture.get("base_component_value", ""))
-            score_map = self.fixture.get("gepa_scores") or {}
-            scripted = score_map.get(str(component_value), score_map.get("*", 0))
+            score_map = self.fixture.get("gepa_scores")
+            scripted = (
+                score_map.get(str(component_value), score_map.get("*", 0))
+                if isinstance(score_map, dict)
+                else None
+            )
             for index, task in enumerate(normalized.get("train") or []):
-                raw_score = scripted[index] if isinstance(scripted, list) and scripted else scripted
-                if isinstance(scripted, list) and index >= len(scripted):
-                    raw_score = scripted[-1]
+                if isinstance(score_map, dict):
+                    raw_score = scripted[index] if isinstance(scripted, list) and scripted else scripted
+                    if isinstance(scripted, list) and index >= len(scripted):
+                        raw_score = scripted[-1]
+                else:
+                    raw_score = task.get("metric_score", task.get("scores", task.get("score", 0)))
                 scores = _normalize_optimization_metric_scores(raw_score)
                 scalar = _scalarize_optimization_scores(scores, self.fixture.get("score_options") or {})
                 prediction = {
@@ -6293,6 +6463,30 @@ def _run_optimize(fixture):
                 _assert_subset(artifact, fixture["expected_artifact_subset"], "optimizer artifact")
             if "expected_components_subset" in fixture:
                 _assert_list_subset(program.get_optimizable_components(), fixture["expected_components_subset"], "optimized components")
+            return
+        if operation == "bootstrap":
+            engine = AxBootstrapFewShot(**copy.deepcopy(fixture.get("optimize_options") or {}))
+            evaluator = ScriptedGEPAEvaluator(fixture)
+            artifact = engine.optimize(build_gepa_request(), evaluator)
+            if "expected_artifact_subset" in fixture:
+                _assert_subset(artifact, fixture["expected_artifact_subset"], "BootstrapFewShot artifact")
+            if "expected_demo_count" in fixture and len(artifact.get("demos") or []) != fixture["expected_demo_count"]:
+                raise FixtureError(f"expected {fixture['expected_demo_count']} demos, got {len(artifact.get('demos') or [])}")
+            if "expected_gepa_evaluations_subset" in fixture:
+                _assert_list_subset(evaluator.evaluations, fixture["expected_gepa_evaluations_subset"], "BootstrapFewShot evaluations")
+            return
+        if operation == "helper":
+            opts = copy.deepcopy(fixture.get("optimize_options") or {})
+            client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
+            opts.setdefault("studentAI", client)
+            opts.setdefault("teacherAI", client)
+            artifact = optimize(program, fixture.get("dataset") or [], opts)
+            if "expected_artifact_subset" in fixture:
+                _assert_subset(artifact, fixture["expected_artifact_subset"], "optimize helper artifact")
+            if "expected_demo_count" in fixture and len(artifact.get("demos") or []) != fixture["expected_demo_count"]:
+                raise FixtureError(f"expected {fixture['expected_demo_count']} demos, got {len(artifact.get('demos') or [])}")
+            if "expected_components_subset" in fixture:
+                _assert_list_subset(program.get_optimizable_components(), fixture["expected_components_subset"], "post-helper components")
             return
         if operation == "gepa":
             reflection = ConformanceScriptedAI(fixture.get("reflection_responses") or [], fixture.get("stream_events") or [])

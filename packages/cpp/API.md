@@ -351,7 +351,35 @@ Optional runtime profile for python actor code.
 
 ## Optimizers
 
-Optimize Ax programs through portable component maps, evaluator rows, artifacts, and the generated GEPA engine.
+Optimize Ax programs through BootstrapFewShot -> GEPA composition, portable component maps, evaluator rows, artifacts, and generated engines.
+
+### `axllm::optimize`
+
+Convenience optimizer helper that composes AxBootstrapFewShot before AxGEPA and returns an artifact without applying final component changes.
+
+- Canonical Ax concept: `optimize`
+- Kind: `function`
+- Form: `axllm::optimize(program, student, examples, options, teacher)`
+- Returns: `optimized artifact`
+- Important options: student/client, teacher/reflection client, metric budget, bootstrap
+
+```cpp
+auto artifact = axllm::optimize(qa, client, train, axllm::object({}), &reflection);
+```
+
+### `axllm::AxBootstrapFewShot`
+
+Few-shot demonstration optimizer that selects successful evaluator rollouts before prompt/component evolution.
+
+- Canonical Ax concept: `AxBootstrapFewShot`
+- Kind: `type`
+- Form: `axllm::AxBootstrapFewShot(options)`
+- Returns: `optimizer engine`
+- Important options: quality threshold, max demos, max rounds, batch size
+
+```cpp
+axllm::AxBootstrapFewShot bootstrap(axllm::object({{"qualityThreshold", 0.7}}));
+```
 
 ### `axllm::AxGEPA`
 

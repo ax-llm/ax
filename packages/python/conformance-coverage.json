@@ -351,6 +351,20 @@
       {
         "suite": "axoptimize",
         "kind": "optimize",
+        "operation": "bootstrap",
+        "runner": "python:axoptimize.bootstrap",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "helper",
+        "runner": "python:axoptimize.helper",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
         "operation": "eval",
         "runner": "python:axoptimize.eval",
         "category": "semantic"

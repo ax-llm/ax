@@ -4,25 +4,26 @@ description: This skill helps an LLM generate correct AxGEPA optimization code u
 version: "__VERSION__"
 ---
 
-# AxGEPA Codegen Rules (@ax-llm/ax)
+# GEPA Optimization Codegen Rules (@ax-llm/ax)
 
-Use this skill to generate direct `AxGEPA` optimization code. Prefer short, modern, copyable patterns over long explanation.
+Use this skill to generate GEPA optimization code. Prefer the top-level `optimize(...)` helper for normal code, and use direct `AxGEPA` / `AxBootstrapFewShot` only when the user needs low-level optimizer control.
 
 ## Use These Defaults
 
-- Use `new AxGEPA({ studentAI, teacherAI, ... })`.
+- Use `optimize(program, train, metric, { studentAI, teacherAI, ... })` for normal generator and flow tuning.
 - Prefer `ai()`, `ax()`, and `flow()` for new code.
 - Use a strong `teacherAI` and a cheaper `studentAI`.
-- Always pass `validationExamples` to `compile()`.
-- Always set `maxMetricCalls` to bound optimizer cost.
+- Pass `validationExamples` when you have a holdout set.
+- Set `maxMetricCalls` to bound optimizer cost; `optimize(...)` defaults it to `100`.
 - Use scalar metrics for one objective and object metrics for Pareto optimization.
 - Apply results with `program.applyOptimization(result.optimizedProgram!)`.
 - For tree-wide runs, expect `optimizedProgram.componentMap`.
 - Persist artifacts with `axSerializeOptimizedProgram(...)` and restore them with `axDeserializeOptimizedProgram(...)` so the same flow works in browsers and Node.
+- `optimize(...)` runs `AxBootstrapFewShot -> AxGEPA` for small starter sets by default, preserving the demos in `result.optimizedProgram.demos`.
 
 ## Critical Rules
 
-- `AxGEPA.compile()` works for a single generator and for tree-aware roots such as flows or agents with registered optimizable descendants.
+- `optimize(...)` and `AxGEPA.compile()` work for a single generator and for tree-aware roots such as flows or agents with registered optimizable descendants.
 - There is no separate flow-only GEPA optimizer. Use `AxGEPA` for flows too.
 - The metric may return either `number` or `Record<string, number>`.
 - Keep metrics deterministic and cheap by default.
@@ -32,7 +33,7 @@ Use this skill to generate direct `AxGEPA` optimization code. Prefer short, mode
 - GEPA optimizes generic string components exposed by `getOptimizableComponents()`. If a tree exposes no components, optimization will fail.
 - Use held-out validation examples for selection. Do not reuse the training set as `validationExamples`.
 - `result.optimizedProgram` is the easy-to-apply best candidate. `result.paretoFront` is the full trade-off set for multi-objective runs.
-- `bootstrap: true` can seed GEPA with demos collected from successful runs on the provided training tasks.
+- Direct `AxGEPA` still has its own `bootstrap` option, but top-level `optimize(...)` composes the existing `AxBootstrapFewShot` optimizer before GEPA instead.
 
 ## Metric Selection
 
@@ -45,13 +46,13 @@ Choose the evaluation path deliberately:
 
 Rule of thumb:
 
-- `AxGEPA` on `AxGen` or flow: use a metric first, optionally a plain typed `AxGen` evaluator if needed.
+- `optimize(...)` on `AxGen` or flow: use a metric first, optionally a plain typed `AxGen` evaluator if needed.
 - `agent.optimize(...)`: use custom `metric` for crisp scoring, otherwise let the built-in judge handle scoring. Add `judgeAI` plus `judgeOptions` only when you want a stronger or separate judge model.
 
 ## Canonical Scalar Pattern
 
 ```typescript
-import { ai, ax, AxAIOpenAIModel, AxGEPA } from '@ax-llm/ax';
+import { ai, ax, optimize, AxAIOpenAIModel } from '@ax-llm/ax';
 
 const student = ai({
   name: 'openai',
@@ -82,7 +83,7 @@ const validation = [
 const metric = ({ prediction, example }: { prediction: any; example: any }) =>
   prediction?.priority === example?.priority ? 1 : 0;
 
-const optimizer = new AxGEPA({
+const result = await optimize(classifier, train, metric, {
   studentAI: student,
   teacherAI: teacher,
   numTrials: 12,
@@ -90,9 +91,6 @@ const optimizer = new AxGEPA({
   minibatchSize: 4,
   earlyStoppingTrials: 4,
   sampleCount: 1,
-});
-
-const result = await optimizer.compile(classifier, train, metric, {
   validationExamples: validation,
   maxMetricCalls: 120,
 });
@@ -104,7 +102,7 @@ console.log(result.bestScore);
 ## Canonical Pareto Pattern
 
 ```typescript
-import { ai, flow, AxAIOpenAIModel, AxGEPA } from '@ax-llm/ax';
+import { ai, flow, optimize, AxAIOpenAIModel } from '@ax-llm/ax';
 
 const student = ai({
   name: 'openai',
@@ -153,7 +151,7 @@ const metric = ({ prediction, example }: { prediction: any; example: any }) => {
   return { accuracy, brevity };
 };
 
-const result = await new AxGEPA({
+const result = await optimize(wf, train, metric, {
   studentAI: student,
   teacherAI: teacher,
   numTrials: 16,
@@ -161,7 +159,6 @@ const result = await new AxGEPA({
   minibatchSize: 6,
   earlyStoppingTrials: 5,
   sampleCount: 1,
-}).compile(wf, train, metric, {
   validationExamples: validation,
   maxMetricCalls: 240,
 });
@@ -259,6 +256,7 @@ const optimizer = new AxGEPA({
 
 ## Good Example Targets
 
+- `/Users/vr/src/ax/src/examples/optimize.ts`
 - `/Users/vr/src/ax/src/examples/gepa.ts`
 - `/Users/vr/src/ax/src/examples/gepa-flow.ts`
 - `/Users/vr/src/ax/src/examples/gepa-train-inference.ts`

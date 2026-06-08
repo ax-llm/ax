@@ -78,6 +78,65 @@ public final class Ax {
     throw new IllegalArgumentException("unsupported AxAI provider: " + provider);
   }
 
+  public static java.util.Map<String, Object> optimize(AxGen program, java.util.List<java.util.Map<String, Object>> examples, java.util.Map<String, Object> options) {
+    return optimizeProgram(program, examples, options);
+  }
+
+  public static java.util.Map<String, Object> optimize(AxFlow program, java.util.List<java.util.Map<String, Object>> examples, java.util.Map<String, Object> options) {
+    return optimizeProgram(program, examples, options);
+  }
+
+  public static java.util.Map<String, Object> optimize(AxAgent program, java.util.List<java.util.Map<String, Object>> examples, java.util.Map<String, Object> options) {
+    return optimizeProgram(program, examples, options);
+  }
+
+  private static java.util.Map<String, Object> optimizeProgram(Object program, java.util.List<java.util.Map<String, Object>> examples, java.util.Map<String, Object> options) {
+    java.util.Map<String, Object> opts = options == null ? java.util.Map.of() : options;
+    Object student = option(opts, "studentAI", "student_ai", "student", "client", "ai");
+    if (!(student instanceof AiClient studentClient)) throw new IllegalArgumentException("optimize() requires studentAI or client");
+    Object teacher = option(opts, "teacherAI", "teacher_ai", "teacher", "reflectionAI", "reflection_ai", "reflection_client");
+    AiClient teacherClient = teacher instanceof AiClient aiClient ? aiClient : studentClient;
+    java.util.List<java.util.Map<String, Object>> data = examples == null ? java.util.List.of() : examples;
+    Object bootstrapSetting = opts.containsKey("bootstrap") ? opts.get("bootstrap") : Boolean.valueOf(data.size() <= 8);
+    Object demos = java.util.List.of();
+    if (!Boolean.FALSE.equals(bootstrapSetting)) {
+      java.util.Map<String, Object> bootstrapOptions = new java.util.LinkedHashMap<>(opts);
+      if (bootstrapSetting instanceof java.util.Map<?, ?> map) bootstrapOptions.putAll(Core.asMap(map));
+      bootstrapOptions.put("client", teacherClient);
+      bootstrapOptions.put("apply", false);
+      AxBootstrapFewShot bootstrap = new AxBootstrapFewShot(bootstrapOptions);
+      java.util.Map<String, Object> bootstrapArtifact = optimizeWith(program, bootstrap, data, bootstrapOptions);
+      demos = bootstrapArtifact.getOrDefault("demos", java.util.List.of());
+      applyDemos(program, demos);
+    }
+    java.util.Map<String, Object> gepaOptions = new java.util.LinkedHashMap<>(opts);
+    gepaOptions.put("bootstrap", false);
+    gepaOptions.put("maxMetricCalls", ((Number) opts.getOrDefault("maxMetricCalls", opts.getOrDefault("max_metric_calls", 100))).intValue());
+    gepaOptions.put("client", studentClient);
+    gepaOptions.put("apply", false);
+    AxGEPA gepa = new AxGEPA(teacherClient, gepaOptions);
+    java.util.Map<String, Object> artifact = optimizeWith(program, gepa, data, gepaOptions);
+    if (demos instanceof java.util.List<?> list && !list.isEmpty()) artifact.put("demos", demos);
+    return artifact;
+  }
+
+  private static java.util.Map<String, Object> optimizeWith(Object program, OptimizerEngine engine, java.util.List<java.util.Map<String, Object>> examples, java.util.Map<String, Object> options) {
+    if (program instanceof AxGen gen) return gen.optimizeWith(engine, examples, options);
+    if (program instanceof AxFlow flow) return flow.optimizeWith(engine, examples, options);
+    if (program instanceof AxAgent agent) return agent.optimizeWith(engine, examples, options);
+    throw new IllegalArgumentException("optimize() program must be AxGen, AxFlow, or AxAgent");
+  }
+
+  private static Object option(java.util.Map<String, Object> options, String... keys) {
+    for (String key : keys) if (options.containsKey(key) && options.get(key) != null) return options.get(key);
+    return null;
+  }
+
+  private static void applyDemos(Object program, Object demos) {
+    if (program instanceof AxGen gen) gen.setDemos(Core.asMapList(demos));
+    if (program instanceof AxFlow flow) flow.setDemos(demos);
+  }
+
   public static java.util.List<Object> getSupportedAIModels() {
     return Core.asList(Core.provider_model_catalog(java.util.Map.of()));
   }
@@ -508,9 +567,11 @@ public interface AxAIService extends AiClient {
 const javaAxMultiServiceRouter = `package dev.axllm.ax;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public final class AxMultiServiceRouter implements AxAIService {
@@ -2366,6 +2427,106 @@ import java.util.Map;
 
 public interface OptimizerEvaluator {
   Map<String, Object> evaluate(Map<String, Object> candidateMap, Map<String, Object> options);
+}
+`
+
+const javaAxBootstrapFewShot = `package dev.axllm.ax;
+
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+public final class AxBootstrapFewShot implements OptimizerEngine {
+  private final Map<String, Object> options;
+
+  public AxBootstrapFewShot() {
+    this(Map.of());
+  }
+
+  public AxBootstrapFewShot(Map<String, Object> options) {
+    this.options = options == null ? new LinkedHashMap<>() : new LinkedHashMap<>(options);
+  }
+
+  public String name() {
+    return "BootstrapFewShot";
+  }
+
+  public String version() {
+    return "axir-bootstrap-fewshot-v1";
+  }
+
+  public Map<String, Object> optimize(Map<String, Object> request) {
+    return optimize(request, null);
+  }
+
+  public Map<String, Object> optimize(Map<String, Object> request, OptimizerEvaluator evaluator) {
+    if (evaluator == null) throw new RuntimeException("AxBootstrapFewShot requires an OptimizerEvaluator");
+    Map<String, Object> opts = new LinkedHashMap<>(options);
+    opts.putAll(Core.asMap((request == null ? Map.of() : request).getOrDefault("options", Map.of())));
+    List<Map<String, Object>> components = Core.asMapList((request == null ? Map.of() : request).getOrDefault("components", List.of()));
+    Map<String, Object> dataset = Core.asMap((request == null ? Map.of() : request).getOrDefault("dataset", Map.of()));
+    List<Object> train = Core.asList(dataset.getOrDefault("train", List.of()));
+    double threshold = num(option(opts, "qualityThreshold", "quality_threshold", 0.5), 0.5);
+    int maxRounds = intOption(opts, 3, 1, "maxRounds", "max_rounds");
+    int maxExamples = intOption(opts, 16, 1, "maxExamples", "max_examples");
+    int maxDemos = intOption(opts, 4, 1, "maxDemos", "max_demos");
+    int batchSize = intOption(opts, 1, 1, "batchSize", "batch_size");
+    Map<String, Object> base = Core.asMap(Core._optimization_component_current_map(components));
+    List<Object> demos = new ArrayList<>();
+    Set<String> accepted = new LinkedHashSet<>();
+    int totalCalls = 0;
+    List<Object> sampled = train.subList(0, Math.min(maxExamples, train.size()));
+    for (int round = 0; round < maxRounds && demos.size() < maxDemos; round++) {
+      for (int offset = 0; offset < sampled.size() && demos.size() < maxDemos; offset += batchSize) {
+        for (Object example : sampled.subList(offset, Math.min(offset + batchSize, sampled.size()))) {
+          if (demos.size() >= maxDemos) break;
+          String exampleKey = Json.stableStringify(example);
+          if (accepted.contains(exampleKey)) continue;
+          Map<String, Object> evalOptions = new LinkedHashMap<>();
+          evalOptions.put("dataset", Map.of("train", List.of(example), "validation", List.of()));
+          evalOptions.put("phase", "bootstrap");
+          evalOptions.put("round", round);
+          Map<String, Object> result = evaluator.evaluate(base, evalOptions);
+          List<Object> rows = Core.asList(result.getOrDefault("rows", List.of()));
+          totalCalls += ((Number) result.getOrDefault("count", rows.isEmpty() ? 1 : rows.size())).intValue();
+          if (rows.isEmpty()) continue;
+          Map<String, Object> row = Core.asMap(rows.get(0));
+          if (num(row.get("scalar"), 0) >= threshold) {
+            accepted.add(exampleKey);
+            demos.add(Map.of("programId", "root", "traces", List.of(row.getOrDefault("prediction", row.getOrDefault("input", Map.of())))));
+          }
+        }
+      }
+    }
+    Map<String, Object> artifact = new LinkedHashMap<>();
+    artifact.put("artifactVersion", "axir-optimized-artifact-v1");
+    artifact.put("optimizerName", name());
+    artifact.put("optimizerVersion", version());
+    artifact.put("componentMap", Map.of());
+    artifact.put("demos", demos);
+    artifact.put("metadata", Map.of("optimizer", name(), "qualityThreshold", threshold, "totalMetricCalls", totalCalls, "demosGenerated", demos.size()));
+    artifact.put("evidence", Map.of("count", totalCalls));
+    artifact.put("provenance", Map.of("sourceProgramKind", (request == null ? Map.of() : request).getOrDefault("programKind", "unknown")));
+    return artifact;
+  }
+
+  private static Object option(Map<String, Object> opts, String key1, String key2, Object fallback) {
+    if (opts.containsKey(key1) && opts.get(key1) != null) return opts.get(key1);
+    if (opts.containsKey(key2) && opts.get(key2) != null) return opts.get(key2);
+    return fallback;
+  }
+
+  private static int intOption(Map<String, Object> opts, int fallback, int minimum, String key1, String key2) {
+    return Math.max(minimum, (int) Math.floor(num(option(opts, key1, key2, fallback), fallback)));
+  }
+
+  private static double num(Object value, double fallback) {
+    if (value instanceof Number number && Double.isFinite(number.doubleValue())) return number.doubleValue();
+    return fallback;
+  }
 }
 `
 
@@ -4693,13 +4854,16 @@ public final class Conformance {
       String id = componentId(candidate);
       Object value = candidate.get(id);
       if (value == null) value = fixture.getOrDefault("base_component_value", "");
+      boolean hasScoreMap = fixture.containsKey("gepa_scores");
       Map<String, Object> scoreMap = Core.asMap(fixture.getOrDefault("gepa_scores", Map.of()));
       Object rawScore = scoreMap.containsKey(String.valueOf(value)) ? scoreMap.get(String.valueOf(value)) : scoreMap.getOrDefault("*", 0);
       List<Object> scoreList = rawScore instanceof List<?> ? Core.asList(rawScore) : List.of();
       List<Object> rows = new ArrayList<>();
       for (int i = 0; i < examples.size(); i++) {
         Map<String, Object> task = Core.asMap(examples.get(i));
-        Object itemScore = scoreList.isEmpty() ? rawScore : scoreList.get(Math.min(i, scoreList.size() - 1));
+        Object itemScore = hasScoreMap
+          ? (scoreList.isEmpty() ? rawScore : scoreList.get(Math.min(i, scoreList.size() - 1)))
+          : (task.containsKey("metric_score") ? task.get("metric_score") : task.containsKey("scores") ? task.get("scores") : task.getOrDefault("score", 0));
         Map<String, Object> scores = Core.asMap(Core._normalize_optimization_metric_scores(itemScore));
         Object scalar = Core._scalarize_optimization_scores(scores, Core.asMap(fixture.getOrDefault("score_options", Map.of())));
         Map<String, Object> prediction = new LinkedHashMap<>();
@@ -5440,6 +5604,48 @@ public final class Conformance {
         if (fixture.containsKey("expected_components_subset")) {
           assertListSubset(((AxProgram) program).getOptimizableComponents(), fixture.get("expected_components_subset"), "optimized components");
         }
+        return;
+      }
+      if ("bootstrap".equals(operation)) {
+        List<Map<String, Object>> components = Core.asMapList(fixture.containsKey("components") ? fixture.get("components") : ((AxProgram) program).getOptimizableComponents());
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("contractVersion", "axir-optimize-v1");
+        request.put("programId", programKind);
+        request.put("programKind", programKind);
+        request.put("components", components);
+        request.put("targetComponents", components);
+        request.put("dataset", Core._normalize_optimization_dataset(fixture.getOrDefault("dataset", List.of())));
+        request.put("options", new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("optimize_options", Map.of()))));
+        request.put("evidence", Map.of("source", "fixture"));
+        AxBootstrapFewShot engine = new AxBootstrapFewShot(Core.asMap(fixture.getOrDefault("optimize_options", Map.of())));
+        ScriptedGEPAEvaluator evaluator = new ScriptedGEPAEvaluator(fixture);
+        Map<String, Object> artifact = engine.optimize(request, evaluator);
+        if (fixture.containsKey("expected_artifact_subset")) assertSubset(artifact, fixture.get("expected_artifact_subset"), "BootstrapFewShot artifact");
+        if (fixture.containsKey("expected_demo_count")) {
+          int actualDemos = Core.asList(artifact.getOrDefault("demos", List.of())).size();
+          int expectedDemos = ((Number) fixture.get("expected_demo_count")).intValue();
+          if (actualDemos != expectedDemos) throw new FixtureError("unexpected demo count for " + fixture.getOrDefault("name", "fixture") + ": got " + actualDemos + ", expected " + expectedDemos);
+        }
+        if (fixture.containsKey("expected_gepa_evaluations_subset")) assertListSubset(evaluator.evaluations, fixture.get("expected_gepa_evaluations_subset"), "BootstrapFewShot evaluations");
+        return;
+      }
+      if ("helper".equals(operation)) {
+        Map<String, Object> opts = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("optimize_options", Map.of())));
+        ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+        opts.putIfAbsent("studentAI", client);
+        opts.putIfAbsent("teacherAI", client);
+        Map<String, Object> artifact = "axgen".equals(programKind)
+          ? Ax.optimize((AxGen) program, Core.asMapList(fixture.getOrDefault("dataset", List.of())), opts)
+          : "flow".equals(programKind)
+            ? Ax.optimize((AxFlow) program, Core.asMapList(fixture.getOrDefault("dataset", List.of())), opts)
+            : Ax.optimize((AxAgent) program, Core.asMapList(fixture.getOrDefault("dataset", List.of())), opts);
+        if (fixture.containsKey("expected_artifact_subset")) assertSubset(artifact, fixture.get("expected_artifact_subset"), "optimize helper artifact");
+        if (fixture.containsKey("expected_demo_count")) {
+          int actualDemos = Core.asList(artifact.getOrDefault("demos", List.of())).size();
+          int expectedDemos = ((Number) fixture.get("expected_demo_count")).intValue();
+          if (actualDemos != expectedDemos) throw new FixtureError("unexpected demo count for " + fixture.getOrDefault("name", "fixture") + ": got " + actualDemos + ", expected " + expectedDemos);
+        }
+        if (fixture.containsKey("expected_components_subset")) assertListSubset(((AxProgram) program).getOptimizableComponents(), fixture.get("expected_components_subset"), "post-helper components");
         return;
       }
       if ("gepa".equals(operation)) {

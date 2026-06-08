@@ -98,6 +98,17 @@ Cargo project. The generated Rust crate includes blocking provider transport and
 the process-protocol `ProcessCodeRuntime`; embedded runtime engine profiles stay
 feature-gated and additive.
 
+## Simple Optimize Helper Example
+
+The shortest path for prompt optimization: `optimize(...)` first gathers few-shot demos with `AxBootstrapFewShot`, then runs GEPA to evolve instructions/components.
+
+**Quick Start:**
+```bash
+npm run tsx src/examples/optimize.ts
+```
+
+**Prerequisites:** OpenAI API key (`OPENAI_APIKEY` environment variable)
+
 ## Multi-Objective Optimization Example (GEPA)
 
 A compelling demonstration of GEPA's unique multi-objective optimization capabilities, showing how it finds optimal trade-offs between conflicting objectives like quality vs speed in code review tasks.

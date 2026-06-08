@@ -200,6 +200,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/CohereClient.java":                              javaCohere,
 		"dev/axllm/ax/GrokClient.java":                                javaGrok,
 		"dev/axllm/ax/AxGen.java":                                     javaAxGen,
+		"dev/axllm/ax/AxBootstrapFewShot.java":                        javaAxBootstrapFewShot,
 		"dev/axllm/ax/AxGEPA.java":                                    javaAxGEPA,
 		"dev/axllm/ax/OptimizerEngine.java":                           javaOptimizerEngine,
 		"dev/axllm/ax/OptimizerEvaluator.java":                        javaOptimizerEvaluator,
@@ -734,6 +735,8 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axoptimize-gepa-pareto",
 			"axoptimize-gepa-bootstrap",
 			"axoptimize-gepa-selector-state",
+			"axoptimize-bootstrap-fewshot",
+			"axoptimize-top-level-helper",
 			"axprogram-contract",
 			"axprogram-trace-events",
 			"axflow-program-graph",
@@ -833,7 +836,7 @@ func ValidateAPIReferenceManifest(manifest APIReferenceManifest) error {
 			return fmt.Errorf("api reference missing section %q", id)
 		}
 	}
-	for _, canonical := range []string{"s", "ax", "ai", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "AxGEPA", "OptimizerEngine"} {
+	for _, canonical := range []string{"s", "ax", "ai", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
 		if !symbols[canonical] {
 			return fmt.Errorf("api reference missing canonical symbol %q", canonical)
 		}
@@ -941,8 +944,10 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 		{
 			ID:      "optimizers",
 			Title:   "Optimizers",
-			Summary: "Optimize Ax programs through portable component maps, evaluator rows, artifacts, and the generated GEPA engine.",
+			Summary: "Optimize Ax programs through BootstrapFewShot -> GEPA composition, portable component maps, evaluator rows, artifacts, and generated engines.",
 			Symbols: []APIReferenceSymbol{
+				sym("optimize", "function", "Convenience optimizer helper that composes AxBootstrapFewShot before AxGEPA and returns an artifact without applying final component changes.", []string{"student/client", "teacher/reflection client", "metric budget", "bootstrap"}, "optimized artifact"),
+				sym("AxBootstrapFewShot", "type", "Few-shot demonstration optimizer that selects successful evaluator rollouts before prompt/component evolution.", []string{"quality threshold", "max demos", "max rounds", "batch size"}, "optimizer engine"),
 				sym("AxGEPA", "type", "Generated GEPA optimizer engine with Core-owned reflection, Pareto, bootstrap, and selector-state behavior.", []string{"reflection client", "budget", "metric", "candidate count"}, "optimizer engine"),
 				sym("OptimizerEngine", "interface", "Optimizer boundary consumed by AxGen, AxAgent, and AxFlow optimization helpers.", []string{"request", "evaluator"}, "optimized artifact"),
 				sym("OptimizerEvaluator", "interface", "Evaluator callback boundary used by generated optimizers.", []string{"dataset rows", "candidate map", "evidence"}, "score/evidence result"),
@@ -998,6 +1003,8 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "agent", "Ax.agent", "axllm::agent", "axllm.NewAgent", "agent")
 	case "flow":
 		return mapTarget(target, "flow", "Ax.flow", "axllm::flow", "axllm.NewFlow", "flow")
+	case "optimize":
+		return mapTarget(target, "optimize", "Ax.optimize", "axllm::optimize", "axllm.Optimize", "optimize")
 	case "fn":
 		return mapTarget(target, "fn", "Ax.fn", "axllm::Tool", "axllm.Fn", "tool")
 	case "AxMCPStreamableHTTPTransport":
@@ -1089,6 +1096,10 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return mapTarget(target, "RuntimeEnvelope.from_result(...)", "AxRuntimeEnvelope", "axllm::RuntimeEnvelope", "runtime envelope map", "RuntimeEnvelope")
 	case "AxGEPA":
 		return mapTarget(target, "AxGEPA(reflection, **options)", "new AxGEPA(reflection, options)", "axllm::AxGEPA(reflection, options)", "axllm.NewGEPA(reflection, options)", "AxGEPA::new(reflection, options)")
+	case "AxBootstrapFewShot":
+		return mapTarget(target, "AxBootstrapFewShot(**options)", "new AxBootstrapFewShot(options)", "axllm::AxBootstrapFewShot(options)", "axllm.NewBootstrapFewShot(options)", "AxBootstrapFewShot::new(options)")
+	case "optimize":
+		return mapTarget(target, "optimize(program, examples, options=None)", "Ax.optimize(program, examples, options)", "axllm::optimize(program, student, examples, options, teacher)", "axllm.Optimize(program, examples, options)", "optimize(program, examples, options)")
 	case "OptimizerEngine":
 		return mapTarget(target, "OptimizerEngine.optimize(request, evaluator)", "OptimizerEngine.optimize(request, evaluator)", "axllm::OptimizerEngine::optimize(request, evaluator)", "OptimizerEngine.Optimize(request, evaluator)", "OptimizerEngine::optimize(request, evaluator)")
 	case "OptimizerEvaluator":
@@ -1132,6 +1143,8 @@ func apiReferenceReturns(target, canonical, fallback string) string {
 			return "AxResult<AxAgent>"
 		case "fn":
 			return "ToolBuilder"
+		case "optimize":
+			return "AxResult<OptimizedArtifact>"
 		}
 	}
 	if target == "go" {
@@ -1144,6 +1157,8 @@ func apiReferenceReturns(target, canonical, fallback string) string {
 			return "*AxFlow"
 		case "fn":
 			return "Tool"
+		case "optimize":
+			return "Value"
 		}
 	}
 	return fallback
@@ -1222,6 +1237,22 @@ func apiReferenceExample(target, canonical string) string {
 			`axllm::AxGEPA engine(reflection_client);`,
 			`engine := axllm.NewGEPA(reflectionClient, nil)`,
 			`let engine = AxGEPA::new(reflection_client, json!({}));`,
+		)
+	case "AxBootstrapFewShot":
+		return mapTarget(target,
+			`bootstrap = AxBootstrapFewShot(qualityThreshold=0.7)`,
+			`AxBootstrapFewShot bootstrap = new AxBootstrapFewShot(Map.of("qualityThreshold", 0.7));`,
+			`axllm::AxBootstrapFewShot bootstrap(axllm::object({{"qualityThreshold", 0.7}}));`,
+			`bootstrap := axllm.NewBootstrapFewShot(map[string]axllm.Value{"qualityThreshold": 0.7})`,
+			`let bootstrap = AxBootstrapFewShot::new(json!({"qualityThreshold": 0.7}));`,
+		)
+	case "optimize":
+		return mapTarget(target,
+			`artifact = optimize(qa, train, {"studentAI": client, "teacherAI": reflection})`,
+			`Map<String, Object> artifact = Ax.optimize(qa, train, Map.of("studentAI", client, "teacherAI", reflection));`,
+			`auto artifact = axllm::optimize(qa, client, train, axllm::object({}), &reflection);`,
+			`artifact, err := axllm.Optimize(qa, train, map[string]axllm.Value{"studentAI": client})`,
+			`let artifact = optimize(&mut qa, train, json!({"maxMetricCalls": 100}))?;`,
 		)
 	default:
 		return ""
@@ -1506,6 +1537,8 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axoptimize", "optimize", "evaluate", "semantic"},
 		{"axoptimize", "optimize", "engine", "semantic"},
 		{"axoptimize", "optimize", "gepa", "semantic"},
+		{"axoptimize", "optimize", "bootstrap", "semantic"},
+		{"axoptimize", "optimize", "helper", "semantic"},
 		{"axoptimize", "optimize", "eval", "semantic"},
 		{"axmcp", "mcp", "initialize", "transport-boundary"},
 		{"axmcp", "mcp", "protocol_negotiation", "semantic"},

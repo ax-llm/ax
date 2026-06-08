@@ -386,6 +386,9 @@ wf.setDemos([{ programId: 'root.summarizer', traces: [] }]);
 wf.applyOptimization(optimizedProgram);
 ```
 
+For tuning a flow, use top-level `optimize(wf, train, metric, options)` from the
+`ax-gepa` skill. There is no separate `flow.optimize(...)` helper.
+
 ## Chat Logs
 
 `AxFlow.getChatLog()` returns a flat `readonly AxChatLogEntry[]` after `forward()`. Each child-node entry is tagged with `entry.name` so callers can filter by node:

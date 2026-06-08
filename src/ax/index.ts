@@ -633,6 +633,7 @@ import {
   type AxOptimizableValidator,
   axOptimizableValidators,
 } from './dsp/optimizable.js';
+import { type AxOptimizeOptions, optimize } from './dsp/optimize.js';
 import {
   AxBaseOptimizer,
   type AxBootstrapOptimizerOptions,
@@ -1124,6 +1125,7 @@ export { bestOfN };
 export { f };
 export { flow };
 export { fn };
+export { optimize };
 export { refine };
 export { s };
 
@@ -1598,6 +1600,7 @@ export type { AxOptimizableValidator };
 export type { AxOptimizationCheckpoint };
 export type { AxOptimizationProgress };
 export type { AxOptimizationStats };
+export type { AxOptimizeOptions };
 export type { AxOptimizedProgram };
 export type { AxOptimizer };
 export type { AxOptimizerArgs };

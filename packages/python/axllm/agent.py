@@ -221,6 +221,68 @@ def _gepa_option(options, *keys, default=None):
     return default
 
 
+class AxBootstrapFewShot(OptimizerEngine):
+    name = "BootstrapFewShot"
+    version = "axir-bootstrap-fewshot-v1"
+
+    def __init__(self, **options):
+        self.options = dict(options or {})
+
+    def optimize(self, request: dict[str, Any], evaluator: OptimizerEvaluator | None = None) -> dict[str, Any]:
+        if evaluator is None:
+            raise RuntimeError("AxBootstrapFewShot requires an OptimizerEvaluator")
+        options = {**self.options, **((request or {}).get("options") or {})}
+        components = [copy.deepcopy(c) for c in ((request or {}).get("components") or []) if isinstance(c, dict) and isinstance(c.get("current", ""), str)]
+        dataset = (request or {}).get("dataset") or {}
+        train = list(dataset.get("train") or [])
+        threshold = _gepa_num(_gepa_option(options, "qualityThreshold", "quality_threshold", default=0.5), 0.5)
+        max_rounds = _gepa_int(_gepa_option(options, "maxRounds", "max_rounds", default=3), 3, 1)
+        max_examples = _gepa_int(_gepa_option(options, "maxExamples", "max_examples", default=16), 16, 1)
+        max_demos = _gepa_int(_gepa_option(options, "maxDemos", "max_demos", default=4), 4, 1)
+        batch_size = _gepa_int(_gepa_option(options, "batchSize", "batch_size", default=1), 1, 1)
+        base_cfg = _gepa_current_map(components)
+        demos = []
+        accepted = set()
+        total_calls = 0
+        sampled = train[:max_examples]
+        for round_index in range(max_rounds):
+            if len(demos) >= max_demos:
+                break
+            for offset in range(0, len(sampled), batch_size):
+                if len(demos) >= max_demos:
+                    break
+                for example in sampled[offset : offset + batch_size]:
+                    if len(demos) >= max_demos:
+                        break
+                    example_key = json.dumps(example, sort_keys=True, default=str)
+                    if example_key in accepted:
+                        continue
+                    result = evaluator.evaluate(dict(base_cfg), {"dataset": {"train": [example], "validation": []}, "phase": "bootstrap", "round": round_index})
+                    rows = list((result or {}).get("rows") or [])
+                    total_calls += int((result or {}).get("count", len(rows) or 1))
+                    if not rows:
+                        continue
+                    row = rows[0]
+                    if _gepa_num(row.get("scalar"), 0) >= threshold:
+                        accepted.add(example_key)
+                        demos.append({"programId": "root", "traces": [copy.deepcopy(row.get("prediction", row.get("input", {})))]})
+        return {
+            "artifactVersion": "axir-optimized-artifact-v1",
+            "optimizerName": self.name,
+            "optimizerVersion": self.version,
+            "componentMap": {},
+            "demos": demos,
+            "metadata": {
+                "optimizer": self.name,
+                "qualityThreshold": threshold,
+                "totalMetricCalls": total_calls,
+                "demosGenerated": len(demos),
+            },
+            "evidence": {"count": total_calls},
+            "provenance": {"sourceProgramKind": (request or {}).get("programKind", "unknown")},
+        }
+
+
 class AxGEPA(OptimizerEngine):
     name = "GEPA"
     version = "axir-gepa-v1"
@@ -501,6 +563,45 @@ class AxGEPA(OptimizerEngine):
         }
 
 
+def _optimize_option(options, *keys, default=None):
+    for key in keys:
+        if key in options and options.get(key) is not None:
+            return options.get(key)
+    return default
+
+
+def optimize(program, examples, options: dict[str, Any] | None = None):
+    opts = dict(options or {})
+    student = _optimize_option(opts, "studentAI", "student_ai", "student", "client", "ai")
+    if student is None:
+        raise ValueError("optimize() requires studentAI or client")
+    teacher = _optimize_option(opts, "teacherAI", "teacher_ai", "teacher", "reflectionAI", "reflection_ai", "reflection_client", default=student)
+    max_metric_calls = _gepa_int(_optimize_option(opts, "maxMetricCalls", "max_metric_calls", default=100), 100, 1)
+    bootstrap_setting = opts.get("bootstrap") if "bootstrap" in opts else (len(examples or []) <= 8)
+    demos = []
+    if bootstrap_setting is not False:
+        bootstrap_options = dict(opts)
+        if isinstance(bootstrap_setting, dict):
+            bootstrap_options.update(bootstrap_setting)
+        bootstrap_options["client"] = teacher or student
+        bootstrap_options["apply"] = False
+        bootstrap = AxBootstrapFewShot(**bootstrap_options)
+        bootstrap_artifact = program.optimize_with(bootstrap, examples or [], bootstrap_options)
+        demos = list((bootstrap_artifact or {}).get("demos") or [])
+        if demos and hasattr(program, "set_demos"):
+            program.set_demos(demos)
+    gepa_options = dict(opts)
+    gepa_options["bootstrap"] = False
+    gepa_options["maxMetricCalls"] = max_metric_calls
+    gepa_options["client"] = student
+    gepa_options["apply"] = False
+    engine = AxGEPA(teacher, **gepa_options)
+    artifact = program.optimize_with(engine, examples or [], gepa_options)
+    if demos:
+        artifact["demos"] = demos
+    return artifact
+
+
 def _score_optimization_prediction(task, prediction, options):
     opts = options or {}
     if "metric_score" in task:
@@ -743,7 +844,7 @@ class AxAgent:
         if client is not None:
             outer = self
 
-            class _Evaluator(OptimizerEvaluator):
+            class _Evaluator:
                 def evaluate(self, candidate_map, options=None):
                     merged = {**opts, **(options or {})}
                     eval_dataset = merged.pop("dataset", None) or merged.pop("_dataset", None) or dataset or []

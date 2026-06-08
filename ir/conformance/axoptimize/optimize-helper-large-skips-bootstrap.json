@@ -1,0 +1,145 @@
+{
+  "dataset": [
+    {
+      "input": {
+        "question": "Question 0?"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "Question 1?"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "Question 2?"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "Question 3?"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "Question 4?"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "Question 5?"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "Question 6?"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "Question 7?"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "Question 8?"
+      },
+      "score": 1
+    }
+  ],
+  "expected_artifact_subset": {
+    "artifactVersion": "axir-optimized-artifact-v1"
+  },
+  "expected_demo_count": 0,
+  "kind": "optimize",
+  "name": "optimize-helper-large-skips-bootstrap",
+  "operation": "helper",
+  "optimize_options": {
+    "maxMetricCalls": 100,
+    "numTrials": 0
+  },
+  "program": "axgen",
+  "responses": [
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

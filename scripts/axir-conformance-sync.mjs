@@ -245,13 +245,13 @@ function normalizeJsonText(text) {
   return `${JSON.stringify(stable(JSON.parse(text)), null, 2)}\n`;
 }
 
-function runAxaiExtractor(repoRoot, outRoot) {
+function runConformanceExtractor(repoRoot, outRoot, extractorName, label) {
   const extractor = path.join(
     repoRoot,
     'tools',
     'axir',
     'extractors',
-    'axai-goldens.ts'
+    extractorName
   );
   const result = spawnSync(process.execPath, ['--import=tsx', extractor], {
     cwd: repoRoot,
@@ -262,7 +262,7 @@ function runAxaiExtractor(repoRoot, outRoot) {
   if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error(
-      `AxAI extractor failed:\n${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim()
+      `${label} extractor failed:\n${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim()
     );
   }
 }
@@ -274,9 +274,9 @@ function listJsonFiles(dir) {
     .sort();
 }
 
-function compareGeneratedFixtures(repoRoot, generatedRoot, write) {
-  const generatedDir = path.join(generatedRoot, 'ir', 'conformance', 'axai');
-  const repoDir = path.join(repoRoot, 'ir', 'conformance', 'axai');
+function compareGeneratedFixtures(repoRoot, generatedRoot, suite, write) {
+  const generatedDir = path.join(generatedRoot, 'ir', 'conformance', suite);
+  const repoDir = path.join(repoRoot, 'ir', 'conformance', suite);
   const failures = [];
 
   for (const name of listJsonFiles(generatedDir)) {
@@ -291,12 +291,14 @@ function compareGeneratedFixtures(repoRoot, generatedRoot, write) {
       continue;
     }
     if (!existsSync(repoPath)) {
-      failures.push(`missing checked-in fixture ir/conformance/axai/${name}`);
+      failures.push(
+        `missing checked-in fixture ir/conformance/${suite}/${name}`
+      );
       continue;
     }
     const current = normalizeJsonText(readFileSync(repoPath, 'utf8'));
     if (current !== generated) {
-      failures.push(`stale fixture ir/conformance/axai/${name}`);
+      failures.push(`stale fixture ir/conformance/${suite}/${name}`);
     }
   }
 
@@ -364,9 +366,16 @@ async function checkProviderCatalog(repoRoot, generatedRoot, write) {
 async function runSync({ repoRoot, write }) {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'axir-conformance-'));
   try {
-    runAxaiExtractor(repoRoot, tempRoot);
+    runConformanceExtractor(repoRoot, tempRoot, 'axai-goldens.ts', 'AxAI');
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'optimize-goldens.ts',
+      'AxOptimize'
+    );
     const failures = [
-      ...compareGeneratedFixtures(repoRoot, tempRoot, write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'axai', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'axoptimize', write),
       ...(await checkProviderCatalog(repoRoot, tempRoot, write)),
     ];
     if (failures.length > 0) {

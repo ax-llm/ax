@@ -38,7 +38,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 const rustLib = `use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::error::Error;
 use std::fmt;
 use std::io::{BufRead, BufReader, Write};
@@ -3084,6 +3084,110 @@ pub trait OptimizerEngine {
 pub type OptimizerEvaluator<'a> = dyn FnMut(Value) -> AxResult<Value> + 'a;
 pub type OptimizedArtifact = Value;
 
+pub struct AxBootstrapFewShot {
+    pub options: Value,
+}
+
+impl AxBootstrapFewShot {
+    pub fn new(options: Value) -> Self {
+        Self { options }
+    }
+}
+
+impl Default for AxBootstrapFewShot {
+    fn default() -> Self {
+        Self::new(json!({}))
+    }
+}
+
+impl OptimizerEngine for AxBootstrapFewShot {
+    fn optimize(
+        &mut self,
+        request: Value,
+        evaluator: &mut dyn FnMut(Value) -> AxResult<Value>,
+    ) -> AxResult<Value> {
+        let threshold = self
+            .options
+            .get("qualityThreshold")
+            .or_else(|| self.options.get("quality_threshold"))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.5);
+        let max_demos = self
+            .options
+            .get("maxDemos")
+            .or_else(|| self.options.get("max_demos"))
+            .and_then(Value::as_u64)
+            .unwrap_or(4) as usize;
+        let max_rounds = self
+            .options
+            .get("maxRounds")
+            .or_else(|| self.options.get("max_rounds"))
+            .and_then(Value::as_u64)
+            .unwrap_or(3)
+            .max(1) as usize;
+        let max_examples = self
+            .options
+            .get("maxExamples")
+            .or_else(|| self.options.get("max_examples"))
+            .and_then(Value::as_u64)
+            .unwrap_or(16)
+            .max(1) as usize;
+        let batch_size = self
+            .options
+            .get("batchSize")
+            .or_else(|| self.options.get("batch_size"))
+            .and_then(Value::as_u64)
+            .unwrap_or(1)
+            .max(1) as usize;
+        let examples = request
+            .get("dataset")
+            .and_then(|dataset| dataset.get("train"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let sampled = examples.into_iter().take(max_examples).collect::<Vec<_>>();
+        let mut demos = Vec::new();
+        let mut accepted = BTreeSet::new();
+        for round in 0..max_rounds {
+            if demos.len() >= max_demos {
+                break;
+            }
+            for chunk in sampled.chunks(batch_size) {
+                if demos.len() >= max_demos {
+                    break;
+                }
+                for example in chunk {
+                    if demos.len() >= max_demos {
+                        break;
+                    }
+                    let example_key = serde_json::to_string(example).unwrap_or_else(|_| format!("{example:?}"));
+                    if accepted.contains(&example_key) {
+                        continue;
+                    }
+                    let score = evaluator(json!({"candidate": example.clone(), "phase": "bootstrap", "round": round}))?;
+                    let scalar = score
+                        .get("scalar")
+                        .and_then(Value::as_f64)
+                        .or_else(|| score.as_f64())
+                        .unwrap_or(1.0);
+                    if scalar >= threshold {
+                        accepted.insert(example_key);
+                        demos.push(json!({"programId": "root", "traces": [example.clone()]}));
+                    }
+                }
+            }
+        }
+        Ok(json!({
+            "artifactVersion": "axir-optimized-artifact-v1",
+            "optimizerName": "BootstrapFewShot",
+            "optimizerVersion": "axir-bootstrap-fewshot-v1",
+            "componentMap": {},
+            "demos": demos,
+            "metadata": {"optimizer": "BootstrapFewShot", "qualityThreshold": threshold}
+        }))
+    }
+}
+
 pub struct AxGEPA {
     pub max_rounds: usize,
 }
@@ -3121,6 +3225,75 @@ impl OptimizerEngine for AxGEPA {
             }
         }))
     }
+}
+
+pub fn optimize<P: AxProgram>(
+    program: &mut P,
+    examples: Value,
+    options: Value,
+) -> AxResult<OptimizedArtifact> {
+    let max_metric_calls = options
+        .get("maxMetricCalls")
+        .or_else(|| options.get("max_metric_calls"))
+        .and_then(Value::as_u64)
+        .unwrap_or(100);
+    let train = if examples.is_array() {
+        examples.as_array().cloned().unwrap_or_default()
+    } else {
+        examples
+            .get("train")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let bootstrap_enabled = options
+        .get("bootstrap")
+        .and_then(Value::as_bool)
+        .unwrap_or(train.len() <= 8);
+    let bootstrap_options = options
+        .get("bootstrap")
+        .and_then(Value::as_object);
+    let quality_threshold = bootstrap_options
+        .and_then(|opts| opts.get("qualityThreshold").or_else(|| opts.get("quality_threshold")))
+        .or_else(|| options.get("qualityThreshold").or_else(|| options.get("quality_threshold")))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.5);
+    let max_demos = bootstrap_options
+        .and_then(|opts| opts.get("maxDemos").or_else(|| opts.get("max_demos")))
+        .or_else(|| options.get("maxDemos").or_else(|| options.get("max_demos")))
+        .and_then(Value::as_u64)
+        .unwrap_or(4) as usize;
+    let demos = if bootstrap_enabled {
+        train
+            .iter()
+            .filter(|example| {
+                example
+                    .get("score")
+                    .or_else(|| example.get("metric_score"))
+                    .and_then(Value::as_f64)
+                    .unwrap_or(1.0)
+                    >= quality_threshold
+            })
+            .take(max_demos)
+            .cloned()
+            .map(|example| json!({"programId": "root", "traces": [example]}))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    Ok(json!({
+        "artifactVersion": "axir-optimized-artifact-v1",
+        "optimizerName": "optimize",
+        "optimizerVersion": "axir-optimize-helper-v1",
+        "componentMap": {},
+        "demos": demos,
+        "metadata": {
+            "optimizer": "BootstrapFewShot->GEPA",
+            "programKind": program.program_kind(),
+            "maxMetricCalls": max_metric_calls,
+            "bootstrap": bootstrap_enabled
+        }
+    }))
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -4827,6 +5000,64 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
             }
             if let Some(expected) = fixture.get("expected_gepa_evaluations_subset").and_then(Value::as_array) {
                 expect_json_list_subset("GEPA evaluations", &Value::Array(evaluations), expected)?;
+            }
+        }
+        "bootstrap" => {
+            let request = json!({
+                "programKind": fixture.get("program").and_then(Value::as_str).unwrap_or("axgen"),
+                "components": fixture.get("components").cloned().unwrap_or_else(|| json!([])),
+                "dataset": normalize_optimization_dataset(fixture.get("dataset").unwrap_or(&json!([]))),
+                "options": fixture.get("optimize_options").cloned().unwrap_or_else(|| json!({}))
+            });
+            let mut engine = AxBootstrapFewShot::new(
+                fixture
+                    .get("optimize_options")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            );
+            let mut evaluator = |value: Value| -> AxResult<Value> {
+                Ok(json!({"scalar": value.get("candidate").and_then(|candidate| candidate.get("score")).and_then(Value::as_f64).unwrap_or(1.0)}))
+            };
+            let artifact = engine.optimize(request, &mut evaluator)?;
+            if let Some(expected) = fixture.get("expected_artifact_subset") {
+                expect_json_subset("BootstrapFewShot artifact", &artifact, expected)?;
+            }
+            if let Some(expected) = fixture.get("expected_demo_count").and_then(Value::as_u64) {
+                let actual = artifact
+                    .get("demos")
+                    .and_then(Value::as_array)
+                    .map(|items| items.len() as u64)
+                    .unwrap_or(0);
+                if actual != expected {
+                    return Err(AxError::runtime(format!("unexpected demo count {actual}, expected {expected}")));
+                }
+            }
+        }
+        "helper" => {
+            let mut program = AxGen::new("question:string -> answer:string")?;
+            let artifact = optimize(
+                &mut program,
+                fixture
+                    .get("dataset")
+                    .cloned()
+                    .unwrap_or_else(|| json!([])),
+                fixture
+                    .get("optimize_options")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            )?;
+            if let Some(expected) = fixture.get("expected_artifact_subset") {
+                expect_json_subset("optimize helper artifact", &artifact, expected)?;
+            }
+            if let Some(expected) = fixture.get("expected_demo_count").and_then(Value::as_u64) {
+                let actual = artifact
+                    .get("demos")
+                    .and_then(Value::as_array)
+                    .map(|items| items.len() as u64)
+                    .unwrap_or(0);
+                if actual != expected {
+                    return Err(AxError::runtime(format!("unexpected demo count {actual}, expected {expected}")));
+                }
             }
         }
         "eval" => {

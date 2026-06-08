@@ -1,0 +1,107 @@
+{
+  "dataset": [
+    {
+      "input": {
+        "question": "Too low?"
+      },
+      "score": 0.4
+    },
+    {
+      "input": {
+        "question": "High enough?"
+      },
+      "score": 0.9
+    }
+  ],
+  "expected_artifact_subset": {
+    "artifactVersion": "axir-optimized-artifact-v1"
+  },
+  "expected_demo_count": 1,
+  "kind": "optimize",
+  "name": "optimize-helper-bootstrap-options",
+  "operation": "helper",
+  "optimize_options": {
+    "bootstrap": {
+      "maxDemos": 1,
+      "qualityThreshold": 0.8
+    },
+    "maxMetricCalls": 100,
+    "numTrials": 0
+  },
+  "program": "axgen",
+  "responses": [
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

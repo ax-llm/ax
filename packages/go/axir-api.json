@@ -460,8 +460,40 @@
     {
       "id": "optimizers",
       "title": "Optimizers",
-      "summary": "Optimize Ax programs through portable component maps, evaluator rows, artifacts, and the generated GEPA engine.",
+      "summary": "Optimize Ax programs through BootstrapFewShot -\u003e GEPA composition, portable component maps, evaluator rows, artifacts, and generated engines.",
       "symbols": [
+        {
+          "target_name": "go",
+          "canonical_name": "optimize",
+          "public_name": "axllm.Optimize",
+          "kind": "function",
+          "description": "Convenience optimizer helper that composes AxBootstrapFewShot before AxGEPA and returns an artifact without applying final component changes.",
+          "form": "axllm.Optimize(program, examples, options)",
+          "important_options": [
+            "student/client",
+            "teacher/reflection client",
+            "metric budget",
+            "bootstrap"
+          ],
+          "returns": "Value",
+          "example": "artifact, err := axllm.Optimize(qa, train, map[string]axllm.Value{\"studentAI\": client})"
+        },
+        {
+          "target_name": "go",
+          "canonical_name": "AxBootstrapFewShot",
+          "public_name": "axllm.AxBootstrapFewShot",
+          "kind": "type",
+          "description": "Few-shot demonstration optimizer that selects successful evaluator rollouts before prompt/component evolution.",
+          "form": "axllm.NewBootstrapFewShot(options)",
+          "important_options": [
+            "quality threshold",
+            "max demos",
+            "max rounds",
+            "batch size"
+          ],
+          "returns": "optimizer engine",
+          "example": "bootstrap := axllm.NewBootstrapFewShot(map[string]axllm.Value{\"qualityThreshold\": 0.7})"
+        },
         {
           "target_name": "go",
           "canonical_name": "AxGEPA",

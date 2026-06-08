@@ -351,6 +351,20 @@
       {
         "suite": "axoptimize",
         "kind": "optimize",
+        "operation": "bootstrap",
+        "runner": "cpp:axoptimize.bootstrap",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "helper",
+        "runner": "cpp:axoptimize.helper",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
         "operation": "eval",
         "runner": "cpp:axoptimize.eval",
         "category": "semantic"

@@ -5,7 +5,6 @@ import type {
   AxOptimizerArgs,
   AxTypedExample,
 } from '../common_types.js';
-import type { AxGen } from '../generate.js';
 import {
   AxBaseOptimizer,
   type AxBootstrapOptimizerOptions,
@@ -15,6 +14,7 @@ import type {
   AxFieldValue,
   AxGenOut,
   AxProgramDemos,
+  AxProgrammable,
   AxProgramTrace,
 } from '../types.js';
 
@@ -35,6 +35,7 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
   private maxTokensPerGeneration: number;
   private verboseMode: boolean;
   private debugMode: boolean;
+  private qualityThreshold: number;
   private traces: AxProgramTrace<any, any>[] = [];
 
   constructor(
@@ -54,13 +55,14 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
     this.maxTokensPerGeneration = options.maxTokensPerGeneration ?? 0;
     this.verboseMode = options.verboseMode ?? true;
     this.debugMode = options.debugMode ?? false;
+    this.qualityThreshold = options.qualityThreshold ?? 0.5;
 
     // Note: teacherAI from options can be used via compile options overrideTeacherAI
     // The base class provides methods to access teacher AI with fallbacks
   }
 
   private async compileRound<IN, OUT extends AxGenOut>(
-    program: Readonly<AxGen<IN, OUT>>,
+    program: Readonly<AxProgrammable<IN, OUT>>,
     examples: readonly AxTypedExample<IN>[],
     roundIndex: number,
     metricFn: AxMetricFn,
@@ -84,7 +86,7 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
       this.maxExamples
     );
     const previousSuccessCount = this.traces.length;
-    const programId = (program as AxGen<IN, OUT>).getId();
+    const programId = program.getId();
 
     // Process examples in batches if batch size > 1
     for (let i = 0; i < examplesSample.length; i += this.batchSize) {
@@ -102,7 +104,7 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
 
         // Use remaining examples as demonstration examples (excluding current one)
         const exList = examples.filter((e) => e !== ex);
-        (program as AxGen<IN, OUT>).setDemos([
+        program.setDemos([
           {
             traces: exList as unknown as (OUT & Partial<IN>)[],
             programId,
@@ -135,7 +137,7 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
             prediction: res,
             example: ex as AxExample,
           });
-          const success = score >= 0.5; // Assuming a threshold of 0.5 for success
+          const success = score >= this.qualityThreshold;
           if (success) {
             this.traces = [...this.traces, ...program.getTraces()];
             this.stats.successfulDemos++;
@@ -185,7 +187,7 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
   }
 
   public async compile<IN, OUT extends AxGenOut>(
-    program: Readonly<AxGen<IN, OUT>>,
+    program: Readonly<AxProgrammable<IN, OUT>>,
     examples: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
     options?: AxCompileOptions

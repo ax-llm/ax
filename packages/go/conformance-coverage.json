@@ -351,6 +351,20 @@
       {
         "suite": "axoptimize",
         "kind": "optimize",
+        "operation": "bootstrap",
+        "runner": "go:axoptimize.bootstrap",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
+        "operation": "helper",
+        "runner": "go:axoptimize.helper",
+        "category": "semantic"
+      },
+      {
+        "suite": "axoptimize",
+        "kind": "optimize",
         "operation": "eval",
         "runner": "go:axoptimize.eval",
         "category": "semantic"

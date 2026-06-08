@@ -1,0 +1,104 @@
+{
+  "dataset": [
+    {
+      "input": {
+        "question": "Skip demos?"
+      },
+      "score": 1
+    }
+  ],
+  "expected_artifact_subset": {
+    "artifactVersion": "axir-optimized-artifact-v1"
+  },
+  "expected_components_subset": [
+    {
+      "current": "",
+      "id": "root::instruction"
+    }
+  ],
+  "expected_demo_count": 0,
+  "kind": "optimize",
+  "name": "optimize-helper-bootstrap-false",
+  "operation": "helper",
+  "optimize_options": {
+    "bootstrap": false,
+    "maxMetricCalls": 100,
+    "numTrials": 0
+  },
+  "program": "axgen",
+  "responses": [
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

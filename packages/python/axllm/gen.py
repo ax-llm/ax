@@ -23,6 +23,64 @@ def _call_optimizer_engine(engine, request: dict[str, Any], evaluator):
             raise exc
 
 
+def _normalize_optimization_metric_scores_local(raw):
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return {"score": raw}
+    if isinstance(raw, dict):
+        return dict(raw)
+    return {"score": 0}
+
+
+def _scalarize_optimization_scores_local(scores, options):
+    key = (options or {}).get("paretoMetricKey")
+    if key:
+        try:
+            return float((scores or {}).get(key, 0))
+        except (TypeError, ValueError):
+            return 0
+    values = []
+    for value in (scores or {}).values():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            values.append(float(value))
+    return sum(values) / len(values) if values else 0
+
+
+def _optimization_action_name_matches_local(expected, call):
+    qualified = str((call or {}).get("qualifiedName") or "")
+    name = str((call or {}).get("name") or "")
+    return qualified == expected or name == expected or qualified.endswith(f".{expected}")
+
+
+def _adjust_optimization_score_for_actions_local(score, task, prediction):
+    adjusted = float(score)
+    calls = (prediction or {}).get("functionCalls") or (prediction or {}).get("function_calls") or []
+    expected = (task or {}).get("expectedActions") or []
+    if expected:
+        matched = sum(1 for item in expected if any(_optimization_action_name_matches_local(str(item), call) for call in calls))
+        adjusted *= 0.5 + 0.5 * (matched / max(1, len(expected)))
+    forbidden = (task or {}).get("forbiddenActions") or []
+    if forbidden and any(_optimization_action_name_matches_local(str(item), call) for item in forbidden for call in calls):
+        adjusted *= 0.25
+    return adjusted
+
+
+def _score_optimization_prediction_local(task, prediction, options):
+    if "metric_score" in task:
+        raw_scores = task.get("metric_score")
+    elif "scores" in task:
+        raw_scores = task.get("scores")
+    elif "score" in task:
+        raw_scores = task.get("score")
+    elif (prediction or {}).get("completionType") == "error":
+        raw_scores = 0
+    else:
+        raw_scores = 1
+    scores = _normalize_optimization_metric_scores_local(raw_scores)
+    scalar = _scalarize_optimization_scores_local(scores, options or {})
+    scalar = _adjust_optimization_score_for_actions_local(scalar, task or {}, prediction or {})
+    return scores, scalar
+
+
 class AxMemory:
     def __init__(self):
         self.items: list[dict[str, Any]] = []
@@ -258,7 +316,7 @@ class AxGen:
                 except Exception as exc:
                     error = {"message": str(exc)}
                     prediction = {"completionType": "error", "error": error, "functionCalls": self.get_function_call_traces(), "actionLog": self.get_chat_log(), "usage": {}, "trace": {"traces": self.get_traces()}}
-                scores, scalar = _score_optimization_prediction(task if isinstance(task, dict) else {}, prediction, opts)
+                scores, scalar = _score_optimization_prediction_local(task if isinstance(task, dict) else {}, prediction, opts)
                 rows.append(_build_optimization_eval_row(task, prediction, scores, scalar, prediction.get("trace"), error))
             return _build_optimization_eval_result(rows, candidate, phase)
         finally:
@@ -274,7 +332,7 @@ class AxGen:
         if client is not None:
             outer = self
 
-            class _Evaluator(OptimizerEvaluator):
+            class _Evaluator:
                 def evaluate(self, candidate_map, options=None):
                     merged = {**opts, **(options or {})}
                     eval_dataset = merged.pop("dataset", None) or merged.pop("_dataset", None) or dataset or []

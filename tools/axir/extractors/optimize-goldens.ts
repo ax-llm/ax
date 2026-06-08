@@ -21,7 +21,8 @@ import { AxSignature } from '../../../src/ax/dsp/sig.js';
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
 
-const outDir = join(process.cwd(), 'ir/conformance/axoptimize');
+const outRoot = process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd();
+const outDir = join(outRoot, 'ir/conformance/axoptimize');
 
 function stable(value: unknown, parentKey = ''): unknown {
   if (Array.isArray(value)) return value.map((item) => stable(item, parentKey));
@@ -372,6 +373,131 @@ writeFixture('gepa-bootstrap-demos', {
     metadata: {
       totalMetricCalls: 2,
     },
+  },
+});
+
+const optimizeHelperResponses = Array.from({ length: 24 }, () => ({
+  content: '{"answer":"ok"}',
+}));
+
+writeFixture('bootstrap-quality-threshold', {
+  kind: 'optimize',
+  operation: 'bootstrap',
+  program: 'axgen',
+  components: [gepaComponents[0]],
+  dataset: [
+    { input: { question: 'Accept?' }, score: 0.75 },
+    { input: { question: 'Reject?' }, score: 0.25 },
+  ],
+  optimize_options: {
+    batchSize: 1,
+    maxDemos: 4,
+    maxExamples: 2,
+    maxRounds: 1,
+    qualityThreshold: 0.7,
+  },
+  expected_demo_count: 1,
+  expected_artifact_subset: {
+    artifactVersion: 'axir-optimized-artifact-v1',
+    metadata: {
+      qualityThreshold: 0.7,
+    },
+    optimizerName: 'BootstrapFewShot',
+    optimizerVersion: 'axir-bootstrap-fewshot-v1',
+  },
+});
+
+writeFixture('optimize-helper-small-default-bootstrap', {
+  kind: 'optimize',
+  operation: 'helper',
+  program: 'axgen',
+  signature: 'question:string -> answer:string',
+  dataset: [
+    { input: { question: 'One?' }, score: 1 },
+    { input: { question: 'Two?' }, score: 1 },
+  ],
+  responses: optimizeHelperResponses,
+  optimize_options: {
+    maxMetricCalls: 100,
+    numTrials: 0,
+  },
+  expected_demo_count: 2,
+  expected_artifact_subset: {
+    artifactVersion: 'axir-optimized-artifact-v1',
+  },
+  expected_components_subset: [
+    {
+      current: '',
+      id: 'root::instruction',
+    },
+  ],
+});
+
+writeFixture('optimize-helper-large-skips-bootstrap', {
+  kind: 'optimize',
+  operation: 'helper',
+  program: 'axgen',
+  signature: 'question:string -> answer:string',
+  dataset: Array.from({ length: 9 }, (_, index) => ({
+    input: { question: `Question ${index}?` },
+    score: 1,
+  })),
+  responses: optimizeHelperResponses,
+  optimize_options: {
+    maxMetricCalls: 100,
+    numTrials: 0,
+  },
+  expected_demo_count: 0,
+  expected_artifact_subset: {
+    artifactVersion: 'axir-optimized-artifact-v1',
+  },
+});
+
+writeFixture('optimize-helper-bootstrap-false', {
+  kind: 'optimize',
+  operation: 'helper',
+  program: 'axgen',
+  signature: 'question:string -> answer:string',
+  dataset: [{ input: { question: 'Skip demos?' }, score: 1 }],
+  responses: optimizeHelperResponses,
+  optimize_options: {
+    bootstrap: false,
+    maxMetricCalls: 100,
+    numTrials: 0,
+  },
+  expected_demo_count: 0,
+  expected_artifact_subset: {
+    artifactVersion: 'axir-optimized-artifact-v1',
+  },
+  expected_components_subset: [
+    {
+      current: '',
+      id: 'root::instruction',
+    },
+  ],
+});
+
+writeFixture('optimize-helper-bootstrap-options', {
+  kind: 'optimize',
+  operation: 'helper',
+  program: 'axgen',
+  signature: 'question:string -> answer:string',
+  dataset: [
+    { input: { question: 'Too low?' }, score: 0.4 },
+    { input: { question: 'High enough?' }, score: 0.9 },
+  ],
+  responses: optimizeHelperResponses,
+  optimize_options: {
+    bootstrap: {
+      maxDemos: 1,
+      qualityThreshold: 0.8,
+    },
+    maxMetricCalls: 100,
+    numTrials: 0,
+  },
+  expected_demo_count: 1,
+  expected_artifact_subset: {
+    artifactVersion: 'axir-optimized-artifact-v1',
   },
 });
 

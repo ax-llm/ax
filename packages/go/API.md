@@ -341,7 +341,35 @@ Optional runtime profile for javascript actor code.
 
 ## Optimizers
 
-Optimize Ax programs through portable component maps, evaluator rows, artifacts, and the generated GEPA engine.
+Optimize Ax programs through BootstrapFewShot -> GEPA composition, portable component maps, evaluator rows, artifacts, and generated engines.
+
+### `axllm.Optimize`
+
+Convenience optimizer helper that composes AxBootstrapFewShot before AxGEPA and returns an artifact without applying final component changes.
+
+- Canonical Ax concept: `optimize`
+- Kind: `function`
+- Form: `axllm.Optimize(program, examples, options)`
+- Returns: `Value`
+- Important options: student/client, teacher/reflection client, metric budget, bootstrap
+
+```go
+artifact, err := axllm.Optimize(qa, train, map[string]axllm.Value{"studentAI": client})
+```
+
+### `axllm.AxBootstrapFewShot`
+
+Few-shot demonstration optimizer that selects successful evaluator rollouts before prompt/component evolution.
+
+- Canonical Ax concept: `AxBootstrapFewShot`
+- Kind: `type`
+- Form: `axllm.NewBootstrapFewShot(options)`
+- Returns: `optimizer engine`
+- Important options: quality threshold, max demos, max rounds, batch size
+
+```go
+bootstrap := axllm.NewBootstrapFewShot(map[string]axllm.Value{"qualityThreshold": 0.7})
+```
 
 ### `axllm.AxGEPA`
 

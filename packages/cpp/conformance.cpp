@@ -228,12 +228,15 @@ struct ScriptedGEPAEvaluator : OptimizerEvaluator {
     if (examples.empty()) examples.push_back(object({{"input", object({{"fixture", "gepa"}})}}));
     std::string id = component_id(candidate_map);
     Value value = Core::get(candidate_map, id, Core::get(fixture, "base_component_value", Value("")));
+    bool has_score_map = !Core::get(fixture, "gepa_scores").is_null();
     Value score_map = Core::get(fixture, "gepa_scores", Value::object());
     Value raw_score = Core::get(score_map, display(value), Core::get(score_map, "*", Value(0)));
     Array score_list = as_array(raw_score);
     Value rows = Value::array();
     for (size_t i = 0; i < examples.size(); ++i) {
-      Value item_score = score_list.empty() ? raw_score : score_list[std::min(i, score_list.size() - 1)];
+      Value item_score = has_score_map
+                             ? (score_list.empty() ? raw_score : score_list[std::min(i, score_list.size() - 1)])
+                             : Core::get(examples[i], "metric_score", Core::get(examples[i], "scores", Core::get(examples[i], "score", Value(0))));
       Value scores = Core::_normalize_optimization_metric_scores(item_score);
       Value scalar = Core::_scalarize_optimization_scores(scores, Core::get(fixture, "score_options", Value::object()));
       Value trace = object({{"componentValue", display(value)}});
@@ -764,6 +767,30 @@ static void run_optimize(Value fixture) {
       if (!Core::get(fixture, "expected_gepa_evaluations_subset").is_null()) assert_list_subset(Value(evaluator.evaluations), Core::get(fixture, "expected_gepa_evaluations_subset"), "GEPA evaluations");
       return;
     }
+    if (op == "bootstrap") {
+      Value components = Core::get(fixture, "components", Value::array());
+      Value request = object({
+          {"contractVersion", "axir-optimize-v1"},
+          {"programId", program_kind},
+          {"programKind", program_kind},
+          {"components", components},
+          {"targetComponents", components},
+          {"dataset", Core::_normalize_optimization_dataset(Core::get(fixture, "dataset", Value::array()))},
+          {"options", Core::get(fixture, "optimize_options", Value::object())},
+          {"evidence", object({{"source", "fixture"}})},
+      });
+      AxBootstrapFewShot engine(Core::get(fixture, "optimize_options", Value::object()));
+      ScriptedGEPAEvaluator evaluator(fixture);
+      Value artifact = engine.optimize(request, &evaluator);
+      if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "BootstrapFewShot artifact");
+      if (!Core::get(fixture, "expected_demo_count").is_null()) {
+        size_t actual_demos = Core::iter(Core::get(artifact, "demos", Value::array())).size();
+        size_t expected_demos = static_cast<size_t>(std::stoul(display(Core::get(fixture, "expected_demo_count"))));
+        if (actual_demos != expected_demos) throw AxError("fixture", "unexpected demo count for " + display(Core::get(fixture, "name", "fixture")) + ": got " + std::to_string(actual_demos) + ", expected " + std::to_string(expected_demos));
+      }
+      if (!Core::get(fixture, "expected_gepa_evaluations_subset").is_null()) assert_list_subset(Value(evaluator.evaluations), Core::get(fixture, "expected_gepa_evaluations_subset"), "BootstrapFewShot evaluations");
+      return;
+    }
     if (program_kind == "axgen") {
       AxGen gen(build_signature(fixture), options);
       if (op == "components") {
@@ -808,6 +835,18 @@ static void run_optimize(Value fixture) {
         if (!Core::get(fixture, "expected_engine_transcripts_subset").is_null()) assert_list_subset(Value(engine.transcripts), Core::get(fixture, "expected_engine_transcripts_subset"), "optimizer engine transcripts");
         if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimizer artifact");
         if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(gen.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
+        return;
+      }
+      if (op == "helper") {
+        ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
+        Value artifact = optimize(gen, client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()), &client);
+        if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimize helper artifact");
+        if (!Core::get(fixture, "expected_demo_count").is_null()) {
+          size_t actual_demos = Core::iter(Core::get(artifact, "demos", Value::array())).size();
+          size_t expected_demos = static_cast<size_t>(std::stoul(display(Core::get(fixture, "expected_demo_count"))));
+          if (actual_demos != expected_demos) throw AxError("fixture", "unexpected demo count for " + display(Core::get(fixture, "name", "fixture")) + ": got " + std::to_string(actual_demos) + ", expected " + std::to_string(expected_demos));
+        }
+        if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(gen.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "post-helper components");
         return;
       }
     }
@@ -865,6 +904,18 @@ static void run_optimize(Value fixture) {
         if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(fl.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
         return;
       }
+      if (op == "helper") {
+        ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
+        Value artifact = optimize(fl, client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()), &client);
+        if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimize helper artifact");
+        if (!Core::get(fixture, "expected_demo_count").is_null()) {
+          size_t actual_demos = Core::iter(Core::get(artifact, "demos", Value::array())).size();
+          size_t expected_demos = static_cast<size_t>(std::stoul(display(Core::get(fixture, "expected_demo_count"))));
+          if (actual_demos != expected_demos) throw AxError("fixture", "unexpected demo count for " + display(Core::get(fixture, "name", "fixture")) + ": got " + std::to_string(actual_demos) + ", expected " + std::to_string(expected_demos));
+        }
+        if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(fl.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "post-helper components");
+        return;
+      }
     }
     AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), options);
     if (op == "components") {
@@ -913,6 +964,18 @@ static void run_optimize(Value fixture) {
       if (!Core::get(fixture, "expected_engine_transcripts_subset").is_null()) assert_list_subset(Value(engine.transcripts), Core::get(fixture, "expected_engine_transcripts_subset"), "optimizer engine transcripts");
       if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimizer artifact");
       if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(ag.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
+      return;
+    }
+    if (op == "helper") {
+      ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
+      Value artifact = optimize(ag, client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()), &client);
+      if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimize helper artifact");
+      if (!Core::get(fixture, "expected_demo_count").is_null()) {
+        size_t actual_demos = Core::iter(Core::get(artifact, "demos", Value::array())).size();
+        size_t expected_demos = static_cast<size_t>(std::stoul(display(Core::get(fixture, "expected_demo_count"))));
+        if (actual_demos != expected_demos) throw AxError("fixture", "unexpected demo count for " + display(Core::get(fixture, "name", "fixture")) + ": got " + std::to_string(actual_demos) + ", expected " + std::to_string(expected_demos));
+      }
+      if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(ag.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "post-helper components");
       return;
     }
     if (op == "evaluate") {

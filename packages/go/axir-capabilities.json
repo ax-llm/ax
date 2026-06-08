@@ -142,6 +142,8 @@
     "axoptimize-gepa-pareto",
     "axoptimize-gepa-bootstrap",
     "axoptimize-gepa-selector-state",
+    "axoptimize-bootstrap-fewshot",
+    "axoptimize-top-level-helper",
     "axprogram-contract",
     "axprogram-trace-events",
     "axflow-program-graph",
@@ -201,6 +203,7 @@
     "AxAgentClarificationError",
     "AxBalancer",
     "AxBaseAI",
+    "AxBootstrapFewShot",
     "AxCodeRuntime",
     "AxCodeSession",
     "AxFlow",
@@ -243,6 +246,7 @@
     "flow",
     "fn",
     "get_supported_ai_models",
+    "optimize",
     "s"
   ],
   "target_idiom": {

@@ -843,7 +843,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if apiRef.PackageName != manifest.PackageName || apiRef.AxIRVersion != manifest.AxIRVersion {
 				t.Fatalf("%s API reference manifest should mirror capability manifest metadata: api=%#v caps=%#v", tc.target, apiRef, manifest)
 			}
-			for _, want := range []string{"s", "ax", "ai", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "AxGEPA", "OptimizerEngine"} {
+			for _, want := range []string{"s", "ax", "ai", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
 				if !apiReferenceContainsCanonical(apiRef, want) {
 					t.Fatalf("%s API reference missing canonical symbol %q: %#v", tc.target, want, apiRef.Sections)
 				}
@@ -864,12 +864,12 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("%s manifest has stale broad runtime profile feature %s: %#v", tc.target, stale, manifest.CoreOwnedFeatureGroups)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AzureOpenAIClient", "DeepSeekClient", "MistralClient", "RekaClient", "CohereClient", "GrokClient", "AxBalancer", "AxGEPA", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AzureOpenAIClient", "DeepSeekClient", "MistralClient", "RekaClient", "CohereClient", "GrokClient", "AxBalancer", "AxBootstrapFewShot", "AxGEPA", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "optimize", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
 				}
 			}
-			for _, want := range []string{"axoptimize-gepa-engine", "axoptimize-gepa-reflection", "axoptimize-gepa-pareto", "axoptimize-gepa-bootstrap", "axoptimize-gepa-selector-state"} {
+			for _, want := range []string{"axoptimize-gepa-engine", "axoptimize-gepa-reflection", "axoptimize-gepa-pareto", "axoptimize-gepa-bootstrap", "axoptimize-gepa-selector-state", "axoptimize-bootstrap-fewshot", "axoptimize-top-level-helper"} {
 				if !containsString(manifest.CoreOwnedFeatureGroups, want) {
 					t.Fatalf("manifest missing GEPA feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
@@ -2551,6 +2551,20 @@ func TestAxOptimizeConformanceFixturesLoad(t *testing.T) {
 			}
 			if _, ok := fixture["optimize_options"]; !ok {
 				t.Fatalf("%s missing optimize_options", file)
+			}
+		case "bootstrap":
+			if _, ok := fixture["optimize_options"]; !ok {
+				t.Fatalf("%s missing optimize_options", file)
+			}
+			if _, ok := fixture["expected_artifact_subset"]; !ok {
+				t.Fatalf("%s missing expected_artifact_subset", file)
+			}
+		case "helper":
+			if _, ok := fixture["optimize_options"]; !ok {
+				t.Fatalf("%s missing optimize_options", file)
+			}
+			if _, ok := fixture["expected_artifact_subset"]; !ok {
+				t.Fatalf("%s missing expected_artifact_subset", file)
 			}
 		case "eval":
 			if _, ok := fixture["responses"]; !ok {

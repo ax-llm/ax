@@ -253,7 +253,7 @@ class AxFlow(AxProgram):
         if client is not None:
             outer = self
 
-            class _Evaluator(OptimizerEvaluator):
+            class _Evaluator:
                 def evaluate(self, candidate_map, options=None):
                     merged = {**opts, **(options or {})}
                     eval_dataset = merged.pop("dataset", None) or merged.pop("_dataset", None) or dataset or []

@@ -160,12 +160,15 @@ and applied later.
 
 Multiple optimization strategies serve different needs:
 
+- `optimize(...)`: normal helper that composes BootstrapFewShot -> GEPA
 - `AxBootstrapFewShot`: few-shot demo selection
 - `bestOfN(...)`: reward-scored complete-candidate selection
 - `refine(...)`: reward-scored feedback rounds
 - `AxGEPA`: multi-objective Pareto optimization
 
-GEPA is one shipped optimizer engine. It runs through the existing
+GEPA is one shipped optimizer engine. Top-level `optimize(...)` seeds GEPA with
+`AxBootstrapFewShot` demos first, then runs GEPA with internal bootstrap
+disabled and returns an artifact for the caller to apply. GEPA runs through the existing
 `OptimizerEngine.optimize(request, evaluator)` boundary and owns reflection,
 selection, Pareto acceptance, bootstrapping, selector state, metric budgets, and
 descendant component optimization. The optimizer contract itself remains

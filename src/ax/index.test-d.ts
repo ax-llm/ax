@@ -5,12 +5,17 @@ import { expectAssignable, expectError, expectType } from 'tsd';
 import { AxSignature } from './dsp/sig.js';
 import type { AxExamples } from './dsp/types.js';
 import {
-  ax,
-  f,
-  fn,
   type AxAgentFunction,
+  type AxAIService,
   type AxFunction,
   type AxFunctionHandler,
+  type AxParetoResult,
+  type AxProgrammable,
+  ax,
+  f,
+  flow,
+  fn,
+  optimize,
 } from './index.js';
 
 // Test basic signature type inference
@@ -323,8 +328,6 @@ expectType<ExamplesFromGen>([
 ]);
 
 // === AxFlow (flow) Type Tests ===
-import { flow } from './index.js';
-
 // Test flow() creates workflows with forward method
 const basicFlow = flow<{ userInput: string }>().map((state) => ({
   processedInput: state.userInput.toUpperCase(),
@@ -358,6 +361,43 @@ const complexFlow = flow<{ userQuery: string }>()
     hasResults: (state.analyzerResult?.hasResults as boolean) || false,
   }));
 expectType<Function>(complexFlow.forward);
+
+// === optimize() Type Tests ===
+const optimizeAI = {} as AxAIService;
+expectAssignable<Promise<AxParetoResult<any>>>(
+  optimize(
+    basicGenerator,
+    [{ userInput: 'hello' }],
+    ({ prediction }) => ((prediction as any).responseText ? 1 : 0),
+    {
+      studentAI: optimizeAI,
+      maxMetricCalls: 2,
+    }
+  )
+);
+expectAssignable<Promise<AxParetoResult<any>>>(
+  optimize(
+    nodeFlow,
+    [{ documentText: 'hello' }],
+    ({ prediction }) => ((prediction as any).summaryResult ? 1 : 0),
+    {
+      studentAI: optimizeAI,
+      maxMetricCalls: 2,
+      bootstrap: false,
+    }
+  )
+);
+const programmable = basicGenerator as AxProgrammable<
+  { userInput: string },
+  { responseText: string }
+>;
+expectAssignable<Promise<AxParetoResult<{ responseText: string }>>>(
+  optimize(programmable, [{ userInput: 'hello' }], () => 1, {
+    studentAI: optimizeAI,
+    maxMetricCalls: 2,
+    bootstrap: { maxDemos: 1, qualityThreshold: 0.5 },
+  })
+);
 
 // Test flow() with optional fields
 const optionalFlow = flow<{

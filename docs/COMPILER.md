@@ -211,10 +211,13 @@ The optimizer contract is engine-agnostic: programs expose components,
 evaluators score candidates, artifacts serialize changes, and engines call
 `OptimizerEngine.optimize(request, evaluator)`.
 
-Generated packages also ship `AxGEPA` as one concrete engine. GEPA owns
-reflection, selection, Pareto metadata, bootstrapping, selector state, metric
-budgets, and descendant component optimization while reusing the shared
-optimizer evaluator/artifact boundary.
+Generated packages also ship `optimize(...)`, `AxBootstrapFewShot`, and
+`AxGEPA`. The helper composes BootstrapFewShot -> GEPA, preserves selected demos
+in the artifact, disables GEPA-internal bootstrap for that wrapper path, and
+leaves final application to the caller. Direct `AxGEPA` remains the lower-level
+engine API and still owns reflection, selection, Pareto metadata, bootstrapping,
+selector state, metric budgets, and descendant component optimization while
+reusing the shared optimizer evaluator/artifact boundary.
 
 ## Adding Or Changing Semantics
 

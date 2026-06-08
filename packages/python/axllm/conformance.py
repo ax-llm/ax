@@ -21,6 +21,7 @@ from .flow import (
 from .agent import (
     AxAgent,
     AxAgentClarificationError,
+    AxBootstrapFewShot,
     AxCodeRuntime,
     AxCodeSession,
     AxGEPA,
@@ -47,6 +48,7 @@ from .agent import (
     _normalize_agent_final_payload,
     _normalize_agent_runtime_step_result,
     agent,
+    optimize,
 )
 from .prompt import AxPromptTemplate, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, RuntimeCapabilities, RuntimeEnvelope, RuntimeProtocolError
@@ -914,12 +916,19 @@ def _run_optimize(fixture):
             if not score_component and components:
                 score_component = components[0].get("id")
             component_value = (candidate_map or {}).get(score_component, self.fixture.get("base_component_value", ""))
-            score_map = self.fixture.get("gepa_scores") or {}
-            scripted = score_map.get(str(component_value), score_map.get("*", 0))
+            score_map = self.fixture.get("gepa_scores")
+            scripted = (
+                score_map.get(str(component_value), score_map.get("*", 0))
+                if isinstance(score_map, dict)
+                else None
+            )
             for index, task in enumerate(normalized.get("train") or []):
-                raw_score = scripted[index] if isinstance(scripted, list) and scripted else scripted
-                if isinstance(scripted, list) and index >= len(scripted):
-                    raw_score = scripted[-1]
+                if isinstance(score_map, dict):
+                    raw_score = scripted[index] if isinstance(scripted, list) and scripted else scripted
+                    if isinstance(scripted, list) and index >= len(scripted):
+                        raw_score = scripted[-1]
+                else:
+                    raw_score = task.get("metric_score", task.get("scores", task.get("score", 0)))
                 scores = _normalize_optimization_metric_scores(raw_score)
                 scalar = _scalarize_optimization_scores(scores, self.fixture.get("score_options") or {})
                 prediction = {
@@ -1055,6 +1064,30 @@ def _run_optimize(fixture):
                 _assert_subset(artifact, fixture["expected_artifact_subset"], "optimizer artifact")
             if "expected_components_subset" in fixture:
                 _assert_list_subset(program.get_optimizable_components(), fixture["expected_components_subset"], "optimized components")
+            return
+        if operation == "bootstrap":
+            engine = AxBootstrapFewShot(**copy.deepcopy(fixture.get("optimize_options") or {}))
+            evaluator = ScriptedGEPAEvaluator(fixture)
+            artifact = engine.optimize(build_gepa_request(), evaluator)
+            if "expected_artifact_subset" in fixture:
+                _assert_subset(artifact, fixture["expected_artifact_subset"], "BootstrapFewShot artifact")
+            if "expected_demo_count" in fixture and len(artifact.get("demos") or []) != fixture["expected_demo_count"]:
+                raise FixtureError(f"expected {fixture['expected_demo_count']} demos, got {len(artifact.get('demos') or [])}")
+            if "expected_gepa_evaluations_subset" in fixture:
+                _assert_list_subset(evaluator.evaluations, fixture["expected_gepa_evaluations_subset"], "BootstrapFewShot evaluations")
+            return
+        if operation == "helper":
+            opts = copy.deepcopy(fixture.get("optimize_options") or {})
+            client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
+            opts.setdefault("studentAI", client)
+            opts.setdefault("teacherAI", client)
+            artifact = optimize(program, fixture.get("dataset") or [], opts)
+            if "expected_artifact_subset" in fixture:
+                _assert_subset(artifact, fixture["expected_artifact_subset"], "optimize helper artifact")
+            if "expected_demo_count" in fixture and len(artifact.get("demos") or []) != fixture["expected_demo_count"]:
+                raise FixtureError(f"expected {fixture['expected_demo_count']} demos, got {len(artifact.get('demos') or [])}")
+            if "expected_components_subset" in fixture:
+                _assert_list_subset(program.get_optimizable_components(), fixture["expected_components_subset"], "post-helper components")
             return
         if operation == "gepa":
             reflection = ConformanceScriptedAI(fixture.get("reflection_responses") or [], fixture.get("stream_events") or [])

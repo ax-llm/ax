@@ -461,8 +461,40 @@
     {
       "id": "optimizers",
       "title": "Optimizers",
-      "summary": "Optimize Ax programs through portable component maps, evaluator rows, artifacts, and the generated GEPA engine.",
+      "summary": "Optimize Ax programs through BootstrapFewShot -\u003e GEPA composition, portable component maps, evaluator rows, artifacts, and generated engines.",
       "symbols": [
+        {
+          "target_name": "rust",
+          "canonical_name": "optimize",
+          "public_name": "optimize",
+          "kind": "function",
+          "description": "Convenience optimizer helper that composes AxBootstrapFewShot before AxGEPA and returns an artifact without applying final component changes.",
+          "form": "optimize(program, examples, options)",
+          "important_options": [
+            "student/client",
+            "teacher/reflection client",
+            "metric budget",
+            "bootstrap"
+          ],
+          "returns": "AxResult\u003cOptimizedArtifact\u003e",
+          "example": "let artifact = optimize(\u0026mut qa, train, json!({\"maxMetricCalls\": 100}))?;"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxBootstrapFewShot",
+          "public_name": "AxBootstrapFewShot",
+          "kind": "type",
+          "description": "Few-shot demonstration optimizer that selects successful evaluator rollouts before prompt/component evolution.",
+          "form": "AxBootstrapFewShot::new(options)",
+          "important_options": [
+            "quality threshold",
+            "max demos",
+            "max rounds",
+            "batch size"
+          ],
+          "returns": "optimizer engine",
+          "example": "let bootstrap = AxBootstrapFewShot::new(json!({\"qualityThreshold\": 0.7}));"
+        },
         {
           "target_name": "rust",
           "canonical_name": "AxGEPA",

@@ -1,0 +1,47 @@
+{
+  "components": [
+    {
+      "constraints": "Keep the word answer in the instruction.",
+      "current": "Base answer instruction",
+      "description": "Primary prompt instruction.",
+      "id": "qa::instruction",
+      "kind": "instruction",
+      "owner": "qa",
+      "preserve": ["answer"]
+    }
+  ],
+  "dataset": [
+    {
+      "input": {
+        "question": "Accept?"
+      },
+      "score": 0.75
+    },
+    {
+      "input": {
+        "question": "Reject?"
+      },
+      "score": 0.25
+    }
+  ],
+  "expected_artifact_subset": {
+    "artifactVersion": "axir-optimized-artifact-v1",
+    "metadata": {
+      "qualityThreshold": 0.7
+    },
+    "optimizerName": "BootstrapFewShot",
+    "optimizerVersion": "axir-bootstrap-fewshot-v1"
+  },
+  "expected_demo_count": 1,
+  "kind": "optimize",
+  "name": "bootstrap-quality-threshold",
+  "operation": "bootstrap",
+  "optimize_options": {
+    "batchSize": 1,
+    "maxDemos": 4,
+    "maxExamples": 2,
+    "maxRounds": 1,
+    "qualityThreshold": 0.7
+  },
+  "program": "axgen"
+}

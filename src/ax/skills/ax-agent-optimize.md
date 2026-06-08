@@ -6,7 +6,7 @@ version: "__VERSION__"
 
 # AxAgent Optimize Codegen Rules (@ax-llm/ax)
 
-Use this skill for `agent.optimize(...)` workflows. Prefer short, modern, copyable patterns. Do not repeat general agent-authoring guidance unless the user needs it.
+Use this skill for `agent.optimize(...)` workflows. Prefer short, modern, copyable patterns. Do not repeat general agent-authoring guidance unless the user needs it. For generic `ax(...)` or `flow(...)` tuning with top-level `optimize(...)`, use the `ax-gepa` skill instead.
 
 Your job is to help the model choose a good optimization setup for the user's actual goal:
 
@@ -19,6 +19,7 @@ Your job is to help the model choose a good optimization setup for the user's ac
 
 - Use `agent.optimize(...)` only after the agent is already configured and runnable.
 - Prefer the built-in judge path first for normal agent tuning. Most users should start with tasks that include `input` and `criteria`, then let `agent.optimize(...)` use its default actor target and judge-based metric.
+- Keep top-level `optimize(program, train, metric, options)` for non-agent generators and flows; do not rewrite normal agent task-record examples to the generic helper.
 - Prefer a deterministic custom `metric` only when success is easy to score from the prediction and task record.
 - Add `judgeAI` plus `judgeOptions` when the judge should run on a stronger or separate model than the agent runtime model.
 - Only reach for a plain typed `AxGen` evaluator when the user needs LLM-as-judge behavior outside the built-in `agent.optimize(...)` flow.

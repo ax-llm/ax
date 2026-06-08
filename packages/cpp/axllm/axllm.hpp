@@ -43,6 +43,7 @@ class OpenAICompatibleClient;
 class OpenAIResponsesClient;
 class GoogleGeminiClient;
 class AnthropicClient;
+class AxBootstrapFewShot;
 class AxGEPA;
 class OptimizerEngine;
 class OptimizerEvaluator;
@@ -1067,6 +1068,18 @@ class AxGEPA : public OptimizerEngine {
   double rand();
 };
 
+class AxBootstrapFewShot : public OptimizerEngine {
+ public:
+  explicit AxBootstrapFewShot(Value options = Value::object());
+  std::string name() const override;
+  std::string version() const override;
+  Value optimize(Value request) override;
+  Value optimize(Value request, OptimizerEvaluator* evaluator) override;
+
+ private:
+  Value options_;
+};
+
 class AxAgent : public AxProgram {
  public:
   explicit AxAgent(Value signature, Value options = Value::object());
@@ -1128,6 +1141,9 @@ AxAgent agent(const std::string& signature, Value options = Value::object());
 AxAgent agent(const char* signature, Value options = Value::object());
 AxAgent agent(Value signature, Value options = Value::object());
 AxFlow flow(Value options = Value::object());
+Value optimize(AxGen& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
+Value optimize(AxFlow& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
+Value optimize(AxAgent& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options = Value::object());
 std::shared_ptr<AxAIService> ai(const char* provider, Value options = Value::object());
 Value to_json_schema(Value fields, const std::string& title = "Schema", Value options = Value::object());

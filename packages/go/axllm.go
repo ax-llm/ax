@@ -30559,6 +30559,133 @@ func (f *AxFlow) ApplyOptimizedComponents(m map[string]Value) { _flow_apply_opti
 
 type OptimizerEngine interface { Optimize(map[string]Value, OptimizerEvaluator) (Value,error) }
 type OptimizerEvaluator interface { Evaluate(map[string]Value, map[string]Value) (Value,error) }
+type AxBootstrapFewShot struct { Options map[string]Value }
+func NewBootstrapFewShot(options map[string]Value) *AxBootstrapFewShot { if options == nil { options = Object() }; return &AxBootstrapFewShot{Options:options} }
+func (b *AxBootstrapFewShot) Optimize(request map[string]Value, evaluator OptimizerEvaluator) (Value,error) {
+	return safeValue(func() Value {
+		if evaluator == nil { panic(AxError{Category:"optimize", Message:"AxBootstrapFewShot requires an OptimizerEvaluator"}) }
+		options := cloneMap(b.Options)
+		for key, value := range asMap(coreGet(request, "options", Object())) { if key != "__order" { coreSet(options, key, value) } }
+		components := asSlice(coreGet(request, "components", Array()))
+		dataset := asMap(coreGet(request, "dataset", Object()))
+		train := asSlice(coreGet(dataset, "train", Array()))
+		threshold := num(coreGet(options, "qualityThreshold", coreGet(options, "quality_threshold", 0.5)))
+		maxRounds := int(num(coreGet(options, "maxRounds", coreGet(options, "max_rounds", 3))))
+		maxExamples := int(num(coreGet(options, "maxExamples", coreGet(options, "max_examples", 16))))
+		maxDemos := int(num(coreGet(options, "maxDemos", coreGet(options, "max_demos", 4))))
+		batchSize := int(num(coreGet(options, "batchSize", coreGet(options, "batch_size", 1))))
+		if maxRounds <= 0 { maxRounds = 1 }
+		if maxExamples <= 0 { maxExamples = 1 }
+		if maxDemos <= 0 { maxDemos = 1 }
+		if batchSize <= 0 { batchSize = 1 }
+		if maxExamples < len(train) { train = train[:maxExamples] }
+		base := gepaCurrentMap(components)
+		demos := Array()
+		accepted := map[string]bool{}
+		totalCalls := 0
+		for round := 0; round < maxRounds && len(demos) < maxDemos; round++ {
+			for offset := 0; offset < len(train) && len(demos) < maxDemos; offset += batchSize {
+				end := offset + batchSize
+				if end > len(train) { end = len(train) }
+				for _, example := range train[offset:end] {
+					if len(demos) >= maxDemos { break }
+					exampleKey := stableStringify(example)
+					if accepted[exampleKey] { continue }
+					result, err := evaluator.Evaluate(cloneMap(base), Object("dataset", Object("train", Array(example), "validation", Array()), "phase", "bootstrap", "round", round))
+					if err != nil { panic(err) }
+					rows := asSlice(coreGet(result, "rows", Array()))
+					totalCalls += int(num(coreGet(result, "count", len(rows))))
+					if len(rows) == 0 { continue }
+					row := asMap(rows[0])
+					if num(coreGet(row, "scalar", 0)) >= threshold {
+						accepted[exampleKey] = true
+						demos = append(demos, Object("programId", "root", "traces", Array(cloneValue(coreGet(row, "prediction", coreGet(row, "input", Object()))))))
+					}
+				}
+			}
+		}
+		return Object("artifactVersion", "axir-optimized-artifact-v1", "optimizerName", "BootstrapFewShot", "optimizerVersion", "axir-bootstrap-fewshot-v1", "componentMap", Object(), "demos", demos, "metadata", Object("optimizer", "BootstrapFewShot", "qualityThreshold", threshold, "totalMetricCalls", totalCalls, "demosGenerated", len(demos)), "evidence", Object("count", totalCalls), "provenance", Object("sourceProgramKind", coreGet(request, "programKind", "unknown")))
+	})
+}
+
+func Optimize(program AxProgram, examples Value, options map[string]Value) (Value,error) {
+	return safeValue(func() Value {
+		if options == nil { options = Object() }
+		student := optimizeOption(options, "studentAI", "student_ai", "student", "client", "ai")
+		teacher := optimizeOption(options, "teacherAI", "teacher_ai", "teacher", "reflectionAI", "reflection_ai", "reflection_client")
+		if teacher == nil { teacher = student }
+		data := examples
+		if data == nil { data = Array() }
+		bootstrapSetting := coreGet(options, "bootstrap", len(asSlice(data)) <= 8)
+		evaluator := &axOptimizeDatasetEvaluator{Dataset:data, Options:options}
+		var demos Value = Array()
+		if !isFalse(bootstrapSetting) {
+			bootstrapOptions := cloneMap(options)
+			for key, value := range asMap(bootstrapSetting) { if key != "__order" { coreSet(bootstrapOptions, key, value) } }
+			coreSet(bootstrapOptions, "apply", false)
+			bootstrap := NewBootstrapFewShot(bootstrapOptions)
+			artifact := optimizeWithEngine(program, bootstrap, data, bootstrapOptions, evaluator)
+			demos = coreGet(artifact, "demos", Array())
+			applyProgramDemos(program, demos)
+		}
+		gepaOptions := cloneMap(options)
+		coreSet(gepaOptions, "bootstrap", false)
+		if coreGet(gepaOptions, "maxMetricCalls", nil) == nil && coreGet(gepaOptions, "max_metric_calls", nil) == nil { coreSet(gepaOptions, "maxMetricCalls", 100) }
+		coreSet(gepaOptions, "apply", false)
+		reflection, _ := teacher.(AIClient)
+		gepa := NewGEPA(reflection, gepaOptions)
+		artifact := optimizeWithEngine(program, gepa, data, gepaOptions, evaluator)
+		artifactMap := asMap(artifact)
+		if len(asSlice(demos)) > 0 { coreSet(artifactMap, "demos", demos) }
+		return artifactMap
+	})
+}
+
+func optimizeOption(options map[string]Value, keys ...string) Value {
+	for _, key := range keys { if value := coreGet(options, key, nil); value != nil { return value } }
+	return nil
+}
+func isFalse(value Value) bool { b, ok := value.(bool); return ok && !b }
+func optimizeProgramKind(program AxProgram) string {
+	switch program.(type) {
+	case *AxGen: return "axgen"
+	case *AxFlow: return "flow"
+	case *AxAgent: return "agent"
+	default: return "program"
+	}
+}
+func optimizeWithEngine(program AxProgram, engine OptimizerEngine, examples Value, options map[string]Value, evaluator OptimizerEvaluator) Value {
+	components := program.GetOptimizableComponents()
+	run := asMap(_prepare_optimizer_run(optimizeProgramKind(program), components, examples, options, Object(), true))
+	response, err := engine.Optimize(asMap(coreGet(run, "request", Object())), evaluator)
+	if err != nil { panic(err) }
+	artifact := _normalize_optimizer_engine_response(response, coreGet(response, "optimizerName", "optimizer"), coreGet(response, "optimizerVersion", "host"), components)
+	if rawApply := coreGet(options, "apply", nil); rawApply != nil && coreTruthy(rawApply) { program.ApplyOptimizedComponents(asMap(coreGet(artifact, "componentMap", Object()))) }
+	return artifact
+}
+func applyProgramDemos(program AxProgram, demos Value) {
+	switch p := program.(type) {
+	case *AxGen:
+		p.Demos = demos
+	case *AxFlow:
+		coreSet(p.State, "demos", demos)
+	}
+}
+type axOptimizeDatasetEvaluator struct { Dataset Value; Options map[string]Value }
+func (e *axOptimizeDatasetEvaluator) Evaluate(candidateMap map[string]Value, options map[string]Value) (Value,error) {
+	normalized := asMap(_normalize_optimization_dataset(coreGet(options, "dataset", e.Dataset)))
+	rows := Array()
+	for _, rawTask := range asSlice(coreGet(normalized, "train", Array())) {
+		task := asMap(rawTask)
+		rawScore := coreGet(task, "metric_score", coreGet(task, "scores", coreGet(task, "score", 1)))
+		scores := _normalize_optimization_metric_scores(rawScore)
+		scalar := _scalarize_optimization_scores(scores, e.Options)
+		prediction := Object("completionType", "final", "output", candidateMap, "finalOutput", candidateMap, "functionCalls", Array(), "actionLog", Array(), "usage", Object(), "trace", Object("candidateMap", candidateMap))
+		rows = append(rows, _build_optimization_eval_row(task, prediction, scores, scalar, coreGet(prediction, "trace", nil), nil))
+	}
+	return _build_optimization_eval_result(rows, candidateMap, coreGet(options, "phase", "train")), nil
+}
+
 type AxGEPA struct { Options map[string]Value; ReflectionClient AIClient }
 func NewGEPA(reflectionClient AIClient, options map[string]Value) *AxGEPA { return &AxGEPA{Options:options, ReflectionClient:reflectionClient} }
 func (g *AxGEPA) Optimize(request map[string]Value, evaluator OptimizerEvaluator) (Value,error) {
@@ -30593,7 +30720,7 @@ func (g *AxGEPA) optimize(request map[string]Value, evaluator OptimizerEvaluator
 	selectorState := gepaSelectorState(components, asMap(coreGet(options, "selectorState", coreGet(options, "selector_state", Object()))))
 	totalCalls := 0
 	demos := Array()
-	if bootstrap := coreGet(options, "bootstrap", nil); bootstrap != nil {
+	if bootstrap := coreGet(options, "bootstrap", nil); bootstrap != nil && !isFalse(bootstrap) {
 		var nextCalls int
 		demos, nextCalls = g.gepaBootstrap(evaluator, baseCfg, train, asMap(bootstrap), totalCalls, maxCalls)
 		totalCalls = nextCalls
@@ -32156,6 +32283,30 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		if err != nil { panic(err) }
 		if expected := coreGet(fixture, "expected_artifact_subset", nil); expected != nil { assertSubset(artifact, expected, "GEPA artifact") }
 		if expected := coreGet(fixture, "expected_gepa_evaluations_subset", nil); expected != nil { assertListSubset(evaluator.Evaluations, expected, "GEPA evaluations") }
+	case "bootstrap":
+		components := coreGet(fixture, "components", program.GetOptimizableComponents())
+		request := Object("contractVersion", "axir-optimize-contract-v1", "programKind", conformanceProgramKind(fixture), "components", components, "dataset", _normalize_optimization_dataset(coreGet(fixture, "dataset", Array())), "options", coreGet(fixture, "optimize_options", Object()), "trace", Object(), "evaluator", Object("available", true, "contractVersion", "axir-optimizer-evaluator-v1"))
+		engine := NewBootstrapFewShot(asMap(coreGet(fixture, "optimize_options", Object())))
+		evaluator := &conformanceGEPAEvaluator{Fixture: fixture, Evaluations: MutableArray()}
+		artifact, err := engine.Optimize(request, evaluator)
+		if err != nil { panic(err) }
+		if expected := coreGet(fixture, "expected_artifact_subset", nil); expected != nil { assertSubset(artifact, expected, "BootstrapFewShot artifact") }
+		if expected := coreGet(fixture, "expected_demo_count", nil); expected != nil {
+			actual := len(asSlice(coreGet(artifact, "demos", Array())))
+			want := int(num(expected))
+			if actual != want { panic(AxError{Category:"fixture", Message:fmt.Sprintf("unexpected demo count for %s: got %d, expected %d", display(coreGet(fixture, "name", "fixture")), actual, want)}) }
+		}
+		if expected := coreGet(fixture, "expected_gepa_evaluations_subset", nil); expected != nil { assertListSubset(evaluator.Evaluations, expected, "BootstrapFewShot evaluations") }
+	case "helper":
+		artifact, err := Optimize(program, coreGet(fixture, "dataset", Array()), asMap(coreGet(fixture, "optimize_options", Object())))
+		if err != nil { panic(err) }
+		if expected := coreGet(fixture, "expected_artifact_subset", nil); expected != nil { assertSubset(artifact, expected, "optimize helper artifact") }
+		if expected := coreGet(fixture, "expected_demo_count", nil); expected != nil {
+			actual := len(asSlice(coreGet(artifact, "demos", Array())))
+			want := int(num(expected))
+			if actual != want { panic(AxError{Category:"fixture", Message:fmt.Sprintf("unexpected demo count for %s: got %d, expected %d", display(coreGet(fixture, "name", "fixture")), actual, want)}) }
+		}
+		if expected := coreGet(fixture, "expected_components_subset", nil); expected != nil { assertListSubset(program.GetOptimizableComponents(), expected, "post-helper components") }
 	default:
 		panic(AxError{Category:"fixture", Message:"unsupported Go optimize operation "+operation})
 	}
@@ -32178,14 +32329,20 @@ func (e *conformanceGEPAEvaluator) Evaluate(candidateMap map[string]Value, optio
 			}
 		}
 	}
+	hasScoreMap := coreGet(e.Fixture, "gepa_scores", nil) != nil
 	scoreMap := asMap(coreGet(e.Fixture, "gepa_scores", Object()))
 	scripted := coreGet(scoreMap, display(componentValue), coreGet(scoreMap, "*", 0))
 	scoreOptions := asMap(coreGet(e.Fixture, "score_options", Object()))
 	for index, rawTask := range asSlice(coreGet(normalized, "train", Array())) {
-		rawScore := scripted
-		scriptedList := asSlice(scripted)
-		if len(scriptedList) > 0 {
-			if index < len(scriptedList) { rawScore = scriptedList[index] } else { rawScore = scriptedList[len(scriptedList)-1] }
+		var rawScore Value
+		if hasScoreMap {
+			rawScore = scripted
+			scriptedList := asSlice(scripted)
+			if len(scriptedList) > 0 {
+				if index < len(scriptedList) { rawScore = scriptedList[index] } else { rawScore = scriptedList[len(scriptedList)-1] }
+			}
+		} else {
+			rawScore = coreGet(rawTask, "metric_score", coreGet(rawTask, "scores", coreGet(rawTask, "score", 0)))
 		}
 		scores := _normalize_optimization_metric_scores(rawScore)
 		scalar := _scalarize_optimization_scores(scores, scoreOptions)
@@ -33105,4 +33262,4 @@ func extractQuotedSuffix(s string) Value { escaped:=false; for i:=0;i<len(s);i++
 
 func _core_type_is_json(value Value) Value { return true }
 
-func Version() string { return "22.0.2" }
+func Version() string { return "22.0.3" }

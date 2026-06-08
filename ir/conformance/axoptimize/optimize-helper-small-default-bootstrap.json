@@ -1,0 +1,109 @@
+{
+  "dataset": [
+    {
+      "input": {
+        "question": "One?"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "Two?"
+      },
+      "score": 1
+    }
+  ],
+  "expected_artifact_subset": {
+    "artifactVersion": "axir-optimized-artifact-v1"
+  },
+  "expected_components_subset": [
+    {
+      "current": "",
+      "id": "root::instruction"
+    }
+  ],
+  "expected_demo_count": 2,
+  "kind": "optimize",
+  "name": "optimize-helper-small-default-bootstrap",
+  "operation": "helper",
+  "optimize_options": {
+    "maxMetricCalls": 100,
+    "numTrials": 0
+  },
+  "program": "axgen",
+  "responses": [
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -45,6 +45,7 @@ class OpenAICompatibleClient;
 class OpenAIResponsesClient;
 class GoogleGeminiClient;
 class AnthropicClient;
+class AxBootstrapFewShot;
 class AxGEPA;
 class OptimizerEngine;
 class OptimizerEvaluator;
@@ -1069,6 +1070,18 @@ class AxGEPA : public OptimizerEngine {
   double rand();
 };
 
+class AxBootstrapFewShot : public OptimizerEngine {
+ public:
+  explicit AxBootstrapFewShot(Value options = Value::object());
+  std::string name() const override;
+  std::string version() const override;
+  Value optimize(Value request) override;
+  Value optimize(Value request, OptimizerEvaluator* evaluator) override;
+
+ private:
+  Value options_;
+};
+
 class AxAgent : public AxProgram {
  public:
   explicit AxAgent(Value signature, Value options = Value::object());
@@ -1130,6 +1143,9 @@ AxAgent agent(const std::string& signature, Value options = Value::object());
 AxAgent agent(const char* signature, Value options = Value::object());
 AxAgent agent(Value signature, Value options = Value::object());
 AxFlow flow(Value options = Value::object());
+Value optimize(AxGen& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
+Value optimize(AxFlow& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
+Value optimize(AxAgent& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options = Value::object());
 std::shared_ptr<AxAIService> ai(const char* provider, Value options = Value::object());
 Value to_json_schema(Value fields, const std::string& title = "Schema", Value options = Value::object());
@@ -3821,6 +3837,57 @@ static std::vector<Value> gepa_component_group(Value target, const std::vector<V
   return out;
 }
 
+AxBootstrapFewShot::AxBootstrapFewShot(Value options) : options_(std::move(options)) {}
+std::string AxBootstrapFewShot::name() const { return "BootstrapFewShot"; }
+std::string AxBootstrapFewShot::version() const { return "axir-bootstrap-fewshot-v1"; }
+Value AxBootstrapFewShot::optimize(Value request) { return optimize(std::move(request), nullptr); }
+Value AxBootstrapFewShot::optimize(Value request, OptimizerEvaluator* evaluator) {
+  if (evaluator == nullptr) throw AxError("runtime", "AxBootstrapFewShot requires an OptimizerEvaluator");
+  Value options = Core::map_merge(options_, Core::get(request, "options", Value::object()));
+  std::vector<Value> components = Core::iter(Core::get(request, "components", Value::array()));
+  std::vector<Value> train = gepa_train(Core::get(request, "dataset", Value::object()));
+  double threshold = gepa_num(Core::get(options, "qualityThreshold", Core::get(options, "quality_threshold", Value(0.5))), 0.5);
+  int max_rounds = std::max(1, gepa_int(Core::get(options, "maxRounds", Core::get(options, "max_rounds", Value(3))), 3));
+  int max_examples = std::max(1, gepa_int(Core::get(options, "maxExamples", Core::get(options, "max_examples", Value(16))), 16));
+  int max_demos = std::max(1, gepa_int(Core::get(options, "maxDemos", Core::get(options, "max_demos", Value(4))), 4));
+  int batch_size = std::max(1, gepa_int(Core::get(options, "batchSize", Core::get(options, "batch_size", Value(1))), 1));
+  if (static_cast<int>(train.size()) > max_examples) train.resize(static_cast<size_t>(max_examples));
+  Value base_cfg = gepa_current_map(Value(components));
+  Value demos = Value::array();
+  std::set<std::string> accepted;
+  int total_calls = 0;
+  for (int round = 0; round < max_rounds && static_cast<int>(Core::iter(demos).size()) < max_demos; ++round) {
+    for (int offset = 0; offset < static_cast<int>(train.size()) && static_cast<int>(Core::iter(demos).size()) < max_demos; offset += batch_size) {
+      int end = std::min(static_cast<int>(train.size()), offset + batch_size);
+      for (int i = offset; i < end && static_cast<int>(Core::iter(demos).size()) < max_demos; ++i) {
+        std::string example_key = stable_stringify(train[static_cast<size_t>(i)]);
+        if (accepted.count(example_key)) continue;
+        Value eval_options = object({{"dataset", object({{"train", array({train[static_cast<size_t>(i)]})}, {"validation", Value::array()}})}, {"phase", "bootstrap"}, {"round", static_cast<double>(round)}});
+        Value result = evaluator->evaluate(base_cfg, eval_options);
+        std::vector<Value> rows = Core::iter(Core::get(result, "rows", Value::array()));
+        total_calls += gepa_int(Core::get(result, "count", Value(static_cast<double>(rows.empty() ? 1 : rows.size()))), rows.empty() ? 1 : static_cast<int>(rows.size()));
+        if (rows.empty()) continue;
+        if (gepa_num(Core::get(rows[0], "scalar", Value(0)), 0) >= threshold) {
+          accepted.insert(example_key);
+          Value traces = Value::array();
+          Core::append(traces, Core::get(rows[0], "prediction", Core::get(rows[0], "input", Value::object())));
+          Core::append(demos, object({{"programId", "root"}, {"traces", traces}}));
+        }
+      }
+    }
+  }
+  return object({
+      {"artifactVersion", "axir-optimized-artifact-v1"},
+      {"optimizerName", "BootstrapFewShot"},
+      {"optimizerVersion", version()},
+      {"componentMap", Value::object()},
+      {"demos", demos},
+      {"metadata", object({{"optimizer", "BootstrapFewShot"}, {"qualityThreshold", threshold}, {"totalMetricCalls", static_cast<double>(total_calls)}, {"demosGenerated", static_cast<double>(Core::iter(demos).size())}})},
+      {"evidence", object({{"count", static_cast<double>(total_calls)}})},
+      {"provenance", object({{"sourceProgramKind", Core::get(request, "programKind", "unknown")}})},
+  });
+}
+
 AxGEPA::AxGEPA(AIClient* reflection_client, Value options)
     : reflection_client_(reflection_client), options_(std::move(options)), rng_state_(123456789), selector_state_(Value::object()) {
   int seed = gepa_int(Core::get(options_, "seed", Value(123456789)), 123456789);
@@ -4530,6 +4597,66 @@ Value AxAgent::optimize_with(OptimizerEngine& engine, AIClient& client, Value da
 }
 Value AxAgent::optimize(Value dataset, Value options) {
   throw AxError("validation", "options.engine must implement OptimizerEngine for optimize()");
+}
+
+static Value optimize_options_merge(Value base, Value extra) {
+  Value out = Core::map_merge(Value::object(), base);
+  if (extra.is_object()) out = Core::map_merge(out, extra);
+  return out;
+}
+
+static bool optimize_bootstrap_enabled(Value setting) {
+  return !(setting.is_bool() && !Core::truthy(setting));
+}
+
+static Value optimize_set_apply_false(Value options) {
+  Value out = Core::map_merge(Value::object(), options);
+  Core::set(out, "apply", false);
+  return out;
+}
+
+static Value optimize_set_common_gepa_options(Value options) {
+  Value out = optimize_set_apply_false(options);
+  Core::set(out, "bootstrap", false);
+  if (Core::get(out, "maxMetricCalls", Value()).is_null() && Core::get(out, "max_metric_calls", Value()).is_null()) {
+    Core::set(out, "maxMetricCalls", 100);
+  }
+  return out;
+}
+
+static void optimize_apply_demos(AxGen& program, Value demos) { program.set_demos(std::move(demos)); }
+static void optimize_apply_demos(AxFlow& program, Value demos) { program.set_demos(std::move(demos)); }
+static void optimize_apply_demos(AxAgent&, Value) {}
+
+template <typename Program>
+static Value optimize_impl(Program& program, AIClient& student, Value dataset, Value options, AIClient* teacher) {
+  AIClient* reflection = teacher == nullptr ? &student : teacher;
+  Value bootstrap_setting = Core::get(options, "bootstrap", Value(static_cast<bool>(Core::iter(dataset).size() <= 8)));
+  Value demos = Value::array();
+  if (optimize_bootstrap_enabled(bootstrap_setting)) {
+    Value bootstrap_options = optimize_set_apply_false(optimize_options_merge(options, bootstrap_setting));
+    AxBootstrapFewShot bootstrap(bootstrap_options);
+    Value bootstrap_artifact = program.optimize_with(bootstrap, *reflection, dataset, bootstrap_options);
+    demos = Core::get(bootstrap_artifact, "demos", Value::array());
+    if (!Core::iter(demos).empty()) optimize_apply_demos(program, demos);
+  }
+  Value gepa_options = optimize_set_common_gepa_options(options);
+  AxGEPA gepa(reflection, gepa_options);
+  Value artifact = program.optimize_with(gepa, student, dataset, gepa_options);
+  if (!Core::iter(demos).empty()) Core::set(artifact, "demos", demos);
+  return artifact;
+}
+
+Value optimize(AxGen& program, AIClient& student, Value dataset, Value options, AIClient* teacher) {
+  return optimize_impl(program, student, std::move(dataset), std::move(options), teacher);
+}
+
+Value optimize(AxFlow& program, AIClient& student, Value dataset, Value options, AIClient* teacher) {
+  return optimize_impl(program, student, std::move(dataset), std::move(options), teacher);
+}
+
+Value optimize(AxAgent& program, AIClient& student, Value dataset, Value options, AIClient* teacher) {
+  return optimize_impl(program, student, std::move(dataset), std::move(options), teacher);
 }
 
 Value object(std::initializer_list<std::pair<std::string, Value>> items) {
@@ -5499,12 +5626,15 @@ struct ScriptedGEPAEvaluator : OptimizerEvaluator {
     if (examples.empty()) examples.push_back(object({{"input", object({{"fixture", "gepa"}})}}));
     std::string id = component_id(candidate_map);
     Value value = Core::get(candidate_map, id, Core::get(fixture, "base_component_value", Value("")));
+    bool has_score_map = !Core::get(fixture, "gepa_scores").is_null();
     Value score_map = Core::get(fixture, "gepa_scores", Value::object());
     Value raw_score = Core::get(score_map, display(value), Core::get(score_map, "*", Value(0)));
     Array score_list = as_array(raw_score);
     Value rows = Value::array();
     for (size_t i = 0; i < examples.size(); ++i) {
-      Value item_score = score_list.empty() ? raw_score : score_list[std::min(i, score_list.size() - 1)];
+      Value item_score = has_score_map
+                             ? (score_list.empty() ? raw_score : score_list[std::min(i, score_list.size() - 1)])
+                             : Core::get(examples[i], "metric_score", Core::get(examples[i], "scores", Core::get(examples[i], "score", Value(0))));
       Value scores = Core::_normalize_optimization_metric_scores(item_score);
       Value scalar = Core::_scalarize_optimization_scores(scores, Core::get(fixture, "score_options", Value::object()));
       Value trace = object({{"componentValue", display(value)}});
@@ -6035,6 +6165,30 @@ static void run_optimize(Value fixture) {
       if (!Core::get(fixture, "expected_gepa_evaluations_subset").is_null()) assert_list_subset(Value(evaluator.evaluations), Core::get(fixture, "expected_gepa_evaluations_subset"), "GEPA evaluations");
       return;
     }
+    if (op == "bootstrap") {
+      Value components = Core::get(fixture, "components", Value::array());
+      Value request = object({
+          {"contractVersion", "axir-optimize-v1"},
+          {"programId", program_kind},
+          {"programKind", program_kind},
+          {"components", components},
+          {"targetComponents", components},
+          {"dataset", Core::_normalize_optimization_dataset(Core::get(fixture, "dataset", Value::array()))},
+          {"options", Core::get(fixture, "optimize_options", Value::object())},
+          {"evidence", object({{"source", "fixture"}})},
+      });
+      AxBootstrapFewShot engine(Core::get(fixture, "optimize_options", Value::object()));
+      ScriptedGEPAEvaluator evaluator(fixture);
+      Value artifact = engine.optimize(request, &evaluator);
+      if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "BootstrapFewShot artifact");
+      if (!Core::get(fixture, "expected_demo_count").is_null()) {
+        size_t actual_demos = Core::iter(Core::get(artifact, "demos", Value::array())).size();
+        size_t expected_demos = static_cast<size_t>(std::stoul(display(Core::get(fixture, "expected_demo_count"))));
+        if (actual_demos != expected_demos) throw AxError("fixture", "unexpected demo count for " + display(Core::get(fixture, "name", "fixture")) + ": got " + std::to_string(actual_demos) + ", expected " + std::to_string(expected_demos));
+      }
+      if (!Core::get(fixture, "expected_gepa_evaluations_subset").is_null()) assert_list_subset(Value(evaluator.evaluations), Core::get(fixture, "expected_gepa_evaluations_subset"), "BootstrapFewShot evaluations");
+      return;
+    }
     if (program_kind == "axgen") {
       AxGen gen(build_signature(fixture), options);
       if (op == "components") {
@@ -6079,6 +6233,18 @@ static void run_optimize(Value fixture) {
         if (!Core::get(fixture, "expected_engine_transcripts_subset").is_null()) assert_list_subset(Value(engine.transcripts), Core::get(fixture, "expected_engine_transcripts_subset"), "optimizer engine transcripts");
         if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimizer artifact");
         if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(gen.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
+        return;
+      }
+      if (op == "helper") {
+        ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
+        Value artifact = optimize(gen, client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()), &client);
+        if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimize helper artifact");
+        if (!Core::get(fixture, "expected_demo_count").is_null()) {
+          size_t actual_demos = Core::iter(Core::get(artifact, "demos", Value::array())).size();
+          size_t expected_demos = static_cast<size_t>(std::stoul(display(Core::get(fixture, "expected_demo_count"))));
+          if (actual_demos != expected_demos) throw AxError("fixture", "unexpected demo count for " + display(Core::get(fixture, "name", "fixture")) + ": got " + std::to_string(actual_demos) + ", expected " + std::to_string(expected_demos));
+        }
+        if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(gen.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "post-helper components");
         return;
       }
     }
@@ -6136,6 +6302,18 @@ static void run_optimize(Value fixture) {
         if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(fl.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
         return;
       }
+      if (op == "helper") {
+        ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
+        Value artifact = optimize(fl, client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()), &client);
+        if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimize helper artifact");
+        if (!Core::get(fixture, "expected_demo_count").is_null()) {
+          size_t actual_demos = Core::iter(Core::get(artifact, "demos", Value::array())).size();
+          size_t expected_demos = static_cast<size_t>(std::stoul(display(Core::get(fixture, "expected_demo_count"))));
+          if (actual_demos != expected_demos) throw AxError("fixture", "unexpected demo count for " + display(Core::get(fixture, "name", "fixture")) + ": got " + std::to_string(actual_demos) + ", expected " + std::to_string(expected_demos));
+        }
+        if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(fl.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "post-helper components");
+        return;
+      }
     }
     AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), options);
     if (op == "components") {
@@ -6184,6 +6362,18 @@ static void run_optimize(Value fixture) {
       if (!Core::get(fixture, "expected_engine_transcripts_subset").is_null()) assert_list_subset(Value(engine.transcripts), Core::get(fixture, "expected_engine_transcripts_subset"), "optimizer engine transcripts");
       if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimizer artifact");
       if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(ag.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
+      return;
+    }
+    if (op == "helper") {
+      ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
+      Value artifact = optimize(ag, client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()), &client);
+      if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimize helper artifact");
+      if (!Core::get(fixture, "expected_demo_count").is_null()) {
+        size_t actual_demos = Core::iter(Core::get(artifact, "demos", Value::array())).size();
+        size_t expected_demos = static_cast<size_t>(std::stoul(display(Core::get(fixture, "expected_demo_count"))));
+        if (actual_demos != expected_demos) throw AxError("fixture", "unexpected demo count for " + display(Core::get(fixture, "name", "fixture")) + ": got " + std::to_string(actual_demos) + ", expected " + std::to_string(expected_demos));
+      }
+      if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(ag.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "post-helper components");
       return;
     }
     if (op == "evaluate") {
