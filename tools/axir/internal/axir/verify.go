@@ -1140,7 +1140,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		return report, err
 	}
 	if report.releaseMode() {
-		if err := verifyCppPackageSmoke(&report, cpp); err != nil {
+		if err := verifyCppPackageSmoke(&report, cpp, axObj, mcpObj); err != nil {
 			return report, err
 		}
 	} else {
@@ -1149,7 +1149,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 	return report, nil
 }
 
-func verifyCppPackageSmoke(report *VerifyTargetReport, cpp string) error {
+func verifyCppPackageSmoke(report *VerifyTargetReport, cpp string, axObj string, mcpObj string) error {
 	ar, err := exec.LookPath("ar")
 	if err != nil {
 		report.Steps = append(report.Steps, VerifyStep{Name: "package cpp static library", Status: "skip", Message: "ar not found"})
@@ -1162,12 +1162,20 @@ func verifyCppPackageSmoke(report *VerifyTargetReport, cpp string) error {
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		return err
 	}
-	obj := filepath.Join(pkgDir, "axllm.o")
 	lib := filepath.Join(pkgDir, "libaxllm.a")
-	if err := runVerifyCommand(report, "package cpp compile library", "", nil, cpp, "-std=c++17", "-I", report.OutDir, "-c", filepath.Join(report.OutDir, "axllm", "axllm.cpp"), "-o", obj); err != nil {
-		return err
+	if axObj == "" {
+		axObj = filepath.Join(pkgDir, "axllm.o")
+		if err := runVerifyCommand(report, "package cpp compile library", "", nil, cpp, "-std=c++17", "-I", report.OutDir, "-c", filepath.Join(report.OutDir, "axllm", "axllm.cpp"), "-o", axObj); err != nil {
+			return err
+		}
+	} else {
+		report.finishStep("package cpp compile library", "ok", "reused "+filepath.Base(axObj), time.Time{})
 	}
-	if err := runVerifyCommand(report, "package cpp static library", "", nil, ar, "rcs", lib, obj); err != nil {
+	arArgs := []string{"rcs", lib, axObj}
+	if mcpObj != "" {
+		arArgs = append(arArgs, mcpObj)
+	}
+	if err := runVerifyCommand(report, "package cpp static library", "", nil, ar, arArgs...); err != nil {
 		return err
 	}
 	bin := filepath.Join(pkgDir, "signature_schema")
@@ -1334,6 +1342,17 @@ func runVerifyCommand(report *VerifyTargetReport, name, dir string, env []string
 
 func runCargoVerifyCommand(report *VerifyTargetReport, name, dir string, env []string, cargo string, args ...string) error {
 	start := report.startStep(name)
+	if cargoOfflineFirst(env) {
+		offlineEnv := append(append([]string{}, env...), "CARGO_NET_OFFLINE=true")
+		offlineMessage, offlineErr := runCommandMessage(dir, offlineEnv, cargo, args...)
+		if offlineErr == nil {
+			if offlineMessage == "" {
+				offlineMessage = filepath.Base(cargo)
+			}
+			report.finishStep(name, "ok", "offline\n"+offlineMessage, start)
+			return nil
+		}
+	}
 	message, err := runCommandMessage(dir, env, cargo, args...)
 	if err == nil {
 		if message == "" {
@@ -1356,6 +1375,25 @@ func runCargoVerifyCommand(report *VerifyTargetReport, name, dir string, env []s
 	}
 	report.finishStep(name, "fail", message, start)
 	return fmt.Errorf("%s failed: %s", name, message)
+}
+
+func cargoOfflineFirst(env []string) bool {
+	if envHas(env, "CARGO_NET_OFFLINE") {
+		return false
+	}
+	for _, entry := range env {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok || key != "AXIR_CARGO_OFFLINE_FIRST" {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "", "0", "false", "no", "off":
+			return false
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 func formatVerifyDuration(duration time.Duration) string {

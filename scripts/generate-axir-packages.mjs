@@ -13,9 +13,14 @@ const runAxirScript = path.join(scriptDir, 'run-axir.mjs');
 const packagesRoot = path.join(repoRoot, 'packages');
 const targets = ['python', 'java', 'cpp', 'go', 'rust'];
 const cacheRoot = process.env.GOCACHE || path.join(tmpdir(), 'go-build');
+const modCacheRoot =
+  process.env.GOMODCACHE ||
+  (process.env.CI ? path.join(tmpdir(), 'go-mod') : '');
 const env = { ...process.env, GOCACHE: cacheRoot };
+if (modCacheRoot) env.GOMODCACHE = modCacheRoot;
 
 await mkdir(cacheRoot, { recursive: true });
+if (modCacheRoot) await mkdir(modCacheRoot, { recursive: true });
 const stageRoot = await mkdtemp(path.join(tmpdir(), 'axir-packages-'));
 
 try {

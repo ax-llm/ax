@@ -5,8 +5,32 @@ on:
   push:
     branches: [main]
 
+env:
+  AXIR_BIN_CACHE: /tmp/axir-bin-cache
+  GOCACHE: /tmp/go-build
+  GOMODCACHE: /tmp/go-mod
+  CARGO_TARGET_DIR: /tmp/axir-cargo-target
+  AXIR_CARGO_OFFLINE_FIRST: '1'
+
 jobs:
   build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build packages
+        run: npm run build
+
+  repo-checks:
+    name: Repo Checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,7 +39,49 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20.x' # You can specify your desired Node.js version
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Check AxIR backlog coverage for portable TypeScript changes
+        run: npm run axir:backlog:check -- --base origin/main --head HEAD
+      - name: Test AxIR maintenance tools
+        run: npm run test:axir:tools
+      - name: Check formatting
+        run: npm run test:format
+      - name: Lint
+        run: npm run test:lint
+      - name: Check spelling
+        run: npm run test:spelling
+
+  workspace-tests:
+    name: Workspace Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run workspace tests
+        run: npm run test:tests
+
+  generated-examples:
+    name: Generated Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: package-lock.json
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -29,9 +95,145 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: '1.22.x'
+          cache: false
+      - name: Cache AxIR Go outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.AXIR_BIN_CACHE }}
+            ${{ env.GOCACHE }}
+            ${{ env.GOMODCACHE }}
+          key: ${{ runner.os }}-axir-go-${{ hashFiles('tools/axir/go.mod', 'tools/axir/**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-axir-go-
+      - name: Cache Cargo outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            ${{ env.CARGO_TARGET_DIR }}
+          key: ${{ runner.os }}-cargo-generated-${{ hashFiles('packages/rust/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-generated-
+            ${{ runner.os }}-cargo-
       - name: Install dependencies
         run: npm ci
-      - name: Check AxIR backlog coverage for portable TypeScript changes
-        run: npm run axir:backlog:check -- --base origin/main --head HEAD
-      - name: Build, lint, test, and verify generated libraries
-        run: npm run ci:verify
+      - name: Run generated examples
+        run: npm run test:examples:generated
+
+  axir-packages:
+    name: AxIR Package Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22.x'
+          cache: false
+      - name: Cache AxIR Go outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.AXIR_BIN_CACHE }}
+            ${{ env.GOCACHE }}
+            ${{ env.GOMODCACHE }}
+          key: ${{ runner.os }}-axir-go-${{ hashFiles('tools/axir/go.mod', 'tools/axir/**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-axir-go-
+      - name: Install dependencies
+        run: npm ci
+      - name: Check generated package freshness
+        run: npm run axir:check-packages
+
+  axir-verify:
+    name: AxIR Verify (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [python, java, cpp, go, rust]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Setup Python
+        if: matrix.target == 'python'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Setup Java
+        if: matrix.target == 'java'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22.x'
+          cache: false
+      - name: Cache AxIR Go outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.AXIR_BIN_CACHE }}
+            ${{ env.GOCACHE }}
+            ${{ env.GOMODCACHE }}
+          key: ${{ runner.os }}-axir-go-${{ hashFiles('tools/axir/go.mod', 'tools/axir/**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-axir-go-
+      - name: Cache Cargo outputs
+        if: matrix.target == 'rust'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            ${{ env.CARGO_TARGET_DIR }}
+          key: ${{ runner.os }}-cargo-verify-${{ hashFiles('packages/rust/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-verify-
+            ${{ runner.os }}-cargo-
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify AxIR ${{ matrix.target }} package
+        run: npm run axir:verify:release -- --targets ${{ matrix.target }}
+
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - build
+      - repo-checks
+      - workspace-tests
+      - generated-examples
+      - axir-packages
+      - axir-verify
+    steps:
+      - name: Check all CI shards
+        run: |
+          for result in \
+            "${{ needs.build.result }}" \
+            "${{ needs.repo-checks.result }}" \
+            "${{ needs.workspace-tests.result }}" \
+            "${{ needs.generated-examples.result }}" \
+            "${{ needs.axir-packages.result }}" \
+            "${{ needs.axir-verify.result }}"; do
+            if [ "$result" != "success" ]; then
+              echo "CI shard failed or was skipped: $result"
+              exit 1
+            fi
+          done

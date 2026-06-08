@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { availableParallelism, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,16 +14,28 @@ const runAxirScript = path.join(scriptDir, 'run-axir.mjs');
 const packagesRoot = path.join(repoRoot, 'packages');
 const targets = ['python', 'java', 'cpp', 'go', 'rust'];
 const cacheRoot = process.env.GOCACHE || path.join(tmpdir(), 'go-build');
+const modCacheRoot =
+  process.env.GOMODCACHE ||
+  (process.env.CI ? path.join(tmpdir(), 'go-mod') : '');
 const env = { ...process.env, GOCACHE: cacheRoot };
+if (modCacheRoot) env.GOMODCACHE = modCacheRoot;
 const maxDiffs = 80;
+const jobs = normalizeJobs(process.env.AXIR_PACKAGE_JOBS, targets.length);
 
 await mkdir(cacheRoot, { recursive: true });
+if (modCacheRoot) await mkdir(modCacheRoot, { recursive: true });
 const stageRoot = await mkdtemp(path.join(tmpdir(), 'axir-packages-check-'));
 
 try {
-  for (const target of targets) {
+  await runAsync(process.execPath, [runAxirScript, 'help'], {
+    cwd: repoRoot,
+    env,
+    stdio: 'ignore',
+  });
+
+  await runTargetJobs(targets, jobs, async (target) => {
     const outDir = path.join(stageRoot, target);
-    run(
+    await runAsync(
       process.execPath,
       [runAxirScript, 'compile', '--target', target, '--out', outDir, rootAxir],
       {
@@ -31,7 +43,7 @@ try {
         env,
       }
     );
-  }
+  });
 
   const diffs = [];
   for (const target of targets) {
@@ -136,12 +148,43 @@ function shouldIgnore(name) {
   return /\.(a|class|dylib|exe|o|pyc|so)$/.test(name);
 }
 
-function run(command, args, options) {
-  const result = spawnSync(command, args, {
-    stdio: 'inherit',
-    shell: false,
-    ...options,
+async function runTargetJobs(items, limit, fn) {
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      for (;;) {
+        const index = next;
+        next += 1;
+        if (index >= items.length) return;
+        await fn(items[index]);
+      }
+    }
+  );
+  await Promise.all(workers);
+}
+
+function normalizeJobs(value, max) {
+  if (!value) return Math.min(max, Math.max(1, availableParallelism()));
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.min(max, parsed);
+}
+
+function runAsync(command, args, options) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: 'inherit',
+      shell: false,
+      ...options,
+    });
+    child.on('error', reject);
+    child.on('close', (status) => {
+      if (status === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${command} ${args.join(' ')} failed`));
+      }
+    });
   });
-  if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status ?? 1);
 }
