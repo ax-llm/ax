@@ -37,7 +37,7 @@
     "@opentelemetry/sdk-trace-base": "^2.0.1",
     "@pipedream/sdk": "^1.6.4",
     "@types/ws": "^8.18.1",
-    "google-auth-library": "^9.15.1",
+    "google-auth-library": "^10.7.0",
     "ws": "^8.20.0"
   },
   "bugs": {
