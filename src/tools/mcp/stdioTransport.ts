@@ -2,6 +2,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import readline from 'node:readline';
 
 import type {
+  AxMCPJSONRPCMessage,
   AxMCPJSONRPCNotification,
   AxMCPJSONRPCRequest,
   AxMCPJSONRPCResponse,
@@ -21,6 +22,9 @@ export class AxMCPStdioTransport implements AxMCPTransport {
     string | number,
     (res: AxMCPJSONRPCResponse) => void
   >();
+  private messageHandler?: (
+    message: Readonly<AxMCPJSONRPCMessage>
+  ) => void | Promise<void>;
 
   constructor(config: Readonly<StdioTransportConfig>) {
     this.process = spawn(config.command, config.args ?? [], {
@@ -29,11 +33,21 @@ export class AxMCPStdioTransport implements AxMCPTransport {
     this.rl = readline.createInterface({ input: this.process.stdout });
     this.rl.on('line', (line) => {
       try {
-        const response: AxMCPJSONRPCResponse = JSON.parse(line);
-        const resolver = this.pendingResponses.get(response.id);
+        const message: AxMCPJSONRPCMessage = JSON.parse(line);
+        if ('method' in message) {
+          void this.messageHandler?.(message);
+          return;
+        }
+        const response = message as AxMCPJSONRPCResponse;
+        const resolver =
+          response.id === null
+            ? undefined
+            : this.pendingResponses.get(response.id);
         if (resolver) {
           resolver(response);
-          this.pendingResponses.delete(response.id);
+          if (response.id !== null) this.pendingResponses.delete(response.id);
+        } else {
+          void this.messageHandler?.(message);
         }
       } catch (_error) {
         // Skip non-JSON lines (might be debug output from the MCP server)
@@ -57,6 +71,16 @@ export class AxMCPStdioTransport implements AxMCPTransport {
     message: Readonly<AxMCPJSONRPCNotification>
   ): Promise<void> {
     this.process.stdin.write(`${JSON.stringify(message)}\n`);
+  }
+
+  async sendResponse(message: Readonly<AxMCPJSONRPCResponse>): Promise<void> {
+    this.process.stdin.write(`${JSON.stringify(message)}\n`);
+  }
+
+  setMessageHandler(
+    handler: (message: Readonly<AxMCPJSONRPCMessage>) => void | Promise<void>
+  ): void {
+    this.messageHandler = handler;
   }
 
   async connect(): Promise<void> {

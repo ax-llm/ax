@@ -5,7 +5,7 @@ import {
   agent,
   ai,
 } from '@ax-llm/ax';
-import { AxMCPStreambleHTTPTransport } from '@ax-llm/ax/mcp/transports/httpStreamTransport.js';
+import { AxMCPStreamableHTTPTransport } from '@ax-llm/ax/mcp/transports/httpStreamTransport.js';
 
 /*
 # Notion MCP configuration
@@ -14,7 +14,7 @@ export OPENAI_APIKEY="your_openai_api_key"
 
 async function createNotionAgent() {
   // Initialize the MCP client with a generic OAuth 2.1 flow (per MCP spec)
-  const httpTransport = new AxMCPStreambleHTTPTransport(
+  const httpTransport = new AxMCPStreamableHTTPTransport(
     'https://mcp.notion.com/mcp',
     {
       oauth: {

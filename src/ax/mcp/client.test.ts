@@ -4,6 +4,7 @@ import { AxMCPClient } from './client.js';
 import type { AxMCPTransport } from './transport.js';
 import type {
   AxMCPFunctionDescription,
+  AxMCPJSONRPCMessage,
   AxMCPJSONRPCResponse,
   AxMCPJSONRPCSuccessResponse,
   AxMCPPrompt,
@@ -24,6 +25,10 @@ const createMockTransport = () => {
 // Fake transport for testing
 class FakeTransport {
   sendResponses: Record<string, AxMCPJSONRPCResponse<unknown>> = {};
+  messageHandler?: (
+    message: Readonly<AxMCPJSONRPCMessage>
+  ) => void | Promise<void>;
+  sentResponses: AxMCPJSONRPCResponse[] = [];
   send = (
     request: Readonly<{ method: string; [key: string]: unknown }>
   ): Promise<AxMCPJSONRPCResponse<unknown>> => {
@@ -39,6 +44,17 @@ class FakeTransport {
   );
   connect?(): Promise<void> {
     return Promise.resolve();
+  }
+  sendResponse = vi.fn(
+    (response: Readonly<AxMCPJSONRPCResponse>): Promise<void> => {
+      this.sentResponses.push(response as AxMCPJSONRPCResponse);
+      return Promise.resolve();
+    }
+  );
+  setMessageHandler(
+    handler: (message: Readonly<AxMCPJSONRPCMessage>) => void | Promise<void>
+  ): void {
+    this.messageHandler = handler;
   }
 }
 
@@ -59,7 +75,7 @@ describe('AxMCPClient', () => {
           jsonrpc: '2.0',
           id: request.id,
           result: {
-            protocolVersion: '2024-11-05',
+            protocolVersion: '2025-11-25',
             capabilities: {
               tools: true,
               resources: true,
@@ -144,7 +160,7 @@ describe('AxMCPClient', () => {
       jsonrpc: '2.0',
       id: 'init-id',
       result: {
-        protocolVersion: '2024-11-05',
+        protocolVersion: '2025-11-25',
         capabilities: {
           tools: true,
           resources: true,
@@ -197,6 +213,13 @@ describe('AxMCPClient', () => {
           method: 'initialize',
         })
       );
+      const initializeCall = vi
+        .mocked(mockTransport.send)
+        .mock.calls.find(([request]) => request.method === 'initialize')?.[0];
+      expect(initializeCall?.params).toMatchObject({
+        protocolVersion: '2025-11-25',
+        capabilities: {},
+      });
 
       // Verify tools/list was called
       expect(mockTransport.send).toHaveBeenCalledWith(
@@ -299,7 +322,7 @@ describe('AxMCPClient', () => {
             jsonrpc: '2.0',
             id: request.id,
             result: {
-              protocolVersion: '2024-11-05',
+              protocolVersion: '2025-11-25',
               capabilities: {
                 tools: false,
               },
@@ -380,7 +403,9 @@ describe('AxMCPClient', () => {
           },
         },
       };
-      await expect(client.init()).rejects.toThrow(/Protocol version mismatch/);
+      await expect(client.init()).rejects.toThrow(
+        /Unsupported MCP protocol version/
+      );
     });
 
     it('ping should succeed with empty response', async () => {
@@ -467,6 +492,199 @@ describe('AxMCPClient', () => {
     });
   });
 
+  describe('current protocol features', () => {
+    it('discovers all tool pages', async () => {
+      const pagedTransport = new FakeTransport();
+      pagedTransport.sendResponses.initialize = {
+        jsonrpc: '2.0',
+        id: 'init-id',
+        result: {
+          protocolVersion: '2025-11-25',
+          capabilities: { tools: { listChanged: true } },
+        },
+      };
+
+      let callCount = 0;
+      pagedTransport.send = vi.fn((request) => {
+        if (request.method === 'initialize') {
+          return Promise.resolve(pagedTransport.sendResponses.initialize);
+        }
+        if (request.method === 'tools/list') {
+          callCount++;
+          return Promise.resolve({
+            jsonrpc: '2.0',
+            id: 'tools-id',
+            result:
+              callCount === 1
+                ? {
+                    tools: [
+                      {
+                        name: 'pageOne',
+                        description: 'Page one tool',
+                        inputSchema: { type: 'object' },
+                      },
+                    ],
+                    nextCursor: 'page2',
+                  }
+                : {
+                    tools: [
+                      {
+                        name: 'pageTwo',
+                        description: 'Page two tool',
+                        inputSchema: { type: 'object' },
+                      },
+                    ],
+                  },
+          });
+        }
+        return Promise.resolve({ jsonrpc: '2.0', id: 'default', result: {} });
+      });
+
+      const pagedClient = new AxMCPClient(pagedTransport);
+      await pagedClient.init();
+
+      expect(pagedClient.toFunction().map((fn) => fn.name)).toEqual([
+        'pageOne',
+        'pageTwo',
+      ]);
+    });
+
+    it('formats structured and error tool results for model feedback', async () => {
+      await client.init();
+      transport.sendResponses['tools/call'] = {
+        jsonrpc: '2.0',
+        id: 'tools-call-id',
+        result: {
+          content: [{ type: 'text', text: 'Invalid issue id' }],
+          structuredContent: { code: 'bad_issue_id' },
+          isError: true,
+        },
+      };
+
+      const fn = client.toFunction()[0];
+      const result = await fn?.func({ arg: 'bad' });
+
+      expect(result).toContain('MCP tool error');
+      expect(result).toContain('Invalid issue id');
+      expect(result).toContain('bad_issue_id');
+    });
+
+    it('supports completions and logging APIs when advertised', async () => {
+      const featureTransport = new FakeTransport();
+      featureTransport.sendResponses.initialize = {
+        jsonrpc: '2.0',
+        id: 'init-id',
+        result: {
+          protocolVersion: '2025-11-25',
+          capabilities: {
+            tools: false,
+            completions: {},
+            logging: {},
+          },
+        },
+      };
+      featureTransport.sendResponses['completion/complete'] = {
+        jsonrpc: '2.0',
+        id: 'complete-id',
+        result: {
+          completion: { values: ['abc'], total: 1, hasMore: false },
+        },
+      };
+      featureTransport.sendResponses['logging/setLevel'] = {
+        jsonrpc: '2.0',
+        id: 'logging-id',
+        result: {},
+      };
+
+      const featureClient = new AxMCPClient(featureTransport);
+      await featureClient.init();
+
+      await expect(
+        featureClient.complete(
+          { type: 'ref/prompt', name: 'triage' },
+          { name: 'issue', value: 'a' }
+        )
+      ).resolves.toEqual({
+        completion: { values: ['abc'], total: 1, hasMore: false },
+      });
+      await expect(
+        featureClient.setLoggingLevel('warning')
+      ).resolves.toBeUndefined();
+    });
+
+    it('handles server ping and optional roots/list requests', async () => {
+      const rootsTransport = new FakeTransport();
+      rootsTransport.sendResponses.initialize = {
+        jsonrpc: '2.0',
+        id: 'init-id',
+        result: {
+          protocolVersion: '2025-11-25',
+          capabilities: { tools: false },
+        },
+      };
+
+      const rootsClient = new AxMCPClient(rootsTransport, {
+        roots: [{ uri: 'file:///workspace', name: 'workspace' }],
+      });
+      await rootsClient.init();
+
+      await rootsTransport.messageHandler?.({
+        jsonrpc: '2.0',
+        id: 'ping-1',
+        method: 'ping',
+      });
+      await rootsTransport.messageHandler?.({
+        jsonrpc: '2.0',
+        id: 'roots-1',
+        method: 'roots/list',
+      });
+
+      expect(rootsTransport.sentResponses).toEqual([
+        { jsonrpc: '2.0', id: 'ping-1', result: {} },
+        {
+          jsonrpc: '2.0',
+          id: 'roots-1',
+          result: { roots: [{ uri: 'file:///workspace', name: 'workspace' }] },
+        },
+      ]);
+    });
+
+    it('emits list-change and logging callbacks from notifications', async () => {
+      const notificationTransport = new FakeTransport();
+      notificationTransport.sendResponses.initialize = {
+        jsonrpc: '2.0',
+        id: 'init-id',
+        result: {
+          protocolVersion: '2025-11-25',
+          capabilities: { tools: false },
+        },
+      };
+      const onToolsChanged = vi.fn();
+      const onLoggingMessage = vi.fn();
+      const notificationClient = new AxMCPClient(notificationTransport, {
+        onToolsChanged,
+        onLoggingMessage,
+      });
+
+      await notificationClient.init();
+      await notificationTransport.messageHandler?.({
+        jsonrpc: '2.0',
+        method: 'notifications/tools/list_changed',
+      });
+      await notificationTransport.messageHandler?.({
+        jsonrpc: '2.0',
+        method: 'notifications/message',
+        params: { level: 'warning', data: 'hello' },
+      });
+
+      expect(onToolsChanged).toHaveBeenCalledTimes(1);
+      expect(onLoggingMessage).toHaveBeenCalledWith({
+        level: 'warning',
+        data: 'hello',
+      });
+    });
+  });
+
   describe('prompts', () => {
     let promptsEnabledClient: AxMCPClient;
     let promptsTransport: FakeTransport;
@@ -479,7 +697,7 @@ describe('AxMCPClient', () => {
         jsonrpc: '2.0',
         id: 'init-id',
         result: {
-          protocolVersion: '2024-11-05',
+          protocolVersion: '2025-11-25',
           capabilities: {
             tools: true,
             resources: false,
@@ -779,7 +997,7 @@ describe('AxMCPClient', () => {
         jsonrpc: '2.0',
         id: 'init-id',
         result: {
-          protocolVersion: '2024-11-05',
+          protocolVersion: '2025-11-25',
           capabilities: {
             tools: true,
             resources: true,
@@ -808,7 +1026,7 @@ describe('AxMCPClient', () => {
         jsonrpc: '2.0',
         id: 'init-id',
         result: {
-          protocolVersion: '2024-11-05',
+          protocolVersion: '2025-11-25',
           capabilities: {
             tools: true,
             resources: false,
@@ -1006,7 +1224,7 @@ describe('AxMCPClient', () => {
         jsonrpc: '2.0',
         id: 'init-id',
         result: {
-          protocolVersion: '2024-11-05',
+          protocolVersion: '2025-11-25',
           capabilities: {
             tools: true,
             resources: false,
@@ -1027,10 +1245,10 @@ describe('AxMCPClient', () => {
 
       await expect(
         noResourcesClient.subscribeResource('file:///test')
-      ).rejects.toThrow('Resources are not supported');
+      ).rejects.toThrow('Resource subscriptions are not supported');
       await expect(
         noResourcesClient.unsubscribeResource('file:///test')
-      ).rejects.toThrow('Resources are not supported');
+      ).rejects.toThrow('Resource subscriptions are not supported');
       await expect(
         noResourcesClient.readResource('file:///test')
       ).rejects.toThrow('Resources are not supported');
@@ -1276,7 +1494,7 @@ describe('AxMCPClient', () => {
         jsonrpc: '2.0',
         id: 'init-id',
         result: {
-          protocolVersion: '2024-11-05',
+          protocolVersion: '2025-11-25',
           capabilities: {
             tools: true,
             resources: false,
@@ -1326,7 +1544,7 @@ describe('AxMCPClient', () => {
         jsonrpc: '2.0',
         id: 'init-id',
         result: {
-          protocolVersion: '2024-11-05',
+          protocolVersion: '2025-11-25',
           capabilities: {
             tools: true,
             resources: true,

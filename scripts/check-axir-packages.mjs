@@ -9,8 +9,8 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
-const axirDir = path.join(repoRoot, 'tools', 'axir');
 const rootAxir = path.join(repoRoot, 'ir', 'axcore', 'root.axir');
+const runAxirScript = path.join(scriptDir, 'run-axir.mjs');
 const packagesRoot = path.join(repoRoot, 'packages');
 const targets = ['python', 'java', 'cpp', 'go', 'rust'];
 const cacheRoot = process.env.GOCACHE || path.join(tmpdir(), 'go-build');
@@ -24,10 +24,10 @@ try {
   for (const target of targets) {
     const outDir = path.join(stageRoot, target);
     run(
-      'go',
-      ['run', '.', 'compile', '--target', target, '--out', outDir, rootAxir],
+      process.execPath,
+      [runAxirScript, 'compile', '--target', target, '--out', outDir, rootAxir],
       {
-        cwd: axirDir,
+        cwd: repoRoot,
         env,
       }
     );

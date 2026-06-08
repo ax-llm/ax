@@ -6,7 +6,7 @@ import {
   agent,
   ai as createAI,
 } from '@ax-llm/ax';
-import { AxMCPStreambleHTTPTransport } from '@ax-llm/ax/mcp/transports/httpStreamTransport.js';
+import { AxMCPStreamableHTTPTransport } from '@ax-llm/ax/mcp/transports/httpStreamTransport.js';
 import { createBackendClient } from '@pipedream/sdk/server';
 
 /*
@@ -60,7 +60,7 @@ async function createNotionAgent() {
     await setupPipedreamMCP();
 
   // Initialize the MCP client with Pipedream's streamable HTTP transport
-  const httpTransport = new AxMCPStreambleHTTPTransport(
+  const httpTransport = new AxMCPStreamableHTTPTransport(
     'https://remote.mcp.pipedream.net',
     {
       headers: {

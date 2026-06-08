@@ -1,4 +1,5 @@
 import { fetchJSON, stripTrailingSlash } from '../util/http.js';
+import type { AxMCPSSRFProtectionOptions } from '../util/ssrf.js';
 
 export function parseWWWAuthenticateForResourceMetadata(
   www: string | null
@@ -12,19 +13,23 @@ export function parseWWWAuthenticateForResourceMetadata(
 
 export async function discoverResourceAndAS(
   requestedUrl: string,
-  wwwAuthenticate: string | null
+  wwwAuthenticate: string | null,
+  ssrfProtection?: AxMCPSSRFProtectionOptions
 ): Promise<{ resource: string; issuers: string[] }> {
   const headerUrl = parseWWWAuthenticateForResourceMetadata(wwwAuthenticate);
 
   if (headerUrl) {
-    const rsMeta = await fetchJSON<any>(headerUrl);
-    const expectedResource = stripTrailingSlash(
-      new URL(requestedUrl).toString().split('?')[0]!
-    );
+    const rsMeta = await fetchJSON<any>(headerUrl, undefined, {
+      protection: ssrfProtection,
+      context: 'oauth-resource-metadata',
+    });
     const rsResource = stripTrailingSlash(rsMeta.resource ?? '');
-    if (!rsResource || rsResource !== expectedResource) {
+    if (
+      !rsResource ||
+      !isProtectedResourceForRequest(requestedUrl, rsResource)
+    ) {
       throw new Error(
-        `Protected resource metadata 'resource' mismatch. Expected ${expectedResource} but got ${rsResource}`
+        `Protected resource metadata 'resource' ${rsResource || '<missing>'} does not cover requested URL ${requestedUrl}`
       );
     }
     const issuers: string[] = Array.isArray(rsMeta.authorization_servers)
@@ -35,7 +40,7 @@ export async function discoverResourceAndAS(
         'No authorization_servers advertised by protected resource'
       );
     }
-    return { resource: expectedResource, issuers };
+    return { resource: rsResource, issuers };
   }
 
   // No header param; attempt well-known derivations with and without path component
@@ -56,12 +61,18 @@ export async function discoverResourceAndAS(
   let lastErr: unknown;
   for (const c of candidates) {
     try {
-      const meta = await fetchJSON<any>(c.url);
+      const meta = await fetchJSON<any>(c.url, undefined, {
+        protection: ssrfProtection,
+        context: 'oauth-resource-metadata',
+      });
       const rsResource = stripTrailingSlash(meta.resource ?? '');
       const exp = stripTrailingSlash(c.expected);
-      if (!rsResource || rsResource !== exp) {
+      if (
+        !rsResource ||
+        !isProtectedResourceForRequest(c.expected, rsResource)
+      ) {
         throw new Error(
-          `Protected resource metadata 'resource' mismatch. Expected ${exp} but got ${rsResource}`
+          `Protected resource metadata 'resource' ${rsResource || '<missing>'} does not cover expected URL ${exp}`
         );
       }
       const issuers: string[] = Array.isArray(meta.authorization_servers)
@@ -72,7 +83,7 @@ export async function discoverResourceAndAS(
           'No authorization_servers advertised by protected resource'
         );
       }
-      return { resource: exp, issuers };
+      return { resource: rsResource, issuers };
     } catch (err) {
       lastErr = err;
     }
@@ -82,7 +93,30 @@ export async function discoverResourceAndAS(
   );
 }
 
-export async function discoverASMetadata(issuer: string): Promise<any> {
+function isProtectedResourceForRequest(
+  requestedUrl: string,
+  resource: string
+): boolean {
+  try {
+    const requested = new URL(requestedUrl);
+    const protectedResource = new URL(resource);
+    if (requested.origin !== protectedResource.origin) return false;
+    const resourcePath = protectedResource.pathname.replace(/\/+$/, '');
+    const requestedPath = requested.pathname.replace(/\/+$/, '');
+    if (!resourcePath || resourcePath === '/') return true;
+    return (
+      requestedPath === resourcePath ||
+      requestedPath.startsWith(`${resourcePath}/`)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function discoverASMetadata(
+  issuer: string,
+  ssrfProtection?: AxMCPSSRFProtectionOptions
+): Promise<any> {
   const u = new URL(issuer);
   const path = u.pathname.replace(/^\/+/, '');
   const endpoints: string[] = [];
@@ -102,7 +136,10 @@ export async function discoverASMetadata(issuer: string): Promise<any> {
   let lastErr: unknown;
   for (const e of endpoints) {
     try {
-      const meta = await fetchJSON<any>(e);
+      const meta = await fetchJSON<any>(e, undefined, {
+        protection: ssrfProtection,
+        context: 'oauth-authorization-server-metadata',
+      });
       if (!meta.authorization_endpoint || !meta.token_endpoint) {
         throw new Error('AS metadata missing endpoints');
       }

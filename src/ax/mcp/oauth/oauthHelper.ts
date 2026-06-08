@@ -1,6 +1,10 @@
-import { newCodeChallenge, newCodeVerifier } from './pkce.js';
 import { toQuery } from '../util/http.js';
+import {
+  assertSSRFProtectedURL,
+  fetchWithSSRFProtection,
+} from '../util/ssrf.js';
 import { discoverASMetadata, discoverResourceAndAS } from './discovery.js';
+import { newCodeChallenge, newCodeVerifier } from './pkce.js';
 import type { AxMCPOAuthOptions, TokenSet } from './types.js';
 
 export class OAuthHelper {
@@ -50,7 +54,7 @@ export class OAuthHelper {
 
   private async getASMeta(issuer: string): Promise<any> {
     if (this.asMetaCache.has(issuer)) return this.asMetaCache.get(issuer);
-    const meta = await discoverASMetadata(issuer);
+    const meta = await discoverASMetadata(issuer, this.oauth?.ssrfProtection);
     this.asMetaCache.set(issuer, meta);
     return meta;
   }
@@ -69,7 +73,8 @@ export class OAuthHelper {
 
     const { resource, issuers } = await discoverResourceAndAS(
       options.requestedUrl,
-      options.wwwAuthenticate
+      options.wwwAuthenticate,
+      this.oauth.ssrfProtection
     );
     const issuer = this.oauth.selectAuthorizationServer
       ? await this.oauth.selectAuthorizationServer(issuers, {})
@@ -112,6 +117,10 @@ export class OAuthHelper {
     const state = await newCodeVerifier();
 
     const scopes = this.oauth.scopes?.join(' ');
+    await assertSSRFProtectedURL(asMeta.authorization_endpoint, {
+      context: 'oauth-authorization',
+      ssrfProtection: this.oauth.ssrfProtection,
+    });
     const authUrl = `${asMeta.authorization_endpoint}?${toQuery({
       response_type: 'code',
       client_id: client.client_id,
@@ -166,10 +175,12 @@ export class OAuthHelper {
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
     };
-    const res = await fetch(asMeta.registration_endpoint, {
+    const res = await fetchWithSSRFProtection(asMeta.registration_endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      ssrfProtection: this.oauth?.ssrfProtection,
+      ssrfContext: 'oauth-registration',
     });
     if (!res.ok)
       throw new Error(
@@ -202,10 +213,12 @@ export class OAuthHelper {
     if (args.client.client_secret)
       body.set('client_secret', args.client.client_secret);
 
-    const res = await fetch(args.asMeta.token_endpoint, {
+    const res = await fetchWithSSRFProtection(args.asMeta.token_endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
+      ssrfProtection: this.oauth?.ssrfProtection,
+      ssrfContext: 'oauth-token',
     });
     if (!res.ok)
       throw new Error(`Token exchange failed: ${res.status} ${res.statusText}`);
@@ -240,10 +253,12 @@ export class OAuthHelper {
     if (this.oauth?.clientSecret)
       body.set('client_secret', this.oauth.clientSecret);
 
-    const res = await fetch(asMeta.token_endpoint, {
+    const res = await fetchWithSSRFProtection(asMeta.token_endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
+      ssrfProtection: this.oauth?.ssrfProtection,
+      ssrfContext: 'oauth-token',
     });
     if (!res.ok)
       throw new Error(`Token refresh failed: ${res.status} ${res.statusText}`);

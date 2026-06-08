@@ -7,32 +7,44 @@ import type {
 import { randomUUID } from '../util/crypto.js';
 
 import type { AxMCPTransport } from './transport.js';
-import type {
-  AxMCPBlobResourceContents,
-  AxMCPEmbeddedResource,
-  AxMCPImageContent,
-  AxMCPInitializeParams,
-  AxMCPInitializeResult,
-  AxMCPJSONRPCNotification,
-  AxMCPJSONRPCRequest,
-  AxMCPPrompt,
-  AxMCPPromptGetResult,
-  AxMCPPromptMessage,
-  AxMCPPromptsListResult,
-  AxMCPResource,
-  AxMCPResourceReadResult,
-  AxMCPResourcesListResult,
-  AxMCPResourceTemplate,
-  AxMCPResourceTemplatesListResult,
-  AxMCPTextContent,
-  AxMCPTextResourceContents,
-  AxMCPToolsListResult,
+import {
+  AX_MCP_PROTOCOL_VERSION,
+  AX_MCP_SUPPORTED_PROTOCOL_VERSIONS,
+  type AxMCPBlobResourceContents,
+  type AxMCPClientCapabilities,
+  type AxMCPCompletionArgument,
+  type AxMCPCompletionReference,
+  type AxMCPCompletionRequest,
+  type AxMCPCompletionResult,
+  type AxMCPContent,
+  type AxMCPImplementationInfo,
+  type AxMCPInitializeParams,
+  type AxMCPInitializeResult,
+  type AxMCPJSONRPCMessage,
+  type AxMCPJSONRPCNotification,
+  type AxMCPJSONRPCRequest,
+  type AxMCPListRootsResult,
+  type AxMCPLoggingLevel,
+  type AxMCPPrompt,
+  type AxMCPPromptGetResult,
+  type AxMCPPromptMessage,
+  type AxMCPPromptsListResult,
+  type AxMCPResource,
+  type AxMCPResourceReadResult,
+  type AxMCPResourcesListResult,
+  type AxMCPResourceTemplate,
+  type AxMCPResourceTemplatesListResult,
+  type AxMCPRoot,
+  type AxMCPServerCapabilities,
+  type AxMCPTextResourceContents,
+  type AxMCPTool,
+  type AxMCPToolCallParams,
+  type AxMCPToolCallResult,
+  type AxMCPToolsListResult,
+  axMCPToolInputSchemaToFunctionSchema,
 } from './types.js';
 
-/**
- * Configuration for overriding function properties
- */
-interface FunctionOverride {
+export interface AxMCPFunctionOverride {
   /** Original function name to override */
   name: string;
   /** Updates to apply to the function */
@@ -44,34 +56,44 @@ interface FunctionOverride {
   };
 }
 
-/**
- * Options for the MCP client
- */
-interface AxMCPClientOptions {
+export interface AxMCPClientOptions {
   /** Enable debug logging */
   debug?: boolean;
   /** Logger function for debug output */
   logger?: AxLoggerFunction;
-  /**
-   * List of function overrides
-   * Use this to provide alternative names and descriptions for functions
-   * while preserving their original functionality
-   *
-   * Example:
-   * ```
-   * functionOverrides: [
-   *   {
-   *     name: "original-function-name",
-   *     updates: {
-   *       name: "new-function-name",
-   *       description: "New function description"
-   *     }
-   *   }
-   * ]
-   * ```
-   */
-  functionOverrides?: FunctionOverride[];
+  /** MCP protocol version to request during initialize. Defaults to latest. */
+  protocolVersion?: string;
+  /** Protocol versions this client can accept during negotiation. */
+  supportedProtocolVersions?: readonly string[];
+  /** Client metadata sent in initialize. */
+  clientInfo?: Partial<AxMCPImplementationInfo>;
+  /** Extra client capabilities to advertise. Advertise only implemented ones. */
+  capabilities?: AxMCPClientCapabilities;
+  /** Optional roots support. When set, Ax advertises and answers roots/list. */
+  roots?: readonly AxMCPRoot[];
+  /** List of function overrides for tool/prompt/resource wrappers. */
+  functionOverrides?: AxMCPFunctionOverride[];
+  /** Generic notification callback for all server notifications. */
+  onNotification?: (
+    notification: Readonly<AxMCPJSONRPCNotification>
+  ) => void | Promise<void>;
+  onToolsChanged?: () => void | Promise<void>;
+  onPromptsChanged?: () => void | Promise<void>;
+  onResourcesChanged?: () => void | Promise<void>;
+  onResourceUpdated?: (uri: string) => void | Promise<void>;
+  onLoggingMessage?: (
+    params: Readonly<Record<string, unknown>>
+  ) => void | Promise<void>;
 }
+
+type CapabilityValue =
+  | boolean
+  | Record<string, unknown>
+  | unknown[]
+  | undefined;
+
+const JSON_RPC_METHOD_NOT_FOUND = -32601;
+const JSON_RPC_INTERNAL_ERROR = -32603;
 
 export class AxMCPClient {
   private functions: AxFunction[] = [];
@@ -79,11 +101,10 @@ export class AxMCPClient {
   private resourceFunctions: AxFunction[] = [];
   private activeRequests: Map<string, { reject: (reason: unknown) => void }> =
     new Map();
-  private capabilities: {
-    tools?: boolean;
-    resources?: boolean;
-    prompts?: boolean;
-  } = {};
+  private serverCapabilities: AxMCPServerCapabilities = {};
+  private negotiatedProtocolVersion?: string;
+  private serverInfo?: AxMCPImplementationInfo;
+  private serverInstructions?: string;
   private logger: AxLoggerFunction;
 
   constructor(
@@ -99,97 +120,117 @@ export class AxMCPClient {
           console.log(JSON.stringify(message, null, 2));
         }
       });
+    this.transport.setMessageHandler?.((message) => {
+      void this.handleInboundMessage(message);
+    });
   }
 
   async init(): Promise<void> {
-    if ('connect' in this.transport) {
-      await this.transport.connect?.();
-    }
+    await this.transport.connect?.();
 
+    const protocolVersion =
+      this.options.protocolVersion ?? AX_MCP_PROTOCOL_VERSION;
     const { result: res } = await this.sendRequest<
       AxMCPInitializeParams,
       AxMCPInitializeResult
     >('initialize', {
-      protocolVersion: '2024-11-05',
-      capabilities: {
-        roots: { listChanged: true },
-        sampling: {},
-      },
+      protocolVersion,
+      capabilities: this.buildClientCapabilities(),
       clientInfo: {
         name: 'AxMCPClient',
+        title: 'Ax MCP Client',
         version: '1.0.0',
+        ...this.options.clientInfo,
       },
     });
 
-    const expectedProtocolVersion = '2024-11-05';
-    if (res.protocolVersion !== expectedProtocolVersion) {
+    const supportedVersions =
+      this.options.supportedProtocolVersions ??
+      AX_MCP_SUPPORTED_PROTOCOL_VERSIONS;
+    if (!supportedVersions.includes(res.protocolVersion)) {
       throw new Error(
-        `Protocol version mismatch. Expected ${expectedProtocolVersion} but got ${res.protocolVersion}`
+        `Unsupported MCP protocol version ${res.protocolVersion}. Supported versions: ${supportedVersions.join(', ')}`
       );
     }
 
-    if (res.capabilities.tools) {
-      this.capabilities.tools = true;
-    }
-
-    if (res.capabilities.resources) {
-      this.capabilities.resources = true;
-    }
-
-    if (res.capabilities.prompts) {
-      this.capabilities.prompts = true;
-    }
+    this.negotiatedProtocolVersion = res.protocolVersion;
+    this.transport.setProtocolVersion?.(res.protocolVersion);
+    this.serverCapabilities = res.capabilities ?? {};
+    this.serverInfo = res.serverInfo;
+    this.serverInstructions = res.instructions;
 
     await this.sendNotification('notifications/initialized');
+    await this.refresh();
+  }
 
-    if (this.capabilities.tools) {
+  async refresh(): Promise<void> {
+    this.functions = [];
+    this.promptFunctions = [];
+    this.resourceFunctions = [];
+
+    if (this.hasToolsCapability()) {
       await this.discoverFunctions();
     }
 
-    if (this.capabilities.prompts) {
+    if (this.hasPromptsCapability()) {
       await this.discoverPromptFunctions();
     }
 
-    if (this.capabilities.resources) {
+    if (this.hasResourcesCapability()) {
       await this.discoverResourceFunctions();
     }
   }
 
+  getProtocolVersion(): string | undefined {
+    return this.negotiatedProtocolVersion;
+  }
+
+  getServerInfo(): AxMCPImplementationInfo | undefined {
+    return this.serverInfo;
+  }
+
+  getServerInstructions(): string | undefined {
+    return this.serverInstructions;
+  }
+
+  getServerCapabilities(): AxMCPServerCapabilities {
+    return this.serverCapabilities;
+  }
+
+  private buildClientCapabilities(): AxMCPClientCapabilities {
+    const capabilities: AxMCPClientCapabilities = {
+      ...(this.options.capabilities ?? {}),
+    };
+    if (this.options.roots && !capabilities.roots) {
+      capabilities.roots = { listChanged: true };
+    }
+    return capabilities;
+  }
+
+  private isCapabilityEnabled(capability: CapabilityValue): boolean {
+    return (
+      capability !== undefined && capability !== null && capability !== false
+    );
+  }
+
+  private hasSubCapability(capability: CapabilityValue, name: string): boolean {
+    if (capability === true) return true;
+    if (
+      !capability ||
+      typeof capability !== 'object' ||
+      Array.isArray(capability)
+    )
+      return false;
+    return Boolean((capability as Record<string, unknown>)[name]);
+  }
+
   private async discoverFunctions(): Promise<void> {
-    const { result: res } = await this.sendRequest<
-      undefined,
-      AxMCPToolsListResult
-    >('tools/list');
-
-    this.functions = res.tools.map((fn): AxFunction => {
-      // Check if there's an override for this function
-      const override = this.options.functionOverrides?.find(
-        (o) => o.name === fn.name
-      );
-
-      const parameters = fn.inputSchema.properties
-        ? {
-            properties: fn.inputSchema.properties,
-            required: fn.inputSchema.required ?? [],
-            type: fn.inputSchema.type,
-          }
-        : undefined;
-
-      return {
-        name: override?.updates.name ?? fn.name,
-        description: override?.updates.description ?? fn.description,
-        parameters,
-        func: async (args) => {
-          // Always use original name when calling the function
-          const { result } = await this.sendRequest<{
-            name: string;
-            // eslint-disable-next-line functional/functional-parameters
-            arguments: unknown;
-          }>('tools/call', { name: fn.name, arguments: args });
-          return result;
-        },
-      };
-    });
+    let cursor: string | undefined;
+    do {
+      const result = await this.listTools(cursor);
+      this.functions.push(...result.tools.map((fn) => this.toolToFunction(fn)));
+      cursor = result.nextCursor;
+    } while (cursor);
   }
 
   private async discoverPromptFunctions(): Promise<void> {
@@ -204,7 +245,6 @@ export class AxMCPClient {
   }
 
   private async discoverResourceFunctions(): Promise<void> {
-    // Fetch all resources (handle pagination)
     let cursor: string | undefined;
     do {
       const result = await this.listResources(cursor);
@@ -214,7 +254,6 @@ export class AxMCPClient {
       cursor = result.nextCursor;
     } while (cursor);
 
-    // Also fetch resource templates
     cursor = undefined;
     do {
       const result = await this.listResourceTemplates(cursor);
@@ -223,6 +262,30 @@ export class AxMCPClient {
       }
       cursor = result.nextCursor;
     } while (cursor);
+  }
+
+  private toolToFunction(tool: Readonly<AxMCPTool>): AxFunction {
+    const override = this.options.functionOverrides?.find(
+      (o) => o.name === tool.name
+    );
+
+    const parameters = axMCPToolInputSchemaToFunctionSchema(tool.inputSchema);
+    const returns = tool.outputSchema as AxFunctionJSONSchema | undefined;
+
+    return {
+      name: override?.updates.name ?? tool.name,
+      description:
+        override?.updates.description ??
+        tool.description ??
+        tool.title ??
+        tool.name,
+      parameters,
+      returns,
+      func: async (args) => {
+        const result = await this.callTool(tool.name, args ?? {});
+        return this.formatToolResult(result);
+      },
+    };
   }
 
   private promptToFunction(prompt: Readonly<AxMCPPrompt>): AxFunction {
@@ -238,7 +301,10 @@ export class AxMCPClient {
           properties: Object.fromEntries(
             prompt.arguments.map((arg) => [
               arg.name,
-              { type: 'string', description: arg.description ?? '' },
+              {
+                type: 'string',
+                description: arg.description ?? arg.title ?? '',
+              },
             ])
           ),
           required: prompt.arguments
@@ -252,6 +318,7 @@ export class AxMCPClient {
       description:
         override?.updates.description ??
         prompt.description ??
+        prompt.title ??
         `Get the ${prompt.name} prompt`,
       parameters,
       func: async (args?: Record<string, string>) => {
@@ -272,6 +339,7 @@ export class AxMCPClient {
       description:
         override?.updates.description ??
         resource.description ??
+        resource.title ??
         `Read ${resource.name}`,
       parameters: undefined,
       func: async () => {
@@ -296,6 +364,7 @@ export class AxMCPClient {
       description:
         override?.updates.description ??
         template.description ??
+        template.title ??
         `Read ${template.name}`,
       parameters: params.length
         ? {
@@ -329,16 +398,35 @@ export class AxMCPClient {
       .join('\n\n');
   }
 
-  private extractContent(
-    content: AxMCPTextContent | AxMCPImageContent | AxMCPEmbeddedResource
-  ): string {
+  private extractContent(content: AxMCPContent): string {
     if (content.type === 'text') return content.text;
     if (content.type === 'image') return `[Image: ${content.mimeType}]`;
+    if (content.type === 'audio') return `[Audio: ${content.mimeType}]`;
+    if (content.type === 'resource_link') {
+      return `[Resource: ${content.name ?? content.uri} <${content.uri}>]`;
+    }
     if (content.type === 'resource') {
       const res = content.resource;
       return 'text' in res ? res.text : `[Binary: ${res.uri}]`;
     }
     return '';
+  }
+
+  private formatToolResult(result: Readonly<AxMCPToolCallResult>): string {
+    const parts: string[] = [];
+    const contentText = result.content
+      ?.map((content) => this.extractContent(content))
+      .filter(Boolean)
+      .join('\n');
+    if (contentText) parts.push(contentText);
+    if (result.structuredContent !== undefined) {
+      parts.push(JSON.stringify(result.structuredContent, null, 2));
+    }
+    const body = parts.join('\n\n');
+    if (result.isError) {
+      return `MCP tool error:\n${body || 'The MCP server reported an error.'}`;
+    }
+    return body || '';
   }
 
   private formatResourceContents(
@@ -366,7 +454,7 @@ export class AxMCPClient {
   }
 
   async ping(timeout = 3000): Promise<void> {
-    const pingPromise = this.sendRequest('ping');
+    const pingPromise = this.sendRequest('ping', undefined);
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(
         () => reject(new Error('Ping response timeout exceeded')),
@@ -396,26 +484,71 @@ export class AxMCPClient {
 
   getCapabilities(): { tools: boolean; resources: boolean; prompts: boolean } {
     return {
-      tools: this.capabilities.tools ?? false,
-      resources: this.capabilities.resources ?? false,
-      prompts: this.capabilities.prompts ?? false,
+      tools: this.hasToolsCapability(),
+      resources: this.hasResourcesCapability(),
+      prompts: this.hasPromptsCapability(),
     };
   }
 
   hasToolsCapability(): boolean {
-    return this.capabilities.tools ?? false;
+    return this.isCapabilityEnabled(
+      this.serverCapabilities.tools as CapabilityValue
+    );
   }
 
   hasPromptsCapability(): boolean {
-    return this.capabilities.prompts ?? false;
+    return this.isCapabilityEnabled(
+      this.serverCapabilities.prompts as CapabilityValue
+    );
   }
 
   hasResourcesCapability(): boolean {
-    return this.capabilities.resources ?? false;
+    return this.isCapabilityEnabled(
+      this.serverCapabilities.resources as CapabilityValue
+    );
+  }
+
+  hasCompletionsCapability(): boolean {
+    return this.isCapabilityEnabled(
+      this.serverCapabilities.completions as CapabilityValue
+    );
+  }
+
+  hasLoggingCapability(): boolean {
+    return this.isCapabilityEnabled(
+      this.serverCapabilities.logging as CapabilityValue
+    );
+  }
+
+  async listTools(cursor?: string): Promise<AxMCPToolsListResult> {
+    if (!this.hasToolsCapability()) {
+      throw new Error('Tools are not supported');
+    }
+
+    const params = cursor ? { cursor } : undefined;
+    const { result } = await this.sendRequest<
+      { cursor?: string } | undefined,
+      AxMCPToolsListResult
+    >('tools/list', params);
+
+    return result;
+  }
+
+  async callTool(name: string, args?: unknown): Promise<AxMCPToolCallResult> {
+    if (!this.hasToolsCapability()) {
+      throw new Error('Tools are not supported');
+    }
+
+    const { result } = await this.sendRequest<
+      AxMCPToolCallParams,
+      AxMCPToolCallResult
+    >('tools/call', { name, arguments: args });
+
+    return result;
   }
 
   async listPrompts(cursor?: string): Promise<AxMCPPromptsListResult> {
-    if (!this.capabilities.prompts) {
+    if (!this.hasPromptsCapability()) {
       throw new Error('Prompts are not supported');
     }
 
@@ -432,7 +565,7 @@ export class AxMCPClient {
     name: string,
     args?: Record<string, string>
   ): Promise<AxMCPPromptGetResult> {
-    if (!this.capabilities.prompts) {
+    if (!this.hasPromptsCapability()) {
       throw new Error('Prompts are not supported');
     }
 
@@ -445,7 +578,7 @@ export class AxMCPClient {
   }
 
   async listResources(cursor?: string): Promise<AxMCPResourcesListResult> {
-    if (!this.capabilities.resources) {
+    if (!this.hasResourcesCapability()) {
       throw new Error('Resources are not supported');
     }
 
@@ -461,7 +594,7 @@ export class AxMCPClient {
   async listResourceTemplates(
     cursor?: string
   ): Promise<AxMCPResourceTemplatesListResult> {
-    if (!this.capabilities.resources) {
+    if (!this.hasResourcesCapability()) {
       throw new Error('Resources are not supported');
     }
 
@@ -475,7 +608,7 @@ export class AxMCPClient {
   }
 
   async readResource(uri: string): Promise<AxMCPResourceReadResult> {
-    if (!this.capabilities.resources) {
+    if (!this.hasResourcesCapability()) {
       throw new Error('Resources are not supported');
     }
 
@@ -488,19 +621,51 @@ export class AxMCPClient {
   }
 
   async subscribeResource(uri: string): Promise<void> {
-    if (!this.capabilities.resources) {
-      throw new Error('Resources are not supported');
+    if (
+      !this.hasResourcesCapability() ||
+      !this.hasSubCapability(this.serverCapabilities.resources, 'subscribe')
+    ) {
+      throw new Error('Resource subscriptions are not supported');
     }
 
     await this.sendRequest<{ uri: string }>('resources/subscribe', { uri });
   }
 
   async unsubscribeResource(uri: string): Promise<void> {
-    if (!this.capabilities.resources) {
-      throw new Error('Resources are not supported');
+    if (
+      !this.hasResourcesCapability() ||
+      !this.hasSubCapability(this.serverCapabilities.resources, 'subscribe')
+    ) {
+      throw new Error('Resource subscriptions are not supported');
     }
 
     await this.sendRequest<{ uri: string }>('resources/unsubscribe', { uri });
+  }
+
+  async complete(
+    ref: AxMCPCompletionReference,
+    argument: AxMCPCompletionArgument,
+    context?: AxMCPCompletionRequest['context']
+  ): Promise<AxMCPCompletionResult> {
+    if (!this.hasCompletionsCapability()) {
+      throw new Error('Completions are not supported');
+    }
+
+    const { result } = await this.sendRequest<
+      AxMCPCompletionRequest,
+      AxMCPCompletionResult
+    >('completion/complete', { ref, argument, context });
+
+    return result;
+  }
+
+  async setLoggingLevel(level: AxMCPLoggingLevel): Promise<void> {
+    if (!this.hasLoggingCapability()) {
+      throw new Error('Logging is not supported');
+    }
+    await this.sendRequest<{ level: AxMCPLoggingLevel }>('logging/setLevel', {
+      level,
+    });
   }
 
   cancelRequest(id: string): void {
@@ -517,16 +682,96 @@ export class AxMCPClient {
     }
   }
 
+  private async handleInboundMessage(
+    message: Readonly<AxMCPJSONRPCMessage>
+  ): Promise<void> {
+    if ('method' in message && 'id' in message) {
+      await this.handleServerRequest(message);
+      return;
+    }
+    if ('method' in message) {
+      await this.handleServerNotification(message);
+    }
+  }
+
+  private async handleServerRequest(
+    request: Readonly<AxMCPJSONRPCRequest>
+  ): Promise<void> {
+    const sendResponse = this.transport.sendResponse?.bind(this.transport);
+    if (!sendResponse) return;
+
+    try {
+      if (request.method === 'ping') {
+        await sendResponse({ jsonrpc: '2.0', id: request.id, result: {} });
+        return;
+      }
+      if (request.method === 'roots/list' && this.options.roots) {
+        const result: AxMCPListRootsResult = {
+          roots: [...this.options.roots],
+        };
+        await sendResponse({ jsonrpc: '2.0', id: request.id, result });
+        return;
+      }
+      await sendResponse({
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: JSON_RPC_METHOD_NOT_FOUND,
+          message: `Unsupported server request: ${request.method}`,
+        },
+      });
+    } catch (error) {
+      await sendResponse({
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: JSON_RPC_INTERNAL_ERROR,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async handleServerNotification(
+    notification: Readonly<AxMCPJSONRPCNotification>
+  ): Promise<void> {
+    await this.options.onNotification?.(notification);
+    switch (notification.method) {
+      case 'notifications/tools/list_changed':
+        await this.options.onToolsChanged?.();
+        break;
+      case 'notifications/prompts/list_changed':
+        await this.options.onPromptsChanged?.();
+        break;
+      case 'notifications/resources/list_changed':
+        await this.options.onResourcesChanged?.();
+        break;
+      case 'notifications/resources/updated': {
+        const uri =
+          notification.params &&
+          typeof notification.params === 'object' &&
+          'uri' in notification.params
+            ? String((notification.params as { uri: unknown }).uri)
+            : undefined;
+        if (uri) await this.options.onResourceUpdated?.(uri);
+        break;
+      }
+      case 'notifications/message':
+        await this.options.onLoggingMessage?.(notification.params ?? {});
+        break;
+    }
+  }
+
   private async sendRequest<T = unknown, R = unknown>(
     method: string,
-    params: T = {} as T
+    params?: T
   ): Promise<{ id: string; result: R }> {
     const requestId = randomUUID();
     const request: AxMCPJSONRPCRequest<T> = {
       jsonrpc: '2.0',
       id: requestId,
       method,
-      params,
+      ...(params === undefined ? {} : { params }),
     };
 
     const responsePromise = new Promise<{ result: R }>((resolve, reject) => {
@@ -566,12 +811,12 @@ export class AxMCPClient {
 
   private async sendNotification(
     method: string,
-    params: Record<string, unknown> = {}
+    params?: Record<string, unknown>
   ): Promise<void> {
     const notification: AxMCPJSONRPCNotification = {
       jsonrpc: '2.0',
       method,
-      params,
+      ...(params === undefined ? {} : { params }),
     };
 
     const { debug } = this.options;

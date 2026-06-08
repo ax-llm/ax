@@ -1,8 +1,22 @@
+import {
+  type AxMCPSSRFProtectionContext,
+  type AxMCPSSRFProtectionOptions,
+  fetchWithSSRFProtection,
+} from './ssrf.js';
+
 export async function fetchJSON<T>(
   url: string,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  ssrf?: Readonly<{
+    protection?: AxMCPSSRFProtectionOptions;
+    context?: AxMCPSSRFProtectionContext;
+  }>
 ): Promise<T> {
-  const res = await fetch(url, { headers });
+  const res = await fetchWithSSRFProtection(url, {
+    headers,
+    ssrfProtection: ssrf?.protection,
+    ssrfContext: ssrf?.context,
+  });
   if (!res.ok)
     throw new Error(`HTTP ${res.status} fetching ${url}: ${res.statusText}`);
   return (await res.json()) as T;

@@ -62,8 +62,8 @@ language backends.
 ## AxIR Backlog For Portable TS Changes
 
 If a PR changes portable TypeScript behavior under `src/ax/ai/`, `src/ax/dsp/`,
-`src/ax/agent/`, or `src/ax/flow/`, either update AxIR/conformance in the same
-PR or add a backlog entry:
+`src/ax/agent/`, `src/ax/flow/`, or `src/ax/mcp/`, either update
+AxIR/conformance in the same PR or add a backlog entry:
 
 ```bash
 npm run axir:backlog -- add --title "..." --surface axai --impact "..." --paths src/ax/ai/...

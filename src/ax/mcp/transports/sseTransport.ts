@@ -1,11 +1,13 @@
+import { OAuthHelper } from '../oauth/oauthHelper.js';
 import type { AxMCPTransport } from '../transport.js';
 import type {
+  AxMCPJSONRPCMessage,
   AxMCPJSONRPCNotification,
   AxMCPJSONRPCRequest,
   AxMCPJSONRPCResponse,
 } from '../types.js';
+import { fetchWithSSRFProtection } from '../util/ssrf.js';
 import type { AxMCPStreamableHTTPTransportOptions } from './options.js';
-import { OAuthHelper } from '../oauth/oauthHelper.js';
 
 export class AxMCPHTTPSSETransport implements AxMCPTransport {
   private endpoint: string | null = null;
@@ -13,8 +15,6 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
   private eventSource?: EventSource;
   private customHeaders: Record<string, string> = {};
   private oauthHelper: OAuthHelper;
-  private currentToken?: AxMCPJSONRPCResponse<unknown> | null;
-  private currentIssuer?: string;
   private sseAbort?: AbortController;
   private pendingRequests = new Map<
     string | number,
@@ -24,20 +24,40 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
     }
   >();
   private messageHandler?: (
-    message: AxMCPJSONRPCRequest<unknown> | AxMCPJSONRPCNotification
-  ) => void;
+    message: Readonly<AxMCPJSONRPCMessage>
+  ) => void | Promise<void>;
   private endpointReady?: { resolve: () => void; promise: Promise<void> };
 
-  constructor(sseUrl: string, options?: AxMCPStreamableHTTPTransportOptions) {
+  constructor(
+    sseUrl: string,
+    private readonly options: Readonly<AxMCPStreamableHTTPTransportOptions> = {}
+  ) {
     this.sseUrl = sseUrl;
-    this.customHeaders = { ...(options?.headers ?? {}) };
-    if (options?.authorization)
+    this.customHeaders = { ...(options.headers ?? {}) };
+    if (options.authorization)
       this.customHeaders.Authorization = options.authorization;
-    this.oauthHelper = new OAuthHelper(options?.oauth);
+    this.oauthHelper = new OAuthHelper(options.oauth);
   }
 
   private buildHeaders(base: Record<string, string>): Record<string, string> {
     return { ...this.customHeaders, ...base };
+  }
+
+  private async fetchEndpoint(
+    url: string,
+    init: RequestInit
+  ): Promise<Response> {
+    return fetchWithSSRFProtection(url, {
+      ...init,
+      ssrfProtection: this.options.ssrfProtection,
+      ssrfContext: 'mcp-endpoint',
+    });
+  }
+
+  setMessageHandler(
+    handler: (message: Readonly<AxMCPJSONRPCMessage>) => void | Promise<void>
+  ): void {
+    this.messageHandler = handler;
   }
 
   private async openSSEWithFetch(
@@ -45,7 +65,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
   ): Promise<void> {
     const ac = new AbortController();
     this.sseAbort = ac;
-    const res = await fetch(this.sseUrl, {
+    const res = await this.fetchEndpoint(this.sseUrl, {
       method: 'GET',
       headers,
       signal: ac.signal,
@@ -134,10 +154,10 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
                   entry.resolve(msg as AxMCPJSONRPCResponse<unknown>);
                   this.pendingRequests.delete(id);
                 } else if (this.messageHandler) {
-                  this.messageHandler(msg);
+                  void this.messageHandler(msg);
                 }
               } else if (this.messageHandler) {
-                this.messageHandler(msg);
+                void this.messageHandler(msg);
               }
             } catch {
               // ignore non-JSON lines
@@ -174,7 +194,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
       }
     );
 
-    let res = await fetch(this.endpoint, {
+    let res = await this.fetchEndpoint(this.endpoint, {
       method: 'POST',
       headers: baseHeaders,
       body,
@@ -189,7 +209,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
       });
       if (!ensured) throw new Error(`HTTP 401: Unauthorized`);
       this.customHeaders.Authorization = `Bearer ${ensured.token.accessToken}`;
-      res = await fetch(this.endpoint, {
+      res = await this.fetchEndpoint(this.endpoint, {
         method: 'POST',
         headers: this.buildHeaders({ 'Content-Type': 'application/json' }),
         body,
@@ -224,7 +244,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
     });
     const body = JSON.stringify(message);
 
-    let res = await fetch(this.endpoint, {
+    let res = await this.fetchEndpoint(this.endpoint, {
       method: 'POST',
       headers: baseHeaders,
       body,
@@ -239,7 +259,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
       });
       if (!ensured) throw new Error(`HTTP 401: Unauthorized`);
       this.customHeaders.Authorization = `Bearer ${ensured.token.accessToken}`;
-      res = await fetch(this.endpoint, {
+      res = await this.fetchEndpoint(this.endpoint, {
         method: 'POST',
         headers: this.buildHeaders({ 'Content-Type': 'application/json' }),
         body,
@@ -249,6 +269,37 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
     if (!res.ok) throw new Error(`HTTP error ${res.status}: ${res.statusText}`);
     if (res.status !== 202)
       console.warn(`Unexpected status for notification: ${res.status}`);
+  }
+
+  async sendResponse(message: Readonly<AxMCPJSONRPCResponse>): Promise<void> {
+    if (!this.endpoint)
+      throw new Error(
+        'HTTPTransport endpoint is not initialized. Call connect() first.'
+      );
+
+    let res = await this.fetchEndpoint(this.endpoint, {
+      method: 'POST',
+      headers: this.buildHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(message),
+    });
+
+    if (res.status === 401) {
+      const www = res.headers.get('WWW-Authenticate');
+      const ensured = await this.oauthHelper.ensureAccessToken({
+        requestedUrl: this.sseUrl,
+        wwwAuthenticate: www,
+        currentToken: null,
+      });
+      if (!ensured) throw new Error(`HTTP 401: Unauthorized`);
+      this.customHeaders.Authorization = `Bearer ${ensured.token.accessToken}`;
+      res = await this.fetchEndpoint(this.endpoint, {
+        method: 'POST',
+        headers: this.buildHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(message),
+      });
+    }
+
+    if (!res.ok) throw new Error(`HTTP error ${res.status}: ${res.statusText}`);
   }
 
   close(): void {
