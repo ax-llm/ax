@@ -80,4 +80,33 @@ describe('Postbuild Script', () => {
     expect(generatedPackageJson.devDependencies).toBeUndefined();
     expect(generatedPackageJson.scripts).toBeUndefined();
   });
+
+  it('should omit the global bundle export when no global bundle exists', async () => {
+    const postbuildPath = path.join(__dirname, 'postbuild.js');
+    const { execSync } = await import('node:child_process');
+
+    execSync(`node ${postbuildPath}`, { cwd: testDir });
+
+    const generatedPackageJson = JSON.parse(
+      readFileSync(path.join(testDir, 'dist', 'package.json'), 'utf8')
+    );
+
+    expect(generatedPackageJson.exports['./index.global.js']).toBeUndefined();
+  });
+
+  it('should keep the global bundle export when the global bundle exists', async () => {
+    const postbuildPath = path.join(__dirname, 'postbuild.js');
+    const { execSync } = await import('node:child_process');
+
+    writeFileSync(path.join(testDir, 'dist', 'index.global.js'), '');
+    execSync(`node ${postbuildPath}`, { cwd: testDir });
+
+    const generatedPackageJson = JSON.parse(
+      readFileSync(path.join(testDir, 'dist', 'package.json'), 'utf8')
+    );
+
+    expect(generatedPackageJson.exports['./index.global.js']).toBe(
+      './index.global.js'
+    );
+  });
 });
