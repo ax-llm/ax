@@ -589,6 +589,157 @@ describe('AxPromptTemplate.render', () => {
     });
   });
 
+  describe('Image field handling', () => {
+    it('should render image field with data (base64)', () => {
+      const sig = new AxSignature('imageInput:image -> responseText:string');
+      const pt = new AxPromptTemplate(sig);
+
+      const result = pt.render(
+        {
+          imageInput: {
+            mimeType: 'image/png',
+            data: 'base64data',
+          },
+        },
+        {}
+      );
+
+      expect(result).toHaveLength(2); // system + user message
+
+      const userMessage = result.find((m) => m.role === 'user');
+      expect(userMessage).toBeDefined();
+      expect(userMessage!.content).toHaveLength(2);
+      expect(userMessage!.content[0]).toEqual({
+        type: 'text',
+        text: 'Image Input: \n',
+      });
+      expect(userMessage!.content[1]).toEqual({
+        type: 'image',
+        mimeType: 'image/png',
+        image: 'base64data',
+      });
+    });
+
+    it('should render image field with fileUri (URL)', () => {
+      const sig = new AxSignature('imageInput:image -> responseText:string');
+      const pt = new AxPromptTemplate(sig);
+
+      const result = pt.render(
+        {
+          imageInput: {
+            mimeType: 'image/png',
+            fileUri: 'https://example.com/cat.png',
+          },
+        },
+        {}
+      );
+
+      expect(result).toHaveLength(2); // system + user message
+
+      const userMessage = result.find((m) => m.role === 'user');
+      expect(userMessage).toBeDefined();
+      expect(userMessage!.content).toHaveLength(2);
+      expect(userMessage!.content[0]).toEqual({
+        type: 'text',
+        text: 'Image Input: \n',
+      });
+      expect(userMessage!.content[1]).toEqual({
+        type: 'image',
+        mimeType: 'image/png',
+        fileUri: 'https://example.com/cat.png',
+      });
+    });
+
+    it('should render array of images with mixed formats', () => {
+      const sig = new AxSignature('imageInputs:image[] -> responseText:string');
+      const pt = new AxPromptTemplate(sig);
+
+      const result = pt.render(
+        {
+          imageInputs: [
+            {
+              mimeType: 'image/png',
+              data: 'base64data1',
+            },
+            {
+              mimeType: 'image/jpeg',
+              fileUri: 'https://example.com/dog.jpg',
+            },
+          ],
+        },
+        {}
+      );
+
+      expect(result).toHaveLength(2); // system + user message
+
+      const userMessage = result.find((m) => m.role === 'user');
+      expect(userMessage).toBeDefined();
+      expect(userMessage!.content).toHaveLength(3);
+
+      expect(userMessage!.content[0]).toEqual({
+        type: 'text',
+        text: 'Image Inputs: \n',
+      });
+
+      // First image with data
+      expect(userMessage!.content[1]).toEqual({
+        type: 'image',
+        mimeType: 'image/png',
+        image: 'base64data1',
+      });
+
+      // Second image with fileUri
+      expect(userMessage!.content[2]).toEqual({
+        type: 'image',
+        mimeType: 'image/jpeg',
+        fileUri: 'https://example.com/dog.jpg',
+      });
+    });
+
+    it('should validate image field requirements', () => {
+      const sig = new AxSignature('imageInput:image -> responseText:string');
+      const pt = new AxPromptTemplate(sig);
+
+      // Missing mimeType
+      expect(() =>
+        pt.render(
+          {
+            imageInput: {
+              data: 'base64data',
+            },
+          },
+          {}
+        )
+      ).toThrow(/mimeType.*data.*fileUri/);
+
+      // Missing both data and fileUri
+      expect(() =>
+        pt.render(
+          {
+            imageInput: {
+              mimeType: 'image/png',
+            },
+          },
+          {}
+        )
+      ).toThrow(/mimeType.*data.*fileUri/);
+
+      // Both data and fileUri present
+      expect(() =>
+        pt.render(
+          {
+            imageInput: {
+              mimeType: 'image/png',
+              data: 'base64data',
+              fileUri: 'https://example.com/cat.png',
+            },
+          },
+          {}
+        )
+      ).toThrow(/mimeType.*data.*fileUri/);
+    });
+  });
+
   describe('Examples as alternating message pairs (new default behavior)', () => {
     it('should render multiple examples as alternating user/assistant pairs', () => {
       const signature = AxSignature.from(

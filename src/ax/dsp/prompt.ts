@@ -1002,7 +1002,9 @@ export class AxPromptTemplate {
     if (field.type?.name === 'image') {
       const validateImage = (
         value: Readonly<AxFieldValue>
-      ): { mimeType: string; data: string } => {
+      ):
+        | { mimeType: string; data: string }
+        | { mimeType: string; fileUri: string } => {
         if (!value) {
           throw new Error('Image field value is required.');
         }
@@ -1013,10 +1015,36 @@ export class AxPromptTemplate {
         if (!('mimeType' in value)) {
           throw new Error('Image field must have mimeType');
         }
-        if (!('data' in value)) {
-          throw new Error('Image field must have data');
+
+        // Support both data and fileUri formats
+        const hasData = 'data' in value;
+        const hasFileUri = 'fileUri' in value;
+
+        if (!hasData && !hasFileUri) {
+          throw new Error('Image field must have either data or fileUri');
         }
-        return value as { mimeType: string; data: string };
+        if (hasData && hasFileUri) {
+          throw new Error('Image field cannot have both data and fileUri');
+        }
+
+        return value as
+          | { mimeType: string; data: string }
+          | { mimeType: string; fileUri: string };
+      };
+
+      const toImagePart = (value: Readonly<AxFieldValue>) => {
+        const validated = validateImage(value);
+        return 'fileUri' in validated
+          ? {
+              type: 'image' as const,
+              mimeType: validated.mimeType,
+              fileUri: validated.fileUri,
+            }
+          : {
+              type: 'image' as const,
+              mimeType: validated.mimeType,
+              image: validated.data,
+            };
       };
 
       let result: ChatRequestUserMessage = [
@@ -1028,23 +1056,10 @@ export class AxPromptTemplate {
           throw new Error('Image field value must be an array.');
         }
         result = result.concat(
-          (value as unknown[]).map((v) => {
-            // Cast to unknown[] before map
-            const validated = validateImage(v as AxFieldValue);
-            return {
-              type: 'image',
-              mimeType: validated.mimeType,
-              image: validated.data,
-            };
-          })
+          (value as unknown[]).map((v) => toImagePart(v as AxFieldValue))
         );
       } else {
-        const validated = validateImage(value);
-        result.push({
-          type: 'image',
-          mimeType: validated.mimeType,
-          image: validated.data,
-        });
+        result.push(toImagePart(value));
       }
       return result;
     }
