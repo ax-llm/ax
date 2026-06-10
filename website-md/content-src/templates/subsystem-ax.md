@@ -12,6 +12,17 @@ Generation owns prompt construction, parsing, validation, retries, tools, stream
 
 `ax()` turns a signature into a runnable program. The program receives typed inputs, sends a provider request, parses structured outputs, validates fields, retries on parse or assertion failures, records traces/usage, and can call tools across multiple steps.
 
+```mermaid
+flowchart LR
+  A["Signature"] --> B["Prompt render"]
+  B --> C["Provider call"]
+  C --> D["Streaming parse"]
+  D --> E["Validate + assert"]
+  E -->|pass| F["Typed output"]
+  E -->|fail| G["Correction feedback"]
+  G --> C
+```
+
 ## Core Call Shape
 
 ```text

@@ -1,0 +1,4 @@
+{{- $css := readFile "static/css/site.css" -}}
+{{- $js := readFile "static/js/site.js" -}}
+{{- $mermaid := readFile "static/js/mermaid-init.js" -}}
+{{- substr (md5 (print $css $js $mermaid)) 0 10 -}}

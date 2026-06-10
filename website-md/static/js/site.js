@@ -62,7 +62,9 @@ for (const select of document.querySelectorAll('[data-language-switcher]')) {
   });
 }
 
-for (const menu of document.querySelectorAll('[data-language-menu]')) {
+for (const menu of document.querySelectorAll(
+  '[data-language-menu], [data-site-menu]'
+)) {
   for (const link of menu.querySelectorAll('a')) {
     link.addEventListener('click', () => {
       menu.open = false;
@@ -71,7 +73,9 @@ for (const menu of document.querySelectorAll('[data-language-menu]')) {
 }
 
 document.addEventListener('click', (event) => {
-  for (const menu of document.querySelectorAll('[data-language-menu]')) {
+  for (const menu of document.querySelectorAll(
+    '[data-language-menu], [data-site-menu]'
+  )) {
     if (!menu.contains(event.target)) {
       menu.open = false;
     }
@@ -80,7 +84,9 @@ document.addEventListener('click', (event) => {
 
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
-  for (const menu of document.querySelectorAll('[data-language-menu]')) {
+  for (const menu of document.querySelectorAll(
+    '[data-language-menu], [data-site-menu]'
+  )) {
     menu.open = false;
   }
 });
@@ -154,12 +160,6 @@ function selectCodeText(code) {
   range.selectNodeContents(code);
   selection?.removeAllRanges();
   selection?.addRange(range);
-}
-
-for (const line of document.querySelectorAll('.chroma .line')) {
-  if (!line.textContent?.trim()) {
-    line.classList.add('code-line-blank');
-  }
 }
 
 for (const button of document.querySelectorAll('[data-copy-code]')) {
@@ -494,12 +494,14 @@ const kindLabels = {
 const SEARCH_VARIANT_LIMIT = 6;
 const SEARCH_RESULT_POOL_LIMIT = 18;
 const SEARCH_RESULT_DISPLAY_LIMIT = 9;
+const SEARCH_ANCHOR_DISPLAY_LIMIT = 3;
 let pagefindModule;
 let searchTimer;
 let searchScope = 'language';
 let searchRequestID = 0;
 let activeSearchIndex = -1;
 let activeSearchItems = [];
+let searchView;
 
 function escapeHTML(value) {
   return String(value ?? '')
@@ -671,6 +673,7 @@ function hideSearchResults() {
   searchResults.hidden = true;
   activeSearchIndex = -1;
   activeSearchItems = [];
+  searchView = undefined;
   setSearchExpanded(false);
 }
 
@@ -705,6 +708,17 @@ async function loadPagefind() {
   });
   return pagefindModule;
 }
+
+let searchWarm;
+function warmSearch() {
+  searchWarm ??= loadPagefind()
+    .then((pagefind) => pagefind.init?.())
+    .catch(() => {
+      searchWarm = undefined;
+    });
+}
+searchRoot?.addEventListener('pointerenter', warmSearch);
+searchInput?.addEventListener('keydown', warmSearch);
 
 function cleanResultURL(url, { keepHash = true } = {}) {
   try {
@@ -930,7 +944,7 @@ async function loadSearchItems(rawResults, query, requestID, context) {
   );
   if (requestID !== searchRequestID) return [];
 
-  const bestByPage = new Map();
+  const groupsByPage = new Map();
   for (const loadedResult of loaded) {
     if (loadedResult.status !== 'fulfilled') continue;
     const { item, data } = loadedResult.value;
@@ -947,16 +961,51 @@ async function loadSearchItems(rawResults, query, requestID, context) {
         context
       );
       const key = pageKey(candidate.url);
-      const previous = bestByPage.get(key);
-      if (!previous || score > previous.score) {
-        bestByPage.set(key, { ...candidate, score });
+      let group = groupsByPage.get(key);
+      if (!group) {
+        group = {
+          score: Number.NEGATIVE_INFINITY,
+          page: undefined,
+          anchors: new Map(),
+        };
+        groupsByPage.set(key, group);
+      }
+      group.score = Math.max(group.score, score);
+      if (candidate.isSubResult) {
+        const anchorKey = cleanResultURL(candidate.url);
+        const previous = group.anchors.get(anchorKey);
+        if (!previous || score > previous.score) {
+          group.anchors.set(anchorKey, { ...candidate, score });
+        }
+      } else if (!group.page || score > group.page.score) {
+        group.page = { ...candidate, score };
       }
     }
   }
 
-  return [...bestByPage.values()]
+  return [...groupsByPage.values()]
+    .map((group) => {
+      const anchors = [...group.anchors.values()]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, SEARCH_ANCHOR_DISPLAY_LIMIT);
+      const page = group.page ?? {
+        ...anchors[0],
+        url: pageKey(anchors[0].url),
+        title: anchors[0].pageTitle,
+      };
+      const best = [page, ...anchors].reduce((a, b) =>
+        b.score > a.score ? b : a
+      );
+      return {
+        page,
+        anchors,
+        score: group.score,
+        excerpt: best.excerpt,
+        plainExcerpt: best.plainExcerpt,
+      };
+    })
     .sort((a, b) => b.score - a.score)
-    .slice(0, SEARCH_RESULT_DISPLAY_LIMIT);
+    .slice(0, SEARCH_RESULT_POOL_LIMIT);
 }
 
 function resultPath(item) {
@@ -979,10 +1028,9 @@ function renderResultItem(item, index) {
   const excerpt = item.excerpt
     ? sanitizePagefindHTML(item.excerpt)
     : escapeHTML(item.plainExcerpt || item.meta?.description || '');
-  const activeClass = index === activeSearchIndex ? ' active' : '';
 
   return `
-    <a id="site-search-result-${index}" class="search-result${activeClass}" role="option" aria-selected="${index === activeSearchIndex}" href="${url}" data-search-result-index="${index}">
+    <a id="site-search-result-${index}" class="search-result" role="option" aria-selected="false" href="${url}" data-search-result-index="${index}">
       <span class="search-result-main">
         <span class="search-result-title">${title}</span>
         <span class="search-result-badges">
@@ -1017,21 +1065,71 @@ function updateActiveSearchItem(nextIndex) {
   document.getElementById(activeID)?.scrollIntoView({ block: 'nearest' });
 }
 
-function renderSearchResults(items, query, context) {
+function renderAnchorItem(anchor, index) {
+  return `
+    <a id="site-search-result-${index}" class="search-result-anchor" role="option" aria-selected="false" href="${escapeHTML(anchor.url)}" data-search-result-index="${index}">
+      <span class="search-result-anchor-hash" aria-hidden="true">#</span>
+      <span class="search-result-anchor-title">${escapeHTML(anchor.title)}</span>
+    </a>
+  `;
+}
+
+function renderSearchResults(view, { restoreIndex = 0 } = {}) {
   if (!searchResults) return;
-  activeSearchItems = items;
-  activeSearchIndex = items.length ? 0 : -1;
+  const { groups, query, context, expanded } = view;
+  const visible = expanded
+    ? groups
+    : groups.slice(0, SEARCH_RESULT_DISPLAY_LIMIT);
+  const hiddenCount = groups.length - visible.length;
+
+  const entries = [];
+  const chunks = [];
+  for (const group of visible) {
+    const pageIndex = entries.length;
+    entries.push({ type: 'page', url: group.page.url });
+    const anchorHTML = group.anchors
+      .map((anchor) => {
+        const index = entries.length;
+        entries.push({ type: 'anchor', url: anchor.url });
+        return renderAnchorItem(anchor, index);
+      })
+      .join('');
+    chunks.push(`
+      <div class="search-result-group" role="group" aria-label="${escapeHTML(group.page.title)}">
+        ${renderResultItem(
+          {
+            ...group.page,
+            excerpt: group.excerpt,
+            plainExcerpt: group.plainExcerpt,
+          },
+          pageIndex
+        )}
+        ${anchorHTML}
+      </div>
+    `);
+  }
+  if (hiddenCount > 0) {
+    const index = entries.length;
+    entries.push({ type: 'more' });
+    chunks.push(
+      `<button type="button" id="site-search-result-${index}" class="search-more" role="option" aria-selected="false" data-search-more data-search-result-index="${index}">Show ${hiddenCount} more result${hiddenCount === 1 ? '' : 's'}</button>`
+    );
+  }
+
+  activeSearchItems = entries;
   searchResults.hidden = false;
   searchResults.innerHTML = `
-    <div class="search-results-summary">
-      <span>${items.length} result${items.length === 1 ? '' : 's'} for <strong>${escapeHTML(query)}</strong></span>
+    <div class="search-results-summary" role="presentation">
+      <span>${groups.length} page${groups.length === 1 ? '' : 's'} for <strong>${escapeHTML(query)}</strong></span>
       <span>${escapeHTML(context.scopeLabel)}</span>
     </div>
-    ${items.map((item, index) => renderResultItem(item, index)).join('')}
+    ${chunks.join('')}
   `;
   setSearchExpanded(true);
-  if (items.length) {
-    searchInput?.setAttribute('aria-activedescendant', 'site-search-result-0');
+  if (entries.length) {
+    updateActiveSearchItem(Math.min(restoreIndex, entries.length - 1));
+  } else {
+    activeSearchIndex = -1;
   }
 
   for (const result of searchResults.querySelectorAll(
@@ -1041,6 +1139,17 @@ function renderSearchResults(items, query, context) {
       updateActiveSearchItem(Number(result.dataset.searchResultIndex));
     });
   }
+  searchResults
+    .querySelector('[data-search-more]')
+    ?.addEventListener('click', expandSearchResults);
+}
+
+function expandSearchResults() {
+  if (!searchView || searchView.expanded) return;
+  const restoreIndex = activeSearchIndex;
+  searchView.expanded = true;
+  renderSearchResults(searchView, { restoreIndex });
+  searchInput?.focus();
 }
 
 async function renderSearch(query) {
@@ -1081,7 +1190,13 @@ async function renderSearch(query) {
       return;
     }
 
-    renderSearchResults(results, trimmed, context);
+    searchView = {
+      groups: results,
+      query: trimmed,
+      context,
+      expanded: false,
+    };
+    renderSearchResults(searchView);
   } catch (error) {
     console.error('website-md search failed', error);
     setSearchStatus('Search index is generated by website-md:build.');
@@ -1133,6 +1248,7 @@ searchInput?.addEventListener('input', () => {
 });
 
 searchInput?.addEventListener('focus', () => {
+  warmSearch();
   if (searchInput.value.trim()) {
     queueSearch(searchInput.value, { immediate: true });
   }
@@ -1169,7 +1285,12 @@ searchInput?.addEventListener('keydown', (event) => {
   }
   if (event.key === 'Enter' && activeSearchItems[activeSearchIndex]) {
     event.preventDefault();
-    window.location.href = activeSearchItems[activeSearchIndex].url;
+    const item = activeSearchItems[activeSearchIndex];
+    if (item.type === 'more') {
+      expandSearchResults();
+      return;
+    }
+    window.location.href = item.url;
   }
 });
 
@@ -1191,3 +1312,110 @@ document.addEventListener('keydown', (event) => {
   event.preventDefault();
   searchInput.focus();
 });
+
+const searchShortcutHint = searchRoot?.querySelector('.search-shortcut');
+const isApplePlatform = /Mac|iPhone|iPad|iPod/i.test(
+  navigator.userAgentData?.platform || navigator.platform || ''
+);
+if (searchShortcutHint) {
+  searchShortcutHint.textContent = isApplePlatform ? '⌘K' : 'Ctrl K';
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key.toLowerCase() !== 'k' || event.altKey || event.shiftKey) {
+    return;
+  }
+  if (!(event.metaKey || event.ctrlKey) || !searchInput) return;
+  event.preventDefault();
+  warmSearch();
+  searchInput.focus();
+  searchInput.select();
+});
+
+const sectionNav = document.querySelector('.section-nav');
+
+function updateSectionNavFades() {
+  if (!sectionNav) return;
+  const maxScroll = sectionNav.scrollWidth - sectionNav.clientWidth;
+  sectionNav.classList.toggle('nav-fade-left', sectionNav.scrollLeft > 6);
+  sectionNav.classList.toggle(
+    'nav-fade-right',
+    maxScroll - sectionNav.scrollLeft > 6
+  );
+}
+
+sectionNav?.addEventListener('scroll', updateSectionNavFades, {
+  passive: true,
+});
+window.addEventListener('resize', updateSectionNavFades);
+updateSectionNavFades();
+
+const homeStatsRoot = document.querySelector('[data-home-stats]');
+
+async function fetchHomeStat(url, pick) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(4000) });
+  if (!response.ok) {
+    throw new Error(`stat request failed: ${response.status}`);
+  }
+  return pick(await response.json());
+}
+
+function applyHomeStats(root, stats) {
+  const formatter = new Intl.NumberFormat('en', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  });
+  for (const [name, value] of Object.entries(stats)) {
+    const target = root.querySelector(`[data-stat="${name}"]`);
+    if (!target || !Number.isFinite(value)) continue;
+    target.textContent = formatter.format(value);
+    target.hidden = false;
+    const link = target.closest('a');
+    if (link) link.hidden = false;
+  }
+}
+
+async function hydrateHomeStats(root) {
+  const cacheKey = 'ax-home-stats-v1';
+  const cacheTTL = 60 * 60 * 1000;
+
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(cacheKey) || 'null');
+    if (cached && Date.now() - cached.time < cacheTTL) {
+      applyHomeStats(root, cached.stats);
+      return;
+    }
+  } catch {
+    // Unreadable cache falls through to a live fetch.
+  }
+
+  const [stars, downloads] = await Promise.allSettled([
+    fetchHomeStat(
+      `https://api.github.com/repos/${root.dataset.repo}`,
+      (data) => data.stargazers_count
+    ),
+    fetchHomeStat(
+      `https://api.npmjs.org/downloads/point/last-week/${encodeURIComponent(root.dataset.npmPackage)}`,
+      (data) => data.downloads
+    ),
+  ]);
+
+  const stats = {};
+  if (stars.status === 'fulfilled') stats.stars = stars.value;
+  if (downloads.status === 'fulfilled') stats.downloads = downloads.value;
+  if (Object.keys(stats).length === 0) return;
+
+  applyHomeStats(root, stats);
+  try {
+    sessionStorage.setItem(
+      cacheKey,
+      JSON.stringify({ time: Date.now(), stats })
+    );
+  } catch {
+    // Private mode or full storage — live values are already applied.
+  }
+}
+
+if (homeStatsRoot) {
+  hydrateHomeStats(homeStatsRoot).catch(() => {});
+}

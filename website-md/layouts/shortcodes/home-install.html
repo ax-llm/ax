@@ -1,9 +1,12 @@
 {{ $languages := hugo.Data.homepage_languages.languages }}
-<div class="home-install" aria-label="Install Ax">
+{{ $field := .Get "field" | default "command" }}
+{{ $ariaLabel := .Get "label" | default "Install Ax" }}
+{{ $extraClass := .Get "class" }}
+<div class="home-install{{ with $extraClass }} {{ . }}{{ end }}" aria-label="{{ $ariaLabel }}">
   <span>$</span>
   <code>
     {{ range $index, $language := $languages }}
-      <span data-home-lang-text="{{ $language.id }}" data-home-active="{{ if eq $index 0 }}true{{ else }}false{{ end }}"{{ if ne $index 0 }} aria-hidden="true"{{ end }}>{{ $language.command }}</span>
+      <span data-home-lang-text="{{ $language.id }}" data-home-active="{{ if eq $index 0 }}true{{ else }}false{{ end }}"{{ if ne $index 0 }} aria-hidden="true"{{ end }}><span class="home-install-command">{{ index $language $field }}</span>{{ if eq $field "command" }}{{ with $language.statusLabel }}<em class="home-install-status">{{ . }}</em>{{ end }}{{ end }}</span>
     {{ end }}
   </code>
 </div>

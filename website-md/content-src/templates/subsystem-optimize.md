@@ -12,6 +12,18 @@ The optimizer runs a program against examples, scores predictions, searches for 
 
 GEPA explores changes and keeps tradeoffs visible through Pareto-aware results. The TypeScript helper also runs bootstrap demos for small starter sets before GEPA, which gives the optimizer concrete examples to work with.
 
+```mermaid
+flowchart LR
+  A["Program"] --> D["GEPA"]
+  B["Train examples"] --> D
+  C["Metric or judge"] --> D
+  D --> E["Reflective mutation"]
+  E --> F["Pareto evaluation"]
+  F -->|explore| E
+  F --> G["Optimized artifact"]
+  G --> H["Save / load / apply"]
+```
+
 ## Core Call Shape
 
 ```text

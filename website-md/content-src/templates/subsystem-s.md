@@ -12,6 +12,18 @@ Signatures are the contract shared by generation, tools, examples, validation, a
 
 `s()` parses the Ax signature grammar into a signature object. That object can be reused, inspected, extended, passed into `ax()`, passed into `agent()`, or combined with fluent/schema fields where the language surface supports it.
 
+```mermaid
+flowchart LR
+  A["Signature string"] --> B["Parsed signature object"]
+  B --> C["Input fields + types"]
+  B --> D["Output fields + class options"]
+  C --> E["Prompt contract"]
+  D --> E
+  D --> F["JSON schema"]
+  D --> G["Parser + validators"]
+  B --> H["Reuse in ax() or agent()"]
+```
+
 ## Core Call Shape
 
 ```text

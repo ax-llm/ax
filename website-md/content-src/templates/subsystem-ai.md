@@ -10,6 +10,17 @@ Use `ai()` to create provider clients and keep model traffic behind one Ax reque
 
 `ai()` selects a provider implementation from configuration and returns a client that Ax programs can call. The client handles chat, streaming, embeddings, media where supported, usage normalization, provider options, model keys, routing hooks, tracing, and runtime defaults.
 
+```mermaid
+flowchart LR
+  A["Model key or alias"] --> B["Model catalog"]
+  B --> C["Capability filter"]
+  C --> D["Provider client"]
+  D --> E["Request mapping"]
+  E --> F["Provider API"]
+  F --> G["Response normalization"]
+  G --> H["Usage + trace"]
+```
+
 ## Core Call Shape
 
 Create the client once near the application boundary, then pass it into `forward()`, `streamingForward()`, agents, flows, or optimizers.

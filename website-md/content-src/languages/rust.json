@@ -4,7 +4,10 @@
   "shortLabel": "Rust",
   "fence": "rust",
   "packageName": "axllm",
-  "install": ["cargo test --manifest-path packages/rust/Cargo.toml"],
+  "install": [
+    "git clone https://github.com/ax-llm/ax && cd ax/packages/rust",
+    "cargo run --example signature_schema"
+  ],
   "exampleRoot": "packages/rust/examples",
   "apiKind": "axir",
   "optimizeName": "AxGEPA",

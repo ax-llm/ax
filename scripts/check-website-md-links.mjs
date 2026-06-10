@@ -83,34 +83,35 @@ try {
     qualityFailures.push('highlighted code line rows must render as blocks');
   }
   if (
-    !/\.chroma\s+\.cl\s*\{[^}]*display\s*:\s*inline-block/.test(css) ||
-    !/\.chroma\s+\.cl\s*\{[^}]*min-width\s*:\s*100%/.test(css)
+    !/\.chroma\s+\.cl\s*\{[^}]*display\s*:\s*inline\s*[;}]/.test(css) ||
+    /\.chroma\s+\.cl\s*\{[^}]*min-width/.test(css)
   ) {
-    qualityFailures.push('highlighted code content spans must keep row width');
+    qualityFailures.push(
+      'highlighted code content spans must stay plain inline'
+    );
+  }
+  if (!/pre\s+code\s*\{[^}]*font-size\s*:\s*1em/.test(css)) {
+    qualityFailures.push('pre code must neutralize inline-code font scaling');
   }
   if (
-    !/\.code-block\s+pre\s*\{[^}]*font-size\s*:\s*1rem/.test(css) ||
-    !/\.code-block\s+pre\s*\{[^}]*line-height\s*:\s*1\.24/.test(css)
+    !/\.code-block\s+pre\s*\{[^}]*font-size\s*:\s*0\.875rem/.test(css) ||
+    !/\.code-block\s+pre\s*\{[^}]*line-height\s*:\s*1\.5\b/.test(css)
   ) {
-    qualityFailures.push('code blocks must use compact code line-height');
+    qualityFailures.push('code blocks must use 0.875rem/1.5 code rhythm');
   }
   if (
-    !/\.home\s+\.code-block\s+pre\s*\{[^}]*font-size\s*:\s*0\.94rem/.test(
+    !/\.home\s+\.code-block\s+pre\s*\{[^}]*font-size\s*:\s*0\.875rem/.test(
       css
     ) ||
-    !/\.home\s+\.code-block\s+pre\s*\{[^}]*line-height\s*:\s*1\.24/.test(css)
+    !/\.home\s+\.code-block\s+pre\s*\{[^}]*line-height\s*:\s*1\.5\b/.test(css)
   ) {
-    qualityFailures.push('homepage code blocks must use compact line-height');
+    qualityFailures.push('homepage code blocks must match docs code rhythm');
   }
-  if (
-    !/\.chroma\s+\.line\.code-line-blank\s*\{[^}]*line-height\s*:\s*0\.22/.test(
-      css
-    )
-  ) {
-    qualityFailures.push('blank highlighted code lines must be compact');
+  if (css.includes('code-line-blank')) {
+    qualityFailures.push('blank-line band-aid CSS must stay removed');
   }
-  if (!js.includes('code-line-blank')) {
-    qualityFailures.push('blank highlighted code line marker missing');
+  if (js.includes('code-line-blank')) {
+    qualityFailures.push('blank-line band-aid JS must stay removed');
   }
   if (!css.includes('.home-visual-grid')) {
     qualityFailures.push('homepage visual story grid styles missing');
@@ -228,6 +229,35 @@ try {
   }
   if (!css.includes('.search-result-kind')) {
     qualityFailures.push('search result kind badge styling missing');
+  }
+  if (!js.includes('SEARCH_ANCHOR_DISPLAY_LIMIT')) {
+    qualityFailures.push(
+      'search must group section anchors under page results'
+    );
+  }
+  if (!js.includes('data-search-more')) {
+    qualityFailures.push('search show-more control hook missing');
+  }
+  if (!js.includes('warmSearch')) {
+    qualityFailures.push('search index warm-up on intent missing');
+  }
+  if (!js.includes('data-site-menu')) {
+    qualityFailures.push('mobile site menu hook missing');
+  }
+  if (!css.includes('.search-result-anchor')) {
+    qualityFailures.push('grouped search anchor styles missing');
+  }
+  if (!css.includes('.search-more')) {
+    qualityFailures.push('search show-more styles missing');
+  }
+  if (!css.includes('.site-menu-panel')) {
+    qualityFailures.push('mobile site menu panel styles missing');
+  }
+  if (!css.includes('.menu-toggle-icon')) {
+    qualityFailures.push('hamburger icon styles missing');
+  }
+  if (!css.includes('.nav-fade-right')) {
+    qualityFailures.push('section nav scroll fade styles missing');
   }
   if (!js.includes('prefers-reduced-motion: reduce')) {
     qualityFailures.push(
@@ -436,6 +466,15 @@ function collectQualityFailures(rel, html, failures) {
   if (!html.includes('data-language-menu')) {
     failures.push(`${rel}: missing prominent language menu`);
   }
+  if (!html.includes('data-menu-toggle')) {
+    failures.push(`${rel}: missing mobile menu toggle`);
+  }
+  if (!html.includes('css/site.css?v=')) {
+    failures.push(`${rel}: stylesheet missing cache-busting version query`);
+  }
+  if (!html.includes('data-site-menu')) {
+    failures.push(`${rel}: missing mobile site menu`);
+  }
   if (!html.includes('language-mark')) {
     failures.push(`${rel}: missing language logo mark`);
   }
@@ -460,8 +499,23 @@ function collectQualityFailures(rel, html, failures) {
     );
   }
 
-  if (html.includes('class="mermaid"') && !html.includes('mermaid-init.js')) {
+  if (/\n[ \t]+<\/span><\/span>/.test(html)) {
+    failures.push(
+      `${rel}: chroma line spans contain injected indentation (shortcode call sites must start at column 0)`
+    );
+  }
+  if (rel === 'index.html' && /\n[ \t]+<\/code><\/pre>/.test(html)) {
+    failures.push(
+      `${rel}: home output panel pre content has injected indentation`
+    );
+  }
+
+  const hasMermaidBlock = /<pre[^>]*class="?mermaid["\s>]/.test(html);
+  if (hasMermaidBlock && !html.includes('mermaid-init.js')) {
     failures.push(`${rel}: Mermaid block without mermaid-init.js`);
+  }
+  if (isMermaidExpectedPage(rel) && !hasMermaidBlock) {
+    failures.push(`${rel}: expected Mermaid diagram missing`);
   }
 
   if (isCuratedApiPage(rel)) {
@@ -529,10 +583,13 @@ function collectQualityFailures(rel, html, failures) {
     if (html.includes('home-section-heading-center')) {
       failures.push(`${rel}: homepage section headings must stay left-aligned`);
     }
-    if (!html.includes('The universal way to build with LLMs')) {
-      failures.push(`${rel}: homepage missing universal LLM hero`);
+    if (!html.includes('Stop writing prompt glue.')) {
+      failures.push(`${rel}: homepage missing prompt-glue hero hook`);
     }
-    if (!html.includes('Write signatures instead of prompt glue')) {
+    if (html.includes('The universal way to build with LLMs')) {
+      failures.push(`${rel}: homepage still has abstract universal hero`);
+    }
+    if (!html.includes('hands back typed data')) {
       failures.push(`${rel}: homepage missing newcomer lede`);
     }
     if (!hasClass(html, 'div', 'home-proof-row')) {
@@ -557,6 +614,28 @@ function collectQualityFailures(rel, html, failures) {
         failures.push(
           `${rel}: homepage first fold still contains expert proof text ${forbidden}`
         );
+      }
+    }
+    if (!hasClass(html, 'div', 'home-agent-strip')) {
+      failures.push(`${rel}: homepage missing coding-agent strip`);
+    }
+    if (
+      !html.includes('npx skills add https://ax-llm.github.io/ax/typescript/')
+    ) {
+      failures.push(`${rel}: homepage missing agent skills install command`);
+    }
+    if (!html.includes('data-home-stats')) {
+      failures.push(`${rel}: homepage missing live project stats row`);
+    }
+    if (!html.includes('home-install-status')) {
+      failures.push(`${rel}: homepage install commands missing status labels`);
+    }
+    if (!hasClass(html, 'section', 'home-final-cta')) {
+      failures.push(`${rel}: homepage missing final call to action`);
+    }
+    for (const stale of ['./gradlew test', 'com.axllm']) {
+      if (html.includes(stale)) {
+        failures.push(`${rel}: homepage contains stale package text ${stale}`);
       }
     }
     if (!html.includes('data-home-language-root')) {
@@ -585,7 +664,7 @@ function collectQualityFailures(rel, html, failures) {
     if (!hasClass(html, 'div', 'home-capability-grid')) {
       failures.push(`${rel}: homepage missing capability grid`);
     }
-    if (countOccurrences(html, 'home-marketing-card') < 22) {
+    if (countOccurrences(html, 'home-marketing-card') < 19) {
       failures.push(`${rel}: homepage missing capability/production cards`);
     }
     for (const capability of [
@@ -711,13 +790,16 @@ function collectQualityFailures(rel, html, failures) {
         `${rel}: homepage missing multilingual rotating code variants`
       );
     }
-    for (const example of ['heroAxgen', 'heroFluent', 'heroAgent']) {
-      if (
-        !html.includes(`data-home-example="${example}"`) &&
-        !html.includes(`data-home-example=${example}`)
-      ) {
-        failures.push(`${rel}: homepage missing hero example ${example}`);
-      }
+    const heroPanelCount = (
+      html.match(/data-home-code-group=(?:"hero"|hero[\s>])/g) ?? []
+    ).length;
+    if (heroPanelCount < 7) {
+      failures.push(
+        `${rel}: homepage hero missing per-language classifier panels`
+      );
+    }
+    if (!hasClass(html, 'div', 'home-output-panel')) {
+      failures.push(`${rel}: homepage hero missing typed output panel`);
     }
     if (countOccurrences(html, 'data-home-language=') < 6) {
       failures.push(`${rel}: homepage missing language selection buttons`);
@@ -731,6 +813,7 @@ function collectQualityFailures(rel, html, failures) {
     for (const oldCompilerText of [
       'One signature, native code',
       'String signatures, fluent builders, and schema output share the same semantics.',
+      'One IR, native packages, checked semantics.',
     ]) {
       if (html.includes(oldCompilerText)) {
         failures.push(`${rel}: homepage still has confusing compiler title`);
@@ -738,7 +821,7 @@ function collectQualityFailures(rel, html, failures) {
     }
     for (const compilerTerm of [
       'AxIR compiler',
-      'One IR, native packages, checked semantics.',
+      "We didn't port Ax six times. We compiled it.",
       'portable intermediate representation',
       'TypeScript is the reference runtime',
       'native package surfaces',
@@ -843,18 +926,30 @@ function collectQualityFailures(rel, html, failures) {
     if (!hasClass(html, 'section', 'home-graphjin')) {
       failures.push(`${rel}: homepage missing GraphJin cross-promo`);
     }
-    const providerIndex = html.indexOf('home-provider-layout');
+    const codeStoryIndex = html.indexOf('home-code-story');
     const compilerIndex = html.indexOf('home-compiler-section');
+    const agentIndex = html.indexOf('home-agent-section');
     const graphjinIndex = html.indexOf('home-graphjin');
+    const finalCtaIndex = html.indexOf('home-final-cta');
     if (
-      providerIndex < 0 ||
+      codeStoryIndex < 0 ||
       compilerIndex < 0 ||
-      graphjinIndex < 0 ||
-      compilerIndex < providerIndex ||
-      compilerIndex > graphjinIndex
+      agentIndex < 0 ||
+      codeStoryIndex > compilerIndex ||
+      compilerIndex > researchIndex ||
+      researchIndex > agentIndex
     ) {
       failures.push(
-        `${rel}: homepage compiler section must be second last above GraphJin`
+        `${rel}: homepage must order signatures, compiler, research, then agents`
+      );
+    }
+    if (
+      graphjinIndex < 0 ||
+      finalCtaIndex < 0 ||
+      graphjinIndex > finalCtaIndex
+    ) {
+      failures.push(
+        `${rel}: homepage final CTA must close the page after GraphJin`
       );
     }
     if (countOccurrences(html, 'language-mark-') < 6) {
@@ -975,6 +1070,12 @@ function isApiPage(rel) {
 
 function isTocExpectedPage(rel) {
   return /^(?:typescript|python|java|cpp|go|rust)\/(?:quick-start|examples|concepts\/[^/]+|subsystems\/[^/]+)\/index\.html$/.test(
+    rel
+  );
+}
+
+function isMermaidExpectedPage(rel) {
+  return /^(?:typescript|python|java|cpp|go|rust)\/(?:quick-start|concepts\/(?:dspy|signatures|tools|agents|llms|mcp|optimization|telemetry)|subsystems\/(?:ai|ax|s|optimize))\/index\.html$/.test(
     rel
   );
 }

@@ -4,7 +4,10 @@
   "shortLabel": "Go",
   "fence": "go",
   "packageName": "github.com/ax-llm/ax/go",
-  "install": ["go run ./packages/go/examples/signature_schema"],
+  "install": [
+    "git clone https://github.com/ax-llm/ax && cd ax/packages/go",
+    "go run ./examples/signature_schema"
+  ],
   "exampleRoot": "packages/go/examples",
   "apiKind": "axir",
   "optimizeName": "AxGEPA",

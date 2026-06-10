@@ -5,8 +5,9 @@
   "fence": "cpp",
   "packageName": "axllm",
   "install": [
-    "cmake -S packages/cpp -B /tmp/ax-cpp-build",
-    "cmake --build /tmp/ax-cpp-build"
+    "git clone https://github.com/ax-llm/ax && cmake -S ax/packages/cpp -B build",
+    "cmake --build build",
+    "./build/signature_schema"
   ],
   "exampleRoot": "packages/cpp/examples",
   "apiKind": "axir",

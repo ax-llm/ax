@@ -1,36 +1,50 @@
 ---
 title: "Ax"
-description: "The universal way to build with LLMs: typed signatures, tools, agents, audio, workflows, traces, optimization, and native packages for TypeScript, Python, Java, C++, Go, and Rust."
+description: "Stop writing prompt glue. Ax compiles typed signatures into reliable LLM calls — validation, streaming, tools, agents, audio, and optimization. TypeScript on npm today; Python, Java, C++, Go, and Rust generated and verified from the same core."
 ---
+
+<!-- Shortcode calls must start at column 0: Hugo re-indents shortcode output
+     to match call-site indentation, which corrupts pre/chroma content.
+     scripts/check-website-md-links.mjs enforces this on the built HTML. -->
 
 <div data-home-language-root data-active-language="typescript">
 <section class="home-hero">
 <div class="home-hero-copy">
   <p class="home-kicker">Ax</p>
-  <h1>The universal way to build with LLMs.</h1>
-  <p class="home-lede">Write signatures instead of prompt glue. Ax turns typed inputs and outputs into reliable model calls, tools, agents, audio, workflows, traces, and optimized programs across TypeScript, Python, Java, C++, Go, and Rust.</p>
+  <h1>Stop writing prompt glue.</h1>
+  <p class="home-lede">A one-line signature declares what goes in and what comes out. Ax turns it into the prompt, the parser, the validators, and the retry loop — and hands back typed data your code can trust. The same programming model in TypeScript, Python, Java, C++, Go, and Rust.</p>
   <div class="home-proof-row" aria-label="Ax highlights">
     <span><i class="home-proof-dot proof-blue" aria-hidden="true"></i>Structured outputs</span>
     <span><i class="home-proof-dot proof-violet" aria-hidden="true"></i>Tools and agents</span>
     <span><i class="home-proof-dot proof-teal" aria-hidden="true"></i>Audio + realtime</span>
     <span><i class="home-proof-dot proof-green" aria-hidden="true"></i>Evaluate and optimize</span>
   </div>
-  {{< home-language-controls >}}
+{{< home-language-controls >}}
   <div class="home-actions">
     <a href="/typescript/quick-start/">Get started</a>
     <a class="home-button-secondary" href="https://github.com/ax-llm/ax">GitHub</a>
   </div>
-  {{< home-install >}}
+{{< home-install >}}
+  <div class="home-hero-stats" data-home-stats data-repo="ax-llm/ax" data-npm-package="@ax-llm/ax" aria-label="Project stats">
+    <a href="https://github.com/ax-llm/ax" hidden><strong data-stat="stars"></strong><span>GitHub stars</span></a>
+    <a href="https://www.npmjs.com/package/@ax-llm/ax" hidden><strong data-stat="downloads"></strong><span>npm downloads/week</span></a>
+  </div>
 </div>
 <div class="home-hero-panel" aria-label="Ax signature runtime preview">
-  {{< home-code topics="heroAxgen,heroFluent,heroAgent" group="hero" >}}
-  {{< svg "signature-runtime" "Signature to runtime pipeline" >}}
+{{< home-code topic="classifier" group="hero" >}}
+{{< home-output topic="classifier" title="Typed output" >}}
+</div>
+<div class="home-agent-strip">
+  <p><strong>Using Claude Code or Cursor?</strong> Point your coding agent at Ax — every language ships installable, versioned skills your agent can follow.</p>
+{{< home-install field="skillsCommand" class="home-install-skills" label="Install Ax agent skills" >}}
+  <a class="home-agent-strip-link" href="/typescript/skills/">Browse agent skills</a>
 </div>
 </section>
 
 <nav class="home-paths" aria-label="Choose your path">
   <a href="/typescript/quick-start/"><strong>Quick Start</strong><span>Install Ax and run the smallest typed generation program.</span></a>
   <a href="/typescript/examples/"><strong>Examples</strong><span>No-key, provider, agent, MCP, flow, and optimization demos.</span></a>
+  <a href="/typescript/skills/"><strong>Agent skills</strong><span>Point Claude Code or Cursor at installable Ax skills.</span></a>
   <a href="/typescript/concepts/signatures/"><strong>Signatures</strong><span>Learn why typed I/O contracts beat hand-built prompt strings.</span></a>
   <a href="/typescript/concepts/llms/"><strong>Audio</strong><span>Transcribe, speak, stream realtime audio, and return typed speech artifacts.</span></a>
   <a href="/typescript/concepts/agents/"><strong>Agents</strong><span>Tools, memory, child agents, runtime state, and discovery without prompt bloat.</span></a>
@@ -38,11 +52,88 @@ description: "The universal way to build with LLMs: typed signatures, tools, age
   <a href="/typescript/api/ax/"><strong>API Docs</strong><span>Curated references for the factory-style Ax API.</span></a>
 </nav>
 
+<section class="home-section home-code-story" aria-labelledby="why-signatures">
+<div class="home-section-heading">
+  <p class="home-section-label">Why signatures?</p>
+  <h2 id="why-signatures">Describe the input and output. Ax handles the model call.</h2>
+  <p>The hero demo is the whole philosophy. A signature says what data the model receives and what typed data your app expects back. Ax uses that one contract to render prompts, call providers, parse output, validate constraints, retry with feedback, stream partial results, record traces, seed examples, and optimize behavior later.</p>
+</div>
+<div class="home-resource-row home-resource-row-tight">
+  <div>
+    <h3>The contract becomes the system boundary.</h3>
+    <p>Instead of spreading prompt text, JSON parsing, retry logic, tool schemas, tracing, and eval metadata across your app, Ax hangs them from the signature.</p>
+    <div class="home-badge-row"><span>Validation</span><span>Streaming</span><span>Tools</span><span>Traces</span><span>Optimization</span></div>
+  </div>
+  <div>
+{{< svg "semantic-network" "Signature contract network" >}}
+  </div>
+</div>
+<div class="home-resource-row home-resource-row-tight">
+  <div>
+    <p class="home-section-label">Signature pipeline</p>
+    <h3>One line becomes a running pipeline.</h3>
+    <p>The signature you write is lowered into prompt rendering, streaming parsers, validators, retry feedback, and trace metadata — the same pipeline that produced the typed output above.</p>
+  </div>
+  <div>
+{{< svg "signature-runtime" "Signature to runtime pipeline" >}}
+  </div>
+</div>
+</section>
+
+<section class="home-section home-compiler-section" aria-labelledby="compiler-ir">
+<div class="home-section-heading">
+  <p class="home-section-label">AxIR compiler</p>
+  <h2 id="compiler-ir">We didn't port Ax six times. We compiled it.</h2>
+  <p>Ax is built around a portable intermediate representation. TypeScript is the reference runtime; the AxIR compiler lowers signatures, schemas, providers, generators, agents, flows, MCP, and optimizers into one shared semantic core — then emits native package surfaces for Python, Java, C++, Go, and Rust. Native names, native errors, native builders. Same behavior.</p>
+</div>
+<div class="home-signature-grid">
+  <article class="home-code-card">
+    <div class="home-card-icon icon-violet" aria-hidden="true">S</div>
+    <h3>Signature syntax</h3>
+{{< home-code topic="signatureString" group="signature-string" compact="true" label="Signature syntax" >}}
+    <p>String signatures become AxIR contracts that the compiler can lower into prompts, schemas, validators, examples, traces, and typed outputs.</p>
+  </article>
+  <article class="home-code-card">
+    <div class="home-card-icon icon-teal" aria-hidden="true">F</div>
+    <h3>Field schema IR</h3>
+{{< home-code topic="signatureFluent" group="signature-fluent" compact="true" label="Field schema IR" >}}
+    <p>Fluent fields, media types, arrays, enums, constraints, and validators preserve field semantics across native packages.</p>
+  </article>
+  <article class="home-code-card">
+    <div class="home-card-icon icon-blue" aria-hidden="true">Z</div>
+    <h3>Structured schema output</h3>
+{{< home-code topic="signatureSchema" group="signature-schema" compact="true" label="Structured schema output" >}}
+    <p>Schema-backed output keeps generated code aligned with the same parse, retry, docs, telemetry, and optimization contract.</p>
+  </article>
+</div>
+<div class="home-resource-row home-resource-row-tight">
+  <div>
+    <p class="home-section-label">Compiler pipeline</p>
+    <h3>TypeScript reference runtime -> AxIR -> native APIs.</h3>
+    <p>The package compiler emits language-shaped APIs instead of transpiling TypeScript. Each backend keeps native names, errors, builders, callbacks, transports, and runtime profiles while sharing the same Ax semantics.</p>
+  </div>
+  <div>
+{{< svg "axir-compiler" "AxIR compiler pipeline" >}}
+  </div>
+</div>
+<div class="home-resource-row home-resource-row-tight">
+  <div>
+    <p class="home-section-label">Conformance gate</p>
+    <h3>Capability manifests keep every backend honest.</h3>
+    <p>Generated package examples, API metadata, capability manifests, and conformance fixtures are checked by <code>axir verify</code>. That is why the language switcher in the hero is a demo, not a promise — every backend earns its place in the matrix.</p>
+  </div>
+  <div>
+{{< svg "language-matrix" "Language package matrix" >}}
+  </div>
+</div>
+{{< backend-badges >}}
+</section>
+
 <section class="home-section home-research-section" aria-labelledby="research">
 <div class="home-section-heading home-section-heading-wide">
-  <p class="home-section-label">Research lineage</p>
+  <p class="home-section-label">The ideas behind it</p>
   <h2 id="research">Built on DSPy, GEPA, RLM, and PEEK.</h2>
-  <p>Ax is more than another LLM framework. It is a practical library and a living lab for serious LLM systems ideas: declarative programs, typed signatures, reflective optimization, runtime-backed agents, context maps, and long-running work that stays usable in production.</p>
+  <p>Ax is more than another LLM framework — it is where a serious research lineage ships. The typed signatures, validation with retry feedback, reflective optimization, runtime-backed agents, and context maps you just saw all come from these papers.</p>
 </div>
 <div class="home-research-list home-research-compact">
   <article class="home-paper-item">
@@ -106,45 +197,49 @@ description: "The universal way to build with LLMs: typed signatures, tools, age
 </div>
 </section>
 
-<section class="home-section" aria-labelledby="included">
-<div class="home-section-heading home-section-heading-wide">
-  <p class="home-section-label">What's included</p>
-  <h2 id="included">Everything you need to build useful LLM systems.</h2>
-  <p>Start with a single typed generation call, then grow into tools, agents, voice, workflows, telemetry, optimization, and native packages without switching mental models.</p>
+<section class="home-section home-agent-section" aria-labelledby="agents-that-work">
+<div class="home-section-heading home-agent-heading">
+  <p class="home-section-label">Agents</p>
+  <h2 id="agents-that-work">Agents built for context, tools, memory, and code.</h2>
+  <p>AxAgent is designed around DSPy, RLM, and PEEK ideas: typed signatures define the job, generated code and host runtimes hold durable state, context maps drive context management, and discovery-based tools load only the schemas needed for the next action. That keeps agents useful with small models and big ones, while built-in memory, skills, child agents, telemetry, and <code>agent.optimize(...)</code> make them practical to operate.</p>
 </div>
-<div class="home-capability-grid">
-  <article class="home-marketing-card">{{< home-icon "zap" "icon-blue" >}}<h3>Structured generation <span>ax()</span></h3><p>Declare typed inputs and outputs, then get parsed host values with streaming, validation, retries, and traces.</p></article>
-  <article class="home-marketing-card">{{< home-icon "tags" "icon-violet" >}}<h3>Signatures <span>s() + f()</span></h3><p>Use concise string signatures, fluent fields, media types, enums, arrays, constraints, and Standard Schema output.</p></article>
-  <article class="home-marketing-card">{{< home-icon "bot" "icon-green" >}}<h3>Tools and MCP <span>fn()</span></h3><p>Expose typed host functions, MCP servers, runtimes, flows, and child agents as callable capabilities.</p></article>
-  <article class="home-marketing-card">{{< home-icon "brain" "icon-teal" >}}<h3>Agents <span>agent()</span></h3><p>Build agents with tool discovery, memory, skills, child agents, context policy, and persistent runtime state.</p></article>
-  <article class="home-marketing-card home-audio-card">{{< home-icon "activity" "icon-amber" >}}<h3>Audio <span>speech:audio</span></h3><p>Transcribe speech, synthesize speech, return typed audio artifacts, and use conversational or realtime audio turns.</p></article>
-  <article class="home-marketing-card">{{< home-icon "list-checks" "icon-teal" >}}<h3>Workflows <span>flow()</span></h3><p>Compose typed steps, branches, and parallel work into explicit LLM application flows.</p></article>
-  <article class="home-marketing-card">{{< home-icon "bar-chart" "icon-rust" >}}<h3>Optimization <span>optimize()</span></h3><p>Improve prompts, demos, programs, flows, and agents against evals, judges, and production tradeoffs.</p></article>
-  <article class="home-marketing-card">{{< home-icon "globe" "icon-blue" >}}<h3>Providers <span>ai()</span></h3><p>Use OpenAI, Responses, Claude, Gemini, OpenAI-compatible gateways, local routers, embeddings, and model catalogs.</p></article>
-  <article class="home-marketing-card">{{< home-icon "activity" "icon-violet" >}}<h3>Telemetry <span>traces</span></h3><p>Inspect model calls, tool calls, usage, cost, latency, errors, optimizer metrics, and agent turns.</p></article>
-  <article class="home-marketing-card">{{< home-icon "languages" "icon-green" >}}<h3>Native packages <span>AxIR</span></h3><p>Use the same Ax concepts from TypeScript, Python, Java, C++, Go, and Rust package surfaces.</p></article>
+<div class="home-agent-code">
+{{< home-code topic="agent" group="agent" >}}
 </div>
-</section>
-
-<section class="home-section home-code-story" aria-labelledby="why-signatures">
-<div class="home-section-heading">
-  <p class="home-section-label">Why signatures?</p>
-  <h2 id="why-signatures">Describe the input and output. Ax handles the model call.</h2>
-  <p>A signature says what data the model receives and what typed data your app expects back. Ax uses that one contract to render prompts, call providers, parse output, validate constraints, retry with feedback, stream partial results, record traces, seed examples, and optimize behavior later.</p>
-</div>
-<div class="home-code-pair">
-  {{< home-code topic="classifier" group="classifier" >}}
-  {{< home-output topic="classifier" title="Typed output" >}}
+<div class="home-agent-layout">
+  <div class="home-chart-panel">
+{{< svg "rlm-loop" "RLM loop" >}}
+  </div>
+  <div class="home-agent-feature-grid">
+    <article><h3>Discovery</h3><p>Large tool catalogs stay out of the base prompt. The agent discovers groups and loads concrete schemas only when they matter.</p></article>
+    <article><h3>Context maps</h3><p>Runtime state, context maps, summaries, and checkpoints preserve orientation without replaying every token.</p></article>
+    <article><h3>Memory + skills</h3><p>Built-in memory, skills, MCP tools, and child agents become typed capabilities behind the same signature contract.</p></article>
+    <article><h3>Optimization</h3><p><code>agent.optimize(...)</code> tunes instructions, examples, and agent behavior against evals, judges, and saved artifacts.</p></article>
+  </div>
 </div>
 <div class="home-resource-row home-resource-row-tight">
   <div>
-    <h3>The contract becomes the system boundary.</h3>
-    <p>Instead of spreading prompt text, JSON parsing, retry logic, tool schemas, tracing, and eval metadata across your app, Ax hangs them from the signature.</p>
-    <div class="home-badge-row"><span>Validation</span><span>Streaming</span><span>Tools</span><span>Traces</span><span>Optimization</span></div>
+    <p class="home-section-label">Function discovery</p>
+    <h3>Agents navigate large tool catalogs without stuffing every schema into the prompt.</h3>
+    <p>Function groups, child agents, MCP tools, memory, and runtime state are discovered and loaded as needed, which keeps even small models focused on the next useful action.</p>
   </div>
   <div>
-    {{< svg "semantic-network" "Signature contract network" >}}
+{{< svg "agent-tree" "Agent function discovery tree" >}}
   </div>
+</div>
+<div class="home-resource-row home-resource-row-tight">
+  <div>
+    <p class="home-section-label">Context policy</p>
+    <h3>State grows in the runtime instead of the prompt.</h3>
+    <p>Context maps, summaries, checkpoint state, and runtime references keep long-running work usable without turning every turn into a full transcript replay.</p>
+  </div>
+  <div>
+{{< svg "context-growth" "Context growth chart" >}}
+  </div>
+</div>
+<div class="home-actions home-section-actions">
+  <a href="/typescript/concepts/agents/">Explore agents</a>
+  <a class="home-button-secondary" href="/typescript/concepts/optimization/">Optimization guide</a>
 </div>
 </section>
 
@@ -167,79 +262,13 @@ description: "The universal way to build with LLMs: typed signatures, tools, age
     <p><a href="/typescript/concepts/llms/">Read the LLM guide</a> or <a href="/typescript/examples/#llm-media">open media examples</a>.</p>
   </div>
   <div>
-    {{< home-code topic="audio" group="audio" >}}
+{{< home-code topic="audio" group="audio" >}}
   </div>
 </div>
 <div class="home-card-grid three-up">
   <article class="home-marketing-card">{{< home-icon "activity" "icon-blue" >}}<h3>Transcribe and speak</h3><p>Use direct batch APIs when the app needs speech-to-text, text-to-speech, transcripts, or reusable audio artifacts.</p></article>
   <article class="home-marketing-card">{{< home-icon "message-circle" "icon-teal" >}}<h3>Conversational audio</h3><p>Use provider audio chat and realtime configurations when voice belongs inside the model conversation.</p></article>
   <article class="home-marketing-card">{{< home-icon "brain" "icon-green" >}}<h3>Agent audio</h3><p>Let agents accept recordings and return spoken outputs while their internal tool loops operate on stable text.</p></article>
-</div>
-</section>
-
-<section class="home-section home-agent-section" aria-labelledby="agents-that-work">
-<div class="home-section-heading home-agent-heading">
-  <p class="home-section-label">Agents</p>
-  <h2 id="agents-that-work">Agents built for context, tools, memory, and code.</h2>
-  <p>AxAgent is designed around DSPy, RLM, and PEEK ideas: typed signatures define the job, generated code and host runtimes hold durable state, context maps drive context management, and discovery-based tools load only the schemas needed for the next action. That keeps agents useful with small models and big ones, while built-in memory, skills, child agents, telemetry, and <code>agent.optimize(...)</code> make them practical to operate.</p>
-</div>
-<div class="home-agent-code">
-  {{< home-code topic="agent" group="agent" >}}
-</div>
-<div class="home-agent-layout">
-  <div class="home-chart-panel">
-    {{< svg "rlm-loop" "RLM loop" >}}
-  </div>
-  <div class="home-agent-feature-grid">
-    <article><h3>Discovery</h3><p>Large tool catalogs stay out of the base prompt. The agent discovers groups and loads concrete schemas only when they matter.</p></article>
-    <article><h3>Context maps</h3><p>Runtime state, context maps, summaries, and checkpoints preserve orientation without replaying every token.</p></article>
-    <article><h3>Memory + skills</h3><p>Built-in memory, skills, MCP tools, and child agents become typed capabilities behind the same signature contract.</p></article>
-    <article><h3>Optimization</h3><p><code>agent.optimize(...)</code> tunes instructions, examples, and agent behavior against evals, judges, and saved artifacts.</p></article>
-  </div>
-</div>
-<div class="home-resource-row home-resource-row-tight">
-  <div>
-    <p class="home-section-label">Function discovery</p>
-    <h3>Agents navigate large tool catalogs without stuffing every schema into the prompt.</h3>
-    <p>Function groups, child agents, MCP tools, memory, and runtime state are discovered and loaded as needed, which keeps even small models focused on the next useful action.</p>
-  </div>
-  <div>
-    {{< svg "agent-tree" "Agent function discovery tree" >}}
-  </div>
-</div>
-<div class="home-resource-row home-resource-row-tight">
-  <div>
-    <p class="home-section-label">Context policy</p>
-    <h3>State grows in the runtime instead of the prompt.</h3>
-    <p>Context maps, summaries, checkpoint state, and runtime references keep long-running work usable without turning every turn into a full transcript replay.</p>
-  </div>
-  <div>
-    {{< svg "context-growth" "Context growth chart" >}}
-  </div>
-</div>
-<div class="home-card-grid three-up">
-  <article class="home-marketing-card">
-    <div class="home-card-icon icon-green" aria-hidden="true">R</div>
-    <h3>State in the runtime, not the prompt</h3>
-    <p>Runtime sessions keep objects alive across turns. The model sees compact current-state summaries instead of a growing transcript of every detail.</p>
-    <div class="home-badge-row"><span>RLM loop</span><span>Bounded context</span><span>Host runtime</span></div>
-  </article>
-  <article class="home-marketing-card">
-    <div class="home-card-icon icon-violet" aria-hidden="true">T</div>
-    <h3>Typed signatures end to end</h3>
-    <p>Declare agents as contracts such as <code>topic:string -> report:string</code>. Inputs and outputs follow the same Ax shape across native packages.</p>
-    <div class="home-badge-row"><span>DSPy-style</span><span>Validated</span><span>Native APIs</span></div>
-  </article>
-  <article class="home-marketing-card">
-    <div class="home-card-icon icon-blue" aria-hidden="true">G</div>
-    <h3>Optimized after it works</h3>
-    <p>Few-shot examples and instructions can be tuned against evals, with Pareto tradeoffs visible when accuracy, cost, latency, and brevity compete.</p>
-    <div class="home-badge-row"><span>GEPA</span><span>Judges</span><span>Artifacts</span></div>
-  </article>
-</div>
-<div class="home-actions home-section-actions">
-  <a href="/typescript/concepts/agents/">Explore agents</a>
-  <a class="home-button-secondary" href="/typescript/concepts/optimization/">Optimization guide</a>
 </div>
 </section>
 
@@ -256,8 +285,28 @@ description: "The universal way to build with LLMs: typed signatures, tools, age
     <p><a href="/typescript/concepts/optimization/">Read optimization docs</a> or <a href="/typescript/api/optimize/">open the optimize API</a>.</p>
   </div>
   <div>
-    {{< svg "pareto-frontier" "GEPA Pareto frontier" >}}
+{{< svg "pareto-frontier" "GEPA Pareto frontier" >}}
   </div>
+</div>
+</section>
+
+<section class="home-section" aria-labelledby="included">
+<div class="home-section-heading home-section-heading-wide">
+  <p class="home-section-label">The full surface</p>
+  <h2 id="included">Everything you need to build useful LLM systems.</h2>
+  <p>Every capability above hangs off the same signature contract. Start with a single typed generation call, then grow into tools, agents, voice, workflows, telemetry, optimization, and native packages without switching mental models.</p>
+</div>
+<div class="home-capability-grid">
+  <article class="home-marketing-card">{{< home-icon "zap" "icon-blue" >}}<h3>Structured generation <span>ax()</span></h3><p>Declare typed inputs and outputs, then get parsed host values with streaming, validation, retries, and traces.</p></article>
+  <article class="home-marketing-card">{{< home-icon "tags" "icon-violet" >}}<h3>Signatures <span>s() + f()</span></h3><p>Use concise string signatures, fluent fields, media types, enums, arrays, constraints, and Standard Schema output.</p></article>
+  <article class="home-marketing-card">{{< home-icon "bot" "icon-green" >}}<h3>Tools and MCP <span>fn()</span></h3><p>Expose typed host functions, MCP servers, runtimes, flows, and child agents as callable capabilities.</p></article>
+  <article class="home-marketing-card">{{< home-icon "brain" "icon-teal" >}}<h3>Agents <span>agent()</span></h3><p>Build agents with tool discovery, memory, skills, child agents, context policy, and persistent runtime state.</p></article>
+  <article class="home-marketing-card home-audio-card">{{< home-icon "activity" "icon-amber" >}}<h3>Audio <span>speech:audio</span></h3><p>Transcribe speech, synthesize speech, return typed audio artifacts, and use conversational or realtime audio turns.</p></article>
+  <article class="home-marketing-card">{{< home-icon "list-checks" "icon-teal" >}}<h3>Workflows <span>flow()</span></h3><p>Compose typed steps, branches, and parallel work into explicit LLM application flows.</p></article>
+  <article class="home-marketing-card">{{< home-icon "bar-chart" "icon-rust" >}}<h3>Optimization <span>optimize()</span></h3><p>Improve prompts, demos, programs, flows, and agents against evals, judges, and production tradeoffs.</p></article>
+  <article class="home-marketing-card">{{< home-icon "globe" "icon-blue" >}}<h3>Providers <span>ai()</span></h3><p>Use OpenAI, Responses, Claude, Gemini, OpenAI-compatible gateways, local routers, embeddings, and model catalogs.</p></article>
+  <article class="home-marketing-card">{{< home-icon "activity" "icon-violet" >}}<h3>Telemetry <span>traces</span></h3><p>Inspect model calls, tool calls, usage, cost, latency, errors, optimizer metrics, and agent turns.</p></article>
+  <article class="home-marketing-card">{{< home-icon "languages" "icon-green" >}}<h3>Native packages <span>AxIR</span></h3><p>Use the same Ax concepts from TypeScript, Python, Java, C++, Go, and Rust package surfaces.</p></article>
 </div>
 </section>
 
@@ -289,7 +338,7 @@ description: "The universal way to build with LLMs: typed signatures, tools, age
     <p><a href="/typescript/concepts/telemetry/">Read telemetry docs</a>.</p>
   </div>
   <div>
-    {{< svg "production-loop" "Production telemetry loop" >}}
+{{< svg "production-loop" "Production telemetry loop" >}}
   </div>
 </div>
 </section>
@@ -318,7 +367,7 @@ description: "The universal way to build with LLMs: typed signatures, tools, age
     <p><a href="/typescript/concepts/mcp/">Read the MCP guide</a> or <a href="/typescript/concepts/tools/">open the tools guide</a>.</p>
   </div>
   <div>
-    {{< svg "mcp-bridge" "MCP bridge" >}}
+{{< svg "mcp-bridge" "MCP bridge" >}}
   </div>
 </div>
 </section>
@@ -338,62 +387,13 @@ description: "The universal way to build with LLMs: typed signatures, tools, age
       <span>OpenAI-compatible</span>
       <span>Local</span>
     </div>
-    {{< home-code topic="provider" group="provider" compact="true" label="Provider setup" >}}
+{{< home-code topic="provider" group="provider" compact="true" label="Provider setup" >}}
     <p class="home-inline-note">Need routing, embeddings, audio, or context caching? <a href="/typescript/concepts/llms/">Read the LLM guide</a>.</p>
   </div>
   <div class="home-provider-visual">
-    {{< svg "provider-router" "Provider router map" >}}
+{{< svg "provider-router" "Provider router map" >}}
   </div>
 </div>
-</section>
-
-<section class="home-section home-compiler-section" aria-labelledby="compiler-ir">
-<div class="home-section-heading">
-  <p class="home-section-label">AxIR compiler</p>
-  <h2 id="compiler-ir">One IR, native packages, checked semantics.</h2>
-  <p>Ax is built around a portable intermediate representation. TypeScript is the reference runtime; AxIR lowers signatures, schemas, providers, generators, agents, flows, MCP, and optimizers into a shared semantic core, then emits native package surfaces for Python, Java, C++, Go, and Rust.</p>
-</div>
-<div class="home-signature-grid">
-  <article class="home-code-card">
-    <div class="home-card-icon icon-violet" aria-hidden="true">S</div>
-    <h3>Signature syntax</h3>
-    {{< home-code topic="signatureString" group="signature-string" compact="true" label="Signature syntax" >}}
-    <p>String signatures become AxIR contracts that the compiler can lower into prompts, schemas, validators, examples, traces, and typed outputs.</p>
-  </article>
-  <article class="home-code-card">
-    <div class="home-card-icon icon-teal" aria-hidden="true">F</div>
-    <h3>Field schema IR</h3>
-    {{< home-code topic="signatureFluent" group="signature-fluent" compact="true" label="Field schema IR" >}}
-    <p>Fluent fields, media types, arrays, enums, constraints, and validators preserve field semantics across native packages.</p>
-  </article>
-  <article class="home-code-card">
-    <div class="home-card-icon icon-blue" aria-hidden="true">Z</div>
-    <h3>Structured schema output</h3>
-    {{< home-code topic="signatureSchema" group="signature-schema" compact="true" label="Structured schema output" >}}
-    <p>Schema-backed output keeps generated code aligned with the same parse, retry, docs, telemetry, and optimization contract.</p>
-  </article>
-</div>
-<div class="home-resource-row home-resource-row-tight">
-  <div>
-    <p class="home-section-label">Compiler pipeline</p>
-    <h3>TypeScript reference runtime -> AxIR -> native APIs.</h3>
-    <p>The package compiler emits language-shaped APIs instead of transpiling TypeScript. Each backend keeps native names, errors, builders, callbacks, transports, and runtime profiles while sharing the same Ax semantics.</p>
-  </div>
-  <div>
-    {{< svg "axir-compiler" "AxIR compiler pipeline" >}}
-  </div>
-</div>
-<div class="home-resource-row home-resource-row-tight">
-  <div>
-    <p class="home-section-label">Conformance gate</p>
-    <h3>Capability manifests keep every backend honest.</h3>
-    <p>Generated package examples, API metadata, capability manifests, and conformance fixtures are checked by <code>axir verify</code> so new languages can slot in without guessing what the surface supports.</p>
-  </div>
-  <div>
-    {{< svg "language-matrix" "Language package matrix" >}}
-  </div>
-</div>
-{{< backend-badges >}}
 </section>
 
 <section class="home-section home-graphjin" aria-labelledby="graphjin">
@@ -404,7 +404,7 @@ description: "The universal way to build with LLMs: typed signatures, tools, age
 </div>
 <div class="home-graphjin-layout">
   <div class="home-graphjin-code">
-    {{< home-code topic="graphjin" group="graphjin" >}}
+{{< home-code topic="graphjin" group="graphjin" compact="true" label="GraphJin MCP" >}}
   </div>
   <div class="home-graphjin-copy">
     <h3>Use GraphJin as an MCP tool inside Ax agents.</h3>
@@ -418,5 +418,19 @@ description: "The universal way to build with LLMs: typed signatures, tools, age
     </div>
   </div>
 </div>
+</section>
+
+<section class="home-section home-final-cta" aria-labelledby="get-started">
+<div class="home-section-heading">
+  <p class="home-section-label">Start now</p>
+  <h2 id="get-started">Write your first signature today.</h2>
+  <p>One line in, typed data out — on npm now, and in five more languages straight from this repo.</p>
+</div>
+<div class="home-actions">
+  <a href="/typescript/quick-start/">Get started</a>
+  <a class="home-button-secondary" href="/typescript/examples/">Examples</a>
+  <a class="home-button-secondary" href="https://github.com/ax-llm/ax">GitHub</a>
+</div>
+<p class="home-inline-note">Building with an AI coding agent? <a href="/typescript/skills/">Install the Ax skills</a> and let it write Ax for you.</p>
 </section>
 </div>

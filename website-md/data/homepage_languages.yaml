@@ -4,8 +4,11 @@ languages:
     shortLabel: TS
     codeLang: typescript
     command: npm install @ax-llm/ax
+    statusLabel: on npm
+    skillsCommand: npx skills add https://ax-llm.github.io/ax/typescript/ --skill '*'
     classifier:
       filename: classify.ts
+      runtimeLabel: ax()
       status: Type-safe, validated, auto-retried on failure
       output: |
         {
@@ -22,55 +25,6 @@ languages:
         const result = await classify.forward(llm, {
           review: "This product is amazing!",
         });
-    heroAxgen:
-      filename: classify.ts
-      runtimeLabel: ax()
-      code: |
-        import { ai, ax } from "@ax-llm/ax";
-
-        const llm = ai({ name: "openai" });
-        const classify = ax(
-          'review:string -> sentiment:class "positive, negative, neutral"'
-        );
-
-        const result = await classify.forward(llm, {
-          review: "This product is amazing!",
-        });
-    heroFluent:
-      filename: extract.ts
-      runtimeLabel: ax() + f()
-      code: |
-        import { ai, ax, f } from "@ax-llm/ax";
-
-        const llm = ai({ name: "openai" });
-        const extract = ax(
-          f()
-            .input("invoice", f.string())
-            .output("vendor", f.string())
-            .output("total", f.number())
-            .build()
-        );
-
-        const result = await extract.forward(llm, { invoice });
-    heroAgent:
-      filename: agent.ts
-      runtimeLabel: agent()
-      code: |
-        import { agent, ai, fn } from "@ax-llm/ax";
-
-        const llm = ai({ name: "openai" });
-        const search = fn({
-          name: "search",
-          parameters: "query:string -> results:string[]",
-          handler: searchDocs,
-        });
-
-        const research = agent({
-          signature: "question:string -> answer:string",
-          functions: [search],
-        });
-
-        const result = await research.forward(llm, { question });
     audio:
       filename: audio.ts
       runtimeLabel: speech:audio
@@ -170,9 +124,12 @@ languages:
     label: Python
     shortLabel: Python
     codeLang: python
-    command: cd packages/python && python -m pip install -e .
+    command: pip install "axllm @ git+https://github.com/ax-llm/ax#subdirectory=packages/python"
+    statusLabel: in repo · PyPI soon
+    skillsCommand: npx skills add https://ax-llm.github.io/ax/python/ --skill '*'
     classifier:
       filename: classify.py
+      runtimeLabel: ax()
       status: Validated Python dicts from the same Ax signature
       output: |
         {
@@ -188,49 +145,6 @@ languages:
 
         result = classify.forward(llm, {
             "review": "This product is amazing!"
-        })
-    heroAxgen:
-      filename: classify.py
-      runtimeLabel: ax()
-      code: |
-        from axllm import ai, ax
-
-        llm = ai("openai")
-        classify = ax(
-            'review:string -> sentiment:class "positive, negative, neutral"'
-        )
-
-        result = classify.forward(llm, {
-            "review": "This product is amazing!"
-        })
-    heroFluent:
-      filename: extract.py
-      runtimeLabel: ax() fields
-      code: |
-        from axllm import ai, ax
-
-        llm = ai("openai")
-        extract = ax(
-            "invoice:string -> vendor:string, total:number"
-        )
-
-        result = extract.forward(llm, {
-            "invoice": invoice
-        })
-    heroAgent:
-      filename: agent.py
-      runtimeLabel: agent()
-      code: |
-        from axllm import agent, ai
-
-        llm = ai("openai")
-        research = agent(
-            "question:string -> answer:string",
-            {"functions": [search_docs]},
-        )
-
-        result = research.forward(llm, {
-            "question": question
         })
     audio:
       filename: audio.py
@@ -323,9 +237,12 @@ languages:
     label: Java
     shortLabel: Java
     codeLang: java
-    command: cd packages/java && ./gradlew test
+    command: git clone https://github.com/ax-llm/ax && cd ax/packages/java
+    statusLabel: in repo · Maven Central soon
+    skillsCommand: npx skills add https://ax-llm.github.io/ax/java/ --skill '*'
     classifier:
       filename: Classify.java
+      runtimeLabel: Ax.ax()
       status: Java maps in, validated Ax fields out
       output: |
         {
@@ -342,52 +259,6 @@ languages:
 
         var result = classify.forward(llm, Map.of(
           "review", "This product is amazing!"
-        ));
-    heroAxgen:
-      filename: Classify.java
-      runtimeLabel: Ax.ax()
-      code: |
-        import dev.axllm.ax.*;
-        import java.util.*;
-
-        var llm = Ax.ai("openai", Map.of());
-        var classify = Ax.ax(
-          "review:string -> sentiment:class \"positive, negative, neutral\""
-        );
-
-        var result = classify.forward(llm, Map.of(
-          "review", "This product is amazing!"
-        ));
-    heroFluent:
-      filename: Extract.java
-      runtimeLabel: Ax.ax() fields
-      code: |
-        import dev.axllm.ax.*;
-        import java.util.*;
-
-        var llm = Ax.ai("openai", Map.of());
-        var extract = Ax.ax(
-          "invoice:string -> vendor:string, total:number"
-        );
-
-        var result = extract.forward(llm, Map.of(
-          "invoice", invoice
-        ));
-    heroAgent:
-      filename: Agent.java
-      runtimeLabel: Ax.agent()
-      code: |
-        import dev.axllm.ax.*;
-        import java.util.*;
-
-        var llm = Ax.ai("openai", Map.of());
-        var research = Ax.agent(
-          "question:string -> answer:string",
-          Map.of("functions", List.of(searchDocs))
-        );
-
-        var result = research.forward(llm, Map.of(
-          "question", question
         ));
     audio:
       filename: Audio.java
@@ -480,9 +351,12 @@ languages:
     label: C++
     shortLabel: C++
     codeLang: cpp
-    command: cd packages/cpp && cmake -S . -B build
+    command: git clone https://github.com/ax-llm/ax && cmake -S ax/packages/cpp -B build
+    statusLabel: in repo · source build
+    skillsCommand: npx skills add https://ax-llm.github.io/ax/cpp/ --skill '*'
     classifier:
       filename: classify.cpp
+      runtimeLabel: ax()
       status: Native values, shared validation semantics
       output: |
         {
@@ -498,51 +372,6 @@ languages:
 
         auto result = classify.forward(*llm, axllm::object({
           {"review", "This product is amazing!"}
-        }));
-    heroAxgen:
-      filename: classify.cpp
-      runtimeLabel: ax()
-      code: |
-        #include "axllm/axllm.hpp"
-
-        auto llm = axllm::ai("openai");
-        auto classify = axllm::ax(
-          "review:string -> sentiment:class \"positive, negative, neutral\""
-        );
-
-        auto result = classify.forward(*llm, axllm::object({
-          {"review", "This product is amazing!"}
-        }));
-    heroFluent:
-      filename: extract.cpp
-      runtimeLabel: ax() fields
-      code: |
-        #include "axllm/axllm.hpp"
-
-        auto llm = axllm::ai("openai");
-        auto extract = axllm::ax(
-          "invoice:string -> vendor:string, total:number"
-        );
-
-        auto result = extract.forward(*llm, axllm::object({
-          {"invoice", invoice}
-        }));
-    heroAgent:
-      filename: agent.cpp
-      runtimeLabel: agent()
-      code: |
-        #include "axllm/axllm.hpp"
-
-        auto llm = axllm::ai("openai");
-        auto research = axllm::agent(
-          "question:string -> answer:string",
-          axllm::object({
-            {"functions", axllm::array({search_docs})}
-          })
-        );
-
-        auto result = research.forward(*llm, axllm::object({
-          {"question", question}
         }));
     audio:
       filename: audio.cpp
@@ -631,9 +460,12 @@ languages:
     label: Go
     shortLabel: Go
     codeLang: go
-    command: cd packages/go && go test ./...
+    command: git clone https://github.com/ax-llm/ax && cd ax/packages/go
+    statusLabel: in repo · go get soon
+    skillsCommand: npx skills add https://ax-llm.github.io/ax/go/ --skill '*'
     classifier:
       filename: classify.go
+      runtimeLabel: NewAx()
       status: Go values through the same provider boundary
       output: |
         {
@@ -650,53 +482,6 @@ languages:
 
         result, err := classify.Forward(ctx, llm, map[string]ax.Value{
           "review": "This product is amazing!",
-        }, nil)
-    heroAxgen:
-      filename: classify.go
-      runtimeLabel: NewAx()
-      code: |
-        import ax "github.com/ax-llm/ax/go"
-
-        llm := ax.NewAI("openai", nil)
-        classify := ax.NewAx(
-          "review:string -> sentiment:class \"positive, negative, neutral\"",
-          nil,
-        )
-
-        result, err := classify.Forward(ctx, llm, map[string]ax.Value{
-          "review": "This product is amazing!",
-        }, nil)
-    heroFluent:
-      filename: extract.go
-      runtimeLabel: NewAx() fields
-      code: |
-        import ax "github.com/ax-llm/ax/go"
-
-        llm := ax.NewAI("openai", nil)
-        extract := ax.NewAx(
-          "invoice:string -> vendor:string, total:number",
-          nil,
-        )
-
-        result, err := extract.Forward(ctx, llm, map[string]ax.Value{
-          "invoice": invoice,
-        }, nil)
-    heroAgent:
-      filename: agent.go
-      runtimeLabel: NewAgent()
-      code: |
-        import ax "github.com/ax-llm/ax/go"
-
-        llm := ax.NewAI("openai", nil)
-        research := ax.NewAgent(
-          "question:string -> answer:string",
-          map[string]ax.Value{
-            "functions": ax.Array(searchDocs),
-          },
-        )
-
-        result, err := research.Forward(ctx, llm, map[string]ax.Value{
-          "question": question,
         }, nil)
     audio:
       filename: audio.go
@@ -792,9 +577,12 @@ languages:
     label: Rust
     shortLabel: Rust
     codeLang: rust
-    command: cd packages/rust && cargo test --all-targets
+    command: git clone https://github.com/ax-llm/ax && cd ax/packages/rust
+    statusLabel: in repo · crates.io soon
+    skillsCommand: npx skills add https://ax-llm.github.io/ax/rust/ --skill '*'
     classifier:
       filename: classify.rs
+      runtimeLabel: ax()
       status: Result-based errors, serde_json at Ax boundaries
       output: |
         {
@@ -811,51 +599,6 @@ languages:
 
         let result = classify.forward(&mut llm, json!({
           "review": "This product is amazing!"
-        }))?;
-    heroAxgen:
-      filename: classify.rs
-      runtimeLabel: ax()
-      code: |
-        use axllm::{ai, ax};
-        use serde_json::json;
-
-        let mut llm = ai("openai", json!({}))?;
-        let mut classify = ax(
-          "review:string -> sentiment:class \"positive, negative, neutral\""
-        )?;
-
-        let result = classify.forward(&mut llm, json!({
-          "review": "This product is amazing!"
-        }))?;
-    heroFluent:
-      filename: extract.rs
-      runtimeLabel: ax() fields
-      code: |
-        use axllm::{ai, ax};
-        use serde_json::json;
-
-        let mut llm = ai("openai", json!({}))?;
-        let mut extract = ax(
-          "invoice:string -> vendor:string, total:number"
-        )?;
-
-        let result = extract.forward(&mut llm, json!({
-          "invoice": invoice
-        }))?;
-    heroAgent:
-      filename: agent.rs
-      runtimeLabel: agent()
-      code: |
-        use axllm::{agent, ai};
-        use serde_json::json;
-
-        let mut llm = ai("openai", json!({}))?;
-        let mut research = agent(
-          "question:string -> answer:string"
-        )?.with_functions(vec![search_docs]);
-
-        let result = research.forward(&mut llm, json!({
-          "question": question
         }))?;
     audio:
       filename: audio.rs

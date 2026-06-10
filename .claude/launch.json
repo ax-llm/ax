@@ -6,6 +6,20 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--workspace=@ax-llm/ax-docs"],
       "port": 4321
+    },
+    {
+      "name": "website-md",
+      "runtimeExecutable": "hugo",
+      "runtimeArgs": ["server", "--source", "website-md", "--port", "1414"],
+      "port": 1414,
+      "autoPort": false
+    },
+    {
+      "name": "website-md-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "1415", "-d", "website-md/public"],
+      "port": 1415,
+      "autoPort": false
     }
   ]
 }

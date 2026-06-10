@@ -23,6 +23,14 @@ That is the core loop:
 - run the program with typed inputs
 - read typed outputs instead of scraping prose
 
+```mermaid
+flowchart LR
+  A["ai() client"] --> C["forward() with typed inputs"]
+  B["Signature"] --> C
+  C --> D["Validate + retry"]
+  D --> E["Typed output"]
+```
+
 The rest of the site keeps the same concepts but swaps install commands, imports, examples, and API names for {{language}}.
 
 ## Where To Go Next

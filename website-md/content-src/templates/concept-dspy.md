@@ -10,6 +10,16 @@ In Ax, the practical unit is a signature. A signature gives generation, validati
 
 That signature says the program receives `question` and must return both `answer` and `confidence`. Ax turns that contract into prompts, output parsing, validation, retries, traces, and optimization inputs.
 
+```mermaid
+flowchart LR
+  A["Declare signature"] --> B["Run program"]
+  B --> C["Observe traces + failures"]
+  C --> D["Add examples"]
+  D --> E["Optimize with a metric"]
+  E --> F["Redeploy artifact"]
+  F --> B
+```
+
 ## How Ax Splits The Work
 
 Ax keeps the model boundary explicit:

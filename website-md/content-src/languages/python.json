@@ -4,7 +4,9 @@
   "shortLabel": "Py",
   "fence": "python",
   "packageName": "axllm",
-  "install": ["python -m pip install -e packages/python"],
+  "install": [
+    "pip install \"axllm @ git+https://github.com/ax-llm/ax#subdirectory=packages/python\""
+  ],
   "exampleRoot": "packages/python/examples",
   "apiKind": "axir",
   "optimizeName": "AxGEPA",

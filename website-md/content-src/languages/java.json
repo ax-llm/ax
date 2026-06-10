@@ -5,8 +5,9 @@
   "fence": "java",
   "packageName": "dev.axllm:ax",
   "install": [
-    "# use the generated package under packages/java",
-    "javac -cp packages/java packages/java/examples/SignatureSchemaExample.java"
+    "git clone https://github.com/ax-llm/ax && cd ax/packages/java",
+    "javac -cp . dev/axllm/ax/*.java examples/SignatureSchemaExample.java",
+    "java -cp .:examples SignatureSchemaExample"
   ],
   "exampleRoot": "packages/java/examples",
   "apiKind": "axir",
