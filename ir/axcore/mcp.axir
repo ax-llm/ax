@@ -5,7 +5,7 @@ module @ax.mcp version "0.1" {
     attr core_kind = "interface"
     attr public = true
     tag "axmcp"
-    type signature = "mcp-transport"
+    attr contract = "mcp-transport"
   }
 
   op ax.mcp.record @AxMCPTokenSet {

@@ -1,6 +1,12 @@
 module @ax.ai version "0.1" {
   dialect @ax.ai version "0.1"
 
+  op ax.ai.error @AxAIServiceError {
+    attr core_kind = "error"
+    tag "src/ax/util/apicall.ts"
+    type fields = "message:string,status?:i64,code?:string,response_body?:json,request?:json,retryable?:bool"
+  }
+
   op ax.ai.record @ChatMessage {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"

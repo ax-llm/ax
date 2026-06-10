@@ -139,9 +139,24 @@ that install a toolchain should treat that target as required.
 Every generated package must include:
 
 - an `axir-capabilities.json` manifest
+- an `axir-provenance.json` manifest recording how much of the package is
+  emitted from the IR
 - a target README
 - runnable examples
 - a conformance runner when the target is executable
+
+## Provenance Rule
+
+Conformance fixtures prove behavior; the provenance gate proves where the
+behavior comes from. For every enforced target, each Core-owned function in
+the registry must be defined exactly once inside the generated package's
+emitted-region markers and nowhere else — a hand-written shadow of a Core
+function fails the build, and a missing or duplicated template marker fails
+injection. Targets that do not yet emit Core bodies (Rust until its core
+emitter lands) run the audit in report-only mode and record the gap in their
+provenance manifest. Verification subprocesses run with provider endpoint and
+credential environment variables stripped so a developer shell cannot skew
+scripted fixtures.
 
 ## Traceability Rule
 

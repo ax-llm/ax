@@ -1247,7 +1247,7 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     ref generic = @normalize_chat_response
     tag "src/ax/ai/openai/api.ts"
-    type signature = "(json, string, string) -> AxChatResponse throws"
+    type signature = "(json, ai_name?:string, model?:string) -> AxChatResponse throws"
     region @body {
       block @entry(%raw: json, %ai_name: string, %model: string) {
         op core.type_is {
@@ -1795,7 +1795,7 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     ref generic = @normalize_embed_response
     tag "src/ax/ai/openai/api.ts"
-    type signature = "(json, string, string) -> AxEmbedResponse throws"
+    type signature = "(json, ai_name?:string, model?:string) -> AxEmbedResponse throws"
     region @body {
       block @entry(%raw: json, %ai_name: string, %model: string) {
         op core.list {
@@ -1883,7 +1883,7 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     ref generic = @normalize_stream_delta
     tag "src/ax/ai/openai/api.ts"
-    type signature = "(json, json, string, string) -> AxChatResponse throws"
+    type signature = "(json, json, ai_name?:string, model?:string) -> AxChatResponse throws"
     region @body {
       block @entry(%raw: json, %state: json, %ai_name: string, %model: string) {
         op core.type_is {
@@ -3081,7 +3081,7 @@ module @ax.provider version "0.1" {
     attr core_kind = "func"
     attr emit_module = "ai"
     tag "provider-routing-runtime"
-    type signature = "(providers:list<json>, request:json, processing:json, options:json) -> json"
+    type signature = "(providers:list<json>, request:json, processing:json, options:json) -> json throws"
     body @entry(%providers: json, %request: json, %processing: json, %options: json) {
       %issues = core.list
       %recommendations = core.list
@@ -3560,7 +3560,7 @@ module @ax.provider version "0.1" {
     attr core_kind = "func"
     attr emit_module = "ai"
     tag "provider-operation-descriptor"
-    type signature = "(profile:string, operation:string) -> json"
+    type signature = "(profile:string, operation:string) -> json throws"
     body @entry(%profile: string, %operation: string) {
       %descriptor = core.call @provider_descriptor(%profile)
       %operations = core.get %descriptor["operations"]
@@ -4321,7 +4321,7 @@ module @ax.provider version "0.1" {
     attr core_kind = "func"
     attr emit_module = "ai"
     tag "provider-operation-dispatch"
-    type signature = "(profile:string, AxEmbedRequest) -> json"
+    type signature = "(profile:string, AxEmbedRequest) -> json throws"
     body @entry(%profile: string, %request: AxEmbedRequest) {
       %provider_id = core.call @provider_normalize_profile(%profile)
       %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
@@ -4696,7 +4696,7 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-responses-message-core-helper"
-    type signature = "(json) -> json"
+    type signature = "(json) -> json throws"
     body @entry(%message: json) {
       %role = core.get %message["role"]
       %is_function = core.call intrinsic.eq(%role, "function")
@@ -4726,7 +4726,7 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-responses-content-core-helper"
-    type signature = "(json, string) -> list<json>"
+    type signature = "(json, string) -> list<json> throws"
     body @entry(%content: json, %role: string) {
       %is_list = core.type_is %content type "list"
       %parts = core.list

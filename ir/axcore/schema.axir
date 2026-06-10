@@ -11,7 +11,7 @@ module @ax.schema version "0.1" {
     attr core_kind = "func"
     attr emit_module = "schema"
     tag "src/ax/dsp/jsonSchema.ts"
-    type signature = "(list<Field>) -> AxFunctionJSONSchema"
+    type signature = "(list<Field>) -> AxFunctionJSONSchema throws"
     region @body {
       block @entry(%fields: list<Field>, %schema_title: string, %options: json) {
         op core.call {
@@ -1956,7 +1956,7 @@ module @ax.schema version "0.1" {
     attr emit_module = "schema"
     attr private = true
     tag "json-schema-core-helper"
-    type signature = "(list<Field>, string, json) -> AxFunctionJSONSchema"
+    type signature = "(list<Field>, string, json) -> AxFunctionJSONSchema throws"
     region @body {
       block @entry(%fields: list<Field>, %schema_title: string, %options: json) {
         op core.map {

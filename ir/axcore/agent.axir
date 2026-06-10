@@ -3353,7 +3353,7 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, json) -> void"
+    type signature = "(json, json) -> void throws"
     body @entry(%state: json, %request: json) {
       %empty_list = core.list
       %normalized = core.call @normalize_agent_discover_request(%state, %request)
@@ -3499,7 +3499,7 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, json) -> void"
+    type signature = "(json, json) -> void throws"
     body @entry(%state: json, %request: json) {
       %empty_list = core.list
       %normalized = core.call @normalize_agent_recall_request(%state, %request)
@@ -3565,7 +3565,7 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, json, string) -> void"
+    type signature = "(json, json, string) -> void throws"
     body @entry(%state: json, %request: json, %stage: string) {
       %empty_list = core.list
       %flags = core.get %state["policy_flags"]
@@ -3708,7 +3708,7 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, json, json) -> json"
+    type signature = "(json, json, json) -> json throws"
     body @entry(%state: json, %request: json, %options: json) {
       %empty_list = core.list
       %result = core.call intrinsic.agent.callable.invoke(%state, %request, %options)
@@ -4530,7 +4530,7 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, json, json, string, json) -> json"
+    type signature = "(json, json, json, string, json) -> json throws"
     body @entry(%state: json, %runtime: json, %session: json, %code: string, %options: json) {
       %runtime_options = core.call @agent_runtime_execution_options(%state, %options)
       %empty_map = core.map
@@ -4643,7 +4643,7 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, json, json) -> json"
+    type signature = "(json, json, json) -> json throws"
     body @entry(%state: json, %session: json, %options: json) {
       %raw_snapshot = core.call intrinsic.agent.runtime.export_state(%session, %options)
       %snapshot = core.call @normalize_agent_runtime_snapshot(%raw_snapshot)
@@ -4664,7 +4664,7 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, json, json, json) -> json"
+    type signature = "(json, json, json, json) -> json throws"
     body @entry(%state: json, %session: json, %snapshot: json, %options: json) {
       %normalized_snapshot = core.call @normalize_agent_runtime_snapshot(%snapshot)
       %raw_restored = core.call intrinsic.agent.runtime.restore_state(%session, %normalized_snapshot, %options)

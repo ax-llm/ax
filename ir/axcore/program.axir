@@ -4,7 +4,7 @@ module @ax.program version "0.1" {
   op ax.program.interface @AxProgram {
     attr core_kind = "interface"
     attr public = "true"
-    type signature = "program"
+    attr contract = "program"
     tag "ax-program"
   }
 

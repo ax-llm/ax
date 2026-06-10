@@ -173,7 +173,7 @@ module @ax.template version "0.1" {
     attr core_kind = "func"
     attr emit_module = "prompt"
     tag "prompt-render"
-    type signature = "(AxSignature, json, list<Tool>, options?:json) -> list<ChatMessage>"
+    type signature = "(AxSignature, json, list<Tool>, options?:json) -> list<ChatMessage> throws"
     region @body {
       block @entry(%signature: AxSignature, %values: json, %functions: list<Tool>, %options: json) {
         op core.get {

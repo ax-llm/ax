@@ -899,7 +899,7 @@ module @ax.gen version "0.1" {
   op ax.gen.semantic @retry_policy {
     attr core_kind = "semantic"
     tag "validation-vs-infra-retry"
-    type signature = "validationRetries:i64,infraRetries:i64"
+    type fields = "validationRetries:i64,infraRetries:i64"
   }
 
   op ax.gen.semantic @complete_with_retries_impl {

@@ -68,8 +68,50 @@ small primitive intrinsic implementations for language-neutral operations such
 as JSON parsing, regex matching, URL validation, string operations, dynamic host
 callback dispatch, and exception construction.
 
+## Type Strings
+
+`type signature` and `type fields` attributes are validated, not decorative.
+The grammar:
+
+- signature: `"(param, ...) -> return [effects]"`. Parameters may be
+  positional (`json`), named (`flow:json`), or optional (`options?:json`,
+  `AxModelConfig?`); optional parameters may be omitted at call sites.
+- fields: `"name:type,opt?:type"`; every field is named.
+- types: the primitives (`string`, `bool`, `i64`, `f64`, `json`, `bytes`,
+  `void`) plus `number` (dynamic numeric), `error`, and `external`
+  (host-boundary placeholders); generics `list<T>`, `map<K,V>`,
+  `optional<T>`, `result<T,E>`, `stream<T>`; unions `A|B`; and named types,
+  which must resolve to a declared record, enum, interface, or error symbol.
+
+A `type` attribute whose value is not a type expression, field list, or
+signature is rejected: configuration values belong in `attr` slots.
+
+## Effects
+
+`throws` in a signature (or `attr effect = "throws"`) is a checked contract:
+a function that executes `core.raise`, or calls a throwing function outside a
+`core.try` body region, must itself declare `throws`. The `pure`, `async`,
+and `stream` effects are reserved with the same propagation rule.
+
+## Values
+
+`%` bindings are mutable locals, not SSA values: a binding may be rebound by
+any result-producing statement, including inside branch regions, and the new
+value is visible after the region. `axir check --strict-types` additionally
+warns when a rebind changes a binding's concrete kind (for example list to
+map) and when a called core function has no parseable signature.
+
+## Checker
+
 `axir check` validates Core op shape, allowed attrs, value scopes, branch and
-loop regions, intrinsic names, and selected intrinsic argument counts.
+loop regions, intrinsic names, and selected intrinsic argument counts. The
+typed checker additionally enforces the type-string grammar above, named-type
+resolution, call arity against the callee's signature (optional parameters
+may be omitted), throws propagation, and coarse kind discipline for container
+and string operations (definite misuse such as `core.append` to a string
+binding is reported).
 `axir lint --profile llm-core` adds style guidance for LLM-maintained source.
 `axir explain --symbol <name>` prints a low-token symbol summary and normalized
 Core body for debugging.
+`axir audit provenance` proves every Core-owned function is emitted from the
+IR inside the generated packages' marker regions; see `rules.md`.

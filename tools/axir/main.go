@@ -64,7 +64,14 @@ func runFmt(files []string) error {
 	return nil
 }
 
-func runCheck(files []string) error {
+func runCheck(args []string) error {
+	fs := flag.NewFlagSet("check", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	strictTypes := fs.Bool("strict-types", false, "also report advisory typed-checker findings (missing signatures, kind-changing rebinds)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	files := fs.Args()
 	if len(files) == 0 {
 		return fmt.Errorf("check requires at least one .axir file")
 	}
@@ -74,7 +81,7 @@ func runCheck(files []string) error {
 		if err != nil {
 			return err
 		}
-		ds := axir.Check(bundle)
+		ds := axir.CheckWithOptions(bundle, axir.CheckOptions{StrictTypes: *strictTypes})
 		if len(ds) == 0 {
 			fmt.Printf("%s: ok\n", file)
 			continue

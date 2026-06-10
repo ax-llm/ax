@@ -36,7 +36,7 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 - Coverage gates: add target entries to generated-output audits in `tools/axir/internal/axir/axir_test.go`, including negative cases for placeholder runner patterns and positive markers for AxAgent, AxFlow, AxAI, runtime protocol, and optimizer coverage.
 - Repo examples: `scripts/run-example.mjs`, `src/examples/<language>/`, `src/examples/README.md`, and root `package.json` convenience scripts if needed.
 - User-facing example lists: update `npm run example -- list`, the root README "Run examples" block, examples README command blocks, package convenience scripts, and release/compiler docs so the new backend is discoverable without reading compiler internals.
-- Docs: `README.md`, `docs/COMPILER.md`, `docs/RELEASE.md`, and `docs/ARCHITECTURE.md`. Edit canonical docs in `docs/`, not generated docs under `src/docs/`.
+- Docs: `README.md`, `docs/COMPILER.md`, `docs/RELEASE.md`, and `docs/ARCHITECTURE.md`. Edit canonical docs in `docs/`, not generated docs under `website/.generated/`.
 
 ## Acceptance Bar
 

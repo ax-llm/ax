@@ -65,6 +65,7 @@ var knownOperationNames = map[string]bool{
 	"ax.agent.semantic":     true,
 	"ax.agent.stub":         true,
 	"ax.agent.trace":        true,
+	"ax.ai.error":           true,
 	"ax.ai.interface":       true,
 	"ax.ai.record":          true,
 	"ax.ai.semantic":        true,
@@ -99,6 +100,10 @@ var knownOperationNames = map[string]bool{
 }
 
 func Check(bundle Bundle) Diagnostics {
+	return CheckWithOptions(bundle, CheckOptions{})
+}
+
+func CheckWithOptions(bundle Bundle, opts CheckOptions) Diagnostics {
 	var d Diagnostics
 	if len(bundle.Modules) == 0 {
 		return append(d, diag("error", "", 0, "bundle has no modules"))
@@ -137,6 +142,8 @@ func Check(bundle Bundle) Diagnostics {
 			d = append(d, checkOp(mod.File, op, symbols)...)
 		}
 	}
+	d = append(d, CheckTypes(bundle, symbols)...)
+	d = append(d, CheckTypeUsage(bundle, symbols, opts)...)
 	d = append(d, checkRequiredAPISymbols(symbols)...)
 	return d
 }
