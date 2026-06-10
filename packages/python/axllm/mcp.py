@@ -16,6 +16,83 @@ from typing import Any, Callable
 from .tool import Tool
 
 
+def _core_get(target, key, default=None):
+    if target is None:
+        return default
+    if isinstance(target, dict):
+        return target.get(key, default)
+    if isinstance(target, (list, tuple)) and isinstance(key, int):
+        return target[key] if 0 <= key < len(target) else default
+    return getattr(target, key, default)
+
+
+def _core_is_none(value):
+    return value is None
+
+
+# BEGIN AXIR CORE EMITTED FUNCTIONS
+def mcp_protocol_constants() -> Any:
+    versions = []
+    versions.append("2025-11-25")
+    versions.append("2025-06-18")
+    versions.append("2025-03-26")
+    versions.append("2024-11-05")
+    out = {}
+    out["protocolVersion"] = "2025-11-25"
+    out["supportedProtocolVersions"] = versions
+    return out
+
+
+def mcp_jsonrpc_request(id: str, method: str, params: Any) -> Any:
+    out = {}
+    out["jsonrpc"] = "2.0"
+    out["id"] = id
+    out["method"] = method
+    missing = _core_is_none(params)
+    if missing:
+        pass
+    else:
+        out["params"] = params
+    return out
+
+
+def mcp_jsonrpc_notification(method: str, params: Any) -> Any:
+    out = {}
+    out["jsonrpc"] = "2.0"
+    out["method"] = method
+    missing = _core_is_none(params)
+    if missing:
+        pass
+    else:
+        out["params"] = params
+    return out
+
+
+def mcp_normalize_error(response: Any) -> Any:
+    err = _core_get(response, "error", None)
+    missing = _core_is_none(err)
+    if missing:
+        ok = {}
+        result = _core_get(response, "result", None)
+        ok["ok"] = True
+        ok["result"] = result
+        return ok
+    else:
+        code = _core_get(err, "code", 0)
+        message = _core_get(err, "message", "MCP JSON-RPC error")
+        data = _core_get(err, "data", None)
+        out = {}
+        out["ok"] = False
+        out["category"] = "mcp"
+        out["code"] = code
+        out["message"] = message
+        out["data"] = data
+        return out
+    return response
+
+# END AXIR CORE EMITTED FUNCTIONS
+
+
 AX_MCP_PROTOCOL_VERSION = "2025-11-25"
 AX_MCP_SUPPORTED_PROTOCOL_VERSIONS = [
     AX_MCP_PROTOCOL_VERSION,

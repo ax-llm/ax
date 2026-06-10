@@ -525,6 +525,10 @@ def _core_exception_message(error):
     return str(error)
 
 
+def _core_regex_match(pattern, value):
+    return isinstance(value, str) and re.search(pattern, value) is not None
+
+
 def _core_runtime_error(message):
     return RuntimeError(str(message))
 
@@ -839,38 +843,6 @@ def _core_axgen_record_function_call(gen, call, result, status):
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
-def _tool_spec_impl(fn: Tool) -> Any:
-    spec = {}
-    name = _core_get(fn, "name", None)
-    description = _core_get(fn, "description", None)
-    parameters = _core_get(fn, "parameters", None)
-    spec["name"] = name
-    spec["description"] = description
-    spec["parameters"] = parameters
-    return spec
-
-
-def _function_call_mode_impl(mode: Any) -> str:
-    missing = _core_is_none(mode)
-    if missing:
-        return "auto"
-    else:
-        pass
-    is_native = _core_eq(mode, "native")
-    is_auto = _core_eq(mode, "auto")
-    native_or_auto = _core_or(is_native, is_auto)
-    if native_or_auto:
-        return "auto"
-    else:
-        pass
-    is_prompt = _core_eq(mode, "prompt")
-    if is_prompt:
-        return "none"
-    else:
-        pass
-    return mode
-
-
 def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any) -> AxChatRequest:
     model_config = {}
     stream_value = _core_get(options, "stream", False)
@@ -939,150 +911,14 @@ def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any) -> Ax
     return request
 
 
-def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, retries: int) -> Any:
-    attempt = 0
-    last_error = _core_none()
-    while True:
-        try:
-            response = _core_ai_complete_once(client, request)
-            return response
-        except Exception as error:
-            last_error = error
-            exhausted = _core_gte(attempt, retries)
-            if exhausted:
-                raise error
-            else:
-                pass
-            _core_retry_sleep(attempt)
-            next_attempt = _core_add(attempt, 1)
-            attempt = next_attempt
-            continue
-    raise last_error
-
-
-def _parse_output_impl(content: str) -> Any:
-    text = str(content).strip()
-    output = _core_json_parse(text)
-    return output
-
-
-def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
-    gen["examples"] = examples
-    return gen
-
-
-def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
-    gen["demos"] = demos
-    return gen
-
-
-def _render_examples(gen: AxGen) -> list[Any]:
-    messages = _core_axgen_render_examples(gen)
-    return messages
-
-
-def _render_demos(gen: AxGen) -> list[Any]:
-    messages = _core_axgen_render_demos(gen)
-    return messages
-
-
-def _apply_field_processors(gen: AxGen, output: Any) -> Any:
-    processed = _core_axgen_apply_field_processors(gen, output)
-    return processed
-
-
-def _run_assertions(gen: AxGen, output: Any) -> None:
-    _core_axgen_run_assertions(gen, output)
-    return None
-
-
-def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> None:
-    _append_validation_retry_messages_impl(messages, response, error)
-    return None
-
-
-def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
-    _core_axgen_record_trace(gen, input, output, status)
-    return None
-
-
-def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
-    should_continue = _core_axgen_should_continue_steps(gen, calls)
-    return should_continue
-
-
-def _response_function_calls_impl(response: Any) -> list[Any]:
-    empty = []
-    calls = _core_get(response, "function_calls", empty)
-    return calls
-
-
-def _completion_call_to_chat_impl(call: Any) -> Any:
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    params = _core_get(call, "params", None)
-    function = {}
-    function["name"] = name
-    function["params"] = params
-    out = {}
-    out["id"] = id
-    out["type"] = "function"
-    out["function"] = function
-    return out
-
-
-def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> None:
-    chat_calls = []
-    for call in calls:
-        chat_call = _completion_call_to_chat_impl(call)
-        chat_calls.append(chat_call)
-    content = _core_get(response, "content", "")
-    message = {}
-    message["role"] = "assistant"
-    message["content"] = content
-    message["function_calls"] = chat_calls
-    messages.append(message)
-    return None
-
-
-def _tool_result_message_impl(call: Any, result: Any) -> Any:
-    id = _core_get(call, "id", None)
-    result_json = _core_json_stringify(result)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["result"] = result_json
-    return message
-
-
-def _tool_error_message_impl(call: Any, error: error) -> Any:
-    id = _core_get(call, "id", None)
-    error_text = _core_exception_message(error)
-    payload = {}
-    payload["error"] = error_text
-    payload_json = _core_json_stringify(payload)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["result"] = payload_json
-    message["is_error"] = True
-    return message
-
-
-def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> None:
-    content = _core_get(response, "content", "")
-    assistant_message = {}
-    assistant_message["role"] = "assistant"
-    assistant_message["content"] = content
-    messages.append(assistant_message)
-    error_text = _core_exception_message(error)
-    prefix_message = _core_add("The previous response failed validation: ", error_text)
-    retry_content = _core_add(prefix_message, ". Return only corrected JSON.")
-    retry_message = {}
-    retry_message["role"] = "user"
-    retry_message["content"] = retry_content
-    messages.append(retry_message)
-    return None
+def fold_stream(events: list[Any]) -> str:
+    chunks = []
+    for event in events:
+        parts = _stream_event_content_parts_impl(event)
+        for part in parts:
+            chunks.append(part)
+    folded = _core_string_join("", chunks)
+    return folded
 
 
 def _execute_tool_call(functions: list[Any], call: Any) -> Any:
@@ -1122,277 +958,9 @@ def _execute_tool_call(functions: list[Any], call: Any) -> Any:
     raise error
 
 
-def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> Any:
-    base_options = _core_get(gen, "options", None)
-    runtime_options = _core_map_merge(base_options, options)
-    signature = _core_get(gen, "signature", None)
-    input_fields = _core_get(signature, "input_fields", None)
-    validate_fields(input_fields, values, "input")
-    prompt_template = _core_get(gen, "prompt_template", None)
-    messages = _core_object_call_method(prompt_template, "render", values)
-    example_messages = _render_examples(gen)
-    demo_messages = _render_demos(gen)
-    system_message = _core_list_get(messages, 0, messages)
-    user_message = _core_list_get(messages, 1, messages)
-    ordered_messages = []
-    ordered_messages.append(system_message)
-    for example_message in example_messages:
-        ordered_messages.append(example_message)
-    for demo_message in demo_messages:
-        ordered_messages.append(demo_message)
-    ordered_messages.append(user_message)
-    cached_messages = _core_axgen_apply_context_cache(gen, ordered_messages, options)
-    messages = cached_messages
-    _core_axgen_memory_add_request(gen, messages)
-    validation_retries_snake = _core_get(runtime_options, "validation_retries", 2)
-    validation_retries = _core_get(runtime_options, "validationRetries", validation_retries_snake)
-    infra_retries_snake = _core_get(runtime_options, "infra_retries", 2)
-    infra_retries = _core_get(runtime_options, "infraRetries", infra_retries_snake)
-    attempt = 0
-    output_fields = _core_get(signature, "output_fields", None)
-    functions = _core_get(gen, "functions", None)
-    last_tool_result = _core_none()
-    while True:
-        request = _build_gen_chat_request(gen, messages, runtime_options)
-        response = _complete_with_retries_impl(client, request, infra_retries)
-        _core_axgen_memory_add_response(gen, request, response)
-        _core_axgen_record_chat_log(gen, request, response)
-        calls = _response_function_calls_impl(response)
-        call_count = _core_len(calls)
-        has_calls = _core_gt(call_count, 0)
-        if has_calls:
-            _append_tool_call_messages_impl(messages, response, calls)
-            for call in calls:
-                try:
-                    tool_result = _execute_tool_call(functions, call)
-                    last_tool_result = tool_result
-                    tool_message = _tool_result_message_impl(call, tool_result)
-                    messages.append(tool_message)
-                    _core_axgen_memory_add_function_result(gen, call, tool_result, True)
-                    _core_axgen_record_function_call(gen, call, tool_result, "ok")
-                except Exception as tool_error:
-                    tool_error_message = _tool_error_message_impl(call, tool_error)
-                    messages.append(tool_error_message)
-                    _core_axgen_memory_add_function_result(gen, call, tool_error_message, False)
-                    _core_axgen_record_function_call(gen, call, tool_error_message, "error")
-            continue_after_tools = _should_continue_steps(gen, calls)
-            if continue_after_tools:
-                continue
-            else:
-                validated_tool_result = validate_output(output_fields, last_tool_result)
-                processed_tool_result = _apply_field_processors(gen, validated_tool_result)
-                _run_assertions(gen, processed_tool_result)
-                public_tool_result = strip_internal(output_fields, processed_tool_result)
-                _core_axgen_memory_cleanup_corrections(gen)
-                _record_trace(gen, values, public_tool_result, "ok")
-                return public_tool_result
-        else:
-            try:
-                content = _core_get(response, "content", "")
-                output = _parse_output_impl(content)
-                validated = validate_output(output_fields, output)
-                processed = _apply_field_processors(gen, validated)
-                _run_assertions(gen, processed)
-                public_output = strip_internal(output_fields, processed)
-                _core_axgen_memory_cleanup_corrections(gen)
-                _record_trace(gen, values, public_output, "ok")
-                return public_output
-            except Exception as validation_error:
-                retries_exhausted = _core_gte(attempt, validation_retries)
-                if retries_exhausted:
-                    raise validation_error
-                else:
-                    pass
-                next_attempt = _core_add(attempt, 1)
-                attempt = next_attempt
-                _append_assertion_retry_messages(messages, response, validation_error)
-                _core_axgen_memory_add_correction(gen, response, validation_error)
-                continue
-    raise RuntimeError("unreachable AxGen forward loop exit")
-
-
 def _stream_event_content_parts_impl(event: Any) -> list[Any]:
     parts = _core_stream_event_content_parts(event)
     return parts
-
-
-def fold_stream(events: list[Any]) -> str:
-    chunks = []
-    for event in events:
-        parts = _stream_event_content_parts_impl(event)
-        for part in parts:
-            chunks.append(part)
-    folded = _core_string_join("", chunks)
-    return folded
-
-
-def _optimization_component_current_map(components: Any) -> Any:
-    out = {}
-    for component in components:
-        id = _core_get(component, "id", "")
-        current = _core_get(component, "current", None)
-        out[id] = current
-    return out
-
-
-def _normalize_optimization_dataset(dataset: Any) -> Any:
-    empty_list = []
-    is_object = _core_type_is(dataset, "object")
-    if is_object:
-        train = _core_get(dataset, "train", empty_list)
-        validation = _core_get(dataset, "validation", empty_list)
-        out_obj = {}
-        out_obj["train"] = train
-        out_obj["validation"] = validation
-        return out_obj
-    else:
-        pass
-    out_list = {}
-    out_list["train"] = dataset
-    out_list["validation"] = empty_list
-    return out_list
-
-
-def _normalize_optimization_metric_scores(raw: Any) -> Any:
-    is_number = _core_type_is(raw, "number")
-    if is_number:
-        out_number = {}
-        out_number["score"] = raw
-        return out_number
-    else:
-        pass
-    is_object = _core_type_is(raw, "object")
-    if is_object:
-        return raw
-    else:
-        pass
-    out_zero = {}
-    out_zero["score"] = 0
-    return out_zero
-
-
-def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
-    metric_key = _core_get(options, "paretoMetricKey", "")
-    has_metric = _core_ne(metric_key, "")
-    if has_metric:
-        picked = _core_get(scores, metric_key, 0)
-        return picked
-    else:
-        pass
-    values = _core_map_values(scores)
-    sum = 0
-    count = 0
-    for value in values:
-        sum_next = _core_add(sum, value)
-        count_next = _core_add(count, 1)
-        sum = sum_next
-        count = count_next
-    empty = _core_eq(count, 0)
-    if empty:
-        return 0
-    else:
-        pass
-    avg = _core_div(sum, count)
-    return avg
-
-
-def _optimization_action_name_matches(expected: str, call: Any) -> bool:
-    qualified = _core_get(call, "qualifiedName", "")
-    name = _core_get(call, "name", "")
-    qualified_match = _core_eq(qualified, expected)
-    name_match = _core_eq(name, expected)
-    dot_expected = _core_add(".", expected)
-    suffix_match = _core_string_ends_with(qualified, dot_expected)
-    direct_match = _core_or(qualified_match, name_match)
-    any_match = _core_or(direct_match, suffix_match)
-    return any_match
-
-
-def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: Any) -> f64:
-    empty_list = []
-    function_calls = _core_get(prediction, "functionCalls", empty_list)
-    expected_actions = _core_get(task, "expectedActions", empty_list)
-    forbidden_actions = _core_get(task, "forbiddenActions", empty_list)
-    adjusted = score
-    expected_count = _core_len(expected_actions)
-    has_expected = _core_gt(expected_count, 0)
-    if has_expected:
-        matched = 0
-        for expected in expected_actions:
-            found = False
-            for call in function_calls:
-                call_matches = _optimization_action_name_matches(expected, call)
-                if call_matches:
-                    found = True
-                else:
-                    pass
-            if found:
-                matched_next = _core_add(matched, 1)
-                matched = matched_next
-            else:
-                pass
-        ratio = _core_div(matched, expected_count)
-        half_ratio = _core_mul(0.5, ratio)
-        factor = _core_add(0.5, half_ratio)
-        adjusted_next = _core_mul(adjusted, factor)
-        adjusted = adjusted_next
-    else:
-        pass
-    for forbidden in forbidden_actions:
-        bad_found = False
-        for call in function_calls:
-            bad_match = _optimization_action_name_matches(forbidden, call)
-            if bad_match:
-                bad_found = True
-            else:
-                pass
-        if bad_found:
-            penalized = _core_mul(adjusted, 0.2)
-            adjusted = penalized
-        else:
-            pass
-    return adjusted
-
-
-def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
-    out = {}
-    out["input"] = task
-    out["prediction"] = prediction
-    out["scores"] = scores
-    out["scalar"] = scalar
-    out["trace"] = trace
-    has_error = _core_is_not_none(error)
-    if has_error:
-        out["error"] = error
-    else:
-        pass
-    return out
-
-
-def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -> Any:
-    sum = 0
-    count = 0
-    for row in rows:
-        scalar = _core_get(row, "scalar", 0)
-        sum_next = _core_add(sum, scalar)
-        count_next = _core_add(count, 1)
-        sum = sum_next
-        count = count_next
-    avg = 0
-    has_rows = _core_gt(count, 0)
-    if has_rows:
-        avg_next = _core_div(sum, count)
-        avg = avg_next
-    else:
-        pass
-    out = {}
-    out["phase"] = phase
-    out["candidateMap"] = candidate_map
-    out["rows"] = rows
-    out["sum"] = sum
-    out["avg"] = avg
-    out["count"] = count
-    return out
 
 
 def _validate_optimization_component_value(component: Any, value: Any) -> bool:
@@ -1615,6 +1183,95 @@ def _deserialize_optimized_artifact(text: str, components: Any) -> Any:
     return validated
 
 
+def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> Any:
+    base_options = _core_get(gen, "options", None)
+    runtime_options = _core_map_merge(base_options, options)
+    signature = _core_get(gen, "signature", None)
+    input_fields = _core_get(signature, "input_fields", None)
+    validate_fields(input_fields, values, "input")
+    prompt_template = _core_get(gen, "prompt_template", None)
+    messages = _core_object_call_method(prompt_template, "render", values)
+    example_messages = _render_examples(gen)
+    demo_messages = _render_demos(gen)
+    system_message = _core_list_get(messages, 0, messages)
+    user_message = _core_list_get(messages, 1, messages)
+    ordered_messages = []
+    ordered_messages.append(system_message)
+    for example_message in example_messages:
+        ordered_messages.append(example_message)
+    for demo_message in demo_messages:
+        ordered_messages.append(demo_message)
+    ordered_messages.append(user_message)
+    cached_messages = _core_axgen_apply_context_cache(gen, ordered_messages, options)
+    messages = cached_messages
+    _core_axgen_memory_add_request(gen, messages)
+    validation_retries_snake = _core_get(runtime_options, "validation_retries", 2)
+    validation_retries = _core_get(runtime_options, "validationRetries", validation_retries_snake)
+    infra_retries_snake = _core_get(runtime_options, "infra_retries", 2)
+    infra_retries = _core_get(runtime_options, "infraRetries", infra_retries_snake)
+    attempt = 0
+    output_fields = _core_get(signature, "output_fields", None)
+    functions = _core_get(gen, "functions", None)
+    last_tool_result = _core_none()
+    while True:
+        request = _build_gen_chat_request(gen, messages, runtime_options)
+        response = _complete_with_retries_impl(client, request, infra_retries)
+        _core_axgen_memory_add_response(gen, request, response)
+        _core_axgen_record_chat_log(gen, request, response)
+        calls = _response_function_calls_impl(response)
+        call_count = _core_len(calls)
+        has_calls = _core_gt(call_count, 0)
+        if has_calls:
+            _append_tool_call_messages_impl(messages, response, calls)
+            for call in calls:
+                try:
+                    tool_result = _execute_tool_call(functions, call)
+                    last_tool_result = tool_result
+                    tool_message = _tool_result_message_impl(call, tool_result)
+                    messages.append(tool_message)
+                    _core_axgen_memory_add_function_result(gen, call, tool_result, True)
+                    _core_axgen_record_function_call(gen, call, tool_result, "ok")
+                except Exception as tool_error:
+                    tool_error_message = _tool_error_message_impl(call, tool_error)
+                    messages.append(tool_error_message)
+                    _core_axgen_memory_add_function_result(gen, call, tool_error_message, False)
+                    _core_axgen_record_function_call(gen, call, tool_error_message, "error")
+            continue_after_tools = _should_continue_steps(gen, calls)
+            if continue_after_tools:
+                continue
+            else:
+                validated_tool_result = validate_output(output_fields, last_tool_result)
+                processed_tool_result = _apply_field_processors(gen, validated_tool_result)
+                _run_assertions(gen, processed_tool_result)
+                public_tool_result = strip_internal(output_fields, processed_tool_result)
+                _core_axgen_memory_cleanup_corrections(gen)
+                _record_trace(gen, values, public_tool_result, "ok")
+                return public_tool_result
+        else:
+            try:
+                content = _core_get(response, "content", "")
+                output = _parse_output_impl(content)
+                validated = validate_output(output_fields, output)
+                processed = _apply_field_processors(gen, validated)
+                _run_assertions(gen, processed)
+                public_output = strip_internal(output_fields, processed)
+                _core_axgen_memory_cleanup_corrections(gen)
+                _record_trace(gen, values, public_output, "ok")
+                return public_output
+            except Exception as validation_error:
+                retries_exhausted = _core_gte(attempt, validation_retries)
+                if retries_exhausted:
+                    raise validation_error
+                else:
+                    pass
+                next_attempt = _core_add(attempt, 1)
+                attempt = next_attempt
+                _append_assertion_retry_messages(messages, response, validation_error)
+                _core_axgen_memory_add_correction(gen, response, validation_error)
+                continue
+    raise RuntimeError("unreachable AxGen forward loop exit")
+
+
 def _optimization_changed_components(components: Any, component_map: Any) -> list[Any]:
     changes = []
     for component in components:
@@ -1632,6 +1289,175 @@ def _optimization_changed_components(components: Any, component_map: Any) -> lis
         else:
             pass
     return changes
+
+
+def _optimization_component_current_map(components: Any) -> Any:
+    out = {}
+    for component in components:
+        id = _core_get(component, "id", "")
+        current = _core_get(component, "current", None)
+        out[id] = current
+    return out
+
+
+def _normalize_optimization_dataset(dataset: Any) -> Any:
+    empty_list = []
+    is_object = _core_type_is(dataset, "object")
+    if is_object:
+        train = _core_get(dataset, "train", empty_list)
+        validation = _core_get(dataset, "validation", empty_list)
+        out_obj = {}
+        out_obj["train"] = train
+        out_obj["validation"] = validation
+        return out_obj
+    else:
+        pass
+    out_list = {}
+    out_list["train"] = dataset
+    out_list["validation"] = empty_list
+    return out_list
+
+
+def _normalize_optimization_metric_scores(raw: Any) -> Any:
+    is_number = _core_type_is(raw, "number")
+    if is_number:
+        out_number = {}
+        out_number["score"] = raw
+        return out_number
+    else:
+        pass
+    is_object = _core_type_is(raw, "object")
+    if is_object:
+        return raw
+    else:
+        pass
+    out_zero = {}
+    out_zero["score"] = 0
+    return out_zero
+
+
+def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
+    metric_key = _core_get(options, "paretoMetricKey", "")
+    has_metric = _core_ne(metric_key, "")
+    if has_metric:
+        picked = _core_get(scores, metric_key, 0)
+        return picked
+    else:
+        pass
+    values = _core_map_values(scores)
+    sum = 0
+    count = 0
+    for value in values:
+        sum_next = _core_add(sum, value)
+        count_next = _core_add(count, 1)
+        sum = sum_next
+        count = count_next
+    empty = _core_eq(count, 0)
+    if empty:
+        return 0
+    else:
+        pass
+    avg = _core_div(sum, count)
+    return avg
+
+
+def _optimization_action_name_matches(expected: str, call: Any) -> bool:
+    qualified = _core_get(call, "qualifiedName", "")
+    name = _core_get(call, "name", "")
+    qualified_match = _core_eq(qualified, expected)
+    name_match = _core_eq(name, expected)
+    dot_expected = _core_add(".", expected)
+    suffix_match = _core_string_ends_with(qualified, dot_expected)
+    direct_match = _core_or(qualified_match, name_match)
+    any_match = _core_or(direct_match, suffix_match)
+    return any_match
+
+
+def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: Any) -> f64:
+    empty_list = []
+    function_calls = _core_get(prediction, "functionCalls", empty_list)
+    expected_actions = _core_get(task, "expectedActions", empty_list)
+    forbidden_actions = _core_get(task, "forbiddenActions", empty_list)
+    adjusted = score
+    expected_count = _core_len(expected_actions)
+    has_expected = _core_gt(expected_count, 0)
+    if has_expected:
+        matched = 0
+        for expected in expected_actions:
+            found = False
+            for call in function_calls:
+                call_matches = _optimization_action_name_matches(expected, call)
+                if call_matches:
+                    found = True
+                else:
+                    pass
+            if found:
+                matched_next = _core_add(matched, 1)
+                matched = matched_next
+            else:
+                pass
+        ratio = _core_div(matched, expected_count)
+        half_ratio = _core_mul(0.5, ratio)
+        factor = _core_add(0.5, half_ratio)
+        adjusted_next = _core_mul(adjusted, factor)
+        adjusted = adjusted_next
+    else:
+        pass
+    for forbidden in forbidden_actions:
+        bad_found = False
+        for call in function_calls:
+            bad_match = _optimization_action_name_matches(forbidden, call)
+            if bad_match:
+                bad_found = True
+            else:
+                pass
+        if bad_found:
+            penalized = _core_mul(adjusted, 0.2)
+            adjusted = penalized
+        else:
+            pass
+    return adjusted
+
+
+def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
+    out = {}
+    out["input"] = task
+    out["prediction"] = prediction
+    out["scores"] = scores
+    out["scalar"] = scalar
+    out["trace"] = trace
+    has_error = _core_is_not_none(error)
+    if has_error:
+        out["error"] = error
+    else:
+        pass
+    return out
+
+
+def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -> Any:
+    sum = 0
+    count = 0
+    for row in rows:
+        scalar = _core_get(row, "scalar", 0)
+        sum_next = _core_add(sum, scalar)
+        count_next = _core_add(count, 1)
+        sum = sum_next
+        count = count_next
+    avg = 0
+    has_rows = _core_gt(count, 0)
+    if has_rows:
+        avg_next = _core_div(sum, count)
+        avg = avg_next
+    else:
+        pass
+    out = {}
+    out["phase"] = phase
+    out["candidateMap"] = candidate_map
+    out["rows"] = rows
+    out["sum"] = sum
+    out["avg"] = avg
+    out["count"] = count
+    return out
 
 
 def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
@@ -1724,6 +1550,11 @@ def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, o
     return out
 
 
+def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
+    gen["examples"] = examples
+    return gen
+
+
 def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any, evaluator_available: bool) -> Any:
     empty_map = {}
     opts_missing = _core_is_none(options)
@@ -1751,6 +1582,16 @@ def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, opt
     out["options"] = request_options
     out["request"] = request
     return out
+
+
+def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
+    gen["demos"] = demos
+    return gen
+
+
+def _render_examples(gen: AxGen) -> list[Any]:
+    messages = _core_axgen_render_examples(gen)
+    return messages
 
 
 def _normalize_optimizer_engine_response(response: Any, engine_name: str, engine_version: str, components: Any) -> Any:
@@ -1833,6 +1674,31 @@ def _normalize_optimizer_engine_response(response: Any, engine_name: str, engine
     return validated
 
 
+def _render_demos(gen: AxGen) -> list[Any]:
+    messages = _core_axgen_render_demos(gen)
+    return messages
+
+
+def _apply_field_processors(gen: AxGen, output: Any) -> Any:
+    processed = _core_axgen_apply_field_processors(gen, output)
+    return processed
+
+
+def _run_assertions(gen: AxGen, output: Any) -> None:
+    _core_axgen_run_assertions(gen, output)
+    return None
+
+
+def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> None:
+    _append_validation_retry_messages_impl(messages, response, error)
+    return None
+
+
+def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
+    _core_axgen_record_trace(gen, input, output, status)
+    return None
+
+
 def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
     empty_list = []
     empty_map = {}
@@ -1898,5 +1764,143 @@ def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
     out["count"] = count
     out["reflectiveDataset"] = reflective
     return out
+
+
+def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
+    should_continue = _core_axgen_should_continue_steps(gen, calls)
+    return should_continue
+
+
+def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, retries: int) -> Any:
+    attempt = 0
+    last_error = _core_none()
+    while True:
+        try:
+            response = _core_ai_complete_once(client, request)
+            return response
+        except Exception as error:
+            last_error = error
+            exhausted = _core_gte(attempt, retries)
+            if exhausted:
+                raise error
+            else:
+                pass
+            _core_retry_sleep(attempt)
+            next_attempt = _core_add(attempt, 1)
+            attempt = next_attempt
+            continue
+    raise last_error
+
+
+def _parse_output_impl(content: str) -> Any:
+    text = str(content).strip()
+    output = _core_json_parse(text)
+    return output
+
+
+def _tool_spec_impl(fn: Tool) -> Any:
+    spec = {}
+    name = _core_get(fn, "name", None)
+    description = _core_get(fn, "description", None)
+    parameters = _core_get(fn, "parameters", None)
+    spec["name"] = name
+    spec["description"] = description
+    spec["parameters"] = parameters
+    return spec
+
+
+def _function_call_mode_impl(mode: Any) -> str:
+    missing = _core_is_none(mode)
+    if missing:
+        return "auto"
+    else:
+        pass
+    is_native = _core_eq(mode, "native")
+    is_auto = _core_eq(mode, "auto")
+    native_or_auto = _core_or(is_native, is_auto)
+    if native_or_auto:
+        return "auto"
+    else:
+        pass
+    is_prompt = _core_eq(mode, "prompt")
+    if is_prompt:
+        return "none"
+    else:
+        pass
+    return mode
+
+
+def _response_function_calls_impl(response: Any) -> list[Any]:
+    empty = []
+    calls = _core_get(response, "function_calls", empty)
+    return calls
+
+
+def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> None:
+    chat_calls = []
+    for call in calls:
+        chat_call = _completion_call_to_chat_impl(call)
+        chat_calls.append(chat_call)
+    content = _core_get(response, "content", "")
+    message = {}
+    message["role"] = "assistant"
+    message["content"] = content
+    message["function_calls"] = chat_calls
+    messages.append(message)
+    return None
+
+
+def _completion_call_to_chat_impl(call: Any) -> Any:
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    params = _core_get(call, "params", None)
+    function = {}
+    function["name"] = name
+    function["params"] = params
+    out = {}
+    out["id"] = id
+    out["type"] = "function"
+    out["function"] = function
+    return out
+
+
+def _tool_result_message_impl(call: Any, result: Any) -> Any:
+    id = _core_get(call, "id", None)
+    result_json = _core_json_stringify(result)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["result"] = result_json
+    return message
+
+
+def _tool_error_message_impl(call: Any, error: error) -> Any:
+    id = _core_get(call, "id", None)
+    error_text = _core_exception_message(error)
+    payload = {}
+    payload["error"] = error_text
+    payload_json = _core_json_stringify(payload)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["result"] = payload_json
+    message["is_error"] = True
+    return message
+
+
+def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> None:
+    content = _core_get(response, "content", "")
+    assistant_message = {}
+    assistant_message["role"] = "assistant"
+    assistant_message["content"] = content
+    messages.append(assistant_message)
+    error_text = _core_exception_message(error)
+    prefix_message = _core_add("The previous response failed validation: ", error_text)
+    retry_content = _core_add(prefix_message, ". Return only corrected JSON.")
+    retry_message = {}
+    retry_message["role"] = "user"
+    retry_message["content"] = retry_content
+    messages.append(retry_message)
+    return None
 
 # END AXIR CORE EMITTED FUNCTIONS

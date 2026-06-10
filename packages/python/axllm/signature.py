@@ -504,6 +504,65 @@ def _render_field(field: Field) -> str:
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
+def parse_signature(signature: str) -> AxSignature:
+    parsed = _signature_parse_impl(signature)
+    return parsed
+
+
+def validate_signature(signature: AxSignature) -> None:
+    _signature_validate_impl(signature)
+    return None
+
+
+def _signature_parse_impl(signature: str) -> AxSignature:
+    text = str(signature).strip()
+    text_len = _core_len(text)
+    is_empty = _core_eq(text_len, 0)
+    if is_empty:
+        error = _core_signature_error("Empty signature provided")
+        raise error
+    else:
+        pass
+    prefix = _core_string_consume_optional_quoted_prefix(text)
+    description = _core_get(prefix, "value", None)
+    rest = _core_get(prefix, "rest", None)
+    body = str(rest).strip()
+    arrow = _core_string_find_outside_quotes(body, "->")
+    missing_arrow = _core_lt(arrow, 0)
+    if missing_arrow:
+        error = _core_signature_error("Expected \"->\"")
+        raise error
+    else:
+        pass
+    left_raw = _core_string_slice(body, 0, arrow)
+    left = str(left_raw).strip()
+    right_start = _core_add(arrow, 2)
+    right_raw = _core_string_slice(body, right_start)
+    right = str(right_raw).strip()
+    left_len = _core_len(left)
+    left_empty = _core_eq(left_len, 0)
+    if left_empty:
+        error = _core_signature_error("No input fields specified")
+        raise error
+    else:
+        pass
+    right_len = _core_len(right)
+    right_empty = _core_eq(right_len, 0)
+    if right_empty:
+        error = _core_signature_error("No output fields specified")
+        raise error
+    else:
+        pass
+    inputs = _signature_parse_fields_impl(left, False)
+    outputs = _signature_parse_fields_impl(right, True)
+    attrs = {}
+    attrs["inputs"] = inputs
+    attrs["outputs"] = outputs
+    attrs["description"] = description
+    parsed = _core_record_new("AxSignature", attrs)
+    return parsed
+
+
 def _signature_parse_fields_impl(text: str, output: bool) -> list[Any]:
     parts = _core_string_split_outside_quotes(text, ",")
     fields = []
@@ -511,6 +570,99 @@ def _signature_parse_fields_impl(text: str, output: bool) -> list[Any]:
         field = _signature_parse_field_impl(part, output)
         fields.append(field)
     return fields
+
+
+def _signature_parse_field_impl(raw: str, output: bool) -> Field:
+    text = str(raw).strip()
+    quoted_info = _core_string_extract_quoted_suffix(text)
+    quoted = _core_get(quoted_info, "value", None)
+    rest_after_quote = _core_get(quoted_info, "rest", None)
+    rest_after_quote_trimmed = str(rest_after_quote).strip()
+    has_extra = _core_truthy(rest_after_quote_trimmed)
+    if has_extra:
+        error = _core_signature_error("Unexpected content after signature")
+        raise error
+    else:
+        pass
+    head_raw = _core_get(quoted_info, "head", None)
+    head = str(head_raw).strip()
+    head_parts = _core_string_split_once(head, ":")
+    name_part_raw = _core_get(head_parts, "left", None)
+    type_part_raw = _core_get(head_parts, "right", None)
+    name_part = str(name_part_raw).strip()
+    type_part_trimmed = str(type_part_raw).strip()
+    type_part = _core_string_default_if_empty(type_part_trimmed, "string")
+    is_optional = _core_contains(name_part, "?")
+    is_internal = _core_contains(name_part, "!")
+    name_without_optional = _core_string_replace(name_part, "?", "")
+    name_without_markers = _core_string_replace(name_without_optional, "!", "")
+    name = str(name_without_markers).strip()
+    type_words = _core_string_words(type_part)
+    type_word_count = _core_len(type_words)
+    extra_type_tokens = _core_gt(type_word_count, 1)
+    if extra_type_tokens:
+        error = _core_signature_error("Unexpected content after signature")
+        raise error
+    else:
+        pass
+    type_token = _core_list_get(type_words, 0, "string")
+    array_info = _core_string_remove_suffix(type_token, "[]")
+    type_name_raw = _core_get(array_info, "value", None)
+    type_name = _core_string_default_if_empty(type_name_raw, "string")
+    is_array = _core_get(array_info, "removed", None)
+    is_class = _core_eq(type_name, "class")
+    if is_class:
+        class_input = _core_not(output)
+        if class_input:
+            error = _core_signature_error("Input field cannot use the \"class\" type")
+            raise error
+        else:
+            pass
+        missing_quoted = _core_is_none(quoted)
+        if missing_quoted:
+            error = _core_signature_error("Missing class options after \"class\" type")
+            raise error
+        else:
+            pass
+        class_option_text = _core_string_replace(quoted, "|", ",")
+        options = _core_string_split_trim_nonempty(class_option_text, ",")
+        option_count = _core_len(options)
+        empty_options = _core_eq(option_count, 0)
+        if empty_options:
+            error = _core_signature_error("Missing class options after \"class\" type")
+            raise error
+        else:
+            pass
+        type_attrs = {}
+        type_attrs["name"] = type_name
+        type_attrs["is_array"] = is_array
+        type_attrs["options"] = options
+        field_type = _core_record_new("FieldType", type_attrs)
+        none = _core_none()
+        field_attrs = {}
+        field_attrs["name"] = name
+        field_attrs["type"] = field_type
+        field_attrs["description"] = none
+        field_attrs["is_optional"] = is_optional
+        field_attrs["is_internal"] = is_internal
+        field = _core_record_new("Field", field_attrs)
+        _signature_validate_field_shape_impl(field, output, False)
+        return field
+    else:
+        pass
+    type_attrs = {}
+    type_attrs["name"] = type_name
+    type_attrs["is_array"] = is_array
+    field_type = _core_record_new("FieldType", type_attrs)
+    field_attrs = {}
+    field_attrs["name"] = name
+    field_attrs["type"] = field_type
+    field_attrs["description"] = quoted
+    field_attrs["is_optional"] = is_optional
+    field_attrs["is_internal"] = is_internal
+    field = _core_record_new("Field", field_attrs)
+    _signature_validate_field_shape_impl(field, output, False)
+    return field
 
 
 def _signature_validate_field_shape_impl(field: Field, output: bool, nested: bool) -> None:
@@ -625,148 +777,6 @@ def _signature_validate_field_shape_impl(field: Field, output: bool, nested: boo
     return None
 
 
-def _signature_parse_field_impl(raw: str, output: bool) -> Field:
-    text = str(raw).strip()
-    quoted_info = _core_string_extract_quoted_suffix(text)
-    quoted = _core_get(quoted_info, "value", None)
-    rest_after_quote = _core_get(quoted_info, "rest", None)
-    rest_after_quote_trimmed = str(rest_after_quote).strip()
-    has_extra = _core_truthy(rest_after_quote_trimmed)
-    if has_extra:
-        error = _core_signature_error("Unexpected content after signature")
-        raise error
-    else:
-        pass
-    head_raw = _core_get(quoted_info, "head", None)
-    head = str(head_raw).strip()
-    head_parts = _core_string_split_once(head, ":")
-    name_part_raw = _core_get(head_parts, "left", None)
-    type_part_raw = _core_get(head_parts, "right", None)
-    name_part = str(name_part_raw).strip()
-    type_part_trimmed = str(type_part_raw).strip()
-    type_part = _core_string_default_if_empty(type_part_trimmed, "string")
-    is_optional = _core_contains(name_part, "?")
-    is_internal = _core_contains(name_part, "!")
-    name_without_optional = _core_string_replace(name_part, "?", "")
-    name_without_markers = _core_string_replace(name_without_optional, "!", "")
-    name = str(name_without_markers).strip()
-    type_words = _core_string_words(type_part)
-    type_word_count = _core_len(type_words)
-    extra_type_tokens = _core_gt(type_word_count, 1)
-    if extra_type_tokens:
-        error = _core_signature_error("Unexpected content after signature")
-        raise error
-    else:
-        pass
-    type_token = _core_list_get(type_words, 0, "string")
-    array_info = _core_string_remove_suffix(type_token, "[]")
-    type_name_raw = _core_get(array_info, "value", None)
-    type_name = _core_string_default_if_empty(type_name_raw, "string")
-    is_array = _core_get(array_info, "removed", None)
-    is_class = _core_eq(type_name, "class")
-    if is_class:
-        class_input = _core_not(output)
-        if class_input:
-            error = _core_signature_error("Input field cannot use the \"class\" type")
-            raise error
-        else:
-            pass
-        missing_quoted = _core_is_none(quoted)
-        if missing_quoted:
-            error = _core_signature_error("Missing class options after \"class\" type")
-            raise error
-        else:
-            pass
-        class_option_text = _core_string_replace(quoted, "|", ",")
-        options = _core_string_split_trim_nonempty(class_option_text, ",")
-        option_count = _core_len(options)
-        empty_options = _core_eq(option_count, 0)
-        if empty_options:
-            error = _core_signature_error("Missing class options after \"class\" type")
-            raise error
-        else:
-            pass
-        type_attrs = {}
-        type_attrs["name"] = type_name
-        type_attrs["is_array"] = is_array
-        type_attrs["options"] = options
-        field_type = _core_record_new("FieldType", type_attrs)
-        none = _core_none()
-        field_attrs = {}
-        field_attrs["name"] = name
-        field_attrs["type"] = field_type
-        field_attrs["description"] = none
-        field_attrs["is_optional"] = is_optional
-        field_attrs["is_internal"] = is_internal
-        field = _core_record_new("Field", field_attrs)
-        _signature_validate_field_shape_impl(field, output, False)
-        return field
-    else:
-        pass
-    type_attrs = {}
-    type_attrs["name"] = type_name
-    type_attrs["is_array"] = is_array
-    field_type = _core_record_new("FieldType", type_attrs)
-    field_attrs = {}
-    field_attrs["name"] = name
-    field_attrs["type"] = field_type
-    field_attrs["description"] = quoted
-    field_attrs["is_optional"] = is_optional
-    field_attrs["is_internal"] = is_internal
-    field = _core_record_new("Field", field_attrs)
-    _signature_validate_field_shape_impl(field, output, False)
-    return field
-
-
-def _signature_parse_impl(signature: str) -> AxSignature:
-    text = str(signature).strip()
-    text_len = _core_len(text)
-    is_empty = _core_eq(text_len, 0)
-    if is_empty:
-        error = _core_signature_error("Empty signature provided")
-        raise error
-    else:
-        pass
-    prefix = _core_string_consume_optional_quoted_prefix(text)
-    description = _core_get(prefix, "value", None)
-    rest = _core_get(prefix, "rest", None)
-    body = str(rest).strip()
-    arrow = _core_string_find_outside_quotes(body, "->")
-    missing_arrow = _core_lt(arrow, 0)
-    if missing_arrow:
-        error = _core_signature_error("Expected \"->\"")
-        raise error
-    else:
-        pass
-    left_raw = _core_string_slice(body, 0, arrow)
-    left = str(left_raw).strip()
-    right_start = _core_add(arrow, 2)
-    right_raw = _core_string_slice(body, right_start)
-    right = str(right_raw).strip()
-    left_len = _core_len(left)
-    left_empty = _core_eq(left_len, 0)
-    if left_empty:
-        error = _core_signature_error("No input fields specified")
-        raise error
-    else:
-        pass
-    right_len = _core_len(right)
-    right_empty = _core_eq(right_len, 0)
-    if right_empty:
-        error = _core_signature_error("No output fields specified")
-        raise error
-    else:
-        pass
-    inputs = _signature_parse_fields_impl(left, False)
-    outputs = _signature_parse_fields_impl(right, True)
-    attrs = {}
-    attrs["inputs"] = inputs
-    attrs["outputs"] = outputs
-    attrs["description"] = description
-    parsed = _core_record_new("AxSignature", attrs)
-    return parsed
-
-
 def _signature_validate_impl(signature: AxSignature) -> None:
     inputs = _core_get(signature, "input_fields", None)
     outputs = _core_get(signature, "output_fields", None)
@@ -815,16 +825,6 @@ def _signature_validate_impl(signature: AxSignature) -> None:
         else:
             pass
         seen_outputs.append(field_name)
-    return None
-
-
-def parse_signature(signature: str) -> AxSignature:
-    parsed = _signature_parse_impl(signature)
-    return parsed
-
-
-def validate_signature(signature: AxSignature) -> None:
-    _signature_validate_impl(signature)
     return None
 
 # END AXIR CORE EMITTED FUNCTIONS

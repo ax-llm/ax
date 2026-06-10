@@ -7,8 +7,22 @@ import math
 import re
 from typing import Any
 
-from .gen import AxGen
-from .signature import AxSignature
+from .gen import (
+    AxGen,
+    _adjust_optimization_score_for_actions,
+    _build_optimization_eval_result,
+    _build_optimization_eval_row,
+    _deserialize_optimized_artifact,
+    _normalize_optimization_dataset,
+    _normalize_optimization_metric_scores,
+    _normalize_optimizer_engine_response,
+    _optimization_component_current_map,
+    _prepare_optimizer_run,
+    _scalarize_optimization_scores,
+    _validate_optimization_component_map,
+    _validate_optimized_artifact,
+)
+from .signature import AxSignature, parse_signature
 
 
 class AxAgentClarificationError(RuntimeError):
@@ -1039,6 +1053,10 @@ def _core_runtime_error(message):
     return RuntimeError(str(message))
 
 
+def _core_json_pretty(value):
+    return json.dumps(value, indent=2)
+
+
 def _core_agent_stage_forward(stage, client, values, options):
     return stage.forward(client, values or {}, options or {})
 
@@ -1191,6 +1209,162 @@ def _core_agent_callable_invoke(state, request, options):
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
+def _agent_factory(signature: Any, options: Any) -> Any:
+    empty_list = []
+    empty_map = {}
+    sig = signature
+    is_string = _core_type_is(signature, "string")
+    if is_string:
+        parsed_sig = parse_signature(signature)
+        sig = parsed_sig
+    else:
+        sig = signature
+    context_camel = _core_get(options, "contextFields", empty_list)
+    context_fields = _core_get(options, "context_fields", context_camel)
+    executor_options = _core_get(options, "executor_options", empty_map)
+    executor_options_camel = _core_get(options, "executorOptions", executor_options)
+    responder_options = _core_get(options, "responder_options", empty_map)
+    responder_options_camel = _core_get(options, "responderOptions", responder_options)
+    executor_exclude_camel = _core_get(executor_options_camel, "excludeFields", empty_list)
+    executor_exclude = _core_get(executor_options_camel, "exclude_fields", executor_exclude_camel)
+    responder_exclude_camel = _core_get(responder_options_camel, "excludeFields", empty_list)
+    responder_exclude = _core_get(responder_options_camel, "exclude_fields", responder_exclude_camel)
+    input_fields = _core_get(sig, "input_fields", empty_list)
+    for ctx in context_fields:
+        found = False
+        for field in input_fields:
+            field_name = _core_get(field, "name", None)
+            matches = _core_eq(field_name, ctx)
+            if matches:
+                found = True
+            else:
+                pass
+        missing = _core_not(found)
+        if missing:
+            message = _core_string_format("context field not found: {}", ctx)
+            error = _core_runtime_error(message)
+            raise error
+        else:
+            pass
+    chat_log = []
+    usage = {}
+    state_alpha = {}
+    action_log = []
+    status_log = []
+    state = {}
+    runtime_contract = _normalize_agent_runtime(options)
+    has_runtime_direct = _core_map_contains(options, "runtime")
+    has_runtime_config = _core_map_contains(options, "runtimeConfig")
+    has_runtime_config_snake = _core_map_contains(options, "runtime_config")
+    has_any_runtime_config = _core_or(has_runtime_config, has_runtime_config_snake)
+    runtime_enabled = _core_or(has_runtime_direct, has_any_runtime_config)
+    policy = _normalize_agent_policy(options)
+    policy_flags = _agent_policy_flags(options)
+    policy_registry = _agent_policy_registry(policy, policy_flags)
+    context_policy = _resolve_agent_context_policy(options)
+    executor_model_policy = _resolve_agent_executor_model_policy(options)
+    callable_inventory = _normalize_agent_callable_inventory(options)
+    callable_split = _split_agent_callable_inventory(callable_inventory)
+    discovery_catalog = _render_agent_discovery_catalog(callable_split)
+    discovered_tool_docs = []
+    loaded_skill_docs = []
+    loaded_memories = []
+    used_memories = []
+    used_skills = []
+    guidance_log = []
+    function_call_traces = []
+    policy_trace = []
+    context_events = []
+    actor_model_state = {}
+    trace_events = []
+    trace = {}
+    trace["schema_version"] = "axir-agent-trace-v1"
+    trace["kind"] = "agent_run"
+    trace["status"] = "idle"
+    trace["events"] = trace_events
+    state["signature"] = sig
+    state["options"] = options
+    state["context_fields"] = context_fields
+    state["executor_exclude_fields"] = executor_exclude
+    state["responder_exclude_fields"] = responder_exclude
+    state["distiller_signature"] = "input:json, context:json -> completion:json"
+    code_field_name = _core_get(runtime_contract, "code_field_name", "javascriptCode")
+    runtime_executor_signature = _core_string_format("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
+    executor_signature = "input:json, executorRequest:string, distilledContext:json -> completion:json"
+    if runtime_enabled:
+        executor_signature = runtime_executor_signature
+    else:
+        pass
+    state["executor_signature"] = executor_signature
+    state["chat_log"] = chat_log
+    state["usage"] = usage
+    state["runtime_state"] = state_alpha
+    state["action_log"] = action_log
+    state["status_log"] = status_log
+    state["runtime_contract"] = runtime_contract
+    state["runtime_enabled"] = runtime_enabled
+    state["policy"] = policy
+    state["policy_flags"] = policy_flags
+    state["policy_registry"] = policy_registry
+    state["context_policy"] = context_policy
+    state["executor_model_policy"] = executor_model_policy
+    state["context_events"] = context_events
+    state["actor_model_state"] = actor_model_state
+    state["callable_inventory"] = callable_inventory
+    state["callable_split"] = callable_split
+    state["discovery_catalog"] = discovery_catalog
+    state["discovered_tool_docs"] = discovered_tool_docs
+    state["loaded_skill_docs"] = loaded_skill_docs
+    state["loaded_memories"] = loaded_memories
+    state["used_memories"] = used_memories
+    state["used_skills"] = used_skills
+    state["guidance_log"] = guidance_log
+    state["function_call_traces"] = function_call_traces
+    state["policy_trace"] = policy_trace
+    state["trace"] = trace
+    optimizer_metadata = _agent_optimizer_metadata(state)
+    state["optimizer_metadata"] = optimizer_metadata
+    actor_prompt_policy = _build_agent_actor_prompt_policy(state)
+    state["actor_prompt_policy"] = actor_prompt_policy
+    return state
+
+
+def _optimization_component(id: str, owner: str, kind: str, current: Any, description: str, constraints: Any, depends_on: Any, preserve: bool, format: str, validation: Any) -> Any:
+    out = {}
+    out["id"] = id
+    out["owner"] = owner
+    out["kind"] = kind
+    out["current"] = current
+    out["description"] = description
+    out["constraints"] = constraints
+    out["dependsOn"] = depends_on
+    out["preserve"] = preserve
+    out["format"] = format
+    out["validation"] = validation
+    return out
+
+
+def _optimized_artifact(optimizer_name: str, optimizer_version: str, component_map: Any, metadata: Any) -> Any:
+    empty_map = {}
+    out = {}
+    out["artifactVersion"] = "axir-optimized-artifact-v1"
+    out["optimizerName"] = optimizer_name
+    out["optimizerVersion"] = optimizer_version
+    out["componentMap"] = component_map
+    meta = metadata
+    meta_missing = _core_is_none(metadata)
+    if meta_missing:
+        meta = empty_map
+    else:
+        pass
+    out["metadata"] = meta
+    provenance = _core_get(meta, "provenance", empty_map)
+    evidence = _core_get(meta, "evidence", empty_map)
+    out["provenance"] = provenance
+    out["evidence"] = evidence
+    return out
+
+
 def _agent_reserved_runtime_names() -> list[Any]:
     registry = _agent_policy_vocabulary_registry()
     names = _core_get(registry, "reserved_runtime_names", None)
@@ -1610,6 +1784,74 @@ def _agent_policy_vocabulary_registry() -> Any:
     return registry
 
 
+def _map_optimization_judge_quality_to_score(quality: str) -> f64:
+    normalized = _core_string_lower(quality)
+    is_excellent = _core_eq(normalized, "excellent")
+    if is_excellent:
+        return 1
+    else:
+        pass
+    is_good = _core_eq(normalized, "good")
+    if is_good:
+        return 0.8
+    else:
+        pass
+    is_acceptable = _core_eq(normalized, "acceptable")
+    if is_acceptable:
+        return 0.5
+    else:
+        pass
+    is_poor = _core_eq(normalized, "poor")
+    if is_poor:
+        return 0.2
+    else:
+        pass
+    is_unacceptable = _core_eq(normalized, "unacceptable")
+    if is_unacceptable:
+        return 0
+    else:
+        pass
+    return 0.5
+
+
+def _build_optimization_judge_payload(task: Any, prediction: Any, criteria: str) -> Any:
+    empty_list = []
+    out = {}
+    task_input = _core_get(task, "input", task)
+    out["taskInput"] = task_input
+    task_criteria = _core_get(task, "criteria", criteria)
+    out["criteria"] = task_criteria
+    expected_output = _core_get(task, "expectedOutput", None)
+    out["expectedOutput"] = expected_output
+    expected_actions = _core_get(task, "expectedActions", empty_list)
+    out["expectedActions"] = expected_actions
+    forbidden_actions = _core_get(task, "forbiddenActions", empty_list)
+    out["forbiddenActions"] = forbidden_actions
+    metadata = _core_get(task, "metadata", None)
+    out["metadata"] = metadata
+    completion_type = _core_get(prediction, "completionType", "error")
+    out["completionType"] = completion_type
+    clarification = _core_get(prediction, "clarification", None)
+    out["clarification"] = clarification
+    final_output = _core_get(prediction, "output", prediction)
+    out["finalOutput"] = final_output
+    guidance_log = _core_get(prediction, "guidanceLog", "")
+    out["guidanceLog"] = guidance_log
+    action_log = _core_get(prediction, "actionLog", empty_list)
+    out["actionLog"] = action_log
+    function_calls = _core_get(prediction, "functionCalls", empty_list)
+    out["functionCalls"] = function_calls
+    tool_errors = _core_get(prediction, "toolErrors", empty_list)
+    out["toolErrors"] = tool_errors
+    turn_count = _core_get(prediction, "turnCount", 0)
+    out["turnCount"] = turn_count
+    usage = _core_get(prediction, "usage", empty_list)
+    out["usage"] = usage
+    trace = _core_get(prediction, "trace", None)
+    out["trace"] = trace
+    return out
+
+
 def _agent_context_policy_registry() -> Any:
     registry = _agent_policy_vocabulary_registry()
     empty_map = {}
@@ -1836,6 +2078,21 @@ def _render_actor_primitive_guidance(registry: Any, stage: str) -> str:
         line = _core_string_format("- {}: {}", id, effect)
         lines.append(line)
     out = _core_string_join("\n", lines)
+    return out
+
+
+def _build_agent_eval_prediction(output: Any, action_log: Any, usage: Any, trace: Any) -> Any:
+    out = {}
+    out["completionType"] = "final"
+    out["output"] = output
+    out["finalOutput"] = output
+    out["actionLog"] = action_log
+    out["usage"] = usage
+    out["trace"] = trace
+    empty_list = []
+    out["functionCalls"] = empty_list
+    out["toolErrors"] = empty_list
+    out["turnCount"] = 0
     return out
 
 
@@ -5080,126 +5337,6 @@ def _agent_runtime_test(state: Any, runtime: Any, code: str, values: Any, option
     return result
 
 
-def _agent_factory(signature: Any, options: Any) -> Any:
-    empty_list = []
-    empty_map = {}
-    sig = signature
-    is_string = _core_type_is(signature, "string")
-    if is_string:
-        parsed_sig = _parse_signature(signature)
-        sig = parsed_sig
-    else:
-        sig = signature
-    context_camel = _core_get(options, "contextFields", empty_list)
-    context_fields = _core_get(options, "context_fields", context_camel)
-    executor_options = _core_get(options, "executor_options", empty_map)
-    executor_options_camel = _core_get(options, "executorOptions", executor_options)
-    responder_options = _core_get(options, "responder_options", empty_map)
-    responder_options_camel = _core_get(options, "responderOptions", responder_options)
-    executor_exclude_camel = _core_get(executor_options_camel, "excludeFields", empty_list)
-    executor_exclude = _core_get(executor_options_camel, "exclude_fields", executor_exclude_camel)
-    responder_exclude_camel = _core_get(responder_options_camel, "excludeFields", empty_list)
-    responder_exclude = _core_get(responder_options_camel, "exclude_fields", responder_exclude_camel)
-    input_fields = _core_get(sig, "input_fields", empty_list)
-    for ctx in context_fields:
-        found = False
-        for field in input_fields:
-            field_name = _core_get(field, "name", None)
-            matches = _core_eq(field_name, ctx)
-            if matches:
-                found = True
-            else:
-                pass
-        missing = _core_not(found)
-        if missing:
-            message = _core_string_format("context field not found: {}", ctx)
-            error = _core_runtime_error(message)
-            raise error
-        else:
-            pass
-    chat_log = []
-    usage = {}
-    state_alpha = {}
-    action_log = []
-    status_log = []
-    state = {}
-    runtime_contract = _normalize_agent_runtime(options)
-    has_runtime_direct = _core_map_contains(options, "runtime")
-    has_runtime_config = _core_map_contains(options, "runtimeConfig")
-    has_runtime_config_snake = _core_map_contains(options, "runtime_config")
-    has_any_runtime_config = _core_or(has_runtime_config, has_runtime_config_snake)
-    runtime_enabled = _core_or(has_runtime_direct, has_any_runtime_config)
-    policy = _normalize_agent_policy(options)
-    policy_flags = _agent_policy_flags(options)
-    policy_registry = _agent_policy_registry(policy, policy_flags)
-    context_policy = _resolve_agent_context_policy(options)
-    executor_model_policy = _resolve_agent_executor_model_policy(options)
-    callable_inventory = _normalize_agent_callable_inventory(options)
-    callable_split = _split_agent_callable_inventory(callable_inventory)
-    discovery_catalog = _render_agent_discovery_catalog(callable_split)
-    discovered_tool_docs = []
-    loaded_skill_docs = []
-    loaded_memories = []
-    used_memories = []
-    used_skills = []
-    guidance_log = []
-    function_call_traces = []
-    policy_trace = []
-    context_events = []
-    actor_model_state = {}
-    trace_events = []
-    trace = {}
-    trace["schema_version"] = "axir-agent-trace-v1"
-    trace["kind"] = "agent_run"
-    trace["status"] = "idle"
-    trace["events"] = trace_events
-    state["signature"] = sig
-    state["options"] = options
-    state["context_fields"] = context_fields
-    state["executor_exclude_fields"] = executor_exclude
-    state["responder_exclude_fields"] = responder_exclude
-    state["distiller_signature"] = "input:json, context:json -> completion:json"
-    code_field_name = _core_get(runtime_contract, "code_field_name", "javascriptCode")
-    runtime_executor_signature = _core_string_format("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
-    executor_signature = "input:json, executorRequest:string, distilledContext:json -> completion:json"
-    if runtime_enabled:
-        executor_signature = runtime_executor_signature
-    else:
-        pass
-    state["executor_signature"] = executor_signature
-    state["chat_log"] = chat_log
-    state["usage"] = usage
-    state["runtime_state"] = state_alpha
-    state["action_log"] = action_log
-    state["status_log"] = status_log
-    state["runtime_contract"] = runtime_contract
-    state["runtime_enabled"] = runtime_enabled
-    state["policy"] = policy
-    state["policy_flags"] = policy_flags
-    state["policy_registry"] = policy_registry
-    state["context_policy"] = context_policy
-    state["executor_model_policy"] = executor_model_policy
-    state["context_events"] = context_events
-    state["actor_model_state"] = actor_model_state
-    state["callable_inventory"] = callable_inventory
-    state["callable_split"] = callable_split
-    state["discovery_catalog"] = discovery_catalog
-    state["discovered_tool_docs"] = discovered_tool_docs
-    state["loaded_skill_docs"] = loaded_skill_docs
-    state["loaded_memories"] = loaded_memories
-    state["used_memories"] = used_memories
-    state["used_skills"] = used_skills
-    state["guidance_log"] = guidance_log
-    state["function_call_traces"] = function_call_traces
-    state["policy_trace"] = policy_trace
-    state["trace"] = trace
-    optimizer_metadata = _agent_optimizer_metadata(state)
-    state["optimizer_metadata"] = optimizer_metadata
-    actor_prompt_policy = _build_agent_actor_prompt_policy(state)
-    state["actor_prompt_policy"] = actor_prompt_policy
-    return state
-
-
 def _split_context_values(state: Any, values: Any) -> Any:
     empty_list = []
     context_fields = _core_get(state, "context_fields", empty_list)
@@ -5525,798 +5662,5 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     state["usage"] = usage
     _agent_finalize_trace(state, "completed", responder_output)
     return responder_output
-
-
-def _optimization_component(id: str, owner: str, kind: str, current: Any, description: str, constraints: Any, depends_on: Any, preserve: bool, format: str, validation: Any) -> Any:
-    out = {}
-    out["id"] = id
-    out["owner"] = owner
-    out["kind"] = kind
-    out["current"] = current
-    out["description"] = description
-    out["constraints"] = constraints
-    out["dependsOn"] = depends_on
-    out["preserve"] = preserve
-    out["format"] = format
-    out["validation"] = validation
-    return out
-
-
-def _optimized_artifact(optimizer_name: str, optimizer_version: str, component_map: Any, metadata: Any) -> Any:
-    empty_map = {}
-    out = {}
-    out["artifactVersion"] = "axir-optimized-artifact-v1"
-    out["optimizerName"] = optimizer_name
-    out["optimizerVersion"] = optimizer_version
-    out["componentMap"] = component_map
-    meta = metadata
-    meta_missing = _core_is_none(metadata)
-    if meta_missing:
-        meta = empty_map
-    else:
-        pass
-    out["metadata"] = meta
-    provenance = _core_get(meta, "provenance", empty_map)
-    evidence = _core_get(meta, "evidence", empty_map)
-    out["provenance"] = provenance
-    out["evidence"] = evidence
-    return out
-
-
-def _validate_optimization_component_value(component: Any, value: Any) -> bool:
-    current = _core_get(component, "current", None)
-    current_is_string = _core_type_is(current, "string")
-    if current_is_string:
-        value_is_string = _core_type_is(value, "string")
-        bad_string = _core_not(value_is_string)
-        if bad_string:
-            id = _core_get(component, "id", "")
-            message = _core_string_format("invalid optimized component value for {}", id)
-            error = _core_runtime_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    current_is_object = _core_type_is(current, "object")
-    if current_is_object:
-        value_is_object = _core_type_is(value, "object")
-        bad_object = _core_not(value_is_object)
-        if bad_object:
-            id_object = _core_get(component, "id", "")
-            message_object = _core_string_format("invalid optimized component value for {}", id_object)
-            error_object = _core_runtime_error(message_object)
-            raise error_object
-        else:
-            pass
-    else:
-        pass
-    current_is_list = _core_type_is(current, "list")
-    if current_is_list:
-        value_is_list = _core_type_is(value, "list")
-        bad_list = _core_not(value_is_list)
-        if bad_list:
-            id_list = _core_get(component, "id", "")
-            message_list = _core_string_format("invalid optimized component value for {}", id_list)
-            error_list = _core_runtime_error(message_list)
-            raise error_list
-        else:
-            pass
-    else:
-        pass
-    current_is_number = _core_type_is(current, "number")
-    if current_is_number:
-        value_is_number = _core_type_is(value, "number")
-        bad_number = _core_not(value_is_number)
-        if bad_number:
-            id_number = _core_get(component, "id", "")
-            message_number = _core_string_format("invalid optimized component value for {}", id_number)
-            error_number = _core_runtime_error(message_number)
-            raise error_number
-        else:
-            pass
-    else:
-        pass
-    current_is_boolean = _core_type_is(current, "boolean")
-    if current_is_boolean:
-        value_is_boolean = _core_type_is(value, "boolean")
-        bad_boolean = _core_not(value_is_boolean)
-        if bad_boolean:
-            id_boolean = _core_get(component, "id", "")
-            message_boolean = _core_string_format("invalid optimized component value for {}", id_boolean)
-            error_boolean = _core_runtime_error(message_boolean)
-            raise error_boolean
-        else:
-            pass
-    else:
-        pass
-    format = _core_get(component, "format", "")
-    is_snake = _core_eq(format, "snake_case")
-    if is_snake:
-        snake_ok = _core_regex_match("^[a-z][a-z0-9_]{0,31}$", value)
-        bad_snake = _core_not(snake_ok)
-        if bad_snake:
-            error_snake = _core_runtime_error("invalid optimized function name")
-            raise error_snake
-        else:
-            pass
-    else:
-        pass
-    return True
-
-
-def _validate_optimization_component_map(components: Any, component_map: Any) -> bool:
-    known = []
-    component_by_id = {}
-    for component in components:
-        id = _core_get(component, "id", "")
-        known.append(id)
-        component_by_id[id] = component
-    keys = _core_map_keys(component_map)
-    for id in keys:
-        ok = _core_contains(known, id)
-        bad = _core_not(ok)
-        if bad:
-            message = _core_string_format("unknown optimized component id: {}", id)
-            error = _core_runtime_error(message)
-            raise error
-        else:
-            pass
-        component = _core_get(component_by_id, id, None)
-        value = _core_get(component_map, id, None)
-        _validate_optimization_component_value(component, value)
-    return True
-
-
-def _validate_optimized_artifact_provenance(artifact: Any, components: Any) -> bool:
-    empty_map = {}
-    provenance = _core_get(artifact, "provenance", empty_map)
-    owners = _core_get(provenance, "componentOwners", empty_map)
-    owners_is_object = _core_type_is(owners, "object")
-    bad_owners = _core_not(owners_is_object)
-    if bad_owners:
-        owners_error = _core_runtime_error("optimized artifact provenance componentOwners must be an object")
-        raise owners_error
-    else:
-        pass
-    for component in components:
-        id = _core_get(component, "id", "")
-        expected_owner = _core_get(owners, id, None)
-        has_expected_owner = _core_is_not_none(expected_owner)
-        if has_expected_owner:
-            actual_owner = _core_get(component, "owner", "")
-            owner_ok = _core_eq(expected_owner, actual_owner)
-            stale_owner = _core_not(owner_ok)
-            if stale_owner:
-                message = _core_string_format("stale optimized component owner: {}", id)
-                error = _core_runtime_error(message)
-                raise error
-            else:
-                pass
-        else:
-            pass
-    return True
-
-
-def _validate_optimized_artifact(artifact: Any, components: Any) -> Any:
-    is_object = _core_type_is(artifact, "object")
-    not_object = _core_not(is_object)
-    if not_object:
-        error = _core_runtime_error("optimized artifact must be an object")
-        raise error
-    else:
-        pass
-    version = _core_get(artifact, "artifactVersion", "")
-    version_ok = _core_eq(version, "axir-optimized-artifact-v1")
-    bad_version = _core_not(version_ok)
-    if bad_version:
-        error_version = _core_runtime_error("unsupported optimized artifact version")
-        raise error_version
-    else:
-        pass
-    optimizer_name = _core_get(artifact, "optimizerName", "")
-    name_is_string = _core_type_is(optimizer_name, "string")
-    name_empty = _core_eq(optimizer_name, "")
-    bad_name_type = _core_not(name_is_string)
-    bad_name = _core_or(bad_name_type, name_empty)
-    if bad_name:
-        name_error = _core_runtime_error("optimized artifact optimizerName must be a non-empty string")
-        raise name_error
-    else:
-        pass
-    optimizer_version = _core_get(artifact, "optimizerVersion", "")
-    version_is_string = _core_type_is(optimizer_version, "string")
-    optimizer_version_empty = _core_eq(optimizer_version, "")
-    bad_optimizer_version_type = _core_not(version_is_string)
-    bad_optimizer_version = _core_or(bad_optimizer_version_type, optimizer_version_empty)
-    if bad_optimizer_version:
-        optimizer_version_error = _core_runtime_error("optimized artifact optimizerVersion must be a non-empty string")
-        raise optimizer_version_error
-    else:
-        pass
-    empty_map = {}
-    component_map = _core_get(artifact, "componentMap", empty_map)
-    component_map_is_object = _core_type_is(component_map, "object")
-    bad_component_map = _core_not(component_map_is_object)
-    if bad_component_map:
-        error_map = _core_runtime_error("optimized artifact componentMap must be an object")
-        raise error_map
-    else:
-        pass
-    metadata = _core_get(artifact, "metadata", None)
-    metadata_is_object = _core_type_is(metadata, "object")
-    bad_metadata = _core_not(metadata_is_object)
-    if bad_metadata:
-        metadata_error = _core_runtime_error("optimized artifact metadata must be an object")
-        raise metadata_error
-    else:
-        pass
-    provenance = _core_get(artifact, "provenance", None)
-    provenance_is_object = _core_type_is(provenance, "object")
-    bad_provenance = _core_not(provenance_is_object)
-    if bad_provenance:
-        provenance_error = _core_runtime_error("optimized artifact provenance must be an object")
-        raise provenance_error
-    else:
-        pass
-    evidence = _core_get(artifact, "evidence", None)
-    evidence_is_object = _core_type_is(evidence, "object")
-    bad_evidence = _core_not(evidence_is_object)
-    if bad_evidence:
-        evidence_error = _core_runtime_error("optimized artifact evidence must be an object")
-        raise evidence_error
-    else:
-        pass
-    _validate_optimization_component_map(components, component_map)
-    _validate_optimized_artifact_provenance(artifact, components)
-    return artifact
-
-
-def _serialize_optimized_artifact(artifact: Any) -> str:
-    text = _core_json_stringify(artifact)
-    return text
-
-
-def _deserialize_optimized_artifact(text: str, components: Any) -> Any:
-    artifact = _core_json_parse(text)
-    validated = _validate_optimized_artifact(artifact, components)
-    return validated
-
-
-def _optimization_changed_components(components: Any, component_map: Any) -> list[Any]:
-    changes = []
-    for component in components:
-        id = _core_get(component, "id", "")
-        current = _core_get(component, "current", None)
-        next = _core_get(component_map, id, current)
-        same = _core_eq(current, next)
-        changed = _core_not(same)
-        if changed:
-            entry = {}
-            entry["id"] = id
-            entry["current"] = current
-            entry["next"] = next
-            changes.append(entry)
-        else:
-            pass
-    return changes
-
-
-def _optimization_component_current_map(components: Any) -> Any:
-    out = {}
-    for component in components:
-        id = _core_get(component, "id", "")
-        current = _core_get(component, "current", None)
-        out[id] = current
-    return out
-
-
-def _normalize_optimization_dataset(dataset: Any) -> Any:
-    empty_list = []
-    is_object = _core_type_is(dataset, "object")
-    if is_object:
-        train = _core_get(dataset, "train", empty_list)
-        validation = _core_get(dataset, "validation", empty_list)
-        out_obj = {}
-        out_obj["train"] = train
-        out_obj["validation"] = validation
-        return out_obj
-    else:
-        pass
-    out_list = {}
-    out_list["train"] = dataset
-    out_list["validation"] = empty_list
-    return out_list
-
-
-def _normalize_optimization_metric_scores(raw: Any) -> Any:
-    is_number = _core_type_is(raw, "number")
-    if is_number:
-        out_number = {}
-        out_number["score"] = raw
-        return out_number
-    else:
-        pass
-    is_object = _core_type_is(raw, "object")
-    if is_object:
-        return raw
-    else:
-        pass
-    out_zero = {}
-    out_zero["score"] = 0
-    return out_zero
-
-
-def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
-    metric_key = _core_get(options, "paretoMetricKey", "")
-    has_metric = _core_ne(metric_key, "")
-    if has_metric:
-        picked = _core_get(scores, metric_key, 0)
-        return picked
-    else:
-        pass
-    values = _core_map_values(scores)
-    sum = 0
-    count = 0
-    for value in values:
-        sum_next = _core_add(sum, value)
-        count_next = _core_add(count, 1)
-        sum = sum_next
-        count = count_next
-    empty = _core_eq(count, 0)
-    if empty:
-        return 0
-    else:
-        pass
-    avg = _core_div(sum, count)
-    return avg
-
-
-def _optimization_action_name_matches(expected: str, call: Any) -> bool:
-    qualified = _core_get(call, "qualifiedName", "")
-    name = _core_get(call, "name", "")
-    qualified_match = _core_eq(qualified, expected)
-    name_match = _core_eq(name, expected)
-    dot_expected = _core_add(".", expected)
-    suffix_match = _core_string_ends_with(qualified, dot_expected)
-    direct_match = _core_or(qualified_match, name_match)
-    any_match = _core_or(direct_match, suffix_match)
-    return any_match
-
-
-def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: Any) -> f64:
-    empty_list = []
-    function_calls = _core_get(prediction, "functionCalls", empty_list)
-    expected_actions = _core_get(task, "expectedActions", empty_list)
-    forbidden_actions = _core_get(task, "forbiddenActions", empty_list)
-    adjusted = score
-    expected_count = _core_len(expected_actions)
-    has_expected = _core_gt(expected_count, 0)
-    if has_expected:
-        matched = 0
-        for expected in expected_actions:
-            found = False
-            for call in function_calls:
-                call_matches = _optimization_action_name_matches(expected, call)
-                if call_matches:
-                    found = True
-                else:
-                    pass
-            if found:
-                matched_next = _core_add(matched, 1)
-                matched = matched_next
-            else:
-                pass
-        ratio = _core_div(matched, expected_count)
-        half_ratio = _core_mul(0.5, ratio)
-        factor = _core_add(0.5, half_ratio)
-        adjusted_next = _core_mul(adjusted, factor)
-        adjusted = adjusted_next
-    else:
-        pass
-    for forbidden in forbidden_actions:
-        bad_found = False
-        for call in function_calls:
-            bad_match = _optimization_action_name_matches(forbidden, call)
-            if bad_match:
-                bad_found = True
-            else:
-                pass
-        if bad_found:
-            penalized = _core_mul(adjusted, 0.2)
-            adjusted = penalized
-        else:
-            pass
-    return adjusted
-
-
-def _map_optimization_judge_quality_to_score(quality: str) -> f64:
-    normalized = _core_string_lower(quality)
-    is_excellent = _core_eq(normalized, "excellent")
-    if is_excellent:
-        return 1
-    else:
-        pass
-    is_good = _core_eq(normalized, "good")
-    if is_good:
-        return 0.8
-    else:
-        pass
-    is_acceptable = _core_eq(normalized, "acceptable")
-    if is_acceptable:
-        return 0.5
-    else:
-        pass
-    is_poor = _core_eq(normalized, "poor")
-    if is_poor:
-        return 0.2
-    else:
-        pass
-    is_unacceptable = _core_eq(normalized, "unacceptable")
-    if is_unacceptable:
-        return 0
-    else:
-        pass
-    return 0.5
-
-
-def _build_optimization_judge_payload(task: Any, prediction: Any, criteria: str) -> Any:
-    empty_list = []
-    out = {}
-    task_input = _core_get(task, "input", task)
-    out["taskInput"] = task_input
-    task_criteria = _core_get(task, "criteria", criteria)
-    out["criteria"] = task_criteria
-    expected_output = _core_get(task, "expectedOutput", None)
-    out["expectedOutput"] = expected_output
-    expected_actions = _core_get(task, "expectedActions", empty_list)
-    out["expectedActions"] = expected_actions
-    forbidden_actions = _core_get(task, "forbiddenActions", empty_list)
-    out["forbiddenActions"] = forbidden_actions
-    metadata = _core_get(task, "metadata", None)
-    out["metadata"] = metadata
-    completion_type = _core_get(prediction, "completionType", "error")
-    out["completionType"] = completion_type
-    clarification = _core_get(prediction, "clarification", None)
-    out["clarification"] = clarification
-    final_output = _core_get(prediction, "output", prediction)
-    out["finalOutput"] = final_output
-    guidance_log = _core_get(prediction, "guidanceLog", "")
-    out["guidanceLog"] = guidance_log
-    action_log = _core_get(prediction, "actionLog", empty_list)
-    out["actionLog"] = action_log
-    function_calls = _core_get(prediction, "functionCalls", empty_list)
-    out["functionCalls"] = function_calls
-    tool_errors = _core_get(prediction, "toolErrors", empty_list)
-    out["toolErrors"] = tool_errors
-    turn_count = _core_get(prediction, "turnCount", 0)
-    out["turnCount"] = turn_count
-    usage = _core_get(prediction, "usage", empty_list)
-    out["usage"] = usage
-    trace = _core_get(prediction, "trace", None)
-    out["trace"] = trace
-    return out
-
-
-def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
-    out = {}
-    out["input"] = task
-    out["prediction"] = prediction
-    out["scores"] = scores
-    out["scalar"] = scalar
-    out["trace"] = trace
-    has_error = _core_is_not_none(error)
-    if has_error:
-        out["error"] = error
-    else:
-        pass
-    return out
-
-
-def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -> Any:
-    sum = 0
-    count = 0
-    for row in rows:
-        scalar = _core_get(row, "scalar", 0)
-        sum_next = _core_add(sum, scalar)
-        count_next = _core_add(count, 1)
-        sum = sum_next
-        count = count_next
-    avg = 0
-    has_rows = _core_gt(count, 0)
-    if has_rows:
-        avg_next = _core_div(sum, count)
-        avg = avg_next
-    else:
-        pass
-    out = {}
-    out["phase"] = phase
-    out["candidateMap"] = candidate_map
-    out["rows"] = rows
-    out["sum"] = sum
-    out["avg"] = avg
-    out["count"] = count
-    return out
-
-
-def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
-    out = []
-    is_list = _core_type_is(target, "list")
-    is_all = _core_eq(target, "all")
-    is_actor = _core_eq(target, "actor")
-    is_responder = _core_eq(target, "responder")
-    is_flow = _core_eq(target, "flow")
-    for component in components:
-        id = _core_get(component, "id", "")
-        kind = _core_get(component, "kind", "")
-        include = False
-        if is_all:
-            include = True
-        else:
-            pass
-        if is_list:
-            listed = _core_contains(target, id)
-            if listed:
-                include = True
-            else:
-                pass
-        else:
-            pass
-        if is_actor:
-            actor_match = _core_string_ends_with(id, ".actor")
-            actor_component_match = _core_contains(id, ".actor::")
-            actor_any_match = _core_or(actor_match, actor_component_match)
-            if actor_any_match:
-                include = True
-            else:
-                pass
-        else:
-            pass
-        if is_responder:
-            responder_match = _core_string_ends_with(id, ".responder")
-            responder_component_match = _core_contains(id, ".responder::")
-            responder_any_match = _core_or(responder_match, responder_component_match)
-            if responder_any_match:
-                include = True
-            else:
-                pass
-        else:
-            pass
-        if is_flow:
-            flow_component = _core_eq(kind, "flow-graph")
-            if flow_component:
-                include = True
-            else:
-                pass
-        else:
-            pass
-        explicit_match = _core_eq(target, id)
-        if explicit_match:
-            include = True
-        else:
-            pass
-        if include:
-            out.append(component)
-        else:
-            pass
-    count = _core_len(out)
-    empty = _core_eq(count, 0)
-    if empty:
-        message = _core_string_format("no optimizable components match target: {}", target)
-        error = _core_runtime_error(message)
-        raise error
-    else:
-        pass
-    return out
-
-
-def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any) -> Any:
-    out = {}
-    out["contractVersion"] = "axir-optimize-contract-v1"
-    out["programKind"] = program_kind
-    out["components"] = components
-    out["dataset"] = dataset
-    out["options"] = options
-    out["trace"] = trace
-    evaluator = {}
-    methods = []
-    methods.append("evaluate")
-    evaluator["available"] = True
-    evaluator["contractVersion"] = "axir-optimizer-evaluator-v1"
-    evaluator["evidenceContractVersion"] = "axir-optimizer-evidence-v1"
-    evaluator["methods"] = methods
-    out["evaluator"] = evaluator
-    return out
-
-
-def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any, evaluator_available: bool) -> Any:
-    empty_map = {}
-    opts_missing = _core_is_none(options)
-    opts = options
-    if opts_missing:
-        opts = empty_map
-    else:
-        pass
-    normalized = _normalize_optimization_dataset(dataset)
-    target = _core_get(opts, "target", "all")
-    selected = _filter_optimization_components(components, target)
-    request_options = _core_map_merge(empty_map, opts)
-    _core_map_delete(request_options, "client")
-    _core_map_delete(request_options, "ai")
-    _core_map_delete(request_options, "engine")
-    _core_map_delete(request_options, "optimizer")
-    request = _build_optimizer_request(program_kind, selected, normalized, request_options, trace)
-    evaluator = _core_get(request, "evaluator", None)
-    evaluator["available"] = evaluator_available
-    request["evaluator"] = evaluator
-    out = {}
-    out["components"] = components
-    out["selectedComponents"] = selected
-    out["dataset"] = normalized
-    out["options"] = request_options
-    out["request"] = request
-    return out
-
-
-def _normalize_optimizer_engine_response(response: Any, engine_name: str, engine_version: str, components: Any) -> Any:
-    response_is_object = _core_type_is(response, "object")
-    bad_response = _core_not(response_is_object)
-    if bad_response:
-        error = _core_runtime_error("optimizer engine must return an optimized artifact")
-        raise error
-    else:
-        pass
-    empty_map = {}
-    has_artifact = _core_map_contains(response, "artifact")
-    artifact_source = response
-    if has_artifact:
-        artifact_value = _core_get(response, "artifact", None)
-        artifact_source = artifact_value
-    else:
-        pass
-    artifact = _core_map_merge(empty_map, artifact_source)
-    artifact_is_object = _core_type_is(artifact, "object")
-    bad_artifact = _core_not(artifact_is_object)
-    if bad_artifact:
-        artifact_error = _core_runtime_error("optimizer engine must return an optimized artifact")
-        raise artifact_error
-    else:
-        pass
-    version = _core_get(artifact, "artifactVersion", None)
-    missing_version = _core_is_none(version)
-    if missing_version:
-        artifact["artifactVersion"] = "axir-optimized-artifact-v1"
-    else:
-        pass
-    name = _core_get(artifact, "optimizerName", None)
-    missing_name = _core_is_none(name)
-    if missing_name:
-        artifact["optimizerName"] = engine_name
-    else:
-        pass
-    engine_ver = _core_get(artifact, "optimizerVersion", None)
-    missing_engine_ver = _core_is_none(engine_ver)
-    if missing_engine_ver:
-        artifact["optimizerVersion"] = engine_version
-    else:
-        pass
-    component_map = _core_get(artifact, "componentMap", None)
-    missing_component_map = _core_is_none(component_map)
-    if missing_component_map:
-        snake_map = _core_get(artifact, "component_map", empty_map)
-        artifact["componentMap"] = snake_map
-    else:
-        pass
-    metadata = _core_get(artifact, "metadata", None)
-    missing_metadata = _core_is_none(metadata)
-    if missing_metadata:
-        default_metadata = {}
-        artifact["metadata"] = default_metadata
-    else:
-        pass
-    metadata_final = _core_get(artifact, "metadata", None)
-    provenance = _core_get(artifact, "provenance", None)
-    missing_provenance = _core_is_none(provenance)
-    if missing_provenance:
-        empty_provenance = {}
-        metadata_provenance = _core_get(metadata_final, "provenance", empty_provenance)
-        artifact["provenance"] = metadata_provenance
-    else:
-        pass
-    evidence = _core_get(artifact, "evidence", None)
-    missing_evidence = _core_is_none(evidence)
-    if missing_evidence:
-        empty_evidence = {}
-        metadata_evidence = _core_get(metadata_final, "evidence", empty_evidence)
-        artifact["evidence"] = metadata_evidence
-    else:
-        pass
-    validated = _validate_optimized_artifact(artifact, components)
-    map = _core_get(validated, "componentMap", None)
-    changed = _optimization_changed_components(components, map)
-    validated["changedComponents"] = changed
-    return validated
-
-
-def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
-    empty_list = []
-    empty_map = {}
-    rows = _core_get(eval_result, "rows", empty_list)
-    outputs = []
-    scores = []
-    score_vectors = []
-    trajectories = []
-    for row in rows:
-        prediction = _core_get(row, "prediction", empty_map)
-        output = _core_get(prediction, "output", prediction)
-        outputs.append(output)
-        scalar = _core_get(row, "scalar", 0)
-        scores.append(scalar)
-        vector = _core_get(row, "scores", empty_map)
-        score_vectors.append(vector)
-        trajectory = {}
-        trace = _core_get(row, "trace", None)
-        trajectory["trace"] = trace
-        trajectory["output"] = output
-        row_error = _core_get(row, "error", None)
-        prediction_error = _core_get(prediction, "error", row_error)
-        has_error = _core_is_not_none(prediction_error)
-        if has_error:
-            trajectory["error"] = prediction_error
-        else:
-            pass
-        trajectories.append(trajectory)
-    reflective = {}
-    for component in components:
-        id = _core_get(component, "id", "")
-        items = []
-        for row in rows:
-            entry = {}
-            prediction = _core_get(row, "prediction", empty_map)
-            output = _core_get(prediction, "output", prediction)
-            scalar = _core_get(row, "scalar", 0)
-            trace = _core_get(row, "trace", None)
-            entry["score"] = scalar
-            entry["output"] = output
-            entry["trace"] = trace
-            error = _core_get(row, "error", None)
-            has_error = _core_is_not_none(error)
-            if has_error:
-                entry["error"] = error
-            else:
-                pass
-            items.append(entry)
-        reflective[id] = items
-    out = {}
-    out["contractVersion"] = "axir-optimizer-evidence-v1"
-    candidate_map = _core_get(eval_result, "candidateMap", empty_map)
-    out["candidateMap"] = candidate_map
-    out["outputs"] = outputs
-    out["scores"] = scores
-    out["scoreVectors"] = score_vectors
-    out["trajectories"] = trajectories
-    avg = _core_get(eval_result, "avg", 0)
-    sum = _core_get(eval_result, "sum", 0)
-    count = _core_get(eval_result, "count", 0)
-    out["avg"] = avg
-    out["sum"] = sum
-    out["count"] = count
-    out["reflectiveDataset"] = reflective
-    return out
-
-
-def _build_agent_eval_prediction(output: Any, action_log: Any, usage: Any, trace: Any) -> Any:
-    out = {}
-    out["completionType"] = "final"
-    out["output"] = output
-    out["finalOutput"] = output
-    out["actionLog"] = action_log
-    out["usage"] = usage
-    out["trace"] = trace
-    empty_list = []
-    out["functionCalls"] = empty_list
-    out["toolErrors"] = empty_list
-    out["turnCount"] = 0
-    return out
 
 # END AXIR CORE EMITTED FUNCTIONS

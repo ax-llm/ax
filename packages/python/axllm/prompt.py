@@ -533,6 +533,23 @@ def _core_prompt_user_content(signature, values):
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
+def render_template_content(template: str, vars: Any = None, context: str = "inline-template") -> str:
+    nodes = _template_parse_impl(template, context)
+    rendered = _template_render_tree_impl(nodes, vars, template, context)
+    return rendered
+
+
+def collect_template_variable_names(source: str, context: str = "template-vars") -> list[Any]:
+    nodes = _template_parse_impl(source, context)
+    names = _template_collect_vars_impl(nodes)
+    return names
+
+
+def validate_prompt_template_syntax(source: str, context: str = "template-validate", required_variables: Any = None) -> Any:
+    result = _template_validate_impl(source, context, required_variables)
+    return result
+
+
 def _template_parse_impl(template: str, context: str) -> Any:
     nodes = _core_template_parse(template, context)
     return nodes
@@ -551,6 +568,21 @@ def _template_collect_vars_impl(nodes: Any) -> list[Any]:
 def _template_validate_impl(source: str, context: str, required_variables: Any) -> Any:
     result = _core_template_validate(source, context, required_variables)
     return result
+
+
+def render_prompt(signature: AxSignature, values: Any, functions: list[Any], options: Any = None) -> list[Any]:
+    instruction = _core_get(options, "instruction", None)
+    has_instruction = _core_is_not_none(instruction)
+    if has_instruction:
+        user_content = _prompt_user_content_impl(signature, values)
+        messages = _prompt_messages_impl(instruction, user_content)
+        return messages
+    else:
+        system_content = _prompt_structured_impl(signature, values, functions, options)
+        user_content = _prompt_user_content_impl(signature, values)
+        messages = _prompt_messages_impl(system_content, user_content)
+        return messages
+    return None
 
 
 def _prompt_structured_impl(signature: AxSignature, values: Any, functions: list[Any], options: Any) -> str:
@@ -575,38 +607,6 @@ def _prompt_messages_impl(system: str, user: Any) -> list[Any]:
     messages.append(system_message)
     messages.append(user_message)
     return messages
-
-
-def render_template_content(template: str, vars: Any = None, context: str = "inline-template") -> str:
-    nodes = _template_parse_impl(template, context)
-    rendered = _template_render_tree_impl(nodes, vars, template, context)
-    return rendered
-
-
-def collect_template_variable_names(source: str, context: str = "template-vars") -> list[Any]:
-    nodes = _template_parse_impl(source, context)
-    names = _template_collect_vars_impl(nodes)
-    return names
-
-
-def validate_prompt_template_syntax(source: str, context: str = "template-validate", required_variables: Any = None) -> Any:
-    result = _template_validate_impl(source, context, required_variables)
-    return result
-
-
-def render_prompt(signature: AxSignature, values: Any, functions: list[Any], options: Any = None) -> list[Any]:
-    instruction = _core_get(options, "instruction", None)
-    has_instruction = _core_is_not_none(instruction)
-    if has_instruction:
-        user_content = _prompt_user_content_impl(signature, values)
-        messages = _prompt_messages_impl(instruction, user_content)
-        return messages
-    else:
-        system_content = _prompt_structured_impl(signature, values, functions, options)
-        user_content = _prompt_user_content_impl(signature, values)
-        messages = _prompt_messages_impl(system_content, user_content)
-        return messages
-    return None
 
 # END AXIR CORE EMITTED FUNCTIONS
 

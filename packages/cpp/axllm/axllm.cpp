@@ -1652,6 +1652,61 @@ Value Core::openai_normalize_stream_delta(Value raw, Value state) { return opena
 Value Core::openai_normalize_embed_response(Value raw) { return openai_normalize_embed_response(std::move(raw), "openai", Value()); }
 
 // BEGIN AXIR CORE EMITTED FUNCTIONS
+Value Core::parse_signature(Value signature) {
+  Value parsed = Core::_signature_parse_impl(signature);
+  return parsed;
+}
+
+Value Core::validate_signature(Value signature) {
+  Core::_signature_validate_impl(signature);
+  return Value();
+}
+
+Value Core::_signature_parse_impl(Value signature) {
+  Value text = Core::string_trim(signature);
+  Value text_len = Core::len(text);
+  Value is_empty = Core::eq(text_len, Value(0));
+  if (Core::truthy(is_empty)) {
+    Value error = Core::signature_error(Value("Empty signature provided"));
+    throw Core::as_error(error);
+  }
+  Value prefix = Core::string_consume_optional_quoted_prefix(text);
+  Value description = Core::get(prefix, Value("value"), Value());
+  Value rest = Core::get(prefix, Value("rest"), Value());
+  Value body = Core::string_trim(rest);
+  Value arrow = Core::string_find_outside_quotes(body, Value("->"));
+  Value missing_arrow = Core::lt(arrow, Value(0));
+  if (Core::truthy(missing_arrow)) {
+    Value error = Core::signature_error(Value("Expected \"->\""));
+    throw Core::as_error(error);
+  }
+  Value left_raw = Core::string_slice(body, Value(0), arrow);
+  Value left = Core::string_trim(left_raw);
+  Value right_start = Core::add(arrow, Value(2));
+  Value right_raw = Core::string_slice(body, right_start);
+  Value right = Core::string_trim(right_raw);
+  Value left_len = Core::len(left);
+  Value left_empty = Core::eq(left_len, Value(0));
+  if (Core::truthy(left_empty)) {
+    Value error = Core::signature_error(Value("No input fields specified"));
+    throw Core::as_error(error);
+  }
+  Value right_len = Core::len(right);
+  Value right_empty = Core::eq(right_len, Value(0));
+  if (Core::truthy(right_empty)) {
+    Value error = Core::signature_error(Value("No output fields specified"));
+    throw Core::as_error(error);
+  }
+  Value inputs = Core::_signature_parse_fields_impl(left, Value(false));
+  Value outputs = Core::_signature_parse_fields_impl(right, Value(true));
+  Value attrs = Value::object();
+  Core::set(attrs, Value("inputs"), inputs);
+  Core::set(attrs, Value("outputs"), outputs);
+  Core::set(attrs, Value("description"), description);
+  Value parsed = Core::record_new(Value("AxSignature"), attrs);
+  return parsed;
+}
+
 Value Core::_signature_parse_fields_impl(Value text, Value output) {
   Value parts = Core::string_split_outside_quotes(text, Value(","));
   Value fields = Value::array();
@@ -1660,6 +1715,93 @@ Value Core::_signature_parse_fields_impl(Value text, Value output) {
     Core::append(fields, field);
   }
   return fields;
+}
+
+Value Core::_signature_parse_field_impl(Value raw, Value output) {
+  Value text = Core::string_trim(raw);
+  Value quoted_info = Core::string_extract_quoted_suffix(text);
+  Value quoted = Core::get(quoted_info, Value("value"), Value());
+  Value rest_after_quote = Core::get(quoted_info, Value("rest"), Value());
+  Value rest_after_quote_trimmed = Core::string_trim(rest_after_quote);
+  Value has_extra = Core::truthy_value(rest_after_quote_trimmed);
+  if (Core::truthy(has_extra)) {
+    Value error = Core::signature_error(Value("Unexpected content after signature"));
+    throw Core::as_error(error);
+  }
+  Value head_raw = Core::get(quoted_info, Value("head"), Value());
+  Value head = Core::string_trim(head_raw);
+  Value head_parts = Core::string_split_once(head, Value(":"));
+  Value name_part_raw = Core::get(head_parts, Value("left"), Value());
+  Value type_part_raw = Core::get(head_parts, Value("right"), Value());
+  Value name_part = Core::string_trim(name_part_raw);
+  Value type_part_trimmed = Core::string_trim(type_part_raw);
+  Value type_part = Core::string_default_if_empty(type_part_trimmed, Value("string"));
+  Value is_optional = Core::contains(name_part, Value("?"));
+  Value is_internal = Core::contains(name_part, Value("!"));
+  Value name_without_optional = Core::string_replace(name_part, Value("?"), Value(""));
+  Value name_without_markers = Core::string_replace(name_without_optional, Value("!"), Value(""));
+  Value name = Core::string_trim(name_without_markers);
+  Value type_words = Core::string_words(type_part);
+  Value type_word_count = Core::len(type_words);
+  Value extra_type_tokens = Core::gt(type_word_count, Value(1));
+  if (Core::truthy(extra_type_tokens)) {
+    Value error = Core::signature_error(Value("Unexpected content after signature"));
+    throw Core::as_error(error);
+  }
+  Value type_token = Core::list_get(type_words, Value(0), Value("string"));
+  Value array_info = Core::string_remove_suffix(type_token, Value("[]"));
+  Value type_name_raw = Core::get(array_info, Value("value"), Value());
+  Value type_name = Core::string_default_if_empty(type_name_raw, Value("string"));
+  Value is_array = Core::get(array_info, Value("removed"), Value());
+  Value is_class = Core::eq(type_name, Value("class"));
+  if (Core::truthy(is_class)) {
+    Value class_input = Core::not_(output);
+    if (Core::truthy(class_input)) {
+      Value error = Core::signature_error(Value("Input field cannot use the \"class\" type"));
+      throw Core::as_error(error);
+    }
+    Value missing_quoted = Core::is_none(quoted);
+    if (Core::truthy(missing_quoted)) {
+      Value error = Core::signature_error(Value("Missing class options after \"class\" type"));
+      throw Core::as_error(error);
+    }
+    Value class_option_text = Core::string_replace(quoted, Value("|"), Value(","));
+    Value options = Core::string_split_trim_nonempty(class_option_text, Value(","));
+    Value option_count = Core::len(options);
+    Value empty_options = Core::eq(option_count, Value(0));
+    if (Core::truthy(empty_options)) {
+      Value error = Core::signature_error(Value("Missing class options after \"class\" type"));
+      throw Core::as_error(error);
+    }
+    Value type_attrs = Value::object();
+    Core::set(type_attrs, Value("name"), type_name);
+    Core::set(type_attrs, Value("is_array"), is_array);
+    Core::set(type_attrs, Value("options"), options);
+    Value field_type = Core::record_new(Value("FieldType"), type_attrs);
+    Value none = Core::none();
+    Value field_attrs = Value::object();
+    Core::set(field_attrs, Value("name"), name);
+    Core::set(field_attrs, Value("type"), field_type);
+    Core::set(field_attrs, Value("description"), none);
+    Core::set(field_attrs, Value("is_optional"), is_optional);
+    Core::set(field_attrs, Value("is_internal"), is_internal);
+    Value field = Core::record_new(Value("Field"), field_attrs);
+    Core::_signature_validate_field_shape_impl(field, output, Value(false));
+    return field;
+  }
+  Value type_attrs = Value::object();
+  Core::set(type_attrs, Value("name"), type_name);
+  Core::set(type_attrs, Value("is_array"), is_array);
+  Value field_type = Core::record_new(Value("FieldType"), type_attrs);
+  Value field_attrs = Value::object();
+  Core::set(field_attrs, Value("name"), name);
+  Core::set(field_attrs, Value("type"), field_type);
+  Core::set(field_attrs, Value("description"), quoted);
+  Core::set(field_attrs, Value("is_optional"), is_optional);
+  Core::set(field_attrs, Value("is_internal"), is_internal);
+  Value field = Core::record_new(Value("Field"), field_attrs);
+  Core::_signature_validate_field_shape_impl(field, output, Value(false));
+  return field;
 }
 
 Value Core::_signature_validate_field_shape_impl(Value field, Value output, Value nested) {
@@ -1767,138 +1909,6 @@ Value Core::_signature_validate_field_shape_impl(Value field, Value output, Valu
   return Value();
 }
 
-Value Core::_signature_parse_field_impl(Value raw, Value output) {
-  Value text = Core::string_trim(raw);
-  Value quoted_info = Core::string_extract_quoted_suffix(text);
-  Value quoted = Core::get(quoted_info, Value("value"), Value());
-  Value rest_after_quote = Core::get(quoted_info, Value("rest"), Value());
-  Value rest_after_quote_trimmed = Core::string_trim(rest_after_quote);
-  Value has_extra = Core::truthy_value(rest_after_quote_trimmed);
-  if (Core::truthy(has_extra)) {
-    Value error = Core::signature_error(Value("Unexpected content after signature"));
-    throw Core::as_error(error);
-  }
-  Value head_raw = Core::get(quoted_info, Value("head"), Value());
-  Value head = Core::string_trim(head_raw);
-  Value head_parts = Core::string_split_once(head, Value(":"));
-  Value name_part_raw = Core::get(head_parts, Value("left"), Value());
-  Value type_part_raw = Core::get(head_parts, Value("right"), Value());
-  Value name_part = Core::string_trim(name_part_raw);
-  Value type_part_trimmed = Core::string_trim(type_part_raw);
-  Value type_part = Core::string_default_if_empty(type_part_trimmed, Value("string"));
-  Value is_optional = Core::contains(name_part, Value("?"));
-  Value is_internal = Core::contains(name_part, Value("!"));
-  Value name_without_optional = Core::string_replace(name_part, Value("?"), Value(""));
-  Value name_without_markers = Core::string_replace(name_without_optional, Value("!"), Value(""));
-  Value name = Core::string_trim(name_without_markers);
-  Value type_words = Core::string_words(type_part);
-  Value type_word_count = Core::len(type_words);
-  Value extra_type_tokens = Core::gt(type_word_count, Value(1));
-  if (Core::truthy(extra_type_tokens)) {
-    Value error = Core::signature_error(Value("Unexpected content after signature"));
-    throw Core::as_error(error);
-  }
-  Value type_token = Core::list_get(type_words, Value(0), Value("string"));
-  Value array_info = Core::string_remove_suffix(type_token, Value("[]"));
-  Value type_name_raw = Core::get(array_info, Value("value"), Value());
-  Value type_name = Core::string_default_if_empty(type_name_raw, Value("string"));
-  Value is_array = Core::get(array_info, Value("removed"), Value());
-  Value is_class = Core::eq(type_name, Value("class"));
-  if (Core::truthy(is_class)) {
-    Value class_input = Core::not_(output);
-    if (Core::truthy(class_input)) {
-      Value error = Core::signature_error(Value("Input field cannot use the \"class\" type"));
-      throw Core::as_error(error);
-    }
-    Value missing_quoted = Core::is_none(quoted);
-    if (Core::truthy(missing_quoted)) {
-      Value error = Core::signature_error(Value("Missing class options after \"class\" type"));
-      throw Core::as_error(error);
-    }
-    Value class_option_text = Core::string_replace(quoted, Value("|"), Value(","));
-    Value options = Core::string_split_trim_nonempty(class_option_text, Value(","));
-    Value option_count = Core::len(options);
-    Value empty_options = Core::eq(option_count, Value(0));
-    if (Core::truthy(empty_options)) {
-      Value error = Core::signature_error(Value("Missing class options after \"class\" type"));
-      throw Core::as_error(error);
-    }
-    Value type_attrs = Value::object();
-    Core::set(type_attrs, Value("name"), type_name);
-    Core::set(type_attrs, Value("is_array"), is_array);
-    Core::set(type_attrs, Value("options"), options);
-    Value field_type = Core::record_new(Value("FieldType"), type_attrs);
-    Value none = Core::none();
-    Value field_attrs = Value::object();
-    Core::set(field_attrs, Value("name"), name);
-    Core::set(field_attrs, Value("type"), field_type);
-    Core::set(field_attrs, Value("description"), none);
-    Core::set(field_attrs, Value("is_optional"), is_optional);
-    Core::set(field_attrs, Value("is_internal"), is_internal);
-    Value field = Core::record_new(Value("Field"), field_attrs);
-    Core::_signature_validate_field_shape_impl(field, output, Value(false));
-    return field;
-  }
-  Value type_attrs = Value::object();
-  Core::set(type_attrs, Value("name"), type_name);
-  Core::set(type_attrs, Value("is_array"), is_array);
-  Value field_type = Core::record_new(Value("FieldType"), type_attrs);
-  Value field_attrs = Value::object();
-  Core::set(field_attrs, Value("name"), name);
-  Core::set(field_attrs, Value("type"), field_type);
-  Core::set(field_attrs, Value("description"), quoted);
-  Core::set(field_attrs, Value("is_optional"), is_optional);
-  Core::set(field_attrs, Value("is_internal"), is_internal);
-  Value field = Core::record_new(Value("Field"), field_attrs);
-  Core::_signature_validate_field_shape_impl(field, output, Value(false));
-  return field;
-}
-
-Value Core::_signature_parse_impl(Value signature) {
-  Value text = Core::string_trim(signature);
-  Value text_len = Core::len(text);
-  Value is_empty = Core::eq(text_len, Value(0));
-  if (Core::truthy(is_empty)) {
-    Value error = Core::signature_error(Value("Empty signature provided"));
-    throw Core::as_error(error);
-  }
-  Value prefix = Core::string_consume_optional_quoted_prefix(text);
-  Value description = Core::get(prefix, Value("value"), Value());
-  Value rest = Core::get(prefix, Value("rest"), Value());
-  Value body = Core::string_trim(rest);
-  Value arrow = Core::string_find_outside_quotes(body, Value("->"));
-  Value missing_arrow = Core::lt(arrow, Value(0));
-  if (Core::truthy(missing_arrow)) {
-    Value error = Core::signature_error(Value("Expected \"->\""));
-    throw Core::as_error(error);
-  }
-  Value left_raw = Core::string_slice(body, Value(0), arrow);
-  Value left = Core::string_trim(left_raw);
-  Value right_start = Core::add(arrow, Value(2));
-  Value right_raw = Core::string_slice(body, right_start);
-  Value right = Core::string_trim(right_raw);
-  Value left_len = Core::len(left);
-  Value left_empty = Core::eq(left_len, Value(0));
-  if (Core::truthy(left_empty)) {
-    Value error = Core::signature_error(Value("No input fields specified"));
-    throw Core::as_error(error);
-  }
-  Value right_len = Core::len(right);
-  Value right_empty = Core::eq(right_len, Value(0));
-  if (Core::truthy(right_empty)) {
-    Value error = Core::signature_error(Value("No output fields specified"));
-    throw Core::as_error(error);
-  }
-  Value inputs = Core::_signature_parse_fields_impl(left, Value(false));
-  Value outputs = Core::_signature_parse_fields_impl(right, Value(true));
-  Value attrs = Value::object();
-  Core::set(attrs, Value("inputs"), inputs);
-  Core::set(attrs, Value("outputs"), outputs);
-  Core::set(attrs, Value("description"), description);
-  Value parsed = Core::record_new(Value("AxSignature"), attrs);
-  return parsed;
-}
-
 Value Core::_signature_validate_impl(Value signature) {
   Value inputs = Core::get(signature, Value("input_fields"), Value());
   Value outputs = Core::get(signature, Value("output_fields"), Value());
@@ -1947,14 +1957,19 @@ Value Core::_signature_validate_impl(Value signature) {
   return Value();
 }
 
-Value Core::parse_signature(Value signature) {
-  Value parsed = Core::_signature_parse_impl(signature);
-  return parsed;
+Value Core::validate_fields(Value fields, Value values, Value context) {
+  Core::_validate_fields_impl(fields, values, context);
+  return Value();
 }
 
-Value Core::validate_signature(Value signature) {
-  Core::_signature_validate_impl(signature);
-  return Value();
+Value Core::to_json_schema(Value fields, Value schema_title, Value options) {
+  Value schema = Core::_schema_to_json_schema_impl(fields, schema_title, options);
+  return schema;
+}
+
+Value Core::validate_output(Value fields, Value values) {
+  Value validated = Core::_validate_output_impl(fields, values);
+  return validated;
 }
 
 Value Core::_schema_required_impl(Value field, Value options) {
@@ -1965,6 +1980,16 @@ Value Core::_schema_required_impl(Value field, Value options) {
   Value not_optional = Core::not_(is_optional);
   Value required = Core::or_(strict, not_optional);
   return required;
+}
+
+Value Core::validate_value(Value field, Value value, Value path) {
+  Core::_validate_value_impl(field, value, path);
+  return Value();
+}
+
+Value Core::strip_internal(Value fields, Value values) {
+  Value public_values = Core::_strip_internal_fields_impl(fields, values);
+  return public_values;
 }
 
 Value Core::_schema_flexible_json_as_string_impl(Value typ, Value options) {
@@ -1981,6 +2006,39 @@ Value Core::_schema_flexible_json_as_string_impl(Value typ, Value options) {
   Value flexible_type = Core::or_(is_json, unshaped_object);
   Value as_string = Core::and_(enabled, flexible_type);
   return as_string;
+}
+
+Value Core::_validate_fields_impl(Value fields, Value values, Value context) {
+  Value values_is_object = Core::type_is(values, Value("object"));
+  Value values_not_object = Core::not_(values_is_object);
+  if (Core::truthy(values_not_object)) {
+    Value message = Core::string_format(Value("{} must be an object"), context);
+    Value error = Core::validation_error(message);
+    throw Core::as_error(error);
+  }
+  for (auto field : Core::iter(fields)) {
+    Value field_name = Core::get(field, Value("name"), Value());
+    Value field_title = Core::get(field, Value("title"), Value());
+    Value is_optional = Core::get(field, Value("is_optional"), Value(false));
+    Value has_value = Core::map_contains(values, field_name);
+    Value missing = Core::not_(has_value);
+    Value field_value = Core::get(values, field_name, Value());
+    Value is_null = Core::is_none(field_value);
+    Value missing_or_null = Core::or_(missing, is_null);
+    if (Core::truthy(missing_or_null)) {
+      Value required_missing = Core::not_(is_optional);
+      if (Core::truthy(required_missing)) {
+        Value message = Core::string_format(Value("Required field is missing: '{}'"), field_title);
+        Value error = Core::validation_error(message);
+        throw Core::as_error(error);
+      }
+    }
+    if (!Core::truthy(missing_or_null)) {
+      Value child_path = Core::string_format(Value("{}.{}"), context, field_name);
+      Core::_validate_value_impl(field, field_value, child_path);
+    }
+  }
+  return Value();
 }
 
 Value Core::_schema_json_type_impl(Value type_name) {
@@ -2022,6 +2080,87 @@ Value Core::_schema_json_type_impl(Value type_name) {
     return json_types;
   }
   return Value("string");
+}
+
+Value Core::_validate_output_impl(Value fields, Value values) {
+  Value normalized = values;
+  for (auto field : Core::iter(fields)) {
+    Value field_name = Core::get(field, Value("name"), Value());
+    Value field_title = Core::get(field, Value("title"), Value());
+    Value has_name = Core::map_contains(normalized, field_name);
+    Value missing_name = Core::not_(has_name);
+    Value has_title = Core::map_contains(normalized, field_title);
+    Value alias_title = Core::and_(missing_name, has_title);
+    if (Core::truthy(alias_title)) {
+      Value title_value = Core::get(normalized, field_title, Value());
+      Core::set(normalized, field_name, title_value);
+    }
+  }
+  Core::_validate_fields_impl(fields, normalized, Value("output"));
+  return normalized;
+}
+
+Value Core::_validate_string_constraints_impl(Value value, Value field) {
+  Value typ = Core::get(field, Value("type"), Value());
+  Value title = Core::get(field, Value("title"), Value());
+  Value min_length = Core::get(typ, Value("min_length"), Value());
+  Value has_min = Core::is_not_none(min_length);
+  if (Core::truthy(has_min)) {
+    Value length = Core::len(value);
+    Value too_short = Core::lt(length, min_length);
+    if (Core::truthy(too_short)) {
+      Value message = Core::string_format(Value("Field '{}' failed validation: String must be at least {} characters long."), title, min_length);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+  }
+  Value max_length = Core::get(typ, Value("max_length"), Value());
+  Value has_max = Core::is_not_none(max_length);
+  if (Core::truthy(has_max)) {
+    Value length = Core::len(value);
+    Value too_long = Core::gt(length, max_length);
+    if (Core::truthy(too_long)) {
+      Value message = Core::string_format(Value("Field '{}' failed validation: String must be at most {} characters long."), title, max_length);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+  }
+  Value pattern = Core::get(typ, Value("pattern"), Value());
+  Value has_pattern = Core::is_not_none(pattern);
+  if (Core::truthy(has_pattern)) {
+    Value matches = Core::regex_match(pattern, value);
+    Value pattern_failed = Core::not_(matches);
+    if (Core::truthy(pattern_failed)) {
+      Value message = Core::string_format(Value("Field '{}' failed validation: String must match pattern /{}/."), title, pattern);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+  }
+  Value format = Core::get(typ, Value("format"), Value());
+  Value is_email = Core::eq(format, Value("email"));
+  if (Core::truthy(is_email)) {
+    Value valid_email = Core::regex_match(Value("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"), value);
+    Value invalid_email = Core::not_(valid_email);
+    if (Core::truthy(invalid_email)) {
+      Value message = Core::string_format(Value("Field '{}' failed validation: String must be a valid email address."), title);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+  }
+  Value url_formats = Value::array();
+  Core::append(url_formats, Value("uri"));
+  Core::append(url_formats, Value("url"));
+  Value is_url_format = Core::contains(url_formats, format);
+  if (Core::truthy(is_url_format)) {
+    Value valid_url = Core::url_valid(value);
+    Value invalid_url = Core::not_(valid_url);
+    if (Core::truthy(invalid_url)) {
+      Value message = Core::string_format(Value("Invalid URL for '{}': Invalid URL format."), title);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+  }
+  return Value();
 }
 
 Value Core::_schema_enhance_description_impl(Value base, Value typ) {
@@ -2135,6 +2274,201 @@ Value Core::_schema_enhance_description_impl(Value base, Value typ) {
     return description;
   }
   return base;
+}
+
+Value Core::_validate_number_constraints_impl(Value value, Value field) {
+  Value typ = Core::get(field, Value("type"), Value());
+  Value title = Core::get(field, Value("title"), Value());
+  Value minimum = Core::get(typ, Value("minimum"), Value());
+  Value has_minimum = Core::is_not_none(minimum);
+  if (Core::truthy(has_minimum)) {
+    Value too_small = Core::lt(value, minimum);
+    if (Core::truthy(too_small)) {
+      Value message = Core::string_format(Value("Field '{}' failed validation: Number must be at least {}."), title, minimum);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+  }
+  Value maximum = Core::get(typ, Value("maximum"), Value());
+  Value has_maximum = Core::is_not_none(maximum);
+  if (Core::truthy(has_maximum)) {
+    Value too_large = Core::gt(value, maximum);
+    if (Core::truthy(too_large)) {
+      Value message = Core::string_format(Value("Field '{}' failed validation: Number must be at most {}."), title, maximum);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+  }
+  return Value();
+}
+
+Value Core::_validate_value_impl(Value field, Value value, Value path) {
+  Value field_name = Core::get(field, Value("name"), Value());
+  Value typ = Core::get(field, Value("type"), Value());
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_array = Core::get(typ, Value("is_array"), Value(false));
+  if (Core::truthy(is_array)) {
+    Value is_list = Core::type_is(value, Value("list"));
+    Value not_list = Core::not_(is_list);
+    if (Core::truthy(not_list)) {
+      Value message = Core::string_format(Value("{} must be an array"), path);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+    Value item_field = Core::field_item(field);
+    for (auto item : Core::iter(value)) {
+      Core::_validate_value_impl(item_field, item, path);
+    }
+    return Value();
+  }
+  Value is_image = Core::eq(type_name, Value("image"));
+  if (Core::truthy(is_image)) {
+    Value valid_image = Core::valid_image(value);
+    Value invalid_image = Core::not_(valid_image);
+    if (Core::truthy(invalid_image)) {
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'"), field_name);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+    return Value();
+  }
+  Value is_audio = Core::eq(type_name, Value("audio"));
+  if (Core::truthy(is_audio)) {
+    Value valid_audio = Core::valid_audio(value);
+    Value invalid_audio = Core::not_(valid_audio);
+    if (Core::truthy(invalid_audio)) {
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'"), field_name);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+    return Value();
+  }
+  Value is_file = Core::eq(type_name, Value("file"));
+  if (Core::truthy(is_file)) {
+    Value valid_file = Core::valid_file(value);
+    Value invalid_file = Core::not_(valid_file);
+    if (Core::truthy(invalid_file)) {
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'"), field_name);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+    return Value();
+  }
+  Value is_url = Core::eq(type_name, Value("url"));
+  if (Core::truthy(is_url)) {
+    Value valid_url_shape = Core::valid_url_shape(value);
+    Value invalid_url_shape = Core::not_(valid_url_shape);
+    if (Core::truthy(invalid_url_shape)) {
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'"), field_name);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+    Value url_is_string = Core::type_is(value, Value("string"));
+    if (Core::truthy(url_is_string)) {
+      Value valid_url = Core::url_valid(value);
+      Value invalid_url = Core::not_(valid_url);
+      if (Core::truthy(invalid_url)) {
+        Value field_title = Core::get(field, Value("title"), Value());
+        Value message = Core::string_format(Value("Invalid URL for '{}': Invalid URL format."), field_title);
+        Value error = Core::validation_error(message);
+        throw Core::as_error(error);
+      }
+    }
+    return Value();
+  }
+  Value string_types = Value::array();
+  Core::append(string_types, Value("string"));
+  Core::append(string_types, Value("code"));
+  Core::append(string_types, Value("date"));
+  Core::append(string_types, Value("datetime"));
+  Core::append(string_types, Value("dateRange"));
+  Core::append(string_types, Value("datetimeRange"));
+  Value is_string_type = Core::contains(string_types, type_name);
+  if (Core::truthy(is_string_type)) {
+    Value is_string = Core::type_is(value, Value("string"));
+    Value not_string = Core::not_(is_string);
+    if (Core::truthy(not_string)) {
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be a {}"), field_name, type_name);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+    Core::_validate_string_constraints_impl(value, field);
+    return Value();
+  }
+  Value is_number_type = Core::eq(type_name, Value("number"));
+  if (Core::truthy(is_number_type)) {
+    Value is_number = Core::type_is(value, Value("number"));
+    Value not_number = Core::not_(is_number);
+    if (Core::truthy(not_number)) {
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be a number"), field_name);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+    Core::_validate_number_constraints_impl(value, field);
+    return Value();
+  }
+  Value is_boolean_type = Core::eq(type_name, Value("boolean"));
+  if (Core::truthy(is_boolean_type)) {
+    Value is_boolean = Core::type_is(value, Value("boolean"));
+    Value not_boolean = Core::not_(is_boolean);
+    if (Core::truthy(not_boolean)) {
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be a boolean"), field_name);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+    return Value();
+  }
+  Value is_class_type = Core::eq(type_name, Value("class"));
+  if (Core::truthy(is_class_type)) {
+    Value is_class_string = Core::type_is(value, Value("string"));
+    Value not_class_string = Core::not_(is_class_string);
+    if (Core::truthy(not_class_string)) {
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be a class"), field_name);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+    Value options = Core::get(typ, Value("options"), Value());
+    Value has_options = Core::truthy_value(options);
+    if (Core::truthy(has_options)) {
+      Value known_class = Core::contains(options, value);
+      Value unknown_class = Core::not_(known_class);
+      if (Core::truthy(unknown_class)) {
+        Value message = Core::string_format(Value("{} must be one of {}"), path, options);
+        Value error = Core::validation_error(message);
+        throw Core::as_error(error);
+      }
+    }
+    return Value();
+  }
+  Value is_json_type = Core::eq(type_name, Value("json"));
+  if (Core::truthy(is_json_type)) {
+    Value is_json = Core::type_is(value, Value("json"));
+    Value not_json = Core::not_(is_json);
+    if (Core::truthy(not_json)) {
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be JSON"), field_name);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+    return Value();
+  }
+  Value is_object_type = Core::eq(type_name, Value("object"));
+  if (Core::truthy(is_object_type)) {
+    Value is_object = Core::type_is(value, Value("object"));
+    Value not_object = Core::not_(is_object);
+    if (Core::truthy(not_object)) {
+      Value message = Core::string_format(Value("{} must be an object"), path);
+      Value error = Core::validation_error(message);
+      throw Core::as_error(error);
+    }
+    Value nested_map = Core::get(typ, Value("fields"), Value());
+    Value has_nested = Core::truthy_value(nested_map);
+    if (Core::truthy(has_nested)) {
+      Value nested_fields = Core::fields_from_map(nested_map);
+      Core::_validate_fields_impl(nested_fields, value, path);
+    }
+    return Value();
+  }
+  return Value();
 }
 
 Value Core::_schema_apply_constraints_impl(Value schema, Value typ) {
@@ -2376,6 +2710,22 @@ Value Core::_schema_field_schema_impl(Value field, Value is_nested, Value option
   return nullable;
 }
 
+Value Core::_strip_internal_fields_impl(Value fields, Value values) {
+  Value public_values = Value::object();
+  for (auto field : Core::iter(fields)) {
+    Value is_internal = Core::get(field, Value("is_internal"), Value(false));
+    Value is_public = Core::not_(is_internal);
+    Value field_name = Core::get(field, Value("name"), Value());
+    Value has_value = Core::map_contains(values, field_name);
+    Value keep = Core::and_(is_public, has_value);
+    if (Core::truthy(keep)) {
+      Value field_value = Core::map_get(values, field_name);
+      Core::set(public_values, field_name, field_value);
+    }
+  }
+  return public_values;
+}
+
 Value Core::_schema_to_json_schema_impl(Value fields, Value schema_title, Value options) {
   Value schema = Value::object();
   Value properties = Value::object();
@@ -2401,354 +2751,21 @@ Value Core::_schema_to_json_schema_impl(Value fields, Value schema_title, Value 
   return schema;
 }
 
-Value Core::_validate_string_constraints_impl(Value value, Value field) {
-  Value typ = Core::get(field, Value("type"), Value());
-  Value title = Core::get(field, Value("title"), Value());
-  Value min_length = Core::get(typ, Value("min_length"), Value());
-  Value has_min = Core::is_not_none(min_length);
-  if (Core::truthy(has_min)) {
-    Value length = Core::len(value);
-    Value too_short = Core::lt(length, min_length);
-    if (Core::truthy(too_short)) {
-      Value message = Core::string_format(Value("Field '{}' failed validation: String must be at least {} characters long."), title, min_length);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-  }
-  Value max_length = Core::get(typ, Value("max_length"), Value());
-  Value has_max = Core::is_not_none(max_length);
-  if (Core::truthy(has_max)) {
-    Value length = Core::len(value);
-    Value too_long = Core::gt(length, max_length);
-    if (Core::truthy(too_long)) {
-      Value message = Core::string_format(Value("Field '{}' failed validation: String must be at most {} characters long."), title, max_length);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-  }
-  Value pattern = Core::get(typ, Value("pattern"), Value());
-  Value has_pattern = Core::is_not_none(pattern);
-  if (Core::truthy(has_pattern)) {
-    Value matches = Core::regex_match(pattern, value);
-    Value pattern_failed = Core::not_(matches);
-    if (Core::truthy(pattern_failed)) {
-      Value message = Core::string_format(Value("Field '{}' failed validation: String must match pattern /{}/."), title, pattern);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-  }
-  Value format = Core::get(typ, Value("format"), Value());
-  Value is_email = Core::eq(format, Value("email"));
-  if (Core::truthy(is_email)) {
-    Value valid_email = Core::regex_match(Value("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"), value);
-    Value invalid_email = Core::not_(valid_email);
-    if (Core::truthy(invalid_email)) {
-      Value message = Core::string_format(Value("Field '{}' failed validation: String must be a valid email address."), title);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-  }
-  Value url_formats = Value::array();
-  Core::append(url_formats, Value("uri"));
-  Core::append(url_formats, Value("url"));
-  Value is_url_format = Core::contains(url_formats, format);
-  if (Core::truthy(is_url_format)) {
-    Value valid_url = Core::url_valid(value);
-    Value invalid_url = Core::not_(valid_url);
-    if (Core::truthy(invalid_url)) {
-      Value message = Core::string_format(Value("Invalid URL for '{}': Invalid URL format."), title);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-  }
-  return Value();
+Value Core::render_template_content(Value template_, Value vars, Value context) {
+  Value nodes = Core::_template_parse_impl(template_, context);
+  Value rendered = Core::_template_render_tree_impl(nodes, vars, template_, context);
+  return rendered;
 }
 
-Value Core::_validate_number_constraints_impl(Value value, Value field) {
-  Value typ = Core::get(field, Value("type"), Value());
-  Value title = Core::get(field, Value("title"), Value());
-  Value minimum = Core::get(typ, Value("minimum"), Value());
-  Value has_minimum = Core::is_not_none(minimum);
-  if (Core::truthy(has_minimum)) {
-    Value too_small = Core::lt(value, minimum);
-    if (Core::truthy(too_small)) {
-      Value message = Core::string_format(Value("Field '{}' failed validation: Number must be at least {}."), title, minimum);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-  }
-  Value maximum = Core::get(typ, Value("maximum"), Value());
-  Value has_maximum = Core::is_not_none(maximum);
-  if (Core::truthy(has_maximum)) {
-    Value too_large = Core::gt(value, maximum);
-    if (Core::truthy(too_large)) {
-      Value message = Core::string_format(Value("Field '{}' failed validation: Number must be at most {}."), title, maximum);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-  }
-  return Value();
+Value Core::collect_template_variable_names(Value source, Value context) {
+  Value nodes = Core::_template_parse_impl(source, context);
+  Value names = Core::_template_collect_vars_impl(nodes);
+  return names;
 }
 
-Value Core::_validate_fields_impl(Value fields, Value values, Value context) {
-  Value values_is_object = Core::type_is(values, Value("object"));
-  Value values_not_object = Core::not_(values_is_object);
-  if (Core::truthy(values_not_object)) {
-    Value message = Core::string_format(Value("{} must be an object"), context);
-    Value error = Core::validation_error(message);
-    throw Core::as_error(error);
-  }
-  for (auto field : Core::iter(fields)) {
-    Value field_name = Core::get(field, Value("name"), Value());
-    Value field_title = Core::get(field, Value("title"), Value());
-    Value is_optional = Core::get(field, Value("is_optional"), Value(false));
-    Value has_value = Core::map_contains(values, field_name);
-    Value missing = Core::not_(has_value);
-    Value field_value = Core::get(values, field_name, Value());
-    Value is_null = Core::is_none(field_value);
-    Value missing_or_null = Core::or_(missing, is_null);
-    if (Core::truthy(missing_or_null)) {
-      Value required_missing = Core::not_(is_optional);
-      if (Core::truthy(required_missing)) {
-        Value message = Core::string_format(Value("Required field is missing: '{}'"), field_title);
-        Value error = Core::validation_error(message);
-        throw Core::as_error(error);
-      }
-    }
-    if (!Core::truthy(missing_or_null)) {
-      Value child_path = Core::string_format(Value("{}.{}"), context, field_name);
-      Core::_validate_value_impl(field, field_value, child_path);
-    }
-  }
-  return Value();
-}
-
-Value Core::_validate_output_impl(Value fields, Value values) {
-  Value normalized = values;
-  for (auto field : Core::iter(fields)) {
-    Value field_name = Core::get(field, Value("name"), Value());
-    Value field_title = Core::get(field, Value("title"), Value());
-    Value has_name = Core::map_contains(normalized, field_name);
-    Value missing_name = Core::not_(has_name);
-    Value has_title = Core::map_contains(normalized, field_title);
-    Value alias_title = Core::and_(missing_name, has_title);
-    if (Core::truthy(alias_title)) {
-      Value title_value = Core::get(normalized, field_title, Value());
-      Core::set(normalized, field_name, title_value);
-    }
-  }
-  Core::_validate_fields_impl(fields, normalized, Value("output"));
-  return normalized;
-}
-
-Value Core::_validate_value_impl(Value field, Value value, Value path) {
-  Value field_name = Core::get(field, Value("name"), Value());
-  Value typ = Core::get(field, Value("type"), Value());
-  Value type_name = Core::get(typ, Value("name"), Value());
-  Value is_array = Core::get(typ, Value("is_array"), Value(false));
-  if (Core::truthy(is_array)) {
-    Value is_list = Core::type_is(value, Value("list"));
-    Value not_list = Core::not_(is_list);
-    if (Core::truthy(not_list)) {
-      Value message = Core::string_format(Value("{} must be an array"), path);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-    Value item_field = Core::field_item(field);
-    for (auto item : Core::iter(value)) {
-      Core::_validate_value_impl(item_field, item, path);
-    }
-    return Value();
-  }
-  Value is_image = Core::eq(type_name, Value("image"));
-  if (Core::truthy(is_image)) {
-    Value valid_image = Core::valid_image(value);
-    Value invalid_image = Core::not_(valid_image);
-    if (Core::truthy(invalid_image)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'"), field_name);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-    return Value();
-  }
-  Value is_audio = Core::eq(type_name, Value("audio"));
-  if (Core::truthy(is_audio)) {
-    Value valid_audio = Core::valid_audio(value);
-    Value invalid_audio = Core::not_(valid_audio);
-    if (Core::truthy(invalid_audio)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'"), field_name);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-    return Value();
-  }
-  Value is_file = Core::eq(type_name, Value("file"));
-  if (Core::truthy(is_file)) {
-    Value valid_file = Core::valid_file(value);
-    Value invalid_file = Core::not_(valid_file);
-    if (Core::truthy(invalid_file)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'"), field_name);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-    return Value();
-  }
-  Value is_url = Core::eq(type_name, Value("url"));
-  if (Core::truthy(is_url)) {
-    Value valid_url_shape = Core::valid_url_shape(value);
-    Value invalid_url_shape = Core::not_(valid_url_shape);
-    if (Core::truthy(invalid_url_shape)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'"), field_name);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-    Value url_is_string = Core::type_is(value, Value("string"));
-    if (Core::truthy(url_is_string)) {
-      Value valid_url = Core::url_valid(value);
-      Value invalid_url = Core::not_(valid_url);
-      if (Core::truthy(invalid_url)) {
-        Value field_title = Core::get(field, Value("title"), Value());
-        Value message = Core::string_format(Value("Invalid URL for '{}': Invalid URL format."), field_title);
-        Value error = Core::validation_error(message);
-        throw Core::as_error(error);
-      }
-    }
-    return Value();
-  }
-  Value string_types = Value::array();
-  Core::append(string_types, Value("string"));
-  Core::append(string_types, Value("code"));
-  Core::append(string_types, Value("date"));
-  Core::append(string_types, Value("datetime"));
-  Core::append(string_types, Value("dateRange"));
-  Core::append(string_types, Value("datetimeRange"));
-  Value is_string_type = Core::contains(string_types, type_name);
-  if (Core::truthy(is_string_type)) {
-    Value is_string = Core::type_is(value, Value("string"));
-    Value not_string = Core::not_(is_string);
-    if (Core::truthy(not_string)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be a {}"), field_name, type_name);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-    Core::_validate_string_constraints_impl(value, field);
-    return Value();
-  }
-  Value is_number_type = Core::eq(type_name, Value("number"));
-  if (Core::truthy(is_number_type)) {
-    Value is_number = Core::type_is(value, Value("number"));
-    Value not_number = Core::not_(is_number);
-    if (Core::truthy(not_number)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be a number"), field_name);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-    Core::_validate_number_constraints_impl(value, field);
-    return Value();
-  }
-  Value is_boolean_type = Core::eq(type_name, Value("boolean"));
-  if (Core::truthy(is_boolean_type)) {
-    Value is_boolean = Core::type_is(value, Value("boolean"));
-    Value not_boolean = Core::not_(is_boolean);
-    if (Core::truthy(not_boolean)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be a boolean"), field_name);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-    return Value();
-  }
-  Value is_class_type = Core::eq(type_name, Value("class"));
-  if (Core::truthy(is_class_type)) {
-    Value is_class_string = Core::type_is(value, Value("string"));
-    Value not_class_string = Core::not_(is_class_string);
-    if (Core::truthy(not_class_string)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be a class"), field_name);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-    Value options = Core::get(typ, Value("options"), Value());
-    Value has_options = Core::truthy_value(options);
-    if (Core::truthy(has_options)) {
-      Value known_class = Core::contains(options, value);
-      Value unknown_class = Core::not_(known_class);
-      if (Core::truthy(unknown_class)) {
-        Value message = Core::string_format(Value("{} must be one of {}"), path, options);
-        Value error = Core::validation_error(message);
-        throw Core::as_error(error);
-      }
-    }
-    return Value();
-  }
-  Value is_json_type = Core::eq(type_name, Value("json"));
-  if (Core::truthy(is_json_type)) {
-    Value is_json = Core::type_is(value, Value("json"));
-    Value not_json = Core::not_(is_json);
-    if (Core::truthy(not_json)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be JSON"), field_name);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-    return Value();
-  }
-  Value is_object_type = Core::eq(type_name, Value("object"));
-  if (Core::truthy(is_object_type)) {
-    Value is_object = Core::type_is(value, Value("object"));
-    Value not_object = Core::not_(is_object);
-    if (Core::truthy(not_object)) {
-      Value message = Core::string_format(Value("{} must be an object"), path);
-      Value error = Core::validation_error(message);
-      throw Core::as_error(error);
-    }
-    Value nested_map = Core::get(typ, Value("fields"), Value());
-    Value has_nested = Core::truthy_value(nested_map);
-    if (Core::truthy(has_nested)) {
-      Value nested_fields = Core::fields_from_map(nested_map);
-      Core::_validate_fields_impl(nested_fields, value, path);
-    }
-    return Value();
-  }
-  return Value();
-}
-
-Value Core::_strip_internal_fields_impl(Value fields, Value values) {
-  Value public_values = Value::object();
-  for (auto field : Core::iter(fields)) {
-    Value is_internal = Core::get(field, Value("is_internal"), Value(false));
-    Value is_public = Core::not_(is_internal);
-    Value field_name = Core::get(field, Value("name"), Value());
-    Value has_value = Core::map_contains(values, field_name);
-    Value keep = Core::and_(is_public, has_value);
-    if (Core::truthy(keep)) {
-      Value field_value = Core::map_get(values, field_name);
-      Core::set(public_values, field_name, field_value);
-    }
-  }
-  return public_values;
-}
-
-Value Core::to_json_schema(Value fields, Value schema_title, Value options) {
-  Value schema = Core::_schema_to_json_schema_impl(fields, schema_title, options);
-  return schema;
-}
-
-Value Core::validate_fields(Value fields, Value values, Value context) {
-  Core::_validate_fields_impl(fields, values, context);
-  return Value();
-}
-
-Value Core::validate_output(Value fields, Value values) {
-  Value validated = Core::_validate_output_impl(fields, values);
-  return validated;
-}
-
-Value Core::validate_value(Value field, Value value, Value path) {
-  Core::_validate_value_impl(field, value, path);
-  return Value();
-}
-
-Value Core::strip_internal(Value fields, Value values) {
-  Value public_values = Core::_strip_internal_fields_impl(fields, values);
-  return public_values;
+Value Core::validate_prompt_template_syntax(Value source, Value context, Value required_variables) {
+  Value result = Core::_template_validate_impl(source, context, required_variables);
+  return result;
 }
 
 Value Core::_template_parse_impl(Value template_, Value context) {
@@ -2769,6 +2786,23 @@ Value Core::_template_collect_vars_impl(Value nodes) {
 Value Core::_template_validate_impl(Value source, Value context, Value required_variables) {
   Value result = Core::template_validate(source, context, required_variables);
   return result;
+}
+
+Value Core::render_prompt(Value signature, Value values, Value functions, Value options) {
+  Value instruction = Core::get(options, Value("instruction"), Value());
+  Value has_instruction = Core::is_not_none(instruction);
+  if (Core::truthy(has_instruction)) {
+    Value user_content = Core::_prompt_user_content_impl(signature, values);
+    Value messages = Core::_prompt_messages_impl(instruction, user_content);
+    return messages;
+  }
+  if (!Core::truthy(has_instruction)) {
+    Value system_content = Core::_prompt_structured_impl(signature, values, functions, options);
+    Value user_content = Core::_prompt_user_content_impl(signature, values);
+    Value messages = Core::_prompt_messages_impl(system_content, user_content);
+    return messages;
+  }
+  return Value();
 }
 
 Value Core::_prompt_structured_impl(Value signature, Value values, Value functions, Value options) {
@@ -2795,479 +2829,57 @@ Value Core::_prompt_messages_impl(Value system, Value user) {
   return messages;
 }
 
-Value Core::render_template_content(Value template_, Value vars, Value context) {
-  Value nodes = Core::_template_parse_impl(template_, context);
-  Value rendered = Core::_template_render_tree_impl(nodes, vars, template_, context);
-  return rendered;
-}
-
-Value Core::collect_template_variable_names(Value source, Value context) {
-  Value nodes = Core::_template_parse_impl(source, context);
-  Value names = Core::_template_collect_vars_impl(nodes);
-  return names;
-}
-
-Value Core::validate_prompt_template_syntax(Value source, Value context, Value required_variables) {
-  Value result = Core::_template_validate_impl(source, context, required_variables);
-  return result;
-}
-
-Value Core::render_prompt(Value signature, Value values, Value functions, Value options) {
-  Value instruction = Core::get(options, Value("instruction"), Value());
-  Value has_instruction = Core::is_not_none(instruction);
-  if (Core::truthy(has_instruction)) {
-    Value user_content = Core::_prompt_user_content_impl(signature, values);
-    Value messages = Core::_prompt_messages_impl(instruction, user_content);
-    return messages;
-  }
-  if (!Core::truthy(has_instruction)) {
-    Value system_content = Core::_prompt_structured_impl(signature, values, functions, options);
-    Value user_content = Core::_prompt_user_content_impl(signature, values);
-    Value messages = Core::_prompt_messages_impl(system_content, user_content);
-    return messages;
-  }
-  return Value();
-}
-
-Value Core::_tool_spec_impl(Value fn) {
-  Value spec = Value::object();
-  Value name = Core::get(fn, Value("name"), Value());
-  Value description = Core::get(fn, Value("description"), Value());
-  Value parameters = Core::get(fn, Value("parameters"), Value());
-  Core::set(spec, Value("name"), name);
-  Core::set(spec, Value("description"), description);
-  Core::set(spec, Value("parameters"), parameters);
-  return spec;
-}
-
-Value Core::_function_call_mode_impl(Value mode) {
-  Value missing = Core::is_none(mode);
-  if (Core::truthy(missing)) {
-    return Value("auto");
-  }
-  Value is_native = Core::eq(mode, Value("native"));
-  Value is_auto = Core::eq(mode, Value("auto"));
-  Value native_or_auto = Core::or_(is_native, is_auto);
-  if (Core::truthy(native_or_auto)) {
-    return Value("auto");
-  }
-  Value is_prompt = Core::eq(mode, Value("prompt"));
-  if (Core::truthy(is_prompt)) {
-    return Value("none");
-  }
-  return mode;
-}
-
-Value Core::_build_gen_chat_request(Value gen, Value messages, Value options) {
-  Value model_config = Value::object();
-  Value stream_value = Core::get(options, Value("stream"), Value(false));
-  Value stream_bool = Core::truthy_value(stream_value);
-  Core::set(model_config, Value("stream"), stream_bool);
-  Value temperature = Core::get(options, Value("temperature"), Value());
-  Value has_temperature = Core::is_not_none(temperature);
-  if (Core::truthy(has_temperature)) {
-    Core::set(model_config, Value("temperature"), temperature);
-  }
-  Value max_tokens = Core::get(options, Value("max_tokens"), Value());
-  Value has_max_tokens = Core::is_not_none(max_tokens);
-  if (Core::truthy(has_max_tokens)) {
-    Core::set(model_config, Value("max_tokens"), max_tokens);
-  }
-  Value top_p = Core::get(options, Value("top_p"), Value());
-  Value has_top_p = Core::is_not_none(top_p);
-  if (Core::truthy(has_top_p)) {
-    Core::set(model_config, Value("top_p"), top_p);
-  }
-  Value presence_penalty = Core::get(options, Value("presence_penalty"), Value());
-  Value has_presence_penalty = Core::is_not_none(presence_penalty);
-  if (Core::truthy(has_presence_penalty)) {
-    Core::set(model_config, Value("presence_penalty"), presence_penalty);
-  }
-  Value frequency_penalty = Core::get(options, Value("frequency_penalty"), Value());
-  Value has_frequency_penalty = Core::is_not_none(frequency_penalty);
-  if (Core::truthy(has_frequency_penalty)) {
-    Core::set(model_config, Value("frequency_penalty"), frequency_penalty);
-  }
-  Value n = Core::get(options, Value("n"), Value());
-  Value has_n = Core::is_not_none(n);
-  if (Core::truthy(has_n)) {
-    Core::set(model_config, Value("n"), n);
-  }
-  Value stop_sequences = Core::get(options, Value("stop_sequences"), Value());
-  Value has_stop_sequences = Core::is_not_none(stop_sequences);
-  if (Core::truthy(has_stop_sequences)) {
-    Core::set(model_config, Value("stop_sequences"), stop_sequences);
-  }
-  Value request = Value::object();
-  Value model = Core::get(options, Value("model"), Value());
-  Core::set(request, Value("model"), model);
-  Core::set(request, Value("chat_prompt"), messages);
-  Value functions = Core::get(gen, Value("functions"), Value());
-  Value function_specs = Value::array();
-  for (auto fn : Core::iter(functions)) {
-    Value spec = Core::_tool_spec_impl(fn);
-    Core::append(function_specs, spec);
-  }
-  Core::set(request, Value("functions"), function_specs);
-  Value mode_snake = Core::get(options, Value("function_call_mode"), Value());
-  Value mode_raw = Core::get(options, Value("functionCallMode"), mode_snake);
-  Value mode = Core::_function_call_mode_impl(mode_raw);
-  Core::set(request, Value("function_call"), mode);
-  Value response_format = Value::object();
-  Core::set(response_format, Value("type"), Value("json_object"));
-  Core::set(request, Value("response_format"), response_format);
-  Core::set(request, Value("model_config"), model_config);
-  return request;
-}
-
-Value Core::_complete_with_retries_impl(Value client, Value request, Value retries) {
-  Value attempt = Value(0);
-  Value last_error = Core::none();
-  while (true) {
-    try {
-      Value response = Core::ai_complete_once(client, request);
-      return response;
-    } catch (const std::exception& e) {
-      Value error = Core::exception_value(e);
-      last_error = error;
-      Value exhausted = Core::gte(attempt, retries);
-      if (Core::truthy(exhausted)) {
-        throw Core::as_error(error);
-      }
-      Core::retry_sleep(attempt);
-      Value next_attempt = Core::add(attempt, Value(1));
-      attempt = next_attempt;
-      continue;
-    }
-  }
-  throw Core::as_error(last_error);
-}
-
-Value Core::_parse_output_impl(Value content) {
-  Value text = Core::string_trim(content);
-  Value output = Core::json_parse(text);
-  return output;
-}
-
-Value Core::_set_examples(Value gen, Value examples) {
-  Core::set(gen, Value("examples"), examples);
-  return gen;
-}
-
-Value Core::_set_demos(Value gen, Value demos) {
-  Core::set(gen, Value("demos"), demos);
-  return gen;
-}
-
-Value Core::_render_examples(Value gen) {
-  Value messages = Core::axgen_render_examples(gen);
-  return messages;
-}
-
-Value Core::_render_demos(Value gen) {
-  Value messages = Core::axgen_render_demos(gen);
-  return messages;
-}
-
-Value Core::_apply_field_processors(Value gen, Value output) {
-  Value processed = Core::axgen_apply_field_processors(gen, output);
-  return processed;
-}
-
-Value Core::_run_assertions(Value gen, Value output) {
-  Core::axgen_run_assertions(gen, output);
-  return Value();
-}
-
-Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
-  Core::_append_validation_retry_messages_impl(messages, response, error);
-  return Value();
-}
-
-Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
-  Core::axgen_record_trace(gen, input, output, status);
-  return Value();
-}
-
-Value Core::_should_continue_steps(Value gen, Value calls) {
-  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
-  return should_continue;
-}
-
-Value Core::_response_function_calls_impl(Value response) {
-  Value empty = Value::array();
-  Value calls = Core::get(response, Value("function_calls"), empty);
-  return calls;
-}
-
-Value Core::_completion_call_to_chat_impl(Value call) {
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(call, Value("name"), Value());
-  Value params = Core::get(call, Value("params"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("params"), params);
-  Value out = Value::object();
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
-}
-
-Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
-  Value chat_calls = Value::array();
-  for (auto call : Core::iter(calls)) {
-    Value chat_call = Core::_completion_call_to_chat_impl(call);
-    Core::append(chat_calls, chat_call);
-  }
-  Value content = Core::get(response, Value("content"), Value(""));
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("assistant"));
-  Core::set(message, Value("content"), content);
-  Core::set(message, Value("function_calls"), chat_calls);
-  Core::append(messages, message);
-  return Value();
-}
-
-Value Core::_tool_result_message_impl(Value call, Value result) {
-  Value id = Core::get(call, Value("id"), Value());
-  Value result_json = Core::json_stringify(result);
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("function"));
-  Core::set(message, Value("function_id"), id);
-  Core::set(message, Value("result"), result_json);
-  return message;
-}
-
-Value Core::_tool_error_message_impl(Value call, Value error) {
-  Value id = Core::get(call, Value("id"), Value());
-  Value error_text = Core::exception_message(error);
+Value Core::openai_build_chat_request(Value request) {
   Value payload = Value::object();
-  Core::set(payload, Value("error"), error_text);
-  Value payload_json = Core::json_stringify(payload);
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("function"));
-  Core::set(message, Value("function_id"), id);
-  Core::set(message, Value("result"), payload_json);
-  Core::set(message, Value("is_error"), Value(true));
-  return message;
-}
-
-Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
-  Value content = Core::get(response, Value("content"), Value(""));
-  Value assistant_message = Value::object();
-  Core::set(assistant_message, Value("role"), Value("assistant"));
-  Core::set(assistant_message, Value("content"), content);
-  Core::append(messages, assistant_message);
-  Value error_text = Core::exception_message(error);
-  Value prefix_message = Core::add(Value("The previous response failed validation: "), error_text);
-  Value retry_content = Core::add(prefix_message, Value(". Return only corrected JSON."));
-  Value retry_message = Value::object();
-  Core::set(retry_message, Value("role"), Value("user"));
-  Core::set(retry_message, Value("content"), retry_content);
-  Core::append(messages, retry_message);
-  return Value();
-}
-
-Value Core::_execute_tool_call(Value functions, Value call) {
-  Value fn_call = Core::get(call, Value("function"), Value());
-  Value direct_name = Core::get(call, Value("name"), Value());
-  Value name = Core::get(fn_call, Value("name"), direct_name);
-  Value direct_params = Core::get(call, Value("params"), Value());
-  Value params = Core::get(fn_call, Value("params"), direct_params);
-  Value missing_params = Core::is_none(params);
-  if (Core::truthy(missing_params)) {
-    Value argument_params = Core::get(call, Value("arguments"), Value());
-    params = argument_params;
+  Value model = Core::get(request, Value("model"), Value());
+  Core::set(payload, Value("model"), model);
+  Value messages = Value::array();
+  Value chat_prompt = Core::get(request, Value("chat_prompt"), Value());
+  for (auto message : Core::iter(chat_prompt)) {
+    Value provider_message = Core::_openai_message_impl(message);
+    Core::append(messages, provider_message);
   }
-  Value params_is_string = Core::type_is(params, Value("string"));
-  if (Core::truthy(params_is_string)) {
-    Value parsed_params = Core::json_parse(params);
-    params = parsed_params;
+  Core::set(payload, Value("messages"), messages);
+  Value empty_functions = Value::array();
+  Value functions = Core::get(request, Value("functions"), empty_functions);
+  Value has_functions = Core::truthy_value(functions);
+  if (Core::truthy(has_functions)) {
+    Value tools = Value::array();
+    for (auto fn : Core::iter(functions)) {
+      Value tool = Core::_openai_tool_spec_impl(fn);
+      Core::append(tools, tool);
+    }
+    Core::set(payload, Value("tools"), tools);
+    Value tool_choice = Core::get(request, Value("function_call"), Value("auto"));
+    Core::set(payload, Value("tool_choice"), tool_choice);
   }
-  Value params_still_missing = Core::is_none(params);
-  if (Core::truthy(params_still_missing)) {
-    Value empty_params = Value::object();
-    params = empty_params;
-  }
-  for (auto fn : Core::iter(functions)) {
-    Value fn_name = Core::get(fn, Value("name"), Value());
-    Value matches = Core::eq(fn_name, name);
-    if (Core::truthy(matches)) {
-      Value result = Core::tool_invoke(fn, params);
-      return result;
+  Value response_format = Core::get(request, Value("response_format"), Value());
+  Value has_response_format = Core::truthy_value(response_format);
+  if (Core::truthy(has_response_format)) {
+    Value response_format_type = Core::get(response_format, Value("type"), Value());
+    Value is_json_object = Core::eq(response_format_type, Value("json_object"));
+    if (Core::truthy(is_json_object)) {
+      Value json_mode_message = Value::object();
+      Core::set(json_mode_message, Value("role"), Value("system"));
+      Core::set(json_mode_message, Value("content"), Value("JSON output is required. Return only the requested JSON object."));
+      Core::append(messages, json_mode_message);
+      Core::set(payload, Value("messages"), messages);
+    }
+    Value is_json_schema = Core::eq(response_format_type, Value("json_schema"));
+    if (Core::truthy(is_json_schema)) {
+      Value json_schema_format = Value::object();
+      Value schema = Core::get(response_format, Value("schema"), Value());
+      Core::set(json_schema_format, Value("type"), Value("json_schema"));
+      Core::set(json_schema_format, Value("json_schema"), schema);
+      Core::set(payload, Value("response_format"), json_schema_format);
+    }
+    if (!Core::truthy(is_json_schema)) {
+      Core::set(payload, Value("response_format"), response_format);
     }
   }
-  Value message = Core::string_format(Value("unknown tool call: {}"), name);
-  Value error = Core::runtime_error(message);
-  throw Core::as_error(error);
-}
-
-Value Core::_forward_impl(Value gen, Value client, Value values, Value options) {
-  Value base_options = Core::get(gen, Value("options"), Value());
-  Value runtime_options = Core::map_merge(base_options, options);
-  Value signature = Core::get(gen, Value("signature"), Value());
-  Value input_fields = Core::get(signature, Value("input_fields"), Value());
-  Core::validate_fields(input_fields, values, Value("input"));
-  Value prompt_template = Core::get(gen, Value("prompt_template"), Value());
-  Value messages = Core::object_call_method(prompt_template, Value("render"), values);
-  Value example_messages = Core::_render_examples(gen);
-  Value demo_messages = Core::_render_demos(gen);
-  Value system_message = Core::list_get(messages, Value(0), messages);
-  Value user_message = Core::list_get(messages, Value(1), messages);
-  Value ordered_messages = Value::array();
-  Core::append(ordered_messages, system_message);
-  for (auto example_message : Core::iter(example_messages)) {
-    Core::append(ordered_messages, example_message);
-  }
-  for (auto demo_message : Core::iter(demo_messages)) {
-    Core::append(ordered_messages, demo_message);
-  }
-  Core::append(ordered_messages, user_message);
-  Value cached_messages = Core::axgen_apply_context_cache(gen, ordered_messages, options);
-  messages = cached_messages;
-  Core::axgen_memory_add_request(gen, messages);
-  Value validation_retries_snake = Core::get(runtime_options, Value("validation_retries"), Value(2));
-  Value validation_retries = Core::get(runtime_options, Value("validationRetries"), validation_retries_snake);
-  Value infra_retries_snake = Core::get(runtime_options, Value("infra_retries"), Value(2));
-  Value infra_retries = Core::get(runtime_options, Value("infraRetries"), infra_retries_snake);
-  Value attempt = Value(0);
-  Value output_fields = Core::get(signature, Value("output_fields"), Value());
-  Value functions = Core::get(gen, Value("functions"), Value());
-  Value last_tool_result = Core::none();
-  while (true) {
-    Value request = Core::_build_gen_chat_request(gen, messages, runtime_options);
-    Value response = Core::_complete_with_retries_impl(client, request, infra_retries);
-    Core::axgen_memory_add_response(gen, request, response);
-    Core::axgen_record_chat_log(gen, request, response);
-    Value calls = Core::_response_function_calls_impl(response);
-    Value call_count = Core::len(calls);
-    Value has_calls = Core::gt(call_count, Value(0));
-    if (Core::truthy(has_calls)) {
-      Core::_append_tool_call_messages_impl(messages, response, calls);
-      for (auto call : Core::iter(calls)) {
-        try {
-          Value tool_result = Core::_execute_tool_call(functions, call);
-          last_tool_result = tool_result;
-          Value tool_message = Core::_tool_result_message_impl(call, tool_result);
-          Core::append(messages, tool_message);
-          Core::axgen_memory_add_function_result(gen, call, tool_result, Value(true));
-          Core::axgen_record_function_call(gen, call, tool_result, Value("ok"));
-        } catch (const std::exception& e) {
-          Value tool_error = Core::exception_value(e);
-          Value tool_error_message = Core::_tool_error_message_impl(call, tool_error);
-          Core::append(messages, tool_error_message);
-          Core::axgen_memory_add_function_result(gen, call, tool_error_message, Value(false));
-          Core::axgen_record_function_call(gen, call, tool_error_message, Value("error"));
-        }
-      }
-      Value continue_after_tools = Core::_should_continue_steps(gen, calls);
-      if (Core::truthy(continue_after_tools)) {
-        continue;
-      }
-      if (!Core::truthy(continue_after_tools)) {
-        Value validated_tool_result = Core::validate_output(output_fields, last_tool_result);
-        Value processed_tool_result = Core::_apply_field_processors(gen, validated_tool_result);
-        Core::_run_assertions(gen, processed_tool_result);
-        Value public_tool_result = Core::strip_internal(output_fields, processed_tool_result);
-        Core::axgen_memory_cleanup_corrections(gen);
-        Core::_record_trace(gen, values, public_tool_result, Value("ok"));
-        return public_tool_result;
-      }
-    }
-    if (!Core::truthy(has_calls)) {
-      try {
-        Value content = Core::get(response, Value("content"), Value(""));
-        Value output = Core::_parse_output_impl(content);
-        Value validated = Core::validate_output(output_fields, output);
-        Value processed = Core::_apply_field_processors(gen, validated);
-        Core::_run_assertions(gen, processed);
-        Value public_output = Core::strip_internal(output_fields, processed);
-        Core::axgen_memory_cleanup_corrections(gen);
-        Core::_record_trace(gen, values, public_output, Value("ok"));
-        return public_output;
-      } catch (const std::exception& e) {
-        Value validation_error = Core::exception_value(e);
-        Value retries_exhausted = Core::gte(attempt, validation_retries);
-        if (Core::truthy(retries_exhausted)) {
-          throw Core::as_error(validation_error);
-        }
-        Value next_attempt = Core::add(attempt, Value(1));
-        attempt = next_attempt;
-        Core::_append_assertion_retry_messages(messages, response, validation_error);
-        Core::axgen_memory_add_correction(gen, response, validation_error);
-        continue;
-      }
-    }
-  }
-  throw AxError("runtime", "unreachable AxGen forward loop exit");
-}
-
-Value Core::_stream_event_content_parts_impl(Value event) {
-  Value parts = Core::stream_event_content_parts(event);
-  return parts;
-}
-
-Value Core::fold_stream(Value events) {
-  Value chunks = Value::array();
-  for (auto event : Core::iter(events)) {
-    Value parts = Core::_stream_event_content_parts_impl(event);
-    for (auto part : Core::iter(parts)) {
-      Core::append(chunks, part);
-    }
-  }
-  Value folded = Core::string_join(Value(""), chunks);
-  return folded;
-}
-
-Value Core::normalize_token_usage(Value usage) {
-  Value out = Value::object();
-  Value input_tokens = Core::get(usage, Value("input_tokens"), Value(0));
-  Value prompt_tokens_snake = Core::get(usage, Value("prompt_tokens"), input_tokens);
-  Value prompt_tokens = Core::get(usage, Value("promptTokens"), prompt_tokens_snake);
-  Value output_tokens = Core::get(usage, Value("output_tokens"), Value(0));
-  Value completion_tokens_snake = Core::get(usage, Value("completion_tokens"), output_tokens);
-  Value completion_tokens = Core::get(usage, Value("completionTokens"), completion_tokens_snake);
-  Value computed_total_tokens = Core::add(prompt_tokens, completion_tokens);
-  Value total_tokens_snake = Core::get(usage, Value("total_tokens"), computed_total_tokens);
-  Value total_tokens = Core::get(usage, Value("totalTokens"), total_tokens_snake);
-  Core::set(out, Value("prompt_tokens"), prompt_tokens);
-  Core::set(out, Value("completion_tokens"), completion_tokens);
-  Core::set(out, Value("total_tokens"), total_tokens);
-  Value reasoning_tokens_snake = Core::get(usage, Value("reasoning_tokens"), Value());
-  Value reasoning_tokens = Core::get(usage, Value("reasoningTokens"), reasoning_tokens_snake);
-  Value has_reasoning = Core::is_not_none(reasoning_tokens);
-  if (Core::truthy(has_reasoning)) {
-    Core::set(out, Value("reasoning_tokens"), reasoning_tokens);
-  }
-  Value cache_read_tokens_snake = Core::get(usage, Value("cache_read_tokens"), Value());
-  Value cache_read_tokens = Core::get(usage, Value("cacheReadTokens"), cache_read_tokens_snake);
-  Value has_cache_read = Core::is_not_none(cache_read_tokens);
-  if (Core::truthy(has_cache_read)) {
-    Core::set(out, Value("cache_read_tokens"), cache_read_tokens);
-  }
-  Value cache_creation_tokens_snake = Core::get(usage, Value("cache_creation_tokens"), Value());
-  Value cache_creation_tokens = Core::get(usage, Value("cacheCreationTokens"), cache_creation_tokens_snake);
-  Value has_cache_creation = Core::is_not_none(cache_creation_tokens);
-  if (Core::truthy(has_cache_creation)) {
-    Core::set(out, Value("cache_creation_tokens"), cache_creation_tokens);
-  }
-  return out;
-}
-
-Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
-  Value has_usage = Core::truthy_value(usage);
-  Value missing_usage = Core::not_(has_usage);
-  if (Core::truthy(missing_usage)) {
-    Value none = Core::none();
-    return none;
-  }
-  Value tokens = Core::normalize_token_usage(usage);
-  Value out = Value::object();
-  Core::set(out, Value("ai"), ai_name);
-  Core::set(out, Value("model"), model);
-  Core::set(out, Value("tokens"), tokens);
-  return out;
+  Value model_config = Core::get(request, Value("model_config"), Value());
+  Core::_openai_apply_model_config_impl(payload, model_config);
+  return payload;
 }
 
 Value Core::merge_model_config(Value base, Value override, Value options) {
@@ -3335,119 +2947,67 @@ Value Core::validate_chat_request(Value request) {
   return Value();
 }
 
-Value Core::chat_response_to_completion(Value response) {
-  Value empty_results = Value::array();
-  Value results = Core::get(response, Value("results"), empty_results);
-  Value empty_result = Value::object();
-  Value result = Core::list_get(results, Value(0), empty_result);
-  Value content = Core::get(result, Value("content"), Value(""));
-  Value calls = Value::array();
-  Value empty_calls = Value::array();
-  Value function_calls = Core::get(result, Value("function_calls"), empty_calls);
-  for (auto call : Core::iter(function_calls)) {
-    Value fn = Core::get(call, Value("function"), Value());
-    Value id = Core::get(call, Value("id"), Value());
-    Value name = Core::get(fn, Value("name"), Value());
-    Value params = Core::get(fn, Value("params"), Value());
-    Value compat_call = Value::object();
-    Core::set(compat_call, Value("id"), id);
-    Core::set(compat_call, Value("name"), name);
-    Core::set(compat_call, Value("params"), params);
-    Core::append(calls, compat_call);
+Value Core::_openai_apply_model_config_impl(Value payload, Value model_config) {
+  Core::_openai_copy_config_key_impl(payload, model_config, Value("max_tokens"), Value("max_completion_tokens"));
+  Core::_openai_copy_config_key_impl(payload, model_config, Value("maxTokens"), Value("max_completion_tokens"));
+  Core::_openai_copy_config_key_impl(payload, model_config, Value("temperature"), Value("temperature"));
+  Core::_openai_copy_config_key_impl(payload, model_config, Value("top_p"), Value("top_p"));
+  Core::_openai_copy_config_key_impl(payload, model_config, Value("topP"), Value("top_p"));
+  Core::_openai_copy_config_key_impl(payload, model_config, Value("n"), Value("n"));
+  Core::_openai_copy_config_key_impl(payload, model_config, Value("presence_penalty"), Value("presence_penalty"));
+  Core::_openai_copy_config_key_impl(payload, model_config, Value("presencePenalty"), Value("presence_penalty"));
+  Core::_openai_copy_config_key_impl(payload, model_config, Value("frequency_penalty"), Value("frequency_penalty"));
+  Core::_openai_copy_config_key_impl(payload, model_config, Value("frequencyPenalty"), Value("frequency_penalty"));
+  Value stop_snake = Core::get(model_config, Value("stop_sequences"), Value());
+  Value stop = Core::get(model_config, Value("stopSequences"), stop_snake);
+  Value has_stop = Core::truthy_value(stop);
+  if (Core::truthy(has_stop)) {
+    Core::set(payload, Value("stop"), stop);
   }
-  Value model_usage = Core::get(response, Value("model_usage"), Value());
-  Value usage = Core::get(model_usage, Value("tokens"), Value());
-  Value out = Value::object();
-  Core::set(out, Value("content"), content);
-  Core::set(out, Value("function_calls"), calls);
-  Core::set(out, Value("usage"), usage);
-  return out;
+  Value stream = Core::get(model_config, Value("stream"), Value());
+  Value is_stream = Core::truthy_value(stream);
+  if (Core::truthy(is_stream)) {
+    Core::set(payload, Value("stream"), Value(true));
+    Value stream_options = Value::object();
+    Core::set(stream_options, Value("include_usage"), Value(true));
+    Core::set(payload, Value("stream_options"), stream_options);
+  }
+  return Value();
 }
 
-Value Core::_openai_finish_reason_impl(Value value) {
-  Value is_stop = Core::eq(value, Value("stop"));
-  if (Core::truthy(is_stop)) {
-    return Value("stop");
-  }
-  Value is_length = Core::eq(value, Value("length"));
-  if (Core::truthy(is_length)) {
-    return Value("length");
-  }
-  Value is_content_filter = Core::eq(value, Value("content_filter"));
-  if (Core::truthy(is_content_filter)) {
-    return Value("error");
-  }
-  Value is_tool_calls = Core::eq(value, Value("tool_calls"));
-  Value is_function_call = Core::eq(value, Value("function_call"));
-  Value is_call = Core::or_(is_tool_calls, is_function_call);
-  if (Core::truthy(is_call)) {
-    return Value("function_call");
-  }
-  Value none = Core::none();
-  return none;
+Value Core::build_chat_request(Value service, Value request, Value options) {
+  Core::validate_chat_request(request);
+  Value payload = Core::openai_build_chat_request(request);
+  return payload;
 }
 
-Value Core::_openai_tool_call_to_provider_impl(Value call) {
-  Value fn = Core::get(call, Value("function"), Value());
-  Value params = Core::get(fn, Value("params"), Value());
-  Value params_is_string = Core::type_is(params, Value("string"));
-  if (Core::truthy(params_is_string)) {
-    // empty
-  }
-  if (!Core::truthy(params_is_string)) {
-    Value params_json = Core::json_stringify(params);
-    params = params_json;
-  }
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(fn, Value("name"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("arguments"), params);
-  Value out = Value::object();
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
+Value Core::normalize_chat_response(Value raw) {
+  Value response = Core::openai_normalize_chat_response(raw);
+  return response;
 }
 
-Value Core::_openai_content_part_impl(Value part) {
-  Value type = Core::get(part, Value("type"), Value());
-  Value is_text = Core::eq(type, Value("text"));
-  if (Core::truthy(is_text)) {
-    Value text = Core::get(part, Value("text"), Value(""));
-    Value out = Value::object();
-    Core::set(out, Value("type"), Value("text"));
-    Core::set(out, Value("text"), text);
-    return out;
+Value Core::normalize_stream_delta(Value raw, Value state) {
+  Value response = Core::openai_normalize_stream_delta(raw, state);
+  return response;
+}
+
+Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target) {
+  Value has_source = Core::map_contains(model_config, source);
+  if (Core::truthy(has_source)) {
+    Value value = Core::get(model_config, source, Value());
+    Core::set(payload, target, value);
   }
-  Value is_image = Core::eq(type, Value("image"));
-  if (Core::truthy(is_image)) {
-    Value mime_snake = Core::get(part, Value("mime_type"), Value());
-    Value mime_raw = Core::get(part, Value("mimeType"), mime_snake);
-    Value mime = Core::coalesce(mime_raw, Value("image/png"));
-    Value image_value = Core::get(part, Value("image"), Value());
-    Value image_raw = Core::get(part, Value("data"), image_value);
-    Value image = Core::coalesce(image_raw, Value(""));
-    Value is_data_url = Core::string_starts_with(image, Value("data:"));
-    Value url = Value("");
-    if (Core::truthy(is_data_url)) {
-      url = image;
-    }
-    if (!Core::truthy(is_data_url)) {
-      url = Core::string_format(Value("data:{};base64,{}"), mime, image);
-    }
-    Value details = Core::get(part, Value("details"), Value("auto"));
-    Value image_url = Value::object();
-    Core::set(image_url, Value("url"), url);
-    Core::set(image_url, Value("detail"), details);
-    Value out = Value::object();
-    Core::set(out, Value("type"), Value("image_url"));
-    Core::set(out, Value("image_url"), image_url);
-    return out;
-  }
-  Value message = Core::string_format(Value("OpenAI-compatible beta does not support content part type: {}"), type);
-  Value error = Core::ai_error_unsupported(message);
-  throw Core::as_error(error);
+  return Value();
+}
+
+Value Core::build_embed_request(Value service, Value request, Value options) {
+  Value payload = Core::openai_build_embed_request(request);
+  return payload;
+}
+
+Value Core::normalize_embed_response(Value raw) {
+  Value response = Core::openai_normalize_embed_response(raw);
+  return response;
 }
 
 Value Core::_openai_message_impl(Value message) {
@@ -3523,6 +3083,148 @@ Value Core::_openai_message_impl(Value message) {
   throw Core::as_error(error);
 }
 
+Value Core::normalize_token_usage(Value usage) {
+  Value out = Value::object();
+  Value input_tokens = Core::get(usage, Value("input_tokens"), Value(0));
+  Value prompt_tokens_snake = Core::get(usage, Value("prompt_tokens"), input_tokens);
+  Value prompt_tokens = Core::get(usage, Value("promptTokens"), prompt_tokens_snake);
+  Value output_tokens = Core::get(usage, Value("output_tokens"), Value(0));
+  Value completion_tokens_snake = Core::get(usage, Value("completion_tokens"), output_tokens);
+  Value completion_tokens = Core::get(usage, Value("completionTokens"), completion_tokens_snake);
+  Value computed_total_tokens = Core::add(prompt_tokens, completion_tokens);
+  Value total_tokens_snake = Core::get(usage, Value("total_tokens"), computed_total_tokens);
+  Value total_tokens = Core::get(usage, Value("totalTokens"), total_tokens_snake);
+  Core::set(out, Value("prompt_tokens"), prompt_tokens);
+  Core::set(out, Value("completion_tokens"), completion_tokens);
+  Core::set(out, Value("total_tokens"), total_tokens);
+  Value reasoning_tokens_snake = Core::get(usage, Value("reasoning_tokens"), Value());
+  Value reasoning_tokens = Core::get(usage, Value("reasoningTokens"), reasoning_tokens_snake);
+  Value has_reasoning = Core::is_not_none(reasoning_tokens);
+  if (Core::truthy(has_reasoning)) {
+    Core::set(out, Value("reasoning_tokens"), reasoning_tokens);
+  }
+  Value cache_read_tokens_snake = Core::get(usage, Value("cache_read_tokens"), Value());
+  Value cache_read_tokens = Core::get(usage, Value("cacheReadTokens"), cache_read_tokens_snake);
+  Value has_cache_read = Core::is_not_none(cache_read_tokens);
+  if (Core::truthy(has_cache_read)) {
+    Core::set(out, Value("cache_read_tokens"), cache_read_tokens);
+  }
+  Value cache_creation_tokens_snake = Core::get(usage, Value("cache_creation_tokens"), Value());
+  Value cache_creation_tokens = Core::get(usage, Value("cacheCreationTokens"), cache_creation_tokens_snake);
+  Value has_cache_creation = Core::is_not_none(cache_creation_tokens);
+  if (Core::truthy(has_cache_creation)) {
+    Core::set(out, Value("cache_creation_tokens"), cache_creation_tokens);
+  }
+  return out;
+}
+
+Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
+  Value has_usage = Core::truthy_value(usage);
+  Value missing_usage = Core::not_(has_usage);
+  if (Core::truthy(missing_usage)) {
+    Value none = Core::none();
+    return none;
+  }
+  Value tokens = Core::normalize_token_usage(usage);
+  Value out = Value::object();
+  Core::set(out, Value("ai"), ai_name);
+  Core::set(out, Value("model"), model);
+  Core::set(out, Value("tokens"), tokens);
+  return out;
+}
+
+Value Core::chat_response_to_completion(Value response) {
+  Value empty_results = Value::array();
+  Value results = Core::get(response, Value("results"), empty_results);
+  Value empty_result = Value::object();
+  Value result = Core::list_get(results, Value(0), empty_result);
+  Value content = Core::get(result, Value("content"), Value(""));
+  Value calls = Value::array();
+  Value empty_calls = Value::array();
+  Value function_calls = Core::get(result, Value("function_calls"), empty_calls);
+  for (auto call : Core::iter(function_calls)) {
+    Value fn = Core::get(call, Value("function"), Value());
+    Value id = Core::get(call, Value("id"), Value());
+    Value name = Core::get(fn, Value("name"), Value());
+    Value params = Core::get(fn, Value("params"), Value());
+    Value compat_call = Value::object();
+    Core::set(compat_call, Value("id"), id);
+    Core::set(compat_call, Value("name"), name);
+    Core::set(compat_call, Value("params"), params);
+    Core::append(calls, compat_call);
+  }
+  Value model_usage = Core::get(response, Value("model_usage"), Value());
+  Value usage = Core::get(model_usage, Value("tokens"), Value());
+  Value out = Value::object();
+  Core::set(out, Value("content"), content);
+  Core::set(out, Value("function_calls"), calls);
+  Core::set(out, Value("usage"), usage);
+  return out;
+}
+
+Value Core::_openai_content_part_impl(Value part) {
+  Value type = Core::get(part, Value("type"), Value());
+  Value is_text = Core::eq(type, Value("text"));
+  if (Core::truthy(is_text)) {
+    Value text = Core::get(part, Value("text"), Value(""));
+    Value out = Value::object();
+    Core::set(out, Value("type"), Value("text"));
+    Core::set(out, Value("text"), text);
+    return out;
+  }
+  Value is_image = Core::eq(type, Value("image"));
+  if (Core::truthy(is_image)) {
+    Value mime_snake = Core::get(part, Value("mime_type"), Value());
+    Value mime_raw = Core::get(part, Value("mimeType"), mime_snake);
+    Value mime = Core::coalesce(mime_raw, Value("image/png"));
+    Value image_value = Core::get(part, Value("image"), Value());
+    Value image_raw = Core::get(part, Value("data"), image_value);
+    Value image = Core::coalesce(image_raw, Value(""));
+    Value is_data_url = Core::string_starts_with(image, Value("data:"));
+    Value url = Value("");
+    if (Core::truthy(is_data_url)) {
+      url = image;
+    }
+    if (!Core::truthy(is_data_url)) {
+      url = Core::string_format(Value("data:{};base64,{}"), mime, image);
+    }
+    Value details = Core::get(part, Value("details"), Value("auto"));
+    Value image_url = Value::object();
+    Core::set(image_url, Value("url"), url);
+    Core::set(image_url, Value("detail"), details);
+    Value out = Value::object();
+    Core::set(out, Value("type"), Value("image_url"));
+    Core::set(out, Value("image_url"), image_url);
+    return out;
+  }
+  Value message = Core::string_format(Value("OpenAI-compatible beta does not support content part type: {}"), type);
+  Value error = Core::ai_error_unsupported(message);
+  throw Core::as_error(error);
+}
+
+Value Core::_openai_tool_call_to_provider_impl(Value call) {
+  Value fn = Core::get(call, Value("function"), Value());
+  Value params = Core::get(fn, Value("params"), Value());
+  Value params_is_string = Core::type_is(params, Value("string"));
+  if (Core::truthy(params_is_string)) {
+    // empty
+  }
+  if (!Core::truthy(params_is_string)) {
+    Value params_json = Core::json_stringify(params);
+    params = params_json;
+  }
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(fn, Value("name"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("arguments"), params);
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
+  return out;
+}
+
 Value Core::_openai_tool_spec_impl(Value fn) {
   Value name = Core::get(fn, Value("name"), Value());
   Value description = Core::get(fn, Value("description"), Value(""));
@@ -3538,202 +3240,6 @@ Value Core::_openai_tool_spec_impl(Value fn) {
   Core::set(out, Value("type"), Value("function"));
   Core::set(out, Value("function"), function);
   return out;
-}
-
-Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target) {
-  Value has_source = Core::map_contains(model_config, source);
-  if (Core::truthy(has_source)) {
-    Value value = Core::get(model_config, source, Value());
-    Core::set(payload, target, value);
-  }
-  return Value();
-}
-
-Value Core::_openai_apply_model_config_impl(Value payload, Value model_config) {
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("max_tokens"), Value("max_completion_tokens"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("maxTokens"), Value("max_completion_tokens"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("temperature"), Value("temperature"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("top_p"), Value("top_p"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("topP"), Value("top_p"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("n"), Value("n"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("presence_penalty"), Value("presence_penalty"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("presencePenalty"), Value("presence_penalty"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("frequency_penalty"), Value("frequency_penalty"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("frequencyPenalty"), Value("frequency_penalty"));
-  Value stop_snake = Core::get(model_config, Value("stop_sequences"), Value());
-  Value stop = Core::get(model_config, Value("stopSequences"), stop_snake);
-  Value has_stop = Core::truthy_value(stop);
-  if (Core::truthy(has_stop)) {
-    Core::set(payload, Value("stop"), stop);
-  }
-  Value stream = Core::get(model_config, Value("stream"), Value());
-  Value is_stream = Core::truthy_value(stream);
-  if (Core::truthy(is_stream)) {
-    Core::set(payload, Value("stream"), Value(true));
-    Value stream_options = Value::object();
-    Core::set(stream_options, Value("include_usage"), Value(true));
-    Core::set(payload, Value("stream_options"), stream_options);
-  }
-  return Value();
-}
-
-Value Core::_openai_normalize_tool_calls_impl(Value calls) {
-  Value out = Value::array();
-  for (auto call : Core::iter(calls)) {
-    Value fn = Core::get(call, Value("function"), Value());
-    Value params = Core::get(fn, Value("arguments"), Value());
-    Value params_is_string = Core::type_is(params, Value("string"));
-    if (Core::truthy(params_is_string)) {
-      try {
-        Value parsed_params = Core::json_parse(params);
-        params = parsed_params;
-      } catch (const std::exception& e) {
-        Value parse_error = Core::exception_value(e);
-        // empty
-      }
-    }
-    Value id = Core::get(call, Value("id"), Value());
-    Value name = Core::get(fn, Value("name"), Value());
-    Value function = Value::object();
-    Core::set(function, Value("name"), name);
-    Core::set(function, Value("params"), params);
-    Value normalized = Value::object();
-    Core::set(normalized, Value("id"), id);
-    Core::set(normalized, Value("type"), Value("function"));
-    Core::set(normalized, Value("function"), function);
-    Core::append(out, normalized);
-  }
-  return out;
-}
-
-Value Core::_openai_normalize_choice_impl(Value choice, Value raw) {
-  Value empty_message = Value::object();
-  Value message = Core::get(choice, Value("message"), empty_message);
-  Value refusal = Core::get(message, Value("refusal"), Value());
-  Value has_refusal = Core::truthy_value(refusal);
-  if (Core::truthy(has_refusal)) {
-    Value error = Core::ai_error_refusal(refusal, raw);
-    throw Core::as_error(error);
-  }
-  Value index = Core::get(choice, Value("index"), Value(0));
-  Value id = Core::string_str(index);
-  Value content_raw = Core::get(message, Value("content"), Value());
-  Value content = Core::none();
-  Value has_content = Core::truthy_value(content_raw);
-  if (Core::truthy(has_content)) {
-    content = content_raw;
-  }
-  if (!Core::truthy(has_content)) {
-    content = Core::none();
-  }
-  Value empty_calls = Value::array();
-  Value tool_calls = Core::get(message, Value("tool_calls"), empty_calls);
-  Value function_calls = Core::_openai_normalize_tool_calls_impl(tool_calls);
-  Value finish_reason_raw = Core::get(choice, Value("finish_reason"), Value());
-  Value finish_reason = Core::_openai_finish_reason_impl(finish_reason_raw);
-  Value out = Value::object();
-  Core::set(out, Value("index"), index);
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("content"), content);
-  Core::set(out, Value("function_calls"), function_calls);
-  Core::set(out, Value("finish_reason"), finish_reason);
-  return out;
-}
-
-Value Core::_openai_stream_choice_impl(Value choice, Value index_ids) {
-  Value empty_delta = Value::object();
-  Value delta = Core::get(choice, Value("delta"), empty_delta);
-  Value calls = Value::array();
-  Value empty_tool_calls = Value::array();
-  Value tool_calls = Core::get(delta, Value("tool_calls"), empty_tool_calls);
-  for (auto call : Core::iter(tool_calls)) {
-    Value call_index = Core::get(call, Value("index"), Value(0));
-    Value call_id = Core::get(call, Value("id"), Value());
-    Value has_call_id = Core::truthy_value(call_id);
-    if (Core::truthy(has_call_id)) {
-      Core::set(index_ids, call_index, call_id);
-    }
-    Value stable_id = Core::get(index_ids, call_index, Value());
-    Value has_stable_id = Core::truthy_value(stable_id);
-    if (Core::truthy(has_stable_id)) {
-      Value fn = Core::get(call, Value("function"), Value());
-      Value name = Core::get(fn, Value("name"), Value());
-      Value arguments = Core::get(fn, Value("arguments"), Value());
-      Value function = Value::object();
-      Core::set(function, Value("name"), name);
-      Core::set(function, Value("params"), arguments);
-      Value normalized = Value::object();
-      Core::set(normalized, Value("id"), stable_id);
-      Core::set(normalized, Value("type"), Value("function"));
-      Core::set(normalized, Value("function"), function);
-      Core::append(calls, normalized);
-    }
-  }
-  Value index = Core::get(choice, Value("index"), Value(0));
-  Value id = Core::string_str(index);
-  Value content = Core::get(delta, Value("content"), Value());
-  Value finish_reason_raw = Core::get(choice, Value("finish_reason"), Value());
-  Value finish_reason = Core::_openai_finish_reason_impl(finish_reason_raw);
-  Value out = Value::object();
-  Core::set(out, Value("index"), index);
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("content"), content);
-  Core::set(out, Value("function_calls"), calls);
-  Core::set(out, Value("finish_reason"), finish_reason);
-  return out;
-}
-
-Value Core::openai_build_chat_request(Value request) {
-  Value payload = Value::object();
-  Value model = Core::get(request, Value("model"), Value());
-  Core::set(payload, Value("model"), model);
-  Value messages = Value::array();
-  Value chat_prompt = Core::get(request, Value("chat_prompt"), Value());
-  for (auto message : Core::iter(chat_prompt)) {
-    Value provider_message = Core::_openai_message_impl(message);
-    Core::append(messages, provider_message);
-  }
-  Core::set(payload, Value("messages"), messages);
-  Value empty_functions = Value::array();
-  Value functions = Core::get(request, Value("functions"), empty_functions);
-  Value has_functions = Core::truthy_value(functions);
-  if (Core::truthy(has_functions)) {
-    Value tools = Value::array();
-    for (auto fn : Core::iter(functions)) {
-      Value tool = Core::_openai_tool_spec_impl(fn);
-      Core::append(tools, tool);
-    }
-    Core::set(payload, Value("tools"), tools);
-    Value tool_choice = Core::get(request, Value("function_call"), Value("auto"));
-    Core::set(payload, Value("tool_choice"), tool_choice);
-  }
-  Value response_format = Core::get(request, Value("response_format"), Value());
-  Value has_response_format = Core::truthy_value(response_format);
-  if (Core::truthy(has_response_format)) {
-    Value response_format_type = Core::get(response_format, Value("type"), Value());
-    Value is_json_object = Core::eq(response_format_type, Value("json_object"));
-    if (Core::truthy(is_json_object)) {
-      Value json_mode_message = Value::object();
-      Core::set(json_mode_message, Value("role"), Value("system"));
-      Core::set(json_mode_message, Value("content"), Value("JSON output is required. Return only the requested JSON object."));
-      Core::append(messages, json_mode_message);
-      Core::set(payload, Value("messages"), messages);
-    }
-    Value is_json_schema = Core::eq(response_format_type, Value("json_schema"));
-    if (Core::truthy(is_json_schema)) {
-      Value json_schema_format = Value::object();
-      Value schema = Core::get(response_format, Value("schema"), Value());
-      Core::set(json_schema_format, Value("type"), Value("json_schema"));
-      Core::set(json_schema_format, Value("json_schema"), schema);
-      Core::set(payload, Value("response_format"), json_schema_format);
-    }
-    if (!Core::truthy(is_json_schema)) {
-      Core::set(payload, Value("response_format"), response_format);
-    }
-  }
-  Value model_config = Core::get(request, Value("model_config"), Value());
-  Core::_openai_apply_model_config_impl(payload, model_config);
-  return payload;
 }
 
 Value Core::openai_build_embed_request(Value request) {
@@ -3790,6 +3296,112 @@ Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model
   return out;
 }
 
+Value Core::_openai_normalize_choice_impl(Value choice, Value raw) {
+  Value empty_message = Value::object();
+  Value message = Core::get(choice, Value("message"), empty_message);
+  Value refusal = Core::get(message, Value("refusal"), Value());
+  Value has_refusal = Core::truthy_value(refusal);
+  if (Core::truthy(has_refusal)) {
+    Value error = Core::ai_error_refusal(refusal, raw);
+    throw Core::as_error(error);
+  }
+  Value index = Core::get(choice, Value("index"), Value(0));
+  Value id = Core::string_str(index);
+  Value content_raw = Core::get(message, Value("content"), Value());
+  Value content = Core::none();
+  Value has_content = Core::truthy_value(content_raw);
+  if (Core::truthy(has_content)) {
+    content = content_raw;
+  }
+  if (!Core::truthy(has_content)) {
+    content = Core::none();
+  }
+  Value empty_calls = Value::array();
+  Value tool_calls = Core::get(message, Value("tool_calls"), empty_calls);
+  Value function_calls = Core::_openai_normalize_tool_calls_impl(tool_calls);
+  Value finish_reason_raw = Core::get(choice, Value("finish_reason"), Value());
+  Value finish_reason = Core::_openai_finish_reason_impl(finish_reason_raw);
+  Value out = Value::object();
+  Core::set(out, Value("index"), index);
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("content"), content);
+  Core::set(out, Value("function_calls"), function_calls);
+  Core::set(out, Value("finish_reason"), finish_reason);
+  return out;
+}
+
+Value Core::_openai_normalize_tool_calls_impl(Value calls) {
+  Value out = Value::array();
+  for (auto call : Core::iter(calls)) {
+    Value fn = Core::get(call, Value("function"), Value());
+    Value params = Core::get(fn, Value("arguments"), Value());
+    Value params_is_string = Core::type_is(params, Value("string"));
+    if (Core::truthy(params_is_string)) {
+      try {
+        Value parsed_params = Core::json_parse(params);
+        params = parsed_params;
+      } catch (const std::exception& e) {
+        Value parse_error = Core::exception_value(e);
+        // empty
+      }
+    }
+    Value id = Core::get(call, Value("id"), Value());
+    Value name = Core::get(fn, Value("name"), Value());
+    Value function = Value::object();
+    Core::set(function, Value("name"), name);
+    Core::set(function, Value("params"), params);
+    Value normalized = Value::object();
+    Core::set(normalized, Value("id"), id);
+    Core::set(normalized, Value("type"), Value("function"));
+    Core::set(normalized, Value("function"), function);
+    Core::append(out, normalized);
+  }
+  return out;
+}
+
+Value Core::_openai_finish_reason_impl(Value value) {
+  Value is_stop = Core::eq(value, Value("stop"));
+  if (Core::truthy(is_stop)) {
+    return Value("stop");
+  }
+  Value is_length = Core::eq(value, Value("length"));
+  if (Core::truthy(is_length)) {
+    return Value("length");
+  }
+  Value is_content_filter = Core::eq(value, Value("content_filter"));
+  if (Core::truthy(is_content_filter)) {
+    return Value("error");
+  }
+  Value is_tool_calls = Core::eq(value, Value("tool_calls"));
+  Value is_function_call = Core::eq(value, Value("function_call"));
+  Value is_call = Core::or_(is_tool_calls, is_function_call);
+  if (Core::truthy(is_call)) {
+    return Value("function_call");
+  }
+  Value none = Core::none();
+  return none;
+}
+
+Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
+  Value embeddings = Value::array();
+  Value empty_data = Value::array();
+  Value data = Core::get(raw, Value("data"), empty_data);
+  for (auto item : Core::iter(data)) {
+    Value embedding = Core::get(item, Value("embedding"), Value());
+    Core::append(embeddings, embedding);
+  }
+  Value raw_model = Core::get(raw, Value("model"), Value());
+  Value used_model = Core::coalesce(raw_model, model);
+  Value usage = Core::get(raw, Value("usage"), Value());
+  Value model_usage = Core::_ai_model_usage_impl(ai_name, used_model, usage);
+  Value remote_id = Core::get(raw, Value("id"), Value());
+  Value out = Value::object();
+  Core::set(out, Value("embeddings"), embeddings);
+  Core::set(out, Value("remote_id"), remote_id);
+  Core::set(out, Value("model_usage"), model_usage);
+  return out;
+}
+
 Value Core::openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model) {
   Value raw_is_object = Core::type_is(raw, Value("object"));
   Value raw_not_object = Core::not_(raw_is_object);
@@ -3835,23 +3447,46 @@ Value Core::openai_normalize_stream_delta(Value raw, Value state, Value ai_name,
   return out;
 }
 
-Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
-  Value embeddings = Value::array();
-  Value empty_data = Value::array();
-  Value data = Core::get(raw, Value("data"), empty_data);
-  for (auto item : Core::iter(data)) {
-    Value embedding = Core::get(item, Value("embedding"), Value());
-    Core::append(embeddings, embedding);
+Value Core::_openai_stream_choice_impl(Value choice, Value index_ids) {
+  Value empty_delta = Value::object();
+  Value delta = Core::get(choice, Value("delta"), empty_delta);
+  Value calls = Value::array();
+  Value empty_tool_calls = Value::array();
+  Value tool_calls = Core::get(delta, Value("tool_calls"), empty_tool_calls);
+  for (auto call : Core::iter(tool_calls)) {
+    Value call_index = Core::get(call, Value("index"), Value(0));
+    Value call_id = Core::get(call, Value("id"), Value());
+    Value has_call_id = Core::truthy_value(call_id);
+    if (Core::truthy(has_call_id)) {
+      Core::set(index_ids, call_index, call_id);
+    }
+    Value stable_id = Core::get(index_ids, call_index, Value());
+    Value has_stable_id = Core::truthy_value(stable_id);
+    if (Core::truthy(has_stable_id)) {
+      Value fn = Core::get(call, Value("function"), Value());
+      Value name = Core::get(fn, Value("name"), Value());
+      Value arguments = Core::get(fn, Value("arguments"), Value());
+      Value function = Value::object();
+      Core::set(function, Value("name"), name);
+      Core::set(function, Value("params"), arguments);
+      Value normalized = Value::object();
+      Core::set(normalized, Value("id"), stable_id);
+      Core::set(normalized, Value("type"), Value("function"));
+      Core::set(normalized, Value("function"), function);
+      Core::append(calls, normalized);
+    }
   }
-  Value raw_model = Core::get(raw, Value("model"), Value());
-  Value used_model = Core::coalesce(raw_model, model);
-  Value usage = Core::get(raw, Value("usage"), Value());
-  Value model_usage = Core::_ai_model_usage_impl(ai_name, used_model, usage);
-  Value remote_id = Core::get(raw, Value("id"), Value());
+  Value index = Core::get(choice, Value("index"), Value(0));
+  Value id = Core::string_str(index);
+  Value content = Core::get(delta, Value("content"), Value());
+  Value finish_reason_raw = Core::get(choice, Value("finish_reason"), Value());
+  Value finish_reason = Core::_openai_finish_reason_impl(finish_reason_raw);
   Value out = Value::object();
-  Core::set(out, Value("embeddings"), embeddings);
-  Core::set(out, Value("remote_id"), remote_id);
-  Core::set(out, Value("model_usage"), model_usage);
+  Core::set(out, Value("index"), index);
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("content"), content);
+  Core::set(out, Value("function_calls"), calls);
+  Core::set(out, Value("finish_reason"), finish_reason);
   return out;
 }
 
@@ -4790,457 +4425,6 @@ Value Core::provider_operation_descriptor(Value profile, Value operation) {
   return operation_desc;
 }
 
-Value Core::provider_build_chat_request(Value profile, Value request) {
-  Value provider_id = Core::provider_normalize_profile(profile);
-  Value is_responses = Core::eq(provider_id, Value("openai-responses"));
-  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
-  Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
-  Value payload = Value::object();
-  if (Core::truthy(is_responses)) {
-    Value responses_payload = Core::openai_responses_build_chat_request(request);
-    payload = responses_payload;
-  }
-  if (!Core::truthy(is_responses)) {
-    if (Core::truthy(is_gemini)) {
-      Value gemini_payload = Core::gemini_build_chat_request(request);
-      payload = gemini_payload;
-    }
-    if (!Core::truthy(is_gemini)) {
-      if (Core::truthy(is_anthropic)) {
-        Value anthropic_payload = Core::anthropic_build_chat_request(request);
-        payload = anthropic_payload;
-      }
-      if (!Core::truthy(is_anthropic)) {
-        Value compatible_payload = Core::openai_build_chat_request(request);
-        payload = compatible_payload;
-      }
-    }
-  }
-  Value payload_with_quirks = Core::_provider_apply_openai_compatible_profile_quirks(provider_id, payload, request);
-  payload = payload_with_quirks;
-  return payload;
-}
-
-Value Core::_provider_apply_openai_compatible_profile_quirks(Value profile, Value payload, Value request) {
-  Value empty_map = Value::object();
-  Value model_config = Core::get(request, Value("model_config"), empty_map);
-  Value is_deepseek = Core::eq(profile, Value("deepseek"));
-  if (Core::truthy(is_deepseek)) {
-    payload = Core::_provider_apply_deepseek_chat_quirks(payload, model_config);
-  }
-  Value is_mistral = Core::eq(profile, Value("mistral"));
-  if (Core::truthy(is_mistral)) {
-    payload = Core::_provider_apply_mistral_chat_quirks(payload);
-  }
-  Value is_grok = Core::eq(profile, Value("grok"));
-  if (Core::truthy(is_grok)) {
-    payload = Core::_provider_apply_grok_chat_quirks(payload, request, model_config);
-  }
-  return payload;
-}
-
-Value Core::_provider_apply_deepseek_chat_quirks(Value payload, Value model_config) {
-  Value model = Core::get(payload, Value("model"), Value(""));
-  Value is_flash = Core::eq(model, Value("deepseek-v4-flash"));
-  Value is_pro = Core::eq(model, Value("deepseek-v4-pro"));
-  Value supports_thinking = Core::or_(is_flash, is_pro);
-  Value is_reasoner = Core::eq(model, Value("deepseek-reasoner"));
-  Value unsupported_tool_choice_left = Core::or_(supports_thinking, is_reasoner);
-  if (Core::truthy(supports_thinking)) {
-    Value budget_snake = Core::get(model_config, Value("thinking_token_budget"), Value());
-    Value budget = Core::get(model_config, Value("thinkingTokenBudget"), budget_snake);
-    Value reasoning = Core::get(payload, Value("reasoning_effort"), Value());
-    Value has_budget = Core::is_not_none(budget);
-    Value has_reasoning = Core::is_not_none(reasoning);
-    Value has_thinking_signal = Core::or_(has_budget, has_reasoning);
-    Value budget_is_none = Core::eq(budget, Value("none"));
-    Value reasoning_is_none = Core::eq(reasoning, Value("none"));
-    Value disabled_signal = Core::or_(budget_is_none, reasoning_is_none);
-    Value not_disabled_signal = Core::not_(disabled_signal);
-    Value thinking_enabled = Core::and_(has_thinking_signal, not_disabled_signal);
-    Value thinking = Value::object();
-    if (Core::truthy(thinking_enabled)) {
-      Core::set(thinking, Value("type"), Value("enabled"));
-      Value is_xhigh = Core::eq(reasoning, Value("xhigh"));
-      Value budget_is_highest = Core::eq(budget, Value("highest"));
-      Value is_max_effort = Core::or_(is_xhigh, budget_is_highest);
-      if (Core::truthy(is_max_effort)) {
-        Core::set(payload, Value("reasoning_effort"), Value("max"));
-      }
-      if (!Core::truthy(is_max_effort)) {
-        Value is_high = Core::eq(reasoning, Value("high"));
-        if (Core::truthy(is_high)) {
-          Core::set(payload, Value("reasoning_effort"), Value("high"));
-        }
-        if (!Core::truthy(is_high)) {
-          Core::set(payload, Value("reasoning_effort"), Value("high"));
-        }
-      }
-      Core::map_delete(payload, Value("temperature"));
-      Core::map_delete(payload, Value("top_p"));
-      Core::map_delete(payload, Value("presence_penalty"));
-      Core::map_delete(payload, Value("frequency_penalty"));
-    }
-    if (!Core::truthy(thinking_enabled)) {
-      Core::set(thinking, Value("type"), Value("disabled"));
-      Core::map_delete(payload, Value("reasoning_effort"));
-    }
-    Core::set(payload, Value("thinking"), thinking);
-  }
-  if (Core::truthy(unsupported_tool_choice_left)) {
-    Value tool_choice = Core::get(payload, Value("tool_choice"), Value());
-    Value choice_none = Core::eq(tool_choice, Value("none"));
-    if (Core::truthy(choice_none)) {
-      Core::map_delete(payload, Value("tools"));
-    }
-    Core::map_delete(payload, Value("tool_choice"));
-  }
-  return payload;
-}
-
-Value Core::_provider_apply_mistral_chat_quirks(Value payload) {
-  Value max_completion = Core::get(payload, Value("max_completion_tokens"), Value());
-  Value has_max_completion = Core::is_not_none(max_completion);
-  if (Core::truthy(has_max_completion)) {
-    Core::set(payload, Value("max_tokens"), max_completion);
-    Core::map_delete(payload, Value("max_completion_tokens"));
-  }
-  Value empty_list = Value::array();
-  Value messages = Core::get(payload, Value("messages"), empty_list);
-  for (auto message : Core::iter(messages)) {
-    Value content = Core::get(message, Value("content"), Value());
-    Value content_is_list = Core::type_is(content, Value("list"));
-    if (Core::truthy(content_is_list)) {
-      for (auto part : Core::iter(content)) {
-        Value part_type = Core::get(part, Value("type"), Value(""));
-        Value is_image_url = Core::eq(part_type, Value("image_url"));
-        if (Core::truthy(is_image_url)) {
-          Value empty_image = Value::object();
-          Value image = Core::get(part, Value("image_url"), empty_image);
-          Value url = Core::get(image, Value("url"), Value());
-          Value next_image = Value::object();
-          Core::set(next_image, Value("url"), url);
-          Core::set(part, Value("image_url"), next_image);
-        }
-      }
-    }
-  }
-  return payload;
-}
-
-Value Core::_provider_apply_grok_chat_quirks(Value payload, Value request, Value model_config) {
-  Value model = Core::get(payload, Value("model"), Value(""));
-  Value is_grok43 = Core::eq(model, Value("grok-4.3"));
-  Value is_grok43_latest = Core::eq(model, Value("grok-4.3-latest"));
-  Value is_grok43_any = Core::or_(is_grok43, is_grok43_latest);
-  if (Core::truthy(is_grok43_any)) {
-    Value budget_snake = Core::get(model_config, Value("thinking_token_budget"), Value());
-    Value budget = Core::get(model_config, Value("thinkingTokenBudget"), budget_snake);
-    Value has_budget = Core::is_not_none(budget);
-    if (Core::truthy(has_budget)) {
-      Value is_none = Core::eq(budget, Value("none"));
-      Value is_minimal = Core::eq(budget, Value("minimal"));
-      Value is_low = Core::eq(budget, Value("low"));
-      Value is_medium = Core::eq(budget, Value("medium"));
-      Value is_high = Core::eq(budget, Value("high"));
-      Value is_highest = Core::eq(budget, Value("highest"));
-      Value lowish = Core::or_(is_minimal, is_low);
-      Value highish = Core::or_(is_high, is_highest);
-      if (Core::truthy(is_none)) {
-        Core::set(payload, Value("reasoning_effort"), Value("none"));
-      }
-      if (!Core::truthy(is_none)) {
-        if (Core::truthy(lowish)) {
-          Core::set(payload, Value("reasoning_effort"), Value("low"));
-        }
-        if (!Core::truthy(lowish)) {
-          if (Core::truthy(is_medium)) {
-            Core::set(payload, Value("reasoning_effort"), Value("medium"));
-          }
-          if (!Core::truthy(is_medium)) {
-            if (Core::truthy(highish)) {
-              Core::set(payload, Value("reasoning_effort"), Value("high"));
-            }
-          }
-        }
-      }
-    }
-    Core::map_delete(payload, Value("presence_penalty"));
-    Core::map_delete(payload, Value("frequency_penalty"));
-    Core::map_delete(payload, Value("stop"));
-  }
-  if (!Core::truthy(is_grok43_any)) {
-    Core::map_delete(payload, Value("reasoning_effort"));
-  }
-  Value empty_map = Value::object();
-  Value search_snake = Core::get(request, Value("search_parameters"), Value());
-  Value search_camel = Core::get(request, Value("searchParameters"), search_snake);
-  Value search_config_snake = Core::get(model_config, Value("search_parameters"), search_camel);
-  Value search = Core::get(model_config, Value("searchParameters"), search_config_snake);
-  Value has_search = Core::is_not_none(search);
-  if (Core::truthy(has_search)) {
-    Value search_payload = Value::object();
-    Value mode = Core::get(search, Value("mode"), Value());
-    Value return_citations = Core::get(search, Value("returnCitations"), Value());
-    Value return_citations_snake = Core::get(search, Value("return_citations"), return_citations);
-    Value from_date = Core::get(search, Value("fromDate"), Value());
-    Value from_date_snake = Core::get(search, Value("from_date"), from_date);
-    Value to_date = Core::get(search, Value("toDate"), Value());
-    Value to_date_snake = Core::get(search, Value("to_date"), to_date);
-    Value max_results = Core::get(search, Value("maxSearchResults"), Value());
-    Value max_results_snake = Core::get(search, Value("max_search_results"), max_results);
-    Value sources = Core::get(search, Value("sources"), Value());
-    Value has_mode = Core::is_not_none(mode);
-    if (Core::truthy(has_mode)) {
-      Core::set(search_payload, Value("mode"), mode);
-    }
-    Value has_return_citations = Core::is_not_none(return_citations_snake);
-    if (Core::truthy(has_return_citations)) {
-      Core::set(search_payload, Value("return_citations"), return_citations_snake);
-    }
-    Value has_from_date = Core::is_not_none(from_date_snake);
-    if (Core::truthy(has_from_date)) {
-      Core::set(search_payload, Value("from_date"), from_date_snake);
-    }
-    Value has_to_date = Core::is_not_none(to_date_snake);
-    if (Core::truthy(has_to_date)) {
-      Core::set(search_payload, Value("to_date"), to_date_snake);
-    }
-    Value has_max_results = Core::is_not_none(max_results_snake);
-    if (Core::truthy(has_max_results)) {
-      Core::set(search_payload, Value("max_search_results"), max_results_snake);
-    }
-    if (Core::truthy(sources)) {
-      Value mapped_sources = Value::array();
-      for (auto source : Core::iter(sources)) {
-        Value mapped_source = Value::object();
-        Value source_type = Core::get(source, Value("type"), Value());
-        Value source_country = Core::get(source, Value("country"), Value());
-        Value excluded_websites_camel = Core::get(source, Value("excludedWebsites"), Value());
-        Value excluded_websites = Core::get(source, Value("excluded_websites"), excluded_websites_camel);
-        Value allowed_websites_camel = Core::get(source, Value("allowedWebsites"), Value());
-        Value allowed_websites = Core::get(source, Value("allowed_websites"), allowed_websites_camel);
-        Value safe_search_camel = Core::get(source, Value("safeSearch"), Value());
-        Value safe_search = Core::get(source, Value("safe_search"), safe_search_camel);
-        Value x_handles_camel = Core::get(source, Value("xHandles"), Value());
-        Value x_handles = Core::get(source, Value("x_handles"), x_handles_camel);
-        Value links = Core::get(source, Value("links"), Value());
-        Value has_source_type = Core::is_not_none(source_type);
-        if (Core::truthy(has_source_type)) {
-          Core::set(mapped_source, Value("type"), source_type);
-        }
-        Value has_source_country = Core::is_not_none(source_country);
-        if (Core::truthy(has_source_country)) {
-          Core::set(mapped_source, Value("country"), source_country);
-        }
-        Value has_excluded_websites = Core::is_not_none(excluded_websites);
-        if (Core::truthy(has_excluded_websites)) {
-          Core::set(mapped_source, Value("excluded_websites"), excluded_websites);
-        }
-        Value has_allowed_websites = Core::is_not_none(allowed_websites);
-        if (Core::truthy(has_allowed_websites)) {
-          Core::set(mapped_source, Value("allowed_websites"), allowed_websites);
-        }
-        Value has_safe_search = Core::is_not_none(safe_search);
-        if (Core::truthy(has_safe_search)) {
-          Core::set(mapped_source, Value("safe_search"), safe_search);
-        }
-        Value has_x_handles = Core::is_not_none(x_handles);
-        if (Core::truthy(has_x_handles)) {
-          Core::set(mapped_source, Value("x_handles"), x_handles);
-        }
-        Value has_links = Core::is_not_none(links);
-        if (Core::truthy(has_links)) {
-          Core::set(mapped_source, Value("links"), links);
-        }
-        Core::append(mapped_sources, mapped_source);
-      }
-      Core::set(search_payload, Value("sources"), mapped_sources);
-    }
-    Core::set(payload, Value("search_parameters"), search_payload);
-  }
-  return payload;
-}
-
-Value Core::provider_build_embed_request(Value profile, Value request) {
-  Value provider_id = Core::provider_normalize_profile(profile);
-  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
-  Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
-  Value payload = Value::object();
-  if (Core::truthy(is_gemini)) {
-    Value gemini_payload = Core::gemini_build_embed_request(request);
-    payload = gemini_payload;
-  }
-  if (!Core::truthy(is_gemini)) {
-    if (Core::truthy(is_anthropic)) {
-      Value error = Core::ai_error_unsupported(Value("embed is not supported by Anthropic provider"));
-      throw Core::as_error(error);
-    }
-    if (!Core::truthy(is_anthropic)) {
-      Value openai_payload = Core::openai_build_embed_request(request);
-      payload = openai_payload;
-    }
-  }
-  return payload;
-}
-
-Value Core::provider_normalize_chat_response(Value profile, Value raw, Value ai_name, Value model) {
-  Value provider_id = Core::provider_normalize_profile(profile);
-  Value is_responses = Core::eq(provider_id, Value("openai-responses"));
-  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
-  Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
-  Value response = Value::object();
-  if (Core::truthy(is_responses)) {
-    Value responses_response = Core::openai_responses_normalize_chat_response(raw, ai_name, model);
-    response = responses_response;
-  }
-  if (!Core::truthy(is_responses)) {
-    if (Core::truthy(is_gemini)) {
-      Value gemini_response = Core::gemini_normalize_chat_response(raw, ai_name, model);
-      response = gemini_response;
-    }
-    if (!Core::truthy(is_gemini)) {
-      if (Core::truthy(is_anthropic)) {
-        Value anthropic_response = Core::anthropic_normalize_chat_response(raw, ai_name, model);
-        response = anthropic_response;
-      }
-      if (!Core::truthy(is_anthropic)) {
-        Value compatible_response = Core::openai_normalize_chat_response(raw, ai_name, model);
-        response = compatible_response;
-      }
-    }
-  }
-  return response;
-}
-
-Value Core::provider_normalize_stream_delta(Value profile, Value raw, Value state, Value ai_name, Value model) {
-  Value provider_id = Core::provider_normalize_profile(profile);
-  Value is_responses = Core::eq(provider_id, Value("openai-responses"));
-  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
-  Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
-  Value response = Value::object();
-  if (Core::truthy(is_responses)) {
-    Value responses_response = Core::openai_responses_normalize_stream_delta(raw, state, ai_name, model);
-    response = responses_response;
-  }
-  if (!Core::truthy(is_responses)) {
-    if (Core::truthy(is_gemini)) {
-      Value gemini_response = Core::gemini_normalize_chat_response(raw, ai_name, model);
-      response = gemini_response;
-    }
-    if (!Core::truthy(is_gemini)) {
-      if (Core::truthy(is_anthropic)) {
-        Value anthropic_response = Core::anthropic_normalize_stream_delta(raw, state, ai_name, model);
-        response = anthropic_response;
-      }
-      if (!Core::truthy(is_anthropic)) {
-        Value compatible_response = Core::openai_normalize_stream_delta(raw, state, ai_name, model);
-        response = compatible_response;
-      }
-    }
-  }
-  return response;
-}
-
-Value Core::provider_normalize_embed_response(Value profile, Value raw, Value ai_name, Value model) {
-  Value provider_id = Core::provider_normalize_profile(profile);
-  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
-  Value response = Value::object();
-  if (Core::truthy(is_gemini)) {
-    Value gemini_response = Core::gemini_normalize_embed_response(raw, ai_name, model);
-    response = gemini_response;
-  }
-  if (!Core::truthy(is_gemini)) {
-    Value openai_response = Core::openai_normalize_embed_response(raw, ai_name, model);
-    response = openai_response;
-  }
-  return response;
-}
-
-Value Core::provider_build_transcribe_request(Value profile, Value request) {
-  Value provider_id = Core::provider_normalize_profile(profile);
-  Value is_responses = Core::eq(provider_id, Value("openai-responses"));
-  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
-  Value is_grok = Core::eq(provider_id, Value("grok"));
-  Value payload = Value::object();
-  if (Core::truthy(is_gemini)) {
-    Value gemini_payload = Core::_gemini_build_transcribe_request(request);
-    payload = gemini_payload;
-  }
-  if (!Core::truthy(is_gemini)) {
-    if (Core::truthy(is_grok)) {
-      Value grok_payload = Core::_grok_build_transcribe_request(request);
-      payload = grok_payload;
-    }
-    if (!Core::truthy(is_grok)) {
-      Value responses_payload = Core::openai_responses_build_transcribe_request(request);
-      payload = responses_payload;
-    }
-  }
-  return payload;
-}
-
-Value Core::provider_build_speak_request(Value profile, Value request) {
-  Value provider_id = Core::provider_normalize_profile(profile);
-  Value is_responses = Core::eq(provider_id, Value("openai-responses"));
-  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
-  Value is_grok = Core::eq(provider_id, Value("grok"));
-  Value payload = Value::object();
-  if (Core::truthy(is_gemini)) {
-    Value gemini_payload = Core::_gemini_build_speak_request(request);
-    payload = gemini_payload;
-  }
-  if (!Core::truthy(is_gemini)) {
-    if (Core::truthy(is_grok)) {
-      Value grok_payload = Core::_grok_build_speak_request(request);
-      payload = grok_payload;
-    }
-    if (!Core::truthy(is_grok)) {
-      Value responses_payload = Core::openai_responses_build_speak_request(request);
-      payload = responses_payload;
-    }
-  }
-  return payload;
-}
-
-Value Core::provider_normalize_transcribe_response(Value profile, Value raw) {
-  Value provider_id = Core::provider_normalize_profile(profile);
-  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
-  if (Core::truthy(is_gemini)) {
-    Value gemini_out = Core::_gemini_normalize_transcribe_response(raw);
-    return gemini_out;
-  }
-  Value text = Core::get(raw, Value("text"), Value(""));
-  Value out = Value::object();
-  Core::set(out, Value("text"), text);
-  Value language = Core::get(raw, Value("language"), Value());
-  Value has_language = Core::is_not_none(language);
-  if (Core::truthy(has_language)) {
-    Core::set(out, Value("language"), language);
-  }
-  Value duration = Core::get(raw, Value("duration"), Value());
-  Value has_duration = Core::is_not_none(duration);
-  if (Core::truthy(has_duration)) {
-    Core::set(out, Value("duration"), duration);
-  }
-  return out;
-}
-
-Value Core::provider_normalize_speak_response(Value profile, Value raw, Value request) {
-  Value provider_id = Core::provider_normalize_profile(profile);
-  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
-  if (Core::truthy(is_gemini)) {
-    Value gemini_out = Core::_gemini_normalize_speak_response(raw, request);
-    return gemini_out;
-  }
-  Value data = Core::get(raw, Value("audio"), raw);
-  Value format = Core::get(request, Value("format"), Value("mp3"));
-  Value out = Value::object();
-  Core::set(out, Value("audio"), data);
-  Core::set(out, Value("format"), format);
-  return out;
-}
-
 Value Core::_provider_realtime_audio_descriptor(Value profile) {
   Value descriptor = Core::provider_operation_descriptor(profile, Value("realtime_audio"));
   return descriptor;
@@ -5587,6 +4771,457 @@ Value Core::_openai_realtime_content_parts_impl(Value content) {
     Core::append(parts, part);
   }
   return parts;
+}
+
+Value Core::provider_build_chat_request(Value profile, Value request) {
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value is_responses = Core::eq(provider_id, Value("openai-responses"));
+  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
+  Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
+  Value payload = Value::object();
+  if (Core::truthy(is_responses)) {
+    Value responses_payload = Core::openai_responses_build_chat_request(request);
+    payload = responses_payload;
+  }
+  if (!Core::truthy(is_responses)) {
+    if (Core::truthy(is_gemini)) {
+      Value gemini_payload = Core::_gemini_build_chat_request(request);
+      payload = gemini_payload;
+    }
+    if (!Core::truthy(is_gemini)) {
+      if (Core::truthy(is_anthropic)) {
+        Value anthropic_payload = Core::_anthropic_build_chat_request(request);
+        payload = anthropic_payload;
+      }
+      if (!Core::truthy(is_anthropic)) {
+        Value compatible_payload = Core::openai_build_chat_request(request);
+        payload = compatible_payload;
+      }
+    }
+  }
+  Value payload_with_quirks = Core::_provider_apply_openai_compatible_profile_quirks(provider_id, payload, request);
+  payload = payload_with_quirks;
+  return payload;
+}
+
+Value Core::_provider_apply_openai_compatible_profile_quirks(Value profile, Value payload, Value request) {
+  Value empty_map = Value::object();
+  Value model_config = Core::get(request, Value("model_config"), empty_map);
+  Value is_deepseek = Core::eq(profile, Value("deepseek"));
+  if (Core::truthy(is_deepseek)) {
+    payload = Core::_provider_apply_deepseek_chat_quirks(payload, model_config);
+  }
+  Value is_mistral = Core::eq(profile, Value("mistral"));
+  if (Core::truthy(is_mistral)) {
+    payload = Core::_provider_apply_mistral_chat_quirks(payload);
+  }
+  Value is_grok = Core::eq(profile, Value("grok"));
+  if (Core::truthy(is_grok)) {
+    payload = Core::_provider_apply_grok_chat_quirks(payload, request, model_config);
+  }
+  return payload;
+}
+
+Value Core::_provider_apply_deepseek_chat_quirks(Value payload, Value model_config) {
+  Value model = Core::get(payload, Value("model"), Value(""));
+  Value is_flash = Core::eq(model, Value("deepseek-v4-flash"));
+  Value is_pro = Core::eq(model, Value("deepseek-v4-pro"));
+  Value supports_thinking = Core::or_(is_flash, is_pro);
+  Value is_reasoner = Core::eq(model, Value("deepseek-reasoner"));
+  Value unsupported_tool_choice_left = Core::or_(supports_thinking, is_reasoner);
+  if (Core::truthy(supports_thinking)) {
+    Value budget_snake = Core::get(model_config, Value("thinking_token_budget"), Value());
+    Value budget = Core::get(model_config, Value("thinkingTokenBudget"), budget_snake);
+    Value reasoning = Core::get(payload, Value("reasoning_effort"), Value());
+    Value has_budget = Core::is_not_none(budget);
+    Value has_reasoning = Core::is_not_none(reasoning);
+    Value has_thinking_signal = Core::or_(has_budget, has_reasoning);
+    Value budget_is_none = Core::eq(budget, Value("none"));
+    Value reasoning_is_none = Core::eq(reasoning, Value("none"));
+    Value disabled_signal = Core::or_(budget_is_none, reasoning_is_none);
+    Value not_disabled_signal = Core::not_(disabled_signal);
+    Value thinking_enabled = Core::and_(has_thinking_signal, not_disabled_signal);
+    Value thinking = Value::object();
+    if (Core::truthy(thinking_enabled)) {
+      Core::set(thinking, Value("type"), Value("enabled"));
+      Value is_xhigh = Core::eq(reasoning, Value("xhigh"));
+      Value budget_is_highest = Core::eq(budget, Value("highest"));
+      Value is_max_effort = Core::or_(is_xhigh, budget_is_highest);
+      if (Core::truthy(is_max_effort)) {
+        Core::set(payload, Value("reasoning_effort"), Value("max"));
+      }
+      if (!Core::truthy(is_max_effort)) {
+        Value is_high = Core::eq(reasoning, Value("high"));
+        if (Core::truthy(is_high)) {
+          Core::set(payload, Value("reasoning_effort"), Value("high"));
+        }
+        if (!Core::truthy(is_high)) {
+          Core::set(payload, Value("reasoning_effort"), Value("high"));
+        }
+      }
+      Core::map_delete(payload, Value("temperature"));
+      Core::map_delete(payload, Value("top_p"));
+      Core::map_delete(payload, Value("presence_penalty"));
+      Core::map_delete(payload, Value("frequency_penalty"));
+    }
+    if (!Core::truthy(thinking_enabled)) {
+      Core::set(thinking, Value("type"), Value("disabled"));
+      Core::map_delete(payload, Value("reasoning_effort"));
+    }
+    Core::set(payload, Value("thinking"), thinking);
+  }
+  if (Core::truthy(unsupported_tool_choice_left)) {
+    Value tool_choice = Core::get(payload, Value("tool_choice"), Value());
+    Value choice_none = Core::eq(tool_choice, Value("none"));
+    if (Core::truthy(choice_none)) {
+      Core::map_delete(payload, Value("tools"));
+    }
+    Core::map_delete(payload, Value("tool_choice"));
+  }
+  return payload;
+}
+
+Value Core::_provider_apply_mistral_chat_quirks(Value payload) {
+  Value max_completion = Core::get(payload, Value("max_completion_tokens"), Value());
+  Value has_max_completion = Core::is_not_none(max_completion);
+  if (Core::truthy(has_max_completion)) {
+    Core::set(payload, Value("max_tokens"), max_completion);
+    Core::map_delete(payload, Value("max_completion_tokens"));
+  }
+  Value empty_list = Value::array();
+  Value messages = Core::get(payload, Value("messages"), empty_list);
+  for (auto message : Core::iter(messages)) {
+    Value content = Core::get(message, Value("content"), Value());
+    Value content_is_list = Core::type_is(content, Value("list"));
+    if (Core::truthy(content_is_list)) {
+      for (auto part : Core::iter(content)) {
+        Value part_type = Core::get(part, Value("type"), Value(""));
+        Value is_image_url = Core::eq(part_type, Value("image_url"));
+        if (Core::truthy(is_image_url)) {
+          Value empty_image = Value::object();
+          Value image = Core::get(part, Value("image_url"), empty_image);
+          Value url = Core::get(image, Value("url"), Value());
+          Value next_image = Value::object();
+          Core::set(next_image, Value("url"), url);
+          Core::set(part, Value("image_url"), next_image);
+        }
+      }
+    }
+  }
+  return payload;
+}
+
+Value Core::_provider_apply_grok_chat_quirks(Value payload, Value request, Value model_config) {
+  Value model = Core::get(payload, Value("model"), Value(""));
+  Value is_grok43 = Core::eq(model, Value("grok-4.3"));
+  Value is_grok43_latest = Core::eq(model, Value("grok-4.3-latest"));
+  Value is_grok43_any = Core::or_(is_grok43, is_grok43_latest);
+  if (Core::truthy(is_grok43_any)) {
+    Value budget_snake = Core::get(model_config, Value("thinking_token_budget"), Value());
+    Value budget = Core::get(model_config, Value("thinkingTokenBudget"), budget_snake);
+    Value has_budget = Core::is_not_none(budget);
+    if (Core::truthy(has_budget)) {
+      Value is_none = Core::eq(budget, Value("none"));
+      Value is_minimal = Core::eq(budget, Value("minimal"));
+      Value is_low = Core::eq(budget, Value("low"));
+      Value is_medium = Core::eq(budget, Value("medium"));
+      Value is_high = Core::eq(budget, Value("high"));
+      Value is_highest = Core::eq(budget, Value("highest"));
+      Value lowish = Core::or_(is_minimal, is_low);
+      Value highish = Core::or_(is_high, is_highest);
+      if (Core::truthy(is_none)) {
+        Core::set(payload, Value("reasoning_effort"), Value("none"));
+      }
+      if (!Core::truthy(is_none)) {
+        if (Core::truthy(lowish)) {
+          Core::set(payload, Value("reasoning_effort"), Value("low"));
+        }
+        if (!Core::truthy(lowish)) {
+          if (Core::truthy(is_medium)) {
+            Core::set(payload, Value("reasoning_effort"), Value("medium"));
+          }
+          if (!Core::truthy(is_medium)) {
+            if (Core::truthy(highish)) {
+              Core::set(payload, Value("reasoning_effort"), Value("high"));
+            }
+          }
+        }
+      }
+    }
+    Core::map_delete(payload, Value("presence_penalty"));
+    Core::map_delete(payload, Value("frequency_penalty"));
+    Core::map_delete(payload, Value("stop"));
+  }
+  if (!Core::truthy(is_grok43_any)) {
+    Core::map_delete(payload, Value("reasoning_effort"));
+  }
+  Value empty_map = Value::object();
+  Value search_snake = Core::get(request, Value("search_parameters"), Value());
+  Value search_camel = Core::get(request, Value("searchParameters"), search_snake);
+  Value search_config_snake = Core::get(model_config, Value("search_parameters"), search_camel);
+  Value search = Core::get(model_config, Value("searchParameters"), search_config_snake);
+  Value has_search = Core::is_not_none(search);
+  if (Core::truthy(has_search)) {
+    Value search_payload = Value::object();
+    Value mode = Core::get(search, Value("mode"), Value());
+    Value return_citations = Core::get(search, Value("returnCitations"), Value());
+    Value return_citations_snake = Core::get(search, Value("return_citations"), return_citations);
+    Value from_date = Core::get(search, Value("fromDate"), Value());
+    Value from_date_snake = Core::get(search, Value("from_date"), from_date);
+    Value to_date = Core::get(search, Value("toDate"), Value());
+    Value to_date_snake = Core::get(search, Value("to_date"), to_date);
+    Value max_results = Core::get(search, Value("maxSearchResults"), Value());
+    Value max_results_snake = Core::get(search, Value("max_search_results"), max_results);
+    Value sources = Core::get(search, Value("sources"), Value());
+    Value has_mode = Core::is_not_none(mode);
+    if (Core::truthy(has_mode)) {
+      Core::set(search_payload, Value("mode"), mode);
+    }
+    Value has_return_citations = Core::is_not_none(return_citations_snake);
+    if (Core::truthy(has_return_citations)) {
+      Core::set(search_payload, Value("return_citations"), return_citations_snake);
+    }
+    Value has_from_date = Core::is_not_none(from_date_snake);
+    if (Core::truthy(has_from_date)) {
+      Core::set(search_payload, Value("from_date"), from_date_snake);
+    }
+    Value has_to_date = Core::is_not_none(to_date_snake);
+    if (Core::truthy(has_to_date)) {
+      Core::set(search_payload, Value("to_date"), to_date_snake);
+    }
+    Value has_max_results = Core::is_not_none(max_results_snake);
+    if (Core::truthy(has_max_results)) {
+      Core::set(search_payload, Value("max_search_results"), max_results_snake);
+    }
+    if (Core::truthy(sources)) {
+      Value mapped_sources = Value::array();
+      for (auto source : Core::iter(sources)) {
+        Value mapped_source = Value::object();
+        Value source_type = Core::get(source, Value("type"), Value());
+        Value source_country = Core::get(source, Value("country"), Value());
+        Value excluded_websites_camel = Core::get(source, Value("excludedWebsites"), Value());
+        Value excluded_websites = Core::get(source, Value("excluded_websites"), excluded_websites_camel);
+        Value allowed_websites_camel = Core::get(source, Value("allowedWebsites"), Value());
+        Value allowed_websites = Core::get(source, Value("allowed_websites"), allowed_websites_camel);
+        Value safe_search_camel = Core::get(source, Value("safeSearch"), Value());
+        Value safe_search = Core::get(source, Value("safe_search"), safe_search_camel);
+        Value x_handles_camel = Core::get(source, Value("xHandles"), Value());
+        Value x_handles = Core::get(source, Value("x_handles"), x_handles_camel);
+        Value links = Core::get(source, Value("links"), Value());
+        Value has_source_type = Core::is_not_none(source_type);
+        if (Core::truthy(has_source_type)) {
+          Core::set(mapped_source, Value("type"), source_type);
+        }
+        Value has_source_country = Core::is_not_none(source_country);
+        if (Core::truthy(has_source_country)) {
+          Core::set(mapped_source, Value("country"), source_country);
+        }
+        Value has_excluded_websites = Core::is_not_none(excluded_websites);
+        if (Core::truthy(has_excluded_websites)) {
+          Core::set(mapped_source, Value("excluded_websites"), excluded_websites);
+        }
+        Value has_allowed_websites = Core::is_not_none(allowed_websites);
+        if (Core::truthy(has_allowed_websites)) {
+          Core::set(mapped_source, Value("allowed_websites"), allowed_websites);
+        }
+        Value has_safe_search = Core::is_not_none(safe_search);
+        if (Core::truthy(has_safe_search)) {
+          Core::set(mapped_source, Value("safe_search"), safe_search);
+        }
+        Value has_x_handles = Core::is_not_none(x_handles);
+        if (Core::truthy(has_x_handles)) {
+          Core::set(mapped_source, Value("x_handles"), x_handles);
+        }
+        Value has_links = Core::is_not_none(links);
+        if (Core::truthy(has_links)) {
+          Core::set(mapped_source, Value("links"), links);
+        }
+        Core::append(mapped_sources, mapped_source);
+      }
+      Core::set(search_payload, Value("sources"), mapped_sources);
+    }
+    Core::set(payload, Value("search_parameters"), search_payload);
+  }
+  return payload;
+}
+
+Value Core::provider_build_embed_request(Value profile, Value request) {
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
+  Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
+  Value payload = Value::object();
+  if (Core::truthy(is_gemini)) {
+    Value gemini_payload = Core::_gemini_build_embed_request(request);
+    payload = gemini_payload;
+  }
+  if (!Core::truthy(is_gemini)) {
+    if (Core::truthy(is_anthropic)) {
+      Value error = Core::ai_error_unsupported(Value("embed is not supported by Anthropic provider"));
+      throw Core::as_error(error);
+    }
+    if (!Core::truthy(is_anthropic)) {
+      Value openai_payload = Core::openai_build_embed_request(request);
+      payload = openai_payload;
+    }
+  }
+  return payload;
+}
+
+Value Core::provider_normalize_chat_response(Value profile, Value raw, Value ai_name, Value model) {
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value is_responses = Core::eq(provider_id, Value("openai-responses"));
+  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
+  Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
+  Value response = Value::object();
+  if (Core::truthy(is_responses)) {
+    Value responses_response = Core::openai_responses_normalize_chat_response(raw, ai_name, model);
+    response = responses_response;
+  }
+  if (!Core::truthy(is_responses)) {
+    if (Core::truthy(is_gemini)) {
+      Value gemini_response = Core::_gemini_normalize_chat_response(raw, ai_name, model);
+      response = gemini_response;
+    }
+    if (!Core::truthy(is_gemini)) {
+      if (Core::truthy(is_anthropic)) {
+        Value anthropic_response = Core::_anthropic_normalize_chat_response(raw, ai_name, model);
+        response = anthropic_response;
+      }
+      if (!Core::truthy(is_anthropic)) {
+        Value compatible_response = Core::openai_normalize_chat_response(raw, ai_name, model);
+        response = compatible_response;
+      }
+    }
+  }
+  return response;
+}
+
+Value Core::provider_normalize_stream_delta(Value profile, Value raw, Value state, Value ai_name, Value model) {
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value is_responses = Core::eq(provider_id, Value("openai-responses"));
+  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
+  Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
+  Value response = Value::object();
+  if (Core::truthy(is_responses)) {
+    Value responses_response = Core::openai_responses_normalize_stream_delta(raw, state, ai_name, model);
+    response = responses_response;
+  }
+  if (!Core::truthy(is_responses)) {
+    if (Core::truthy(is_gemini)) {
+      Value gemini_response = Core::_gemini_normalize_chat_response(raw, ai_name, model);
+      response = gemini_response;
+    }
+    if (!Core::truthy(is_gemini)) {
+      if (Core::truthy(is_anthropic)) {
+        Value anthropic_response = Core::_anthropic_normalize_stream_delta(raw, state, ai_name, model);
+        response = anthropic_response;
+      }
+      if (!Core::truthy(is_anthropic)) {
+        Value compatible_response = Core::openai_normalize_stream_delta(raw, state, ai_name, model);
+        response = compatible_response;
+      }
+    }
+  }
+  return response;
+}
+
+Value Core::provider_normalize_embed_response(Value profile, Value raw, Value ai_name, Value model) {
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
+  Value response = Value::object();
+  if (Core::truthy(is_gemini)) {
+    Value gemini_response = Core::_gemini_normalize_embed_response(raw, ai_name, model);
+    response = gemini_response;
+  }
+  if (!Core::truthy(is_gemini)) {
+    Value openai_response = Core::openai_normalize_embed_response(raw, ai_name, model);
+    response = openai_response;
+  }
+  return response;
+}
+
+Value Core::provider_build_transcribe_request(Value profile, Value request) {
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value is_responses = Core::eq(provider_id, Value("openai-responses"));
+  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
+  Value is_grok = Core::eq(provider_id, Value("grok"));
+  Value payload = Value::object();
+  if (Core::truthy(is_gemini)) {
+    Value gemini_payload = Core::_gemini_build_transcribe_request(request);
+    payload = gemini_payload;
+  }
+  if (!Core::truthy(is_gemini)) {
+    if (Core::truthy(is_grok)) {
+      Value grok_payload = Core::_grok_build_transcribe_request(request);
+      payload = grok_payload;
+    }
+    if (!Core::truthy(is_grok)) {
+      Value responses_payload = Core::openai_responses_build_transcribe_request(request);
+      payload = responses_payload;
+    }
+  }
+  return payload;
+}
+
+Value Core::provider_build_speak_request(Value profile, Value request) {
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value is_responses = Core::eq(provider_id, Value("openai-responses"));
+  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
+  Value is_grok = Core::eq(provider_id, Value("grok"));
+  Value payload = Value::object();
+  if (Core::truthy(is_gemini)) {
+    Value gemini_payload = Core::_gemini_build_speak_request(request);
+    payload = gemini_payload;
+  }
+  if (!Core::truthy(is_gemini)) {
+    if (Core::truthy(is_grok)) {
+      Value grok_payload = Core::_grok_build_speak_request(request);
+      payload = grok_payload;
+    }
+    if (!Core::truthy(is_grok)) {
+      Value responses_payload = Core::openai_responses_build_speak_request(request);
+      payload = responses_payload;
+    }
+  }
+  return payload;
+}
+
+Value Core::provider_normalize_transcribe_response(Value profile, Value raw) {
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
+  if (Core::truthy(is_gemini)) {
+    Value gemini_out = Core::_gemini_normalize_transcribe_response(raw);
+    return gemini_out;
+  }
+  Value text = Core::get(raw, Value("text"), Value(""));
+  Value out = Value::object();
+  Core::set(out, Value("text"), text);
+  Value language = Core::get(raw, Value("language"), Value());
+  Value has_language = Core::is_not_none(language);
+  if (Core::truthy(has_language)) {
+    Core::set(out, Value("language"), language);
+  }
+  Value duration = Core::get(raw, Value("duration"), Value());
+  Value has_duration = Core::is_not_none(duration);
+  if (Core::truthy(has_duration)) {
+    Core::set(out, Value("duration"), duration);
+  }
+  return out;
+}
+
+Value Core::provider_normalize_speak_response(Value profile, Value raw, Value request) {
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
+  if (Core::truthy(is_gemini)) {
+    Value gemini_out = Core::_gemini_normalize_speak_response(raw, request);
+    return gemini_out;
+  }
+  Value data = Core::get(raw, Value("audio"), raw);
+  Value format = Core::get(request, Value("format"), Value("mp3"));
+  Value out = Value::object();
+  Core::set(out, Value("audio"), data);
+  Core::set(out, Value("format"), format);
+  return out;
 }
 
 Value Core::provider_normalize_realtime_event(Value profile, Value event, Value state, Value ai_name, Value model) {
@@ -6020,6 +5655,179 @@ Value Core::openai_responses_build_speak_request(Value request) {
   return payload;
 }
 
+Value Core::_grok_build_transcribe_request(Value request) {
+  Value payload = Value::object();
+  Value request_file = Core::get(request, Value("file"), Value());
+  Value audio_file = Core::get(request, Value("audio"), request_file);
+  Core::set(payload, Value("file"), audio_file);
+  Value language = Core::get(request, Value("language"), Value());
+  Value has_language = Core::is_not_none(language);
+  if (Core::truthy(has_language)) {
+    Core::set(payload, Value("language"), language);
+  }
+  Value prompt = Core::get(request, Value("prompt"), Value());
+  Value has_prompt = Core::is_not_none(prompt);
+  if (Core::truthy(has_prompt)) {
+    Core::set(payload, Value("keyterm"), prompt);
+  }
+  Core::set(payload, Value("format"), Value(true));
+  return payload;
+}
+
+Value Core::_grok_build_speak_request(Value request) {
+  Value payload = Value::object();
+  Value request_input = Core::get(request, Value("input"), Value(""));
+  Value text = Core::get(request, Value("text"), request_input);
+  Value voice = Core::get(request, Value("voice"), Value("eve"));
+  Value voice_id = Core::get(voice, Value("id"), voice);
+  Value language = Core::get(request, Value("language"), Value("auto"));
+  Value format = Core::get(request, Value("format"), Value("mp3"));
+  Value is_pcm16 = Core::eq(format, Value("pcm16"));
+  Value is_raw = Core::eq(format, Value("raw"));
+  Value is_pcm_like = Core::or_(is_pcm16, is_raw);
+  Value codec = format;
+  if (Core::truthy(is_pcm_like)) {
+    codec = Value("pcm");
+  }
+  if (!Core::truthy(is_pcm_like)) {
+    Value is_ulaw = Core::eq(format, Value("ulaw"));
+    if (Core::truthy(is_ulaw)) {
+      codec = Value("mulaw");
+    }
+  }
+  Value output_format = Value::object();
+  Core::set(output_format, Value("codec"), codec);
+  Value sample_rate_alt = Core::get(request, Value("sample_rate"), Value());
+  Value sample_rate = Core::get(request, Value("sampleRate"), sample_rate_alt);
+  Value has_sample_rate = Core::is_not_none(sample_rate);
+  if (Core::truthy(has_sample_rate)) {
+    Core::set(output_format, Value("sample_rate"), sample_rate);
+  }
+  Core::set(payload, Value("text"), text);
+  Core::set(payload, Value("voice_id"), voice_id);
+  Core::set(payload, Value("language"), language);
+  Core::set(payload, Value("output_format"), output_format);
+  return payload;
+}
+
+Value Core::_gemini_build_transcribe_request(Value request) {
+  Value payload = Value::object();
+  Value contents = Value::array();
+  Value turn = Value::object();
+  Core::set(turn, Value("role"), Value("user"));
+  Value parts = Value::array();
+  Value request_file = Core::get(request, Value("file"), Value());
+  Value audio = Core::get(request, Value("audio"), request_file);
+  Value mime_type_raw = Core::get(audio, Value("mimeType"), Value());
+  Value mime_type = Core::get(audio, Value("mime_type"), mime_type_raw);
+  Value has_mime = Core::is_not_none(mime_type);
+  if (Core::truthy(has_mime)) {
+    // empty
+  }
+  if (!Core::truthy(has_mime)) {
+    mime_type = Value("audio/wav");
+  }
+  Value data = Core::get(audio, Value("data"), audio);
+  Value inline_data = Value::object();
+  Core::set(inline_data, Value("mimeType"), mime_type);
+  Core::set(inline_data, Value("data"), data);
+  Value audio_part = Value::object();
+  Core::set(audio_part, Value("inlineData"), inline_data);
+  Core::append(parts, audio_part);
+  Value prompt = Core::get(request, Value("prompt"), Value("Generate a transcript of the speech in this audio."));
+  Value text_part = Value::object();
+  Core::set(text_part, Value("text"), prompt);
+  Core::append(parts, text_part);
+  Core::set(turn, Value("parts"), parts);
+  Core::append(contents, turn);
+  Core::set(payload, Value("contents"), contents);
+  return payload;
+}
+
+Value Core::_gemini_build_speak_request(Value request) {
+  Value payload = Value::object();
+  Value contents = Value::array();
+  Value turn = Value::object();
+  Core::set(turn, Value("role"), Value("user"));
+  Value parts = Value::array();
+  Value request_input = Core::get(request, Value("input"), Value(""));
+  Value text = Core::get(request, Value("text"), request_input);
+  Value text_part = Value::object();
+  Core::set(text_part, Value("text"), text);
+  Core::append(parts, text_part);
+  Core::set(turn, Value("parts"), parts);
+  Core::append(contents, turn);
+  Value generation_config = Value::object();
+  Value modalities = Value::array();
+  Core::append(modalities, Value("AUDIO"));
+  Core::set(generation_config, Value("responseModalities"), modalities);
+  Value voice = Core::get(request, Value("voice"), Value("Kore"));
+  Value voice_id = Core::get(voice, Value("id"), voice);
+  Value prebuilt = Value::object();
+  Core::set(prebuilt, Value("voiceName"), voice_id);
+  Value voice_config = Value::object();
+  Core::set(voice_config, Value("prebuiltVoiceConfig"), prebuilt);
+  Value speech_config = Value::object();
+  Core::set(speech_config, Value("voiceConfig"), voice_config);
+  Core::set(generation_config, Value("speechConfig"), speech_config);
+  Core::set(payload, Value("contents"), contents);
+  Core::set(payload, Value("generationConfig"), generation_config);
+  return payload;
+}
+
+Value Core::_gemini_normalize_transcribe_response(Value raw) {
+  Value empty_candidates = Value::array();
+  Value candidates = Core::get(raw, Value("candidates"), empty_candidates);
+  Value text_parts = Value::array();
+  for (auto candidate : Core::iter(candidates)) {
+    Value content = Core::get(candidate, Value("content"), Value());
+    Value empty_parts = Value::array();
+    Value parts = Core::get(content, Value("parts"), empty_parts);
+    for (auto part : Core::iter(parts)) {
+      Value text = Core::get(part, Value("text"), Value());
+      Value has_text = Core::is_not_none(text);
+      if (Core::truthy(has_text)) {
+        Core::append(text_parts, text);
+      }
+    }
+  }
+  Value text = Core::string_join(Value(""), text_parts);
+  Value out = Value::object();
+  Core::set(out, Value("text"), text);
+  return out;
+}
+
+Value Core::_gemini_normalize_speak_response(Value raw, Value request) {
+  Value audio = Core::get(raw, Value("audio"), Value());
+  Value format = Core::get(request, Value("format"), Value("wav"));
+  Value empty_candidates = Value::array();
+  Value candidates = Core::get(raw, Value("candidates"), empty_candidates);
+  for (auto candidate : Core::iter(candidates)) {
+    Value content = Core::get(candidate, Value("content"), Value());
+    Value empty_parts = Value::array();
+    Value parts = Core::get(content, Value("parts"), empty_parts);
+    for (auto part : Core::iter(parts)) {
+      Value inline_data = Core::get(part, Value("inlineData"), Value());
+      Value data = Core::get(inline_data, Value("data"), Value());
+      Value has_data = Core::is_not_none(data);
+      if (Core::truthy(has_data)) {
+        audio = data;
+      }
+    }
+  }
+  Value has_audio = Core::is_not_none(audio);
+  if (Core::truthy(has_audio)) {
+    // empty
+  }
+  if (!Core::truthy(has_audio)) {
+    audio = raw;
+  }
+  Value out = Value::object();
+  Core::set(out, Value("audio"), audio);
+  Core::set(out, Value("format"), format);
+  return out;
+}
+
 Value Core::openai_responses_normalize_realtime_event(Value event, Value state, Value ai_name, Value model) {
   Value type = Core::get(event, Value("type"), Value());
   Value is_error_event = Core::contains(type, Value("error"));
@@ -6183,7 +5991,7 @@ Value Core::_gemini_live_bidi_normalize_realtime_event(Value event, Value state,
   return out;
 }
 
-Value Core::gemini_build_chat_request(Value request) {
+Value Core::_gemini_build_chat_request(Value request) {
   Value payload = Value::object();
   Value empty_prompt = Value::array();
   Value prompt = Core::get(request, Value("chat_prompt"), empty_prompt);
@@ -6490,7 +6298,7 @@ Value Core::_gemini_tool_config_impl(Value request) {
   return config;
 }
 
-Value Core::gemini_build_embed_request(Value request) {
+Value Core::_gemini_build_embed_request(Value request) {
   Value payload = Value::object();
   Value empty_texts = Value::array();
   Value texts = Core::get(request, Value("texts"), empty_texts);
@@ -6513,7 +6321,7 @@ Value Core::gemini_build_embed_request(Value request) {
   return payload;
 }
 
-Value Core::gemini_normalize_chat_response(Value raw, Value ai_name, Value model) {
+Value Core::_gemini_normalize_chat_response(Value raw, Value ai_name, Value model) {
   Value empty_candidates = Value::array();
   Value candidates = Core::get(raw, Value("candidates"), empty_candidates);
   Value results = Value::array();
@@ -6728,7 +6536,7 @@ Value Core::_gemini_usage_impl(Value usage) {
   return out;
 }
 
-Value Core::gemini_normalize_embed_response(Value raw, Value ai_name, Value model) {
+Value Core::_gemini_normalize_embed_response(Value raw, Value ai_name, Value model) {
   Value out = Value::object();
   Value embeddings = Value::array();
   Value empty_raw_embeddings = Value::array();
@@ -6748,180 +6556,7 @@ Value Core::gemini_normalize_embed_response(Value raw, Value ai_name, Value mode
   return out;
 }
 
-Value Core::_grok_build_transcribe_request(Value request) {
-  Value payload = Value::object();
-  Value request_file = Core::get(request, Value("file"), Value());
-  Value audio_file = Core::get(request, Value("audio"), request_file);
-  Core::set(payload, Value("file"), audio_file);
-  Value language = Core::get(request, Value("language"), Value());
-  Value has_language = Core::is_not_none(language);
-  if (Core::truthy(has_language)) {
-    Core::set(payload, Value("language"), language);
-  }
-  Value prompt = Core::get(request, Value("prompt"), Value());
-  Value has_prompt = Core::is_not_none(prompt);
-  if (Core::truthy(has_prompt)) {
-    Core::set(payload, Value("keyterm"), prompt);
-  }
-  Core::set(payload, Value("format"), Value(true));
-  return payload;
-}
-
-Value Core::_grok_build_speak_request(Value request) {
-  Value payload = Value::object();
-  Value request_input = Core::get(request, Value("input"), Value(""));
-  Value text = Core::get(request, Value("text"), request_input);
-  Value voice = Core::get(request, Value("voice"), Value("eve"));
-  Value voice_id = Core::get(voice, Value("id"), voice);
-  Value language = Core::get(request, Value("language"), Value("auto"));
-  Value format = Core::get(request, Value("format"), Value("mp3"));
-  Value is_pcm16 = Core::eq(format, Value("pcm16"));
-  Value is_raw = Core::eq(format, Value("raw"));
-  Value is_pcm_like = Core::or_(is_pcm16, is_raw);
-  Value codec = format;
-  if (Core::truthy(is_pcm_like)) {
-    codec = Value("pcm");
-  }
-  if (!Core::truthy(is_pcm_like)) {
-    Value is_ulaw = Core::eq(format, Value("ulaw"));
-    if (Core::truthy(is_ulaw)) {
-      codec = Value("mulaw");
-    }
-  }
-  Value output_format = Value::object();
-  Core::set(output_format, Value("codec"), codec);
-  Value sample_rate_alt = Core::get(request, Value("sample_rate"), Value());
-  Value sample_rate = Core::get(request, Value("sampleRate"), sample_rate_alt);
-  Value has_sample_rate = Core::is_not_none(sample_rate);
-  if (Core::truthy(has_sample_rate)) {
-    Core::set(output_format, Value("sample_rate"), sample_rate);
-  }
-  Core::set(payload, Value("text"), text);
-  Core::set(payload, Value("voice_id"), voice_id);
-  Core::set(payload, Value("language"), language);
-  Core::set(payload, Value("output_format"), output_format);
-  return payload;
-}
-
-Value Core::_gemini_build_transcribe_request(Value request) {
-  Value payload = Value::object();
-  Value contents = Value::array();
-  Value turn = Value::object();
-  Core::set(turn, Value("role"), Value("user"));
-  Value parts = Value::array();
-  Value request_file = Core::get(request, Value("file"), Value());
-  Value audio = Core::get(request, Value("audio"), request_file);
-  Value mime_type_raw = Core::get(audio, Value("mimeType"), Value());
-  Value mime_type = Core::get(audio, Value("mime_type"), mime_type_raw);
-  Value has_mime = Core::is_not_none(mime_type);
-  if (Core::truthy(has_mime)) {
-    // empty
-  }
-  if (!Core::truthy(has_mime)) {
-    mime_type = Value("audio/wav");
-  }
-  Value data = Core::get(audio, Value("data"), audio);
-  Value inline_data = Value::object();
-  Core::set(inline_data, Value("mimeType"), mime_type);
-  Core::set(inline_data, Value("data"), data);
-  Value audio_part = Value::object();
-  Core::set(audio_part, Value("inlineData"), inline_data);
-  Core::append(parts, audio_part);
-  Value prompt = Core::get(request, Value("prompt"), Value("Generate a transcript of the speech in this audio."));
-  Value text_part = Value::object();
-  Core::set(text_part, Value("text"), prompt);
-  Core::append(parts, text_part);
-  Core::set(turn, Value("parts"), parts);
-  Core::append(contents, turn);
-  Core::set(payload, Value("contents"), contents);
-  return payload;
-}
-
-Value Core::_gemini_build_speak_request(Value request) {
-  Value payload = Value::object();
-  Value contents = Value::array();
-  Value turn = Value::object();
-  Core::set(turn, Value("role"), Value("user"));
-  Value parts = Value::array();
-  Value request_input = Core::get(request, Value("input"), Value(""));
-  Value text = Core::get(request, Value("text"), request_input);
-  Value text_part = Value::object();
-  Core::set(text_part, Value("text"), text);
-  Core::append(parts, text_part);
-  Core::set(turn, Value("parts"), parts);
-  Core::append(contents, turn);
-  Value generation_config = Value::object();
-  Value modalities = Value::array();
-  Core::append(modalities, Value("AUDIO"));
-  Core::set(generation_config, Value("responseModalities"), modalities);
-  Value voice = Core::get(request, Value("voice"), Value("Kore"));
-  Value voice_id = Core::get(voice, Value("id"), voice);
-  Value prebuilt = Value::object();
-  Core::set(prebuilt, Value("voiceName"), voice_id);
-  Value voice_config = Value::object();
-  Core::set(voice_config, Value("prebuiltVoiceConfig"), prebuilt);
-  Value speech_config = Value::object();
-  Core::set(speech_config, Value("voiceConfig"), voice_config);
-  Core::set(generation_config, Value("speechConfig"), speech_config);
-  Core::set(payload, Value("contents"), contents);
-  Core::set(payload, Value("generationConfig"), generation_config);
-  return payload;
-}
-
-Value Core::_gemini_normalize_transcribe_response(Value raw) {
-  Value empty_candidates = Value::array();
-  Value candidates = Core::get(raw, Value("candidates"), empty_candidates);
-  Value text_parts = Value::array();
-  for (auto candidate : Core::iter(candidates)) {
-    Value content = Core::get(candidate, Value("content"), Value());
-    Value empty_parts = Value::array();
-    Value parts = Core::get(content, Value("parts"), empty_parts);
-    for (auto part : Core::iter(parts)) {
-      Value text = Core::get(part, Value("text"), Value());
-      Value has_text = Core::is_not_none(text);
-      if (Core::truthy(has_text)) {
-        Core::append(text_parts, text);
-      }
-    }
-  }
-  Value text = Core::string_join(Value(""), text_parts);
-  Value out = Value::object();
-  Core::set(out, Value("text"), text);
-  return out;
-}
-
-Value Core::_gemini_normalize_speak_response(Value raw, Value request) {
-  Value audio = Core::get(raw, Value("audio"), Value());
-  Value format = Core::get(request, Value("format"), Value("wav"));
-  Value empty_candidates = Value::array();
-  Value candidates = Core::get(raw, Value("candidates"), empty_candidates);
-  for (auto candidate : Core::iter(candidates)) {
-    Value content = Core::get(candidate, Value("content"), Value());
-    Value empty_parts = Value::array();
-    Value parts = Core::get(content, Value("parts"), empty_parts);
-    for (auto part : Core::iter(parts)) {
-      Value inline_data = Core::get(part, Value("inlineData"), Value());
-      Value data = Core::get(inline_data, Value("data"), Value());
-      Value has_data = Core::is_not_none(data);
-      if (Core::truthy(has_data)) {
-        audio = data;
-      }
-    }
-  }
-  Value has_audio = Core::is_not_none(audio);
-  if (Core::truthy(has_audio)) {
-    // empty
-  }
-  if (!Core::truthy(has_audio)) {
-    audio = raw;
-  }
-  Value out = Value::object();
-  Core::set(out, Value("audio"), audio);
-  Core::set(out, Value("format"), format);
-  return out;
-}
-
-Value Core::anthropic_build_chat_request(Value request) {
+Value Core::_anthropic_build_chat_request(Value request) {
   Value payload = Value::object();
   Value model = Core::get(request, Value("model"), Value("claude-3-7-sonnet-latest"));
   Core::set(payload, Value("model"), model);
@@ -7341,7 +6976,7 @@ Value Core::_anthropic_tool_choice_impl(Value request) {
   return none;
 }
 
-Value Core::anthropic_normalize_chat_response(Value raw, Value ai_name, Value model) {
+Value Core::_anthropic_normalize_chat_response(Value raw, Value ai_name, Value model) {
   Value type = Core::get(raw, Value("type"), Value(""));
   Value is_error = Core::eq(type, Value("error"));
   if (Core::truthy(is_error)) {
@@ -7545,7 +7180,7 @@ Value Core::_anthropic_usage_impl(Value usage) {
   return out;
 }
 
-Value Core::anthropic_normalize_stream_delta(Value event, Value state, Value ai_name, Value model) {
+Value Core::_anthropic_normalize_stream_delta(Value event, Value state, Value ai_name, Value model) {
   Value type = Core::get(event, Value("type"), Value(""));
   Value is_error = Core::eq(type, Value("error"));
   if (Core::truthy(is_error)) {
@@ -7766,30 +7401,1178 @@ Value Core::anthropic_normalize_stream_delta(Value event, Value state, Value ai_
   return out;
 }
 
-Value Core::build_chat_request(Value service, Value request, Value options) {
-  Core::validate_chat_request(request);
-  Value payload = Core::openai_build_chat_request(request);
-  return payload;
+Value Core::_build_gen_chat_request(Value gen, Value messages, Value options) {
+  Value model_config = Value::object();
+  Value stream_value = Core::get(options, Value("stream"), Value(false));
+  Value stream_bool = Core::truthy_value(stream_value);
+  Core::set(model_config, Value("stream"), stream_bool);
+  Value temperature = Core::get(options, Value("temperature"), Value());
+  Value has_temperature = Core::is_not_none(temperature);
+  if (Core::truthy(has_temperature)) {
+    Core::set(model_config, Value("temperature"), temperature);
+  }
+  Value max_tokens = Core::get(options, Value("max_tokens"), Value());
+  Value has_max_tokens = Core::is_not_none(max_tokens);
+  if (Core::truthy(has_max_tokens)) {
+    Core::set(model_config, Value("max_tokens"), max_tokens);
+  }
+  Value top_p = Core::get(options, Value("top_p"), Value());
+  Value has_top_p = Core::is_not_none(top_p);
+  if (Core::truthy(has_top_p)) {
+    Core::set(model_config, Value("top_p"), top_p);
+  }
+  Value presence_penalty = Core::get(options, Value("presence_penalty"), Value());
+  Value has_presence_penalty = Core::is_not_none(presence_penalty);
+  if (Core::truthy(has_presence_penalty)) {
+    Core::set(model_config, Value("presence_penalty"), presence_penalty);
+  }
+  Value frequency_penalty = Core::get(options, Value("frequency_penalty"), Value());
+  Value has_frequency_penalty = Core::is_not_none(frequency_penalty);
+  if (Core::truthy(has_frequency_penalty)) {
+    Core::set(model_config, Value("frequency_penalty"), frequency_penalty);
+  }
+  Value n = Core::get(options, Value("n"), Value());
+  Value has_n = Core::is_not_none(n);
+  if (Core::truthy(has_n)) {
+    Core::set(model_config, Value("n"), n);
+  }
+  Value stop_sequences = Core::get(options, Value("stop_sequences"), Value());
+  Value has_stop_sequences = Core::is_not_none(stop_sequences);
+  if (Core::truthy(has_stop_sequences)) {
+    Core::set(model_config, Value("stop_sequences"), stop_sequences);
+  }
+  Value request = Value::object();
+  Value model = Core::get(options, Value("model"), Value());
+  Core::set(request, Value("model"), model);
+  Core::set(request, Value("chat_prompt"), messages);
+  Value functions = Core::get(gen, Value("functions"), Value());
+  Value function_specs = Value::array();
+  for (auto fn : Core::iter(functions)) {
+    Value spec = Core::_tool_spec_impl(fn);
+    Core::append(function_specs, spec);
+  }
+  Core::set(request, Value("functions"), function_specs);
+  Value mode_snake = Core::get(options, Value("function_call_mode"), Value());
+  Value mode_raw = Core::get(options, Value("functionCallMode"), mode_snake);
+  Value mode = Core::_function_call_mode_impl(mode_raw);
+  Core::set(request, Value("function_call"), mode);
+  Value response_format = Value::object();
+  Core::set(response_format, Value("type"), Value("json_object"));
+  Core::set(request, Value("response_format"), response_format);
+  Core::set(request, Value("model_config"), model_config);
+  return request;
 }
 
-Value Core::normalize_chat_response(Value raw) {
-  Value response = Core::openai_normalize_chat_response(raw);
-  return response;
+Value Core::fold_stream(Value events) {
+  Value chunks = Value::array();
+  for (auto event : Core::iter(events)) {
+    Value parts = Core::_stream_event_content_parts_impl(event);
+    for (auto part : Core::iter(parts)) {
+      Core::append(chunks, part);
+    }
+  }
+  Value folded = Core::string_join(Value(""), chunks);
+  return folded;
 }
 
-Value Core::normalize_stream_delta(Value raw, Value state) {
-  Value response = Core::openai_normalize_stream_delta(raw, state);
-  return response;
+Value Core::_execute_tool_call(Value functions, Value call) {
+  Value fn_call = Core::get(call, Value("function"), Value());
+  Value direct_name = Core::get(call, Value("name"), Value());
+  Value name = Core::get(fn_call, Value("name"), direct_name);
+  Value direct_params = Core::get(call, Value("params"), Value());
+  Value params = Core::get(fn_call, Value("params"), direct_params);
+  Value missing_params = Core::is_none(params);
+  if (Core::truthy(missing_params)) {
+    Value argument_params = Core::get(call, Value("arguments"), Value());
+    params = argument_params;
+  }
+  Value params_is_string = Core::type_is(params, Value("string"));
+  if (Core::truthy(params_is_string)) {
+    Value parsed_params = Core::json_parse(params);
+    params = parsed_params;
+  }
+  Value params_still_missing = Core::is_none(params);
+  if (Core::truthy(params_still_missing)) {
+    Value empty_params = Value::object();
+    params = empty_params;
+  }
+  for (auto fn : Core::iter(functions)) {
+    Value fn_name = Core::get(fn, Value("name"), Value());
+    Value matches = Core::eq(fn_name, name);
+    if (Core::truthy(matches)) {
+      Value result = Core::tool_invoke(fn, params);
+      return result;
+    }
+  }
+  Value message = Core::string_format(Value("unknown tool call: {}"), name);
+  Value error = Core::runtime_error(message);
+  throw Core::as_error(error);
 }
 
-Value Core::build_embed_request(Value service, Value request, Value options) {
-  Value payload = Core::openai_build_embed_request(request);
-  return payload;
+Value Core::_stream_event_content_parts_impl(Value event) {
+  Value parts = Core::stream_event_content_parts(event);
+  return parts;
 }
 
-Value Core::normalize_embed_response(Value raw) {
-  Value response = Core::openai_normalize_embed_response(raw);
-  return response;
+Value Core::_validate_optimization_component_value(Value component, Value value) {
+  Value current = Core::get(component, Value("current"), Value());
+  Value current_is_string = Core::type_is(current, Value("string"));
+  if (Core::truthy(current_is_string)) {
+    Value value_is_string = Core::type_is(value, Value("string"));
+    Value bad_string = Core::not_(value_is_string);
+    if (Core::truthy(bad_string)) {
+      Value id = Core::get(component, Value("id"), Value(""));
+      Value message = Core::string_format(Value("invalid optimized component value for {}"), id);
+      Value error = Core::runtime_error(message);
+      throw Core::as_error(error);
+    }
+  }
+  Value current_is_object = Core::type_is(current, Value("object"));
+  if (Core::truthy(current_is_object)) {
+    Value value_is_object = Core::type_is(value, Value("object"));
+    Value bad_object = Core::not_(value_is_object);
+    if (Core::truthy(bad_object)) {
+      Value id_object = Core::get(component, Value("id"), Value(""));
+      Value message_object = Core::string_format(Value("invalid optimized component value for {}"), id_object);
+      Value error_object = Core::runtime_error(message_object);
+      throw Core::as_error(error_object);
+    }
+  }
+  Value current_is_list = Core::type_is(current, Value("list"));
+  if (Core::truthy(current_is_list)) {
+    Value value_is_list = Core::type_is(value, Value("list"));
+    Value bad_list = Core::not_(value_is_list);
+    if (Core::truthy(bad_list)) {
+      Value id_list = Core::get(component, Value("id"), Value(""));
+      Value message_list = Core::string_format(Value("invalid optimized component value for {}"), id_list);
+      Value error_list = Core::runtime_error(message_list);
+      throw Core::as_error(error_list);
+    }
+  }
+  Value current_is_number = Core::type_is(current, Value("number"));
+  if (Core::truthy(current_is_number)) {
+    Value value_is_number = Core::type_is(value, Value("number"));
+    Value bad_number = Core::not_(value_is_number);
+    if (Core::truthy(bad_number)) {
+      Value id_number = Core::get(component, Value("id"), Value(""));
+      Value message_number = Core::string_format(Value("invalid optimized component value for {}"), id_number);
+      Value error_number = Core::runtime_error(message_number);
+      throw Core::as_error(error_number);
+    }
+  }
+  Value current_is_boolean = Core::type_is(current, Value("boolean"));
+  if (Core::truthy(current_is_boolean)) {
+    Value value_is_boolean = Core::type_is(value, Value("boolean"));
+    Value bad_boolean = Core::not_(value_is_boolean);
+    if (Core::truthy(bad_boolean)) {
+      Value id_boolean = Core::get(component, Value("id"), Value(""));
+      Value message_boolean = Core::string_format(Value("invalid optimized component value for {}"), id_boolean);
+      Value error_boolean = Core::runtime_error(message_boolean);
+      throw Core::as_error(error_boolean);
+    }
+  }
+  Value format = Core::get(component, Value("format"), Value(""));
+  Value is_snake = Core::eq(format, Value("snake_case"));
+  if (Core::truthy(is_snake)) {
+    Value snake_ok = Core::regex_match(Value("^[a-z][a-z0-9_]{0,31}$"), value);
+    Value bad_snake = Core::not_(snake_ok);
+    if (Core::truthy(bad_snake)) {
+      Value error_snake = Core::runtime_error(Value("invalid optimized function name"));
+      throw Core::as_error(error_snake);
+    }
+  }
+  return Value(true);
+}
+
+Value Core::_validate_optimization_component_map(Value components, Value component_map) {
+  Value known = Value::array();
+  Value component_by_id = Value::object();
+  for (auto component : Core::iter(components)) {
+    Value id = Core::get(component, Value("id"), Value(""));
+    Core::append(known, id);
+    Core::set(component_by_id, id, component);
+  }
+  Value keys = Core::map_keys(component_map);
+  for (auto id : Core::iter(keys)) {
+    Value ok = Core::contains(known, id);
+    Value bad = Core::not_(ok);
+    if (Core::truthy(bad)) {
+      Value message = Core::string_format(Value("unknown optimized component id: {}"), id);
+      Value error = Core::runtime_error(message);
+      throw Core::as_error(error);
+    }
+    Value component = Core::get(component_by_id, id, Value());
+    Value value = Core::get(component_map, id, Value());
+    Core::_validate_optimization_component_value(component, value);
+  }
+  return Value(true);
+}
+
+Value Core::_validate_optimized_artifact_provenance(Value artifact, Value components) {
+  Value empty_map = Value::object();
+  Value provenance = Core::get(artifact, Value("provenance"), empty_map);
+  Value owners = Core::get(provenance, Value("componentOwners"), empty_map);
+  Value owners_is_object = Core::type_is(owners, Value("object"));
+  Value bad_owners = Core::not_(owners_is_object);
+  if (Core::truthy(bad_owners)) {
+    Value owners_error = Core::runtime_error(Value("optimized artifact provenance componentOwners must be an object"));
+    throw Core::as_error(owners_error);
+  }
+  for (auto component : Core::iter(components)) {
+    Value id = Core::get(component, Value("id"), Value(""));
+    Value expected_owner = Core::get(owners, id, Value());
+    Value has_expected_owner = Core::is_not_none(expected_owner);
+    if (Core::truthy(has_expected_owner)) {
+      Value actual_owner = Core::get(component, Value("owner"), Value(""));
+      Value owner_ok = Core::eq(expected_owner, actual_owner);
+      Value stale_owner = Core::not_(owner_ok);
+      if (Core::truthy(stale_owner)) {
+        Value message = Core::string_format(Value("stale optimized component owner: {}"), id);
+        Value error = Core::runtime_error(message);
+        throw Core::as_error(error);
+      }
+    }
+  }
+  return Value(true);
+}
+
+Value Core::_validate_optimized_artifact(Value artifact, Value components) {
+  Value is_object = Core::type_is(artifact, Value("object"));
+  Value not_object = Core::not_(is_object);
+  if (Core::truthy(not_object)) {
+    Value error = Core::runtime_error(Value("optimized artifact must be an object"));
+    throw Core::as_error(error);
+  }
+  Value version = Core::get(artifact, Value("artifactVersion"), Value(""));
+  Value version_ok = Core::eq(version, Value("axir-optimized-artifact-v1"));
+  Value bad_version = Core::not_(version_ok);
+  if (Core::truthy(bad_version)) {
+    Value error_version = Core::runtime_error(Value("unsupported optimized artifact version"));
+    throw Core::as_error(error_version);
+  }
+  Value optimizer_name = Core::get(artifact, Value("optimizerName"), Value(""));
+  Value name_is_string = Core::type_is(optimizer_name, Value("string"));
+  Value name_empty = Core::eq(optimizer_name, Value(""));
+  Value bad_name_type = Core::not_(name_is_string);
+  Value bad_name = Core::or_(bad_name_type, name_empty);
+  if (Core::truthy(bad_name)) {
+    Value name_error = Core::runtime_error(Value("optimized artifact optimizerName must be a non-empty string"));
+    throw Core::as_error(name_error);
+  }
+  Value optimizer_version = Core::get(artifact, Value("optimizerVersion"), Value(""));
+  Value version_is_string = Core::type_is(optimizer_version, Value("string"));
+  Value optimizer_version_empty = Core::eq(optimizer_version, Value(""));
+  Value bad_optimizer_version_type = Core::not_(version_is_string);
+  Value bad_optimizer_version = Core::or_(bad_optimizer_version_type, optimizer_version_empty);
+  if (Core::truthy(bad_optimizer_version)) {
+    Value optimizer_version_error = Core::runtime_error(Value("optimized artifact optimizerVersion must be a non-empty string"));
+    throw Core::as_error(optimizer_version_error);
+  }
+  Value empty_map = Value::object();
+  Value component_map = Core::get(artifact, Value("componentMap"), empty_map);
+  Value component_map_is_object = Core::type_is(component_map, Value("object"));
+  Value bad_component_map = Core::not_(component_map_is_object);
+  if (Core::truthy(bad_component_map)) {
+    Value error_map = Core::runtime_error(Value("optimized artifact componentMap must be an object"));
+    throw Core::as_error(error_map);
+  }
+  Value metadata = Core::get(artifact, Value("metadata"), Value());
+  Value metadata_is_object = Core::type_is(metadata, Value("object"));
+  Value bad_metadata = Core::not_(metadata_is_object);
+  if (Core::truthy(bad_metadata)) {
+    Value metadata_error = Core::runtime_error(Value("optimized artifact metadata must be an object"));
+    throw Core::as_error(metadata_error);
+  }
+  Value provenance = Core::get(artifact, Value("provenance"), Value());
+  Value provenance_is_object = Core::type_is(provenance, Value("object"));
+  Value bad_provenance = Core::not_(provenance_is_object);
+  if (Core::truthy(bad_provenance)) {
+    Value provenance_error = Core::runtime_error(Value("optimized artifact provenance must be an object"));
+    throw Core::as_error(provenance_error);
+  }
+  Value evidence = Core::get(artifact, Value("evidence"), Value());
+  Value evidence_is_object = Core::type_is(evidence, Value("object"));
+  Value bad_evidence = Core::not_(evidence_is_object);
+  if (Core::truthy(bad_evidence)) {
+    Value evidence_error = Core::runtime_error(Value("optimized artifact evidence must be an object"));
+    throw Core::as_error(evidence_error);
+  }
+  Core::_validate_optimization_component_map(components, component_map);
+  Core::_validate_optimized_artifact_provenance(artifact, components);
+  return artifact;
+}
+
+Value Core::_serialize_optimized_artifact(Value artifact) {
+  Value text = Core::json_stringify(artifact);
+  return text;
+}
+
+Value Core::_deserialize_optimized_artifact(Value text, Value components) {
+  Value artifact = Core::json_parse(text);
+  Value validated = Core::_validate_optimized_artifact(artifact, components);
+  return validated;
+}
+
+Value Core::_forward_impl(Value gen, Value client, Value values, Value options) {
+  Value base_options = Core::get(gen, Value("options"), Value());
+  Value runtime_options = Core::map_merge(base_options, options);
+  Value signature = Core::get(gen, Value("signature"), Value());
+  Value input_fields = Core::get(signature, Value("input_fields"), Value());
+  Core::validate_fields(input_fields, values, Value("input"));
+  Value prompt_template = Core::get(gen, Value("prompt_template"), Value());
+  Value messages = Core::object_call_method(prompt_template, Value("render"), values);
+  Value example_messages = Core::_render_examples(gen);
+  Value demo_messages = Core::_render_demos(gen);
+  Value system_message = Core::list_get(messages, Value(0), messages);
+  Value user_message = Core::list_get(messages, Value(1), messages);
+  Value ordered_messages = Value::array();
+  Core::append(ordered_messages, system_message);
+  for (auto example_message : Core::iter(example_messages)) {
+    Core::append(ordered_messages, example_message);
+  }
+  for (auto demo_message : Core::iter(demo_messages)) {
+    Core::append(ordered_messages, demo_message);
+  }
+  Core::append(ordered_messages, user_message);
+  Value cached_messages = Core::axgen_apply_context_cache(gen, ordered_messages, options);
+  messages = cached_messages;
+  Core::axgen_memory_add_request(gen, messages);
+  Value validation_retries_snake = Core::get(runtime_options, Value("validation_retries"), Value(2));
+  Value validation_retries = Core::get(runtime_options, Value("validationRetries"), validation_retries_snake);
+  Value infra_retries_snake = Core::get(runtime_options, Value("infra_retries"), Value(2));
+  Value infra_retries = Core::get(runtime_options, Value("infraRetries"), infra_retries_snake);
+  Value attempt = Value(0);
+  Value output_fields = Core::get(signature, Value("output_fields"), Value());
+  Value functions = Core::get(gen, Value("functions"), Value());
+  Value last_tool_result = Core::none();
+  while (true) {
+    Value request = Core::_build_gen_chat_request(gen, messages, runtime_options);
+    Value response = Core::_complete_with_retries_impl(client, request, infra_retries);
+    Core::axgen_memory_add_response(gen, request, response);
+    Core::axgen_record_chat_log(gen, request, response);
+    Value calls = Core::_response_function_calls_impl(response);
+    Value call_count = Core::len(calls);
+    Value has_calls = Core::gt(call_count, Value(0));
+    if (Core::truthy(has_calls)) {
+      Core::_append_tool_call_messages_impl(messages, response, calls);
+      for (auto call : Core::iter(calls)) {
+        try {
+          Value tool_result = Core::_execute_tool_call(functions, call);
+          last_tool_result = tool_result;
+          Value tool_message = Core::_tool_result_message_impl(call, tool_result);
+          Core::append(messages, tool_message);
+          Core::axgen_memory_add_function_result(gen, call, tool_result, Value(true));
+          Core::axgen_record_function_call(gen, call, tool_result, Value("ok"));
+        } catch (const std::exception& e) {
+          Value tool_error = Core::exception_value(e);
+          Value tool_error_message = Core::_tool_error_message_impl(call, tool_error);
+          Core::append(messages, tool_error_message);
+          Core::axgen_memory_add_function_result(gen, call, tool_error_message, Value(false));
+          Core::axgen_record_function_call(gen, call, tool_error_message, Value("error"));
+        }
+      }
+      Value continue_after_tools = Core::_should_continue_steps(gen, calls);
+      if (Core::truthy(continue_after_tools)) {
+        continue;
+      }
+      if (!Core::truthy(continue_after_tools)) {
+        Value validated_tool_result = Core::validate_output(output_fields, last_tool_result);
+        Value processed_tool_result = Core::_apply_field_processors(gen, validated_tool_result);
+        Core::_run_assertions(gen, processed_tool_result);
+        Value public_tool_result = Core::strip_internal(output_fields, processed_tool_result);
+        Core::axgen_memory_cleanup_corrections(gen);
+        Core::_record_trace(gen, values, public_tool_result, Value("ok"));
+        return public_tool_result;
+      }
+    }
+    if (!Core::truthy(has_calls)) {
+      try {
+        Value content = Core::get(response, Value("content"), Value(""));
+        Value output = Core::_parse_output_impl(content);
+        Value validated = Core::validate_output(output_fields, output);
+        Value processed = Core::_apply_field_processors(gen, validated);
+        Core::_run_assertions(gen, processed);
+        Value public_output = Core::strip_internal(output_fields, processed);
+        Core::axgen_memory_cleanup_corrections(gen);
+        Core::_record_trace(gen, values, public_output, Value("ok"));
+        return public_output;
+      } catch (const std::exception& e) {
+        Value validation_error = Core::exception_value(e);
+        Value retries_exhausted = Core::gte(attempt, validation_retries);
+        if (Core::truthy(retries_exhausted)) {
+          throw Core::as_error(validation_error);
+        }
+        Value next_attempt = Core::add(attempt, Value(1));
+        attempt = next_attempt;
+        Core::_append_assertion_retry_messages(messages, response, validation_error);
+        Core::axgen_memory_add_correction(gen, response, validation_error);
+        continue;
+      }
+    }
+  }
+  throw AxError("runtime", "unreachable AxGen forward loop exit");
+}
+
+Value Core::_optimization_changed_components(Value components, Value component_map) {
+  Value changes = Value::array();
+  for (auto component : Core::iter(components)) {
+    Value id = Core::get(component, Value("id"), Value(""));
+    Value current = Core::get(component, Value("current"), Value());
+    Value next = Core::get(component_map, id, current);
+    Value same = Core::eq(current, next);
+    Value changed = Core::not_(same);
+    if (Core::truthy(changed)) {
+      Value entry = Value::object();
+      Core::set(entry, Value("id"), id);
+      Core::set(entry, Value("current"), current);
+      Core::set(entry, Value("next"), next);
+      Core::append(changes, entry);
+    }
+  }
+  return changes;
+}
+
+Value Core::_optimization_component_current_map(Value components) {
+  Value out = Value::object();
+  for (auto component : Core::iter(components)) {
+    Value id = Core::get(component, Value("id"), Value(""));
+    Value current = Core::get(component, Value("current"), Value());
+    Core::set(out, id, current);
+  }
+  return out;
+}
+
+Value Core::_normalize_optimization_dataset(Value dataset) {
+  Value empty_list = Value::array();
+  Value is_object = Core::type_is(dataset, Value("object"));
+  if (Core::truthy(is_object)) {
+    Value train = Core::get(dataset, Value("train"), empty_list);
+    Value validation = Core::get(dataset, Value("validation"), empty_list);
+    Value out_obj = Value::object();
+    Core::set(out_obj, Value("train"), train);
+    Core::set(out_obj, Value("validation"), validation);
+    return out_obj;
+  }
+  Value out_list = Value::object();
+  Core::set(out_list, Value("train"), dataset);
+  Core::set(out_list, Value("validation"), empty_list);
+  return out_list;
+}
+
+Value Core::_normalize_optimization_metric_scores(Value raw) {
+  Value is_number = Core::type_is(raw, Value("number"));
+  if (Core::truthy(is_number)) {
+    Value out_number = Value::object();
+    Core::set(out_number, Value("score"), raw);
+    return out_number;
+  }
+  Value is_object = Core::type_is(raw, Value("object"));
+  if (Core::truthy(is_object)) {
+    return raw;
+  }
+  Value out_zero = Value::object();
+  Core::set(out_zero, Value("score"), Value(0));
+  return out_zero;
+}
+
+Value Core::_scalarize_optimization_scores(Value scores, Value options) {
+  Value metric_key = Core::get(options, Value("paretoMetricKey"), Value(""));
+  Value has_metric = Core::ne(metric_key, Value(""));
+  if (Core::truthy(has_metric)) {
+    Value picked = Core::get(scores, metric_key, Value(0));
+    return picked;
+  }
+  Value values = Core::map_values(scores);
+  Value sum = Value(0);
+  Value count = Value(0);
+  for (auto value : Core::iter(values)) {
+    Value sum_next = Core::add(sum, value);
+    Value count_next = Core::add(count, Value(1));
+    sum = sum_next;
+    count = count_next;
+  }
+  Value empty = Core::eq(count, Value(0));
+  if (Core::truthy(empty)) {
+    return Value(0);
+  }
+  Value avg = Core::div(sum, count);
+  return avg;
+}
+
+Value Core::_optimization_action_name_matches(Value expected, Value call) {
+  Value qualified = Core::get(call, Value("qualifiedName"), Value(""));
+  Value name = Core::get(call, Value("name"), Value(""));
+  Value qualified_match = Core::eq(qualified, expected);
+  Value name_match = Core::eq(name, expected);
+  Value dot_expected = Core::add(Value("."), expected);
+  Value suffix_match = Core::string_ends_with(qualified, dot_expected);
+  Value direct_match = Core::or_(qualified_match, name_match);
+  Value any_match = Core::or_(direct_match, suffix_match);
+  return any_match;
+}
+
+Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Value prediction) {
+  Value empty_list = Value::array();
+  Value function_calls = Core::get(prediction, Value("functionCalls"), empty_list);
+  Value expected_actions = Core::get(task, Value("expectedActions"), empty_list);
+  Value forbidden_actions = Core::get(task, Value("forbiddenActions"), empty_list);
+  Value adjusted = score;
+  Value expected_count = Core::len(expected_actions);
+  Value has_expected = Core::gt(expected_count, Value(0));
+  if (Core::truthy(has_expected)) {
+    Value matched = Value(0);
+    for (auto expected : Core::iter(expected_actions)) {
+      Value found = Value(false);
+      for (auto call : Core::iter(function_calls)) {
+        Value call_matches = Core::_optimization_action_name_matches(expected, call);
+        if (Core::truthy(call_matches)) {
+          found = Value(true);
+        }
+      }
+      if (Core::truthy(found)) {
+        Value matched_next = Core::add(matched, Value(1));
+        matched = matched_next;
+      }
+    }
+    Value ratio = Core::div(matched, expected_count);
+    Value half_ratio = Core::mul(Value(0.5), ratio);
+    Value factor = Core::add(Value(0.5), half_ratio);
+    Value adjusted_next = Core::mul(adjusted, factor);
+    adjusted = adjusted_next;
+  }
+  for (auto forbidden : Core::iter(forbidden_actions)) {
+    Value bad_found = Value(false);
+    for (auto call : Core::iter(function_calls)) {
+      Value bad_match = Core::_optimization_action_name_matches(forbidden, call);
+      if (Core::truthy(bad_match)) {
+        bad_found = Value(true);
+      }
+    }
+    if (Core::truthy(bad_found)) {
+      Value penalized = Core::mul(adjusted, Value(0.2));
+      adjusted = penalized;
+    }
+  }
+  return adjusted;
+}
+
+Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
+  Value out = Value::object();
+  Core::set(out, Value("input"), task);
+  Core::set(out, Value("prediction"), prediction);
+  Core::set(out, Value("scores"), scores);
+  Core::set(out, Value("scalar"), scalar);
+  Core::set(out, Value("trace"), trace);
+  Value has_error = Core::is_not_none(error);
+  if (Core::truthy(has_error)) {
+    Core::set(out, Value("error"), error);
+  }
+  return out;
+}
+
+Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Value phase) {
+  Value sum = Value(0);
+  Value count = Value(0);
+  for (auto row : Core::iter(rows)) {
+    Value scalar = Core::get(row, Value("scalar"), Value(0));
+    Value sum_next = Core::add(sum, scalar);
+    Value count_next = Core::add(count, Value(1));
+    sum = sum_next;
+    count = count_next;
+  }
+  Value avg = Value(0);
+  Value has_rows = Core::gt(count, Value(0));
+  if (Core::truthy(has_rows)) {
+    Value avg_next = Core::div(sum, count);
+    avg = avg_next;
+  }
+  Value out = Value::object();
+  Core::set(out, Value("phase"), phase);
+  Core::set(out, Value("candidateMap"), candidate_map);
+  Core::set(out, Value("rows"), rows);
+  Core::set(out, Value("sum"), sum);
+  Core::set(out, Value("avg"), avg);
+  Core::set(out, Value("count"), count);
+  return out;
+}
+
+Value Core::_filter_optimization_components(Value components, Value target) {
+  Value out = Value::array();
+  Value is_list = Core::type_is(target, Value("list"));
+  Value is_all = Core::eq(target, Value("all"));
+  Value is_actor = Core::eq(target, Value("actor"));
+  Value is_responder = Core::eq(target, Value("responder"));
+  Value is_flow = Core::eq(target, Value("flow"));
+  for (auto component : Core::iter(components)) {
+    Value id = Core::get(component, Value("id"), Value(""));
+    Value kind = Core::get(component, Value("kind"), Value(""));
+    Value include = Value(false);
+    if (Core::truthy(is_all)) {
+      include = Value(true);
+    }
+    if (Core::truthy(is_list)) {
+      Value listed = Core::contains(target, id);
+      if (Core::truthy(listed)) {
+        include = Value(true);
+      }
+    }
+    if (Core::truthy(is_actor)) {
+      Value actor_match = Core::string_ends_with(id, Value(".actor"));
+      Value actor_component_match = Core::contains(id, Value(".actor::"));
+      Value actor_any_match = Core::or_(actor_match, actor_component_match);
+      if (Core::truthy(actor_any_match)) {
+        include = Value(true);
+      }
+    }
+    if (Core::truthy(is_responder)) {
+      Value responder_match = Core::string_ends_with(id, Value(".responder"));
+      Value responder_component_match = Core::contains(id, Value(".responder::"));
+      Value responder_any_match = Core::or_(responder_match, responder_component_match);
+      if (Core::truthy(responder_any_match)) {
+        include = Value(true);
+      }
+    }
+    if (Core::truthy(is_flow)) {
+      Value flow_component = Core::eq(kind, Value("flow-graph"));
+      if (Core::truthy(flow_component)) {
+        include = Value(true);
+      }
+    }
+    Value explicit_match = Core::eq(target, id);
+    if (Core::truthy(explicit_match)) {
+      include = Value(true);
+    }
+    if (Core::truthy(include)) {
+      Core::append(out, component);
+    }
+  }
+  Value count = Core::len(out);
+  Value empty = Core::eq(count, Value(0));
+  if (Core::truthy(empty)) {
+    Value message = Core::string_format(Value("no optimizable components match target: {}"), target);
+    Value error = Core::runtime_error(message);
+    throw Core::as_error(error);
+  }
+  return out;
+}
+
+Value Core::_build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace) {
+  Value out = Value::object();
+  Core::set(out, Value("contractVersion"), Value("axir-optimize-contract-v1"));
+  Core::set(out, Value("programKind"), program_kind);
+  Core::set(out, Value("components"), components);
+  Core::set(out, Value("dataset"), dataset);
+  Core::set(out, Value("options"), options);
+  Core::set(out, Value("trace"), trace);
+  Value evaluator = Value::object();
+  Value methods = Value::array();
+  Core::append(methods, Value("evaluate"));
+  Core::set(evaluator, Value("available"), Value(true));
+  Core::set(evaluator, Value("contractVersion"), Value("axir-optimizer-evaluator-v1"));
+  Core::set(evaluator, Value("evidenceContractVersion"), Value("axir-optimizer-evidence-v1"));
+  Core::set(evaluator, Value("methods"), methods);
+  Core::set(out, Value("evaluator"), evaluator);
+  return out;
+}
+
+Value Core::_set_examples(Value gen, Value examples) {
+  Core::set(gen, Value("examples"), examples);
+  return gen;
+}
+
+Value Core::_prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available) {
+  Value empty_map = Value::object();
+  Value opts_missing = Core::is_none(options);
+  Value opts = options;
+  if (Core::truthy(opts_missing)) {
+    opts = empty_map;
+  }
+  Value normalized = Core::_normalize_optimization_dataset(dataset);
+  Value target = Core::get(opts, Value("target"), Value("all"));
+  Value selected = Core::_filter_optimization_components(components, target);
+  Value request_options = Core::map_merge(empty_map, opts);
+  Core::map_delete(request_options, Value("client"));
+  Core::map_delete(request_options, Value("ai"));
+  Core::map_delete(request_options, Value("engine"));
+  Core::map_delete(request_options, Value("optimizer"));
+  Value request = Core::_build_optimizer_request(program_kind, selected, normalized, request_options, trace);
+  Value evaluator = Core::get(request, Value("evaluator"), Value());
+  Core::set(evaluator, Value("available"), evaluator_available);
+  Core::set(request, Value("evaluator"), evaluator);
+  Value out = Value::object();
+  Core::set(out, Value("components"), components);
+  Core::set(out, Value("selectedComponents"), selected);
+  Core::set(out, Value("dataset"), normalized);
+  Core::set(out, Value("options"), request_options);
+  Core::set(out, Value("request"), request);
+  return out;
+}
+
+Value Core::_set_demos(Value gen, Value demos) {
+  Core::set(gen, Value("demos"), demos);
+  return gen;
+}
+
+Value Core::_render_examples(Value gen) {
+  Value messages = Core::axgen_render_examples(gen);
+  return messages;
+}
+
+Value Core::_normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components) {
+  Value response_is_object = Core::type_is(response, Value("object"));
+  Value bad_response = Core::not_(response_is_object);
+  if (Core::truthy(bad_response)) {
+    Value error = Core::runtime_error(Value("optimizer engine must return an optimized artifact"));
+    throw Core::as_error(error);
+  }
+  Value empty_map = Value::object();
+  Value has_artifact = Core::map_contains(response, Value("artifact"));
+  Value artifact_source = response;
+  if (Core::truthy(has_artifact)) {
+    Value artifact_value = Core::get(response, Value("artifact"), Value());
+    artifact_source = artifact_value;
+  }
+  Value artifact = Core::map_merge(empty_map, artifact_source);
+  Value artifact_is_object = Core::type_is(artifact, Value("object"));
+  Value bad_artifact = Core::not_(artifact_is_object);
+  if (Core::truthy(bad_artifact)) {
+    Value artifact_error = Core::runtime_error(Value("optimizer engine must return an optimized artifact"));
+    throw Core::as_error(artifact_error);
+  }
+  Value version = Core::get(artifact, Value("artifactVersion"), Value());
+  Value missing_version = Core::is_none(version);
+  if (Core::truthy(missing_version)) {
+    Core::set(artifact, Value("artifactVersion"), Value("axir-optimized-artifact-v1"));
+  }
+  Value name = Core::get(artifact, Value("optimizerName"), Value());
+  Value missing_name = Core::is_none(name);
+  if (Core::truthy(missing_name)) {
+    Core::set(artifact, Value("optimizerName"), engine_name);
+  }
+  Value engine_ver = Core::get(artifact, Value("optimizerVersion"), Value());
+  Value missing_engine_ver = Core::is_none(engine_ver);
+  if (Core::truthy(missing_engine_ver)) {
+    Core::set(artifact, Value("optimizerVersion"), engine_version);
+  }
+  Value component_map = Core::get(artifact, Value("componentMap"), Value());
+  Value missing_component_map = Core::is_none(component_map);
+  if (Core::truthy(missing_component_map)) {
+    Value snake_map = Core::get(artifact, Value("component_map"), empty_map);
+    Core::set(artifact, Value("componentMap"), snake_map);
+  }
+  Value metadata = Core::get(artifact, Value("metadata"), Value());
+  Value missing_metadata = Core::is_none(metadata);
+  if (Core::truthy(missing_metadata)) {
+    Value default_metadata = Value::object();
+    Core::set(artifact, Value("metadata"), default_metadata);
+  }
+  Value metadata_final = Core::get(artifact, Value("metadata"), Value());
+  Value provenance = Core::get(artifact, Value("provenance"), Value());
+  Value missing_provenance = Core::is_none(provenance);
+  if (Core::truthy(missing_provenance)) {
+    Value empty_provenance = Value::object();
+    Value metadata_provenance = Core::get(metadata_final, Value("provenance"), empty_provenance);
+    Core::set(artifact, Value("provenance"), metadata_provenance);
+  }
+  Value evidence = Core::get(artifact, Value("evidence"), Value());
+  Value missing_evidence = Core::is_none(evidence);
+  if (Core::truthy(missing_evidence)) {
+    Value empty_evidence = Value::object();
+    Value metadata_evidence = Core::get(metadata_final, Value("evidence"), empty_evidence);
+    Core::set(artifact, Value("evidence"), metadata_evidence);
+  }
+  Value validated = Core::_validate_optimized_artifact(artifact, components);
+  Value map = Core::get(validated, Value("componentMap"), Value());
+  Value changed = Core::_optimization_changed_components(components, map);
+  Core::set(validated, Value("changedComponents"), changed);
+  return validated;
+}
+
+Value Core::_render_demos(Value gen) {
+  Value messages = Core::axgen_render_demos(gen);
+  return messages;
+}
+
+Value Core::_apply_field_processors(Value gen, Value output) {
+  Value processed = Core::axgen_apply_field_processors(gen, output);
+  return processed;
+}
+
+Value Core::_run_assertions(Value gen, Value output) {
+  Core::axgen_run_assertions(gen, output);
+  return Value();
+}
+
+Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
+  Core::_append_validation_retry_messages_impl(messages, response, error);
+  return Value();
+}
+
+Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
+  Core::axgen_record_trace(gen, input, output, status);
+  return Value();
+}
+
+Value Core::_build_optimizer_evidence_batch(Value eval_result, Value components) {
+  Value empty_list = Value::array();
+  Value empty_map = Value::object();
+  Value rows = Core::get(eval_result, Value("rows"), empty_list);
+  Value outputs = Value::array();
+  Value scores = Value::array();
+  Value score_vectors = Value::array();
+  Value trajectories = Value::array();
+  for (auto row : Core::iter(rows)) {
+    Value prediction = Core::get(row, Value("prediction"), empty_map);
+    Value output = Core::get(prediction, Value("output"), prediction);
+    Core::append(outputs, output);
+    Value scalar = Core::get(row, Value("scalar"), Value(0));
+    Core::append(scores, scalar);
+    Value vector = Core::get(row, Value("scores"), empty_map);
+    Core::append(score_vectors, vector);
+    Value trajectory = Value::object();
+    Value trace = Core::get(row, Value("trace"), Value());
+    Core::set(trajectory, Value("trace"), trace);
+    Core::set(trajectory, Value("output"), output);
+    Value row_error = Core::get(row, Value("error"), Value());
+    Value prediction_error = Core::get(prediction, Value("error"), row_error);
+    Value has_error = Core::is_not_none(prediction_error);
+    if (Core::truthy(has_error)) {
+      Core::set(trajectory, Value("error"), prediction_error);
+    }
+    Core::append(trajectories, trajectory);
+  }
+  Value reflective = Value::object();
+  for (auto component : Core::iter(components)) {
+    Value id = Core::get(component, Value("id"), Value(""));
+    Value items = Value::array();
+    for (auto row : Core::iter(rows)) {
+      Value entry = Value::object();
+      Value prediction = Core::get(row, Value("prediction"), empty_map);
+      Value output = Core::get(prediction, Value("output"), prediction);
+      Value scalar = Core::get(row, Value("scalar"), Value(0));
+      Value trace = Core::get(row, Value("trace"), Value());
+      Core::set(entry, Value("score"), scalar);
+      Core::set(entry, Value("output"), output);
+      Core::set(entry, Value("trace"), trace);
+      Value error = Core::get(row, Value("error"), Value());
+      Value has_error = Core::is_not_none(error);
+      if (Core::truthy(has_error)) {
+        Core::set(entry, Value("error"), error);
+      }
+      Core::append(items, entry);
+    }
+    Core::set(reflective, id, items);
+  }
+  Value out = Value::object();
+  Core::set(out, Value("contractVersion"), Value("axir-optimizer-evidence-v1"));
+  Value candidate_map = Core::get(eval_result, Value("candidateMap"), empty_map);
+  Core::set(out, Value("candidateMap"), candidate_map);
+  Core::set(out, Value("outputs"), outputs);
+  Core::set(out, Value("scores"), scores);
+  Core::set(out, Value("scoreVectors"), score_vectors);
+  Core::set(out, Value("trajectories"), trajectories);
+  Value avg = Core::get(eval_result, Value("avg"), Value(0));
+  Value sum = Core::get(eval_result, Value("sum"), Value(0));
+  Value count = Core::get(eval_result, Value("count"), Value(0));
+  Core::set(out, Value("avg"), avg);
+  Core::set(out, Value("sum"), sum);
+  Core::set(out, Value("count"), count);
+  Core::set(out, Value("reflectiveDataset"), reflective);
+  return out;
+}
+
+Value Core::_should_continue_steps(Value gen, Value calls) {
+  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
+  return should_continue;
+}
+
+Value Core::_complete_with_retries_impl(Value client, Value request, Value retries) {
+  Value attempt = Value(0);
+  Value last_error = Core::none();
+  while (true) {
+    try {
+      Value response = Core::ai_complete_once(client, request);
+      return response;
+    } catch (const std::exception& e) {
+      Value error = Core::exception_value(e);
+      last_error = error;
+      Value exhausted = Core::gte(attempt, retries);
+      if (Core::truthy(exhausted)) {
+        throw Core::as_error(error);
+      }
+      Core::retry_sleep(attempt);
+      Value next_attempt = Core::add(attempt, Value(1));
+      attempt = next_attempt;
+      continue;
+    }
+  }
+  throw Core::as_error(last_error);
+}
+
+Value Core::_parse_output_impl(Value content) {
+  Value text = Core::string_trim(content);
+  Value output = Core::json_parse(text);
+  return output;
+}
+
+Value Core::_tool_spec_impl(Value fn) {
+  Value spec = Value::object();
+  Value name = Core::get(fn, Value("name"), Value());
+  Value description = Core::get(fn, Value("description"), Value());
+  Value parameters = Core::get(fn, Value("parameters"), Value());
+  Core::set(spec, Value("name"), name);
+  Core::set(spec, Value("description"), description);
+  Core::set(spec, Value("parameters"), parameters);
+  return spec;
+}
+
+Value Core::_function_call_mode_impl(Value mode) {
+  Value missing = Core::is_none(mode);
+  if (Core::truthy(missing)) {
+    return Value("auto");
+  }
+  Value is_native = Core::eq(mode, Value("native"));
+  Value is_auto = Core::eq(mode, Value("auto"));
+  Value native_or_auto = Core::or_(is_native, is_auto);
+  if (Core::truthy(native_or_auto)) {
+    return Value("auto");
+  }
+  Value is_prompt = Core::eq(mode, Value("prompt"));
+  if (Core::truthy(is_prompt)) {
+    return Value("none");
+  }
+  return mode;
+}
+
+Value Core::_response_function_calls_impl(Value response) {
+  Value empty = Value::array();
+  Value calls = Core::get(response, Value("function_calls"), empty);
+  return calls;
+}
+
+Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
+  Value chat_calls = Value::array();
+  for (auto call : Core::iter(calls)) {
+    Value chat_call = Core::_completion_call_to_chat_impl(call);
+    Core::append(chat_calls, chat_call);
+  }
+  Value content = Core::get(response, Value("content"), Value(""));
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("assistant"));
+  Core::set(message, Value("content"), content);
+  Core::set(message, Value("function_calls"), chat_calls);
+  Core::append(messages, message);
+  return Value();
+}
+
+Value Core::_completion_call_to_chat_impl(Value call) {
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(call, Value("name"), Value());
+  Value params = Core::get(call, Value("params"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("params"), params);
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
+  return out;
+}
+
+Value Core::_tool_result_message_impl(Value call, Value result) {
+  Value id = Core::get(call, Value("id"), Value());
+  Value result_json = Core::json_stringify(result);
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("function"));
+  Core::set(message, Value("function_id"), id);
+  Core::set(message, Value("result"), result_json);
+  return message;
+}
+
+Value Core::_tool_error_message_impl(Value call, Value error) {
+  Value id = Core::get(call, Value("id"), Value());
+  Value error_text = Core::exception_message(error);
+  Value payload = Value::object();
+  Core::set(payload, Value("error"), error_text);
+  Value payload_json = Core::json_stringify(payload);
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("function"));
+  Core::set(message, Value("function_id"), id);
+  Core::set(message, Value("result"), payload_json);
+  Core::set(message, Value("is_error"), Value(true));
+  return message;
+}
+
+Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
+  Value content = Core::get(response, Value("content"), Value(""));
+  Value assistant_message = Value::object();
+  Core::set(assistant_message, Value("role"), Value("assistant"));
+  Core::set(assistant_message, Value("content"), content);
+  Core::append(messages, assistant_message);
+  Value error_text = Core::exception_message(error);
+  Value prefix_message = Core::add(Value("The previous response failed validation: "), error_text);
+  Value retry_content = Core::add(prefix_message, Value(". Return only corrected JSON."));
+  Value retry_message = Value::object();
+  Core::set(retry_message, Value("role"), Value("user"));
+  Core::set(retry_message, Value("content"), retry_content);
+  Core::append(messages, retry_message);
+  return Value();
+}
+
+Value Core::_agent_factory(Value signature, Value options) {
+  Value empty_list = Value::array();
+  Value empty_map = Value::object();
+  Value sig = signature;
+  Value is_string = Core::type_is(signature, Value("string"));
+  if (Core::truthy(is_string)) {
+    Value parsed_sig = Core::parse_signature(signature);
+    sig = parsed_sig;
+  }
+  if (!Core::truthy(is_string)) {
+    sig = signature;
+  }
+  Value context_camel = Core::get(options, Value("contextFields"), empty_list);
+  Value context_fields = Core::get(options, Value("context_fields"), context_camel);
+  Value executor_options = Core::get(options, Value("executor_options"), empty_map);
+  Value executor_options_camel = Core::get(options, Value("executorOptions"), executor_options);
+  Value responder_options = Core::get(options, Value("responder_options"), empty_map);
+  Value responder_options_camel = Core::get(options, Value("responderOptions"), responder_options);
+  Value executor_exclude_camel = Core::get(executor_options_camel, Value("excludeFields"), empty_list);
+  Value executor_exclude = Core::get(executor_options_camel, Value("exclude_fields"), executor_exclude_camel);
+  Value responder_exclude_camel = Core::get(responder_options_camel, Value("excludeFields"), empty_list);
+  Value responder_exclude = Core::get(responder_options_camel, Value("exclude_fields"), responder_exclude_camel);
+  Value input_fields = Core::get(sig, Value("input_fields"), empty_list);
+  for (auto ctx : Core::iter(context_fields)) {
+    Value found = Value(false);
+    for (auto field : Core::iter(input_fields)) {
+      Value field_name = Core::get(field, Value("name"), Value());
+      Value matches = Core::eq(field_name, ctx);
+      if (Core::truthy(matches)) {
+        found = Value(true);
+      }
+    }
+    Value missing = Core::not_(found);
+    if (Core::truthy(missing)) {
+      Value message = Core::string_format(Value("context field not found: {}"), ctx);
+      Value error = Core::runtime_error(message);
+      throw Core::as_error(error);
+    }
+  }
+  Value chat_log = Value::array();
+  Value usage = Value::object();
+  Value state_alpha = Value::object();
+  Value action_log = Value::array();
+  Value status_log = Value::array();
+  Value state = Value::object();
+  Value runtime_contract = Core::_normalize_agent_runtime(options);
+  Value has_runtime_direct = Core::map_contains(options, Value("runtime"));
+  Value has_runtime_config = Core::map_contains(options, Value("runtimeConfig"));
+  Value has_runtime_config_snake = Core::map_contains(options, Value("runtime_config"));
+  Value has_any_runtime_config = Core::or_(has_runtime_config, has_runtime_config_snake);
+  Value runtime_enabled = Core::or_(has_runtime_direct, has_any_runtime_config);
+  Value policy = Core::_normalize_agent_policy(options);
+  Value policy_flags = Core::_agent_policy_flags(options);
+  Value policy_registry = Core::_agent_policy_registry(policy, policy_flags);
+  Value context_policy = Core::_resolve_agent_context_policy(options);
+  Value executor_model_policy = Core::_resolve_agent_executor_model_policy(options);
+  Value callable_inventory = Core::_normalize_agent_callable_inventory(options);
+  Value callable_split = Core::_split_agent_callable_inventory(callable_inventory);
+  Value discovery_catalog = Core::_render_agent_discovery_catalog(callable_split);
+  Value discovered_tool_docs = Value::array();
+  Value loaded_skill_docs = Value::array();
+  Value loaded_memories = Value::array();
+  Value used_memories = Value::array();
+  Value used_skills = Value::array();
+  Value guidance_log = Value::array();
+  Value function_call_traces = Value::array();
+  Value policy_trace = Value::array();
+  Value context_events = Value::array();
+  Value actor_model_state = Value::object();
+  Value trace_events = Value::array();
+  Value trace = Value::object();
+  Core::set(trace, Value("schema_version"), Value("axir-agent-trace-v1"));
+  Core::set(trace, Value("kind"), Value("agent_run"));
+  Core::set(trace, Value("status"), Value("idle"));
+  Core::set(trace, Value("events"), trace_events);
+  Core::set(state, Value("signature"), sig);
+  Core::set(state, Value("options"), options);
+  Core::set(state, Value("context_fields"), context_fields);
+  Core::set(state, Value("executor_exclude_fields"), executor_exclude);
+  Core::set(state, Value("responder_exclude_fields"), responder_exclude);
+  Core::set(state, Value("distiller_signature"), Value("input:json, context:json -> completion:json"));
+  Value code_field_name = Core::get(runtime_contract, Value("code_field_name"), Value("javascriptCode"));
+  Value runtime_executor_signature = Core::string_format(Value("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), code_field_name);
+  Value executor_signature = Value("input:json, executorRequest:string, distilledContext:json -> completion:json");
+  if (Core::truthy(runtime_enabled)) {
+    executor_signature = runtime_executor_signature;
+  }
+  Core::set(state, Value("executor_signature"), executor_signature);
+  Core::set(state, Value("chat_log"), chat_log);
+  Core::set(state, Value("usage"), usage);
+  Core::set(state, Value("runtime_state"), state_alpha);
+  Core::set(state, Value("action_log"), action_log);
+  Core::set(state, Value("status_log"), status_log);
+  Core::set(state, Value("runtime_contract"), runtime_contract);
+  Core::set(state, Value("runtime_enabled"), runtime_enabled);
+  Core::set(state, Value("policy"), policy);
+  Core::set(state, Value("policy_flags"), policy_flags);
+  Core::set(state, Value("policy_registry"), policy_registry);
+  Core::set(state, Value("context_policy"), context_policy);
+  Core::set(state, Value("executor_model_policy"), executor_model_policy);
+  Core::set(state, Value("context_events"), context_events);
+  Core::set(state, Value("actor_model_state"), actor_model_state);
+  Core::set(state, Value("callable_inventory"), callable_inventory);
+  Core::set(state, Value("callable_split"), callable_split);
+  Core::set(state, Value("discovery_catalog"), discovery_catalog);
+  Core::set(state, Value("discovered_tool_docs"), discovered_tool_docs);
+  Core::set(state, Value("loaded_skill_docs"), loaded_skill_docs);
+  Core::set(state, Value("loaded_memories"), loaded_memories);
+  Core::set(state, Value("used_memories"), used_memories);
+  Core::set(state, Value("used_skills"), used_skills);
+  Core::set(state, Value("guidance_log"), guidance_log);
+  Core::set(state, Value("function_call_traces"), function_call_traces);
+  Core::set(state, Value("policy_trace"), policy_trace);
+  Core::set(state, Value("trace"), trace);
+  Value optimizer_metadata = Core::_agent_optimizer_metadata(state);
+  Core::set(state, Value("optimizer_metadata"), optimizer_metadata);
+  Value actor_prompt_policy = Core::_build_agent_actor_prompt_policy(state);
+  Core::set(state, Value("actor_prompt_policy"), actor_prompt_policy);
+  return state;
+}
+
+Value Core::_optimization_component(Value id, Value owner, Value kind, Value current, Value description, Value constraints, Value depends_on, Value preserve, Value format, Value validation) {
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("owner"), owner);
+  Core::set(out, Value("kind"), kind);
+  Core::set(out, Value("current"), current);
+  Core::set(out, Value("description"), description);
+  Core::set(out, Value("constraints"), constraints);
+  Core::set(out, Value("dependsOn"), depends_on);
+  Core::set(out, Value("preserve"), preserve);
+  Core::set(out, Value("format"), format);
+  Core::set(out, Value("validation"), validation);
+  return out;
+}
+
+Value Core::_optimized_artifact(Value optimizer_name, Value optimizer_version, Value component_map, Value metadata) {
+  Value empty_map = Value::object();
+  Value out = Value::object();
+  Core::set(out, Value("artifactVersion"), Value("axir-optimized-artifact-v1"));
+  Core::set(out, Value("optimizerName"), optimizer_name);
+  Core::set(out, Value("optimizerVersion"), optimizer_version);
+  Core::set(out, Value("componentMap"), component_map);
+  Value meta = metadata;
+  Value meta_missing = Core::is_none(metadata);
+  if (Core::truthy(meta_missing)) {
+    meta = empty_map;
+  }
+  Core::set(out, Value("metadata"), meta);
+  Value provenance = Core::get(meta, Value("provenance"), empty_map);
+  Value evidence = Core::get(meta, Value("evidence"), empty_map);
+  Core::set(out, Value("provenance"), provenance);
+  Core::set(out, Value("evidence"), evidence);
+  return out;
 }
 
 Value Core::_agent_reserved_runtime_names() {
@@ -8216,6 +8999,69 @@ Value Core::_agent_policy_vocabulary_registry() {
   return registry;
 }
 
+Value Core::_map_optimization_judge_quality_to_score(Value quality) {
+  Value normalized = Core::string_lower(quality);
+  Value is_excellent = Core::eq(normalized, Value("excellent"));
+  if (Core::truthy(is_excellent)) {
+    return Value(1);
+  }
+  Value is_good = Core::eq(normalized, Value("good"));
+  if (Core::truthy(is_good)) {
+    return Value(0.8);
+  }
+  Value is_acceptable = Core::eq(normalized, Value("acceptable"));
+  if (Core::truthy(is_acceptable)) {
+    return Value(0.5);
+  }
+  Value is_poor = Core::eq(normalized, Value("poor"));
+  if (Core::truthy(is_poor)) {
+    return Value(0.2);
+  }
+  Value is_unacceptable = Core::eq(normalized, Value("unacceptable"));
+  if (Core::truthy(is_unacceptable)) {
+    return Value(0);
+  }
+  return Value(0.5);
+}
+
+Value Core::_build_optimization_judge_payload(Value task, Value prediction, Value criteria) {
+  Value empty_list = Value::array();
+  Value out = Value::object();
+  Value task_input = Core::get(task, Value("input"), task);
+  Core::set(out, Value("taskInput"), task_input);
+  Value task_criteria = Core::get(task, Value("criteria"), criteria);
+  Core::set(out, Value("criteria"), task_criteria);
+  Value expected_output = Core::get(task, Value("expectedOutput"), Value());
+  Core::set(out, Value("expectedOutput"), expected_output);
+  Value expected_actions = Core::get(task, Value("expectedActions"), empty_list);
+  Core::set(out, Value("expectedActions"), expected_actions);
+  Value forbidden_actions = Core::get(task, Value("forbiddenActions"), empty_list);
+  Core::set(out, Value("forbiddenActions"), forbidden_actions);
+  Value metadata = Core::get(task, Value("metadata"), Value());
+  Core::set(out, Value("metadata"), metadata);
+  Value completion_type = Core::get(prediction, Value("completionType"), Value("error"));
+  Core::set(out, Value("completionType"), completion_type);
+  Value clarification = Core::get(prediction, Value("clarification"), Value());
+  Core::set(out, Value("clarification"), clarification);
+  Value final_output = Core::get(prediction, Value("output"), prediction);
+  Core::set(out, Value("finalOutput"), final_output);
+  Value guidance_log = Core::get(prediction, Value("guidanceLog"), Value(""));
+  Core::set(out, Value("guidanceLog"), guidance_log);
+  Value action_log = Core::get(prediction, Value("actionLog"), empty_list);
+  Core::set(out, Value("actionLog"), action_log);
+  Value function_calls = Core::get(prediction, Value("functionCalls"), empty_list);
+  Core::set(out, Value("functionCalls"), function_calls);
+  Value tool_errors = Core::get(prediction, Value("toolErrors"), empty_list);
+  Core::set(out, Value("toolErrors"), tool_errors);
+  Value turn_count = Core::get(prediction, Value("turnCount"), Value(0));
+  Core::set(out, Value("turnCount"), turn_count);
+  Value usage = Core::get(prediction, Value("usage"), empty_list);
+  Core::set(out, Value("usage"), usage);
+  Value trace = Core::get(prediction, Value("trace"), Value());
+  Core::set(out, Value("trace"), trace);
+  return out;
+}
+
 Value Core::_agent_context_policy_registry() {
   Value registry = Core::_agent_policy_vocabulary_registry();
   Value empty_map = Value::object();
@@ -8452,6 +9298,21 @@ Value Core::_render_actor_primitive_guidance(Value registry, Value stage) {
     Core::append(lines, line);
   }
   Value out = Core::string_join(Value("\n"), lines);
+  return out;
+}
+
+Value Core::_build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace) {
+  Value out = Value::object();
+  Core::set(out, Value("completionType"), Value("final"));
+  Core::set(out, Value("output"), output);
+  Core::set(out, Value("finalOutput"), output);
+  Core::set(out, Value("actionLog"), action_log);
+  Core::set(out, Value("usage"), usage);
+  Core::set(out, Value("trace"), trace);
+  Value empty_list = Value::array();
+  Core::set(out, Value("functionCalls"), empty_list);
+  Core::set(out, Value("toolErrors"), empty_list);
+  Core::set(out, Value("turnCount"), Value(0));
   return out;
 }
 
@@ -11660,127 +12521,6 @@ Value Core::_agent_runtime_test(Value state, Value runtime, Value code, Value va
   return result;
 }
 
-Value Core::_agent_factory(Value signature, Value options) {
-  Value empty_list = Value::array();
-  Value empty_map = Value::object();
-  Value sig = signature;
-  Value is_string = Core::type_is(signature, Value("string"));
-  if (Core::truthy(is_string)) {
-    Value parsed_sig = Core::parse_signature(signature);
-    sig = parsed_sig;
-  }
-  if (!Core::truthy(is_string)) {
-    sig = signature;
-  }
-  Value context_camel = Core::get(options, Value("contextFields"), empty_list);
-  Value context_fields = Core::get(options, Value("context_fields"), context_camel);
-  Value executor_options = Core::get(options, Value("executor_options"), empty_map);
-  Value executor_options_camel = Core::get(options, Value("executorOptions"), executor_options);
-  Value responder_options = Core::get(options, Value("responder_options"), empty_map);
-  Value responder_options_camel = Core::get(options, Value("responderOptions"), responder_options);
-  Value executor_exclude_camel = Core::get(executor_options_camel, Value("excludeFields"), empty_list);
-  Value executor_exclude = Core::get(executor_options_camel, Value("exclude_fields"), executor_exclude_camel);
-  Value responder_exclude_camel = Core::get(responder_options_camel, Value("excludeFields"), empty_list);
-  Value responder_exclude = Core::get(responder_options_camel, Value("exclude_fields"), responder_exclude_camel);
-  Value input_fields = Core::get(sig, Value("input_fields"), empty_list);
-  for (auto ctx : Core::iter(context_fields)) {
-    Value found = Value(false);
-    for (auto field : Core::iter(input_fields)) {
-      Value field_name = Core::get(field, Value("name"), Value());
-      Value matches = Core::eq(field_name, ctx);
-      if (Core::truthy(matches)) {
-        found = Value(true);
-      }
-    }
-    Value missing = Core::not_(found);
-    if (Core::truthy(missing)) {
-      Value message = Core::string_format(Value("context field not found: {}"), ctx);
-      Value error = Core::runtime_error(message);
-      throw Core::as_error(error);
-    }
-  }
-  Value chat_log = Value::array();
-  Value usage = Value::object();
-  Value state_alpha = Value::object();
-  Value action_log = Value::array();
-  Value status_log = Value::array();
-  Value state = Value::object();
-  Value runtime_contract = Core::_normalize_agent_runtime(options);
-  Value has_runtime_direct = Core::map_contains(options, Value("runtime"));
-  Value has_runtime_config = Core::map_contains(options, Value("runtimeConfig"));
-  Value has_runtime_config_snake = Core::map_contains(options, Value("runtime_config"));
-  Value has_any_runtime_config = Core::or_(has_runtime_config, has_runtime_config_snake);
-  Value runtime_enabled = Core::or_(has_runtime_direct, has_any_runtime_config);
-  Value policy = Core::_normalize_agent_policy(options);
-  Value policy_flags = Core::_agent_policy_flags(options);
-  Value policy_registry = Core::_agent_policy_registry(policy, policy_flags);
-  Value context_policy = Core::_resolve_agent_context_policy(options);
-  Value executor_model_policy = Core::_resolve_agent_executor_model_policy(options);
-  Value callable_inventory = Core::_normalize_agent_callable_inventory(options);
-  Value callable_split = Core::_split_agent_callable_inventory(callable_inventory);
-  Value discovery_catalog = Core::_render_agent_discovery_catalog(callable_split);
-  Value discovered_tool_docs = Value::array();
-  Value loaded_skill_docs = Value::array();
-  Value loaded_memories = Value::array();
-  Value used_memories = Value::array();
-  Value used_skills = Value::array();
-  Value guidance_log = Value::array();
-  Value function_call_traces = Value::array();
-  Value policy_trace = Value::array();
-  Value context_events = Value::array();
-  Value actor_model_state = Value::object();
-  Value trace_events = Value::array();
-  Value trace = Value::object();
-  Core::set(trace, Value("schema_version"), Value("axir-agent-trace-v1"));
-  Core::set(trace, Value("kind"), Value("agent_run"));
-  Core::set(trace, Value("status"), Value("idle"));
-  Core::set(trace, Value("events"), trace_events);
-  Core::set(state, Value("signature"), sig);
-  Core::set(state, Value("options"), options);
-  Core::set(state, Value("context_fields"), context_fields);
-  Core::set(state, Value("executor_exclude_fields"), executor_exclude);
-  Core::set(state, Value("responder_exclude_fields"), responder_exclude);
-  Core::set(state, Value("distiller_signature"), Value("input:json, context:json -> completion:json"));
-  Value code_field_name = Core::get(runtime_contract, Value("code_field_name"), Value("javascriptCode"));
-  Value runtime_executor_signature = Core::string_format(Value("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), code_field_name);
-  Value executor_signature = Value("input:json, executorRequest:string, distilledContext:json -> completion:json");
-  if (Core::truthy(runtime_enabled)) {
-    executor_signature = runtime_executor_signature;
-  }
-  Core::set(state, Value("executor_signature"), executor_signature);
-  Core::set(state, Value("chat_log"), chat_log);
-  Core::set(state, Value("usage"), usage);
-  Core::set(state, Value("runtime_state"), state_alpha);
-  Core::set(state, Value("action_log"), action_log);
-  Core::set(state, Value("status_log"), status_log);
-  Core::set(state, Value("runtime_contract"), runtime_contract);
-  Core::set(state, Value("runtime_enabled"), runtime_enabled);
-  Core::set(state, Value("policy"), policy);
-  Core::set(state, Value("policy_flags"), policy_flags);
-  Core::set(state, Value("policy_registry"), policy_registry);
-  Core::set(state, Value("context_policy"), context_policy);
-  Core::set(state, Value("executor_model_policy"), executor_model_policy);
-  Core::set(state, Value("context_events"), context_events);
-  Core::set(state, Value("actor_model_state"), actor_model_state);
-  Core::set(state, Value("callable_inventory"), callable_inventory);
-  Core::set(state, Value("callable_split"), callable_split);
-  Core::set(state, Value("discovery_catalog"), discovery_catalog);
-  Core::set(state, Value("discovered_tool_docs"), discovered_tool_docs);
-  Core::set(state, Value("loaded_skill_docs"), loaded_skill_docs);
-  Core::set(state, Value("loaded_memories"), loaded_memories);
-  Core::set(state, Value("used_memories"), used_memories);
-  Core::set(state, Value("used_skills"), used_skills);
-  Core::set(state, Value("guidance_log"), guidance_log);
-  Core::set(state, Value("function_call_traces"), function_call_traces);
-  Core::set(state, Value("policy_trace"), policy_trace);
-  Core::set(state, Value("trace"), trace);
-  Value optimizer_metadata = Core::_agent_optimizer_metadata(state);
-  Core::set(state, Value("optimizer_metadata"), optimizer_metadata);
-  Value actor_prompt_policy = Core::_build_agent_actor_prompt_policy(state);
-  Core::set(state, Value("actor_prompt_policy"), actor_prompt_policy);
-  return state;
-}
-
 Value Core::_split_context_values(Value state, Value values) {
   Value empty_list = Value::array();
   Value context_fields = Core::get(state, Value("context_fields"), empty_list);
@@ -12108,744 +12848,31 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
   return responder_output;
 }
 
-Value Core::_optimization_component(Value id, Value owner, Value kind, Value current, Value description, Value constraints, Value depends_on, Value preserve, Value format, Value validation) {
-  Value out = Value::object();
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("owner"), owner);
-  Core::set(out, Value("kind"), kind);
-  Core::set(out, Value("current"), current);
-  Core::set(out, Value("description"), description);
-  Core::set(out, Value("constraints"), constraints);
-  Core::set(out, Value("dependsOn"), depends_on);
-  Core::set(out, Value("preserve"), preserve);
-  Core::set(out, Value("format"), format);
-  Core::set(out, Value("validation"), validation);
-  return out;
-}
-
-Value Core::_optimized_artifact(Value optimizer_name, Value optimizer_version, Value component_map, Value metadata) {
+Value Core::_flow_factory(Value options) {
   Value empty_map = Value::object();
-  Value out = Value::object();
-  Core::set(out, Value("artifactVersion"), Value("axir-optimized-artifact-v1"));
-  Core::set(out, Value("optimizerName"), optimizer_name);
-  Core::set(out, Value("optimizerVersion"), optimizer_version);
-  Core::set(out, Value("componentMap"), component_map);
-  Value meta = metadata;
-  Value meta_missing = Core::is_none(metadata);
-  if (Core::truthy(meta_missing)) {
-    meta = empty_map;
-  }
-  Core::set(out, Value("metadata"), meta);
-  Value provenance = Core::get(meta, Value("provenance"), empty_map);
-  Value evidence = Core::get(meta, Value("evidence"), empty_map);
-  Core::set(out, Value("provenance"), provenance);
-  Core::set(out, Value("evidence"), evidence);
-  return out;
-}
-
-Value Core::_validate_optimization_component_value(Value component, Value value) {
-  Value current = Core::get(component, Value("current"), Value());
-  Value current_is_string = Core::type_is(current, Value("string"));
-  if (Core::truthy(current_is_string)) {
-    Value value_is_string = Core::type_is(value, Value("string"));
-    Value bad_string = Core::not_(value_is_string);
-    if (Core::truthy(bad_string)) {
-      Value id = Core::get(component, Value("id"), Value(""));
-      Value message = Core::string_format(Value("invalid optimized component value for {}"), id);
-      Value error = Core::runtime_error(message);
-      throw Core::as_error(error);
-    }
-  }
-  Value current_is_object = Core::type_is(current, Value("object"));
-  if (Core::truthy(current_is_object)) {
-    Value value_is_object = Core::type_is(value, Value("object"));
-    Value bad_object = Core::not_(value_is_object);
-    if (Core::truthy(bad_object)) {
-      Value id_object = Core::get(component, Value("id"), Value(""));
-      Value message_object = Core::string_format(Value("invalid optimized component value for {}"), id_object);
-      Value error_object = Core::runtime_error(message_object);
-      throw Core::as_error(error_object);
-    }
-  }
-  Value current_is_list = Core::type_is(current, Value("list"));
-  if (Core::truthy(current_is_list)) {
-    Value value_is_list = Core::type_is(value, Value("list"));
-    Value bad_list = Core::not_(value_is_list);
-    if (Core::truthy(bad_list)) {
-      Value id_list = Core::get(component, Value("id"), Value(""));
-      Value message_list = Core::string_format(Value("invalid optimized component value for {}"), id_list);
-      Value error_list = Core::runtime_error(message_list);
-      throw Core::as_error(error_list);
-    }
-  }
-  Value current_is_number = Core::type_is(current, Value("number"));
-  if (Core::truthy(current_is_number)) {
-    Value value_is_number = Core::type_is(value, Value("number"));
-    Value bad_number = Core::not_(value_is_number);
-    if (Core::truthy(bad_number)) {
-      Value id_number = Core::get(component, Value("id"), Value(""));
-      Value message_number = Core::string_format(Value("invalid optimized component value for {}"), id_number);
-      Value error_number = Core::runtime_error(message_number);
-      throw Core::as_error(error_number);
-    }
-  }
-  Value current_is_boolean = Core::type_is(current, Value("boolean"));
-  if (Core::truthy(current_is_boolean)) {
-    Value value_is_boolean = Core::type_is(value, Value("boolean"));
-    Value bad_boolean = Core::not_(value_is_boolean);
-    if (Core::truthy(bad_boolean)) {
-      Value id_boolean = Core::get(component, Value("id"), Value(""));
-      Value message_boolean = Core::string_format(Value("invalid optimized component value for {}"), id_boolean);
-      Value error_boolean = Core::runtime_error(message_boolean);
-      throw Core::as_error(error_boolean);
-    }
-  }
-  Value format = Core::get(component, Value("format"), Value(""));
-  Value is_snake = Core::eq(format, Value("snake_case"));
-  if (Core::truthy(is_snake)) {
-    Value snake_ok = Core::regex_match(Value("^[a-z][a-z0-9_]{0,31}$"), value);
-    Value bad_snake = Core::not_(snake_ok);
-    if (Core::truthy(bad_snake)) {
-      Value error_snake = Core::runtime_error(Value("invalid optimized function name"));
-      throw Core::as_error(error_snake);
-    }
-  }
-  return Value(true);
-}
-
-Value Core::_validate_optimization_component_map(Value components, Value component_map) {
-  Value known = Value::array();
-  Value component_by_id = Value::object();
-  for (auto component : Core::iter(components)) {
-    Value id = Core::get(component, Value("id"), Value(""));
-    Core::append(known, id);
-    Core::set(component_by_id, id, component);
-  }
-  Value keys = Core::map_keys(component_map);
-  for (auto id : Core::iter(keys)) {
-    Value ok = Core::contains(known, id);
-    Value bad = Core::not_(ok);
-    if (Core::truthy(bad)) {
-      Value message = Core::string_format(Value("unknown optimized component id: {}"), id);
-      Value error = Core::runtime_error(message);
-      throw Core::as_error(error);
-    }
-    Value component = Core::get(component_by_id, id, Value());
-    Value value = Core::get(component_map, id, Value());
-    Core::_validate_optimization_component_value(component, value);
-  }
-  return Value(true);
-}
-
-Value Core::_validate_optimized_artifact_provenance(Value artifact, Value components) {
-  Value empty_map = Value::object();
-  Value provenance = Core::get(artifact, Value("provenance"), empty_map);
-  Value owners = Core::get(provenance, Value("componentOwners"), empty_map);
-  Value owners_is_object = Core::type_is(owners, Value("object"));
-  Value bad_owners = Core::not_(owners_is_object);
-  if (Core::truthy(bad_owners)) {
-    Value owners_error = Core::runtime_error(Value("optimized artifact provenance componentOwners must be an object"));
-    throw Core::as_error(owners_error);
-  }
-  for (auto component : Core::iter(components)) {
-    Value id = Core::get(component, Value("id"), Value(""));
-    Value expected_owner = Core::get(owners, id, Value());
-    Value has_expected_owner = Core::is_not_none(expected_owner);
-    if (Core::truthy(has_expected_owner)) {
-      Value actual_owner = Core::get(component, Value("owner"), Value(""));
-      Value owner_ok = Core::eq(expected_owner, actual_owner);
-      Value stale_owner = Core::not_(owner_ok);
-      if (Core::truthy(stale_owner)) {
-        Value message = Core::string_format(Value("stale optimized component owner: {}"), id);
-        Value error = Core::runtime_error(message);
-        throw Core::as_error(error);
-      }
-    }
-  }
-  return Value(true);
-}
-
-Value Core::_validate_optimized_artifact(Value artifact, Value components) {
-  Value is_object = Core::type_is(artifact, Value("object"));
-  Value not_object = Core::not_(is_object);
-  if (Core::truthy(not_object)) {
-    Value error = Core::runtime_error(Value("optimized artifact must be an object"));
-    throw Core::as_error(error);
-  }
-  Value version = Core::get(artifact, Value("artifactVersion"), Value(""));
-  Value version_ok = Core::eq(version, Value("axir-optimized-artifact-v1"));
-  Value bad_version = Core::not_(version_ok);
-  if (Core::truthy(bad_version)) {
-    Value error_version = Core::runtime_error(Value("unsupported optimized artifact version"));
-    throw Core::as_error(error_version);
-  }
-  Value optimizer_name = Core::get(artifact, Value("optimizerName"), Value(""));
-  Value name_is_string = Core::type_is(optimizer_name, Value("string"));
-  Value name_empty = Core::eq(optimizer_name, Value(""));
-  Value bad_name_type = Core::not_(name_is_string);
-  Value bad_name = Core::or_(bad_name_type, name_empty);
-  if (Core::truthy(bad_name)) {
-    Value name_error = Core::runtime_error(Value("optimized artifact optimizerName must be a non-empty string"));
-    throw Core::as_error(name_error);
-  }
-  Value optimizer_version = Core::get(artifact, Value("optimizerVersion"), Value(""));
-  Value version_is_string = Core::type_is(optimizer_version, Value("string"));
-  Value optimizer_version_empty = Core::eq(optimizer_version, Value(""));
-  Value bad_optimizer_version_type = Core::not_(version_is_string);
-  Value bad_optimizer_version = Core::or_(bad_optimizer_version_type, optimizer_version_empty);
-  if (Core::truthy(bad_optimizer_version)) {
-    Value optimizer_version_error = Core::runtime_error(Value("optimized artifact optimizerVersion must be a non-empty string"));
-    throw Core::as_error(optimizer_version_error);
-  }
-  Value empty_map = Value::object();
-  Value component_map = Core::get(artifact, Value("componentMap"), empty_map);
-  Value component_map_is_object = Core::type_is(component_map, Value("object"));
-  Value bad_component_map = Core::not_(component_map_is_object);
-  if (Core::truthy(bad_component_map)) {
-    Value error_map = Core::runtime_error(Value("optimized artifact componentMap must be an object"));
-    throw Core::as_error(error_map);
-  }
-  Value metadata = Core::get(artifact, Value("metadata"), Value());
-  Value metadata_is_object = Core::type_is(metadata, Value("object"));
-  Value bad_metadata = Core::not_(metadata_is_object);
-  if (Core::truthy(bad_metadata)) {
-    Value metadata_error = Core::runtime_error(Value("optimized artifact metadata must be an object"));
-    throw Core::as_error(metadata_error);
-  }
-  Value provenance = Core::get(artifact, Value("provenance"), Value());
-  Value provenance_is_object = Core::type_is(provenance, Value("object"));
-  Value bad_provenance = Core::not_(provenance_is_object);
-  if (Core::truthy(bad_provenance)) {
-    Value provenance_error = Core::runtime_error(Value("optimized artifact provenance must be an object"));
-    throw Core::as_error(provenance_error);
-  }
-  Value evidence = Core::get(artifact, Value("evidence"), Value());
-  Value evidence_is_object = Core::type_is(evidence, Value("object"));
-  Value bad_evidence = Core::not_(evidence_is_object);
-  if (Core::truthy(bad_evidence)) {
-    Value evidence_error = Core::runtime_error(Value("optimized artifact evidence must be an object"));
-    throw Core::as_error(evidence_error);
-  }
-  Core::_validate_optimization_component_map(components, component_map);
-  Core::_validate_optimized_artifact_provenance(artifact, components);
-  return artifact;
-}
-
-Value Core::_serialize_optimized_artifact(Value artifact) {
-  Value text = Core::json_stringify(artifact);
-  return text;
-}
-
-Value Core::_deserialize_optimized_artifact(Value text, Value components) {
-  Value artifact = Core::json_parse(text);
-  Value validated = Core::_validate_optimized_artifact(artifact, components);
-  return validated;
-}
-
-Value Core::_optimization_changed_components(Value components, Value component_map) {
-  Value changes = Value::array();
-  for (auto component : Core::iter(components)) {
-    Value id = Core::get(component, Value("id"), Value(""));
-    Value current = Core::get(component, Value("current"), Value());
-    Value next = Core::get(component_map, id, current);
-    Value same = Core::eq(current, next);
-    Value changed = Core::not_(same);
-    if (Core::truthy(changed)) {
-      Value entry = Value::object();
-      Core::set(entry, Value("id"), id);
-      Core::set(entry, Value("current"), current);
-      Core::set(entry, Value("next"), next);
-      Core::append(changes, entry);
-    }
-  }
-  return changes;
-}
-
-Value Core::_optimization_component_current_map(Value components) {
-  Value out = Value::object();
-  for (auto component : Core::iter(components)) {
-    Value id = Core::get(component, Value("id"), Value(""));
-    Value current = Core::get(component, Value("current"), Value());
-    Core::set(out, id, current);
-  }
-  return out;
-}
-
-Value Core::_normalize_optimization_dataset(Value dataset) {
   Value empty_list = Value::array();
-  Value is_object = Core::type_is(dataset, Value("object"));
-  if (Core::truthy(is_object)) {
-    Value train = Core::get(dataset, Value("train"), empty_list);
-    Value validation = Core::get(dataset, Value("validation"), empty_list);
-    Value out_obj = Value::object();
-    Core::set(out_obj, Value("train"), train);
-    Core::set(out_obj, Value("validation"), validation);
-    return out_obj;
-  }
-  Value out_list = Value::object();
-  Core::set(out_list, Value("train"), dataset);
-  Core::set(out_list, Value("validation"), empty_list);
-  return out_list;
-}
-
-Value Core::_normalize_optimization_metric_scores(Value raw) {
-  Value is_number = Core::type_is(raw, Value("number"));
-  if (Core::truthy(is_number)) {
-    Value out_number = Value::object();
-    Core::set(out_number, Value("score"), raw);
-    return out_number;
-  }
-  Value is_object = Core::type_is(raw, Value("object"));
-  if (Core::truthy(is_object)) {
-    return raw;
-  }
-  Value out_zero = Value::object();
-  Core::set(out_zero, Value("score"), Value(0));
-  return out_zero;
-}
-
-Value Core::_scalarize_optimization_scores(Value scores, Value options) {
-  Value metric_key = Core::get(options, Value("paretoMetricKey"), Value(""));
-  Value has_metric = Core::ne(metric_key, Value(""));
-  if (Core::truthy(has_metric)) {
-    Value picked = Core::get(scores, metric_key, Value(0));
-    return picked;
-  }
-  Value values = Core::map_values(scores);
-  Value sum = Value(0);
-  Value count = Value(0);
-  for (auto value : Core::iter(values)) {
-    Value sum_next = Core::add(sum, value);
-    Value count_next = Core::add(count, Value(1));
-    sum = sum_next;
-    count = count_next;
-  }
-  Value empty = Core::eq(count, Value(0));
-  if (Core::truthy(empty)) {
-    return Value(0);
-  }
-  Value avg = Core::div(sum, count);
-  return avg;
-}
-
-Value Core::_optimization_action_name_matches(Value expected, Value call) {
-  Value qualified = Core::get(call, Value("qualifiedName"), Value(""));
-  Value name = Core::get(call, Value("name"), Value(""));
-  Value qualified_match = Core::eq(qualified, expected);
-  Value name_match = Core::eq(name, expected);
-  Value dot_expected = Core::add(Value("."), expected);
-  Value suffix_match = Core::string_ends_with(qualified, dot_expected);
-  Value direct_match = Core::or_(qualified_match, name_match);
-  Value any_match = Core::or_(direct_match, suffix_match);
-  return any_match;
-}
-
-Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Value prediction) {
-  Value empty_list = Value::array();
-  Value function_calls = Core::get(prediction, Value("functionCalls"), empty_list);
-  Value expected_actions = Core::get(task, Value("expectedActions"), empty_list);
-  Value forbidden_actions = Core::get(task, Value("forbiddenActions"), empty_list);
-  Value adjusted = score;
-  Value expected_count = Core::len(expected_actions);
-  Value has_expected = Core::gt(expected_count, Value(0));
-  if (Core::truthy(has_expected)) {
-    Value matched = Value(0);
-    for (auto expected : Core::iter(expected_actions)) {
-      Value found = Value(false);
-      for (auto call : Core::iter(function_calls)) {
-        Value call_matches = Core::_optimization_action_name_matches(expected, call);
-        if (Core::truthy(call_matches)) {
-          found = Value(true);
-        }
-      }
-      if (Core::truthy(found)) {
-        Value matched_next = Core::add(matched, Value(1));
-        matched = matched_next;
-      }
-    }
-    Value ratio = Core::div(matched, expected_count);
-    Value half_ratio = Core::mul(Value(0.5), ratio);
-    Value factor = Core::add(Value(0.5), half_ratio);
-    Value adjusted_next = Core::mul(adjusted, factor);
-    adjusted = adjusted_next;
-  }
-  for (auto forbidden : Core::iter(forbidden_actions)) {
-    Value bad_found = Value(false);
-    for (auto call : Core::iter(function_calls)) {
-      Value bad_match = Core::_optimization_action_name_matches(forbidden, call);
-      if (Core::truthy(bad_match)) {
-        bad_found = Value(true);
-      }
-    }
-    if (Core::truthy(bad_found)) {
-      Value penalized = Core::mul(adjusted, Value(0.2));
-      adjusted = penalized;
-    }
-  }
-  return adjusted;
-}
-
-Value Core::_map_optimization_judge_quality_to_score(Value quality) {
-  Value normalized = Core::string_lower(quality);
-  Value is_excellent = Core::eq(normalized, Value("excellent"));
-  if (Core::truthy(is_excellent)) {
-    return Value(1);
-  }
-  Value is_good = Core::eq(normalized, Value("good"));
-  if (Core::truthy(is_good)) {
-    return Value(0.8);
-  }
-  Value is_acceptable = Core::eq(normalized, Value("acceptable"));
-  if (Core::truthy(is_acceptable)) {
-    return Value(0.5);
-  }
-  Value is_poor = Core::eq(normalized, Value("poor"));
-  if (Core::truthy(is_poor)) {
-    return Value(0.2);
-  }
-  Value is_unacceptable = Core::eq(normalized, Value("unacceptable"));
-  if (Core::truthy(is_unacceptable)) {
-    return Value(0);
-  }
-  return Value(0.5);
-}
-
-Value Core::_build_optimization_judge_payload(Value task, Value prediction, Value criteria) {
-  Value empty_list = Value::array();
-  Value out = Value::object();
-  Value task_input = Core::get(task, Value("input"), task);
-  Core::set(out, Value("taskInput"), task_input);
-  Value task_criteria = Core::get(task, Value("criteria"), criteria);
-  Core::set(out, Value("criteria"), task_criteria);
-  Value expected_output = Core::get(task, Value("expectedOutput"), Value());
-  Core::set(out, Value("expectedOutput"), expected_output);
-  Value expected_actions = Core::get(task, Value("expectedActions"), empty_list);
-  Core::set(out, Value("expectedActions"), expected_actions);
-  Value forbidden_actions = Core::get(task, Value("forbiddenActions"), empty_list);
-  Core::set(out, Value("forbiddenActions"), forbidden_actions);
-  Value metadata = Core::get(task, Value("metadata"), Value());
-  Core::set(out, Value("metadata"), metadata);
-  Value completion_type = Core::get(prediction, Value("completionType"), Value("error"));
-  Core::set(out, Value("completionType"), completion_type);
-  Value clarification = Core::get(prediction, Value("clarification"), Value());
-  Core::set(out, Value("clarification"), clarification);
-  Value final_output = Core::get(prediction, Value("output"), prediction);
-  Core::set(out, Value("finalOutput"), final_output);
-  Value guidance_log = Core::get(prediction, Value("guidanceLog"), Value(""));
-  Core::set(out, Value("guidanceLog"), guidance_log);
-  Value action_log = Core::get(prediction, Value("actionLog"), empty_list);
-  Core::set(out, Value("actionLog"), action_log);
-  Value function_calls = Core::get(prediction, Value("functionCalls"), empty_list);
-  Core::set(out, Value("functionCalls"), function_calls);
-  Value tool_errors = Core::get(prediction, Value("toolErrors"), empty_list);
-  Core::set(out, Value("toolErrors"), tool_errors);
-  Value turn_count = Core::get(prediction, Value("turnCount"), Value(0));
-  Core::set(out, Value("turnCount"), turn_count);
-  Value usage = Core::get(prediction, Value("usage"), empty_list);
-  Core::set(out, Value("usage"), usage);
-  Value trace = Core::get(prediction, Value("trace"), Value());
-  Core::set(out, Value("trace"), trace);
-  return out;
-}
-
-Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
-  Value out = Value::object();
-  Core::set(out, Value("input"), task);
-  Core::set(out, Value("prediction"), prediction);
-  Core::set(out, Value("scores"), scores);
-  Core::set(out, Value("scalar"), scalar);
-  Core::set(out, Value("trace"), trace);
-  Value has_error = Core::is_not_none(error);
-  if (Core::truthy(has_error)) {
-    Core::set(out, Value("error"), error);
-  }
-  return out;
-}
-
-Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Value phase) {
-  Value sum = Value(0);
-  Value count = Value(0);
-  for (auto row : Core::iter(rows)) {
-    Value scalar = Core::get(row, Value("scalar"), Value(0));
-    Value sum_next = Core::add(sum, scalar);
-    Value count_next = Core::add(count, Value(1));
-    sum = sum_next;
-    count = count_next;
-  }
-  Value avg = Value(0);
-  Value has_rows = Core::gt(count, Value(0));
-  if (Core::truthy(has_rows)) {
-    Value avg_next = Core::div(sum, count);
-    avg = avg_next;
-  }
-  Value out = Value::object();
-  Core::set(out, Value("phase"), phase);
-  Core::set(out, Value("candidateMap"), candidate_map);
-  Core::set(out, Value("rows"), rows);
-  Core::set(out, Value("sum"), sum);
-  Core::set(out, Value("avg"), avg);
-  Core::set(out, Value("count"), count);
-  return out;
-}
-
-Value Core::_filter_optimization_components(Value components, Value target) {
-  Value out = Value::array();
-  Value is_list = Core::type_is(target, Value("list"));
-  Value is_all = Core::eq(target, Value("all"));
-  Value is_actor = Core::eq(target, Value("actor"));
-  Value is_responder = Core::eq(target, Value("responder"));
-  Value is_flow = Core::eq(target, Value("flow"));
-  for (auto component : Core::iter(components)) {
-    Value id = Core::get(component, Value("id"), Value(""));
-    Value kind = Core::get(component, Value("kind"), Value(""));
-    Value include = Value(false);
-    if (Core::truthy(is_all)) {
-      include = Value(true);
-    }
-    if (Core::truthy(is_list)) {
-      Value listed = Core::contains(target, id);
-      if (Core::truthy(listed)) {
-        include = Value(true);
-      }
-    }
-    if (Core::truthy(is_actor)) {
-      Value actor_match = Core::string_ends_with(id, Value(".actor"));
-      Value actor_component_match = Core::contains(id, Value(".actor::"));
-      Value actor_any_match = Core::or_(actor_match, actor_component_match);
-      if (Core::truthy(actor_any_match)) {
-        include = Value(true);
-      }
-    }
-    if (Core::truthy(is_responder)) {
-      Value responder_match = Core::string_ends_with(id, Value(".responder"));
-      Value responder_component_match = Core::contains(id, Value(".responder::"));
-      Value responder_any_match = Core::or_(responder_match, responder_component_match);
-      if (Core::truthy(responder_any_match)) {
-        include = Value(true);
-      }
-    }
-    if (Core::truthy(is_flow)) {
-      Value flow_component = Core::eq(kind, Value("flow-graph"));
-      if (Core::truthy(flow_component)) {
-        include = Value(true);
-      }
-    }
-    Value explicit_match = Core::eq(target, id);
-    if (Core::truthy(explicit_match)) {
-      include = Value(true);
-    }
-    if (Core::truthy(include)) {
-      Core::append(out, component);
-    }
-  }
-  Value count = Core::len(out);
-  Value empty = Core::eq(count, Value(0));
-  if (Core::truthy(empty)) {
-    Value message = Core::string_format(Value("no optimizable components match target: {}"), target);
-    Value error = Core::runtime_error(message);
-    throw Core::as_error(error);
-  }
-  return out;
-}
-
-Value Core::_build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace) {
-  Value out = Value::object();
-  Core::set(out, Value("contractVersion"), Value("axir-optimize-contract-v1"));
-  Core::set(out, Value("programKind"), program_kind);
-  Core::set(out, Value("components"), components);
-  Core::set(out, Value("dataset"), dataset);
-  Core::set(out, Value("options"), options);
-  Core::set(out, Value("trace"), trace);
-  Value evaluator = Value::object();
-  Value methods = Value::array();
-  Core::append(methods, Value("evaluate"));
-  Core::set(evaluator, Value("available"), Value(true));
-  Core::set(evaluator, Value("contractVersion"), Value("axir-optimizer-evaluator-v1"));
-  Core::set(evaluator, Value("evidenceContractVersion"), Value("axir-optimizer-evidence-v1"));
-  Core::set(evaluator, Value("methods"), methods);
-  Core::set(out, Value("evaluator"), evaluator);
-  return out;
-}
-
-Value Core::_prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available) {
-  Value empty_map = Value::object();
   Value opts_missing = Core::is_none(options);
   Value opts = options;
   if (Core::truthy(opts_missing)) {
     opts = empty_map;
   }
-  Value normalized = Core::_normalize_optimization_dataset(dataset);
-  Value target = Core::get(opts, Value("target"), Value("all"));
-  Value selected = Core::_filter_optimization_components(components, target);
-  Value request_options = Core::map_merge(empty_map, opts);
-  Core::map_delete(request_options, Value("client"));
-  Core::map_delete(request_options, Value("ai"));
-  Core::map_delete(request_options, Value("engine"));
-  Core::map_delete(request_options, Value("optimizer"));
-  Value request = Core::_build_optimizer_request(program_kind, selected, normalized, request_options, trace);
-  Value evaluator = Core::get(request, Value("evaluator"), Value());
-  Core::set(evaluator, Value("available"), evaluator_available);
-  Core::set(request, Value("evaluator"), evaluator);
-  Value out = Value::object();
-  Core::set(out, Value("components"), components);
-  Core::set(out, Value("selectedComponents"), selected);
-  Core::set(out, Value("dataset"), normalized);
-  Core::set(out, Value("options"), request_options);
-  Core::set(out, Value("request"), request);
-  return out;
-}
-
-Value Core::_normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components) {
-  Value response_is_object = Core::type_is(response, Value("object"));
-  Value bad_response = Core::not_(response_is_object);
-  if (Core::truthy(bad_response)) {
-    Value error = Core::runtime_error(Value("optimizer engine must return an optimized artifact"));
-    throw Core::as_error(error);
-  }
-  Value empty_map = Value::object();
-  Value has_artifact = Core::map_contains(response, Value("artifact"));
-  Value artifact_source = response;
-  if (Core::truthy(has_artifact)) {
-    Value artifact_value = Core::get(response, Value("artifact"), Value());
-    artifact_source = artifact_value;
-  }
-  Value artifact = Core::map_merge(empty_map, artifact_source);
-  Value artifact_is_object = Core::type_is(artifact, Value("object"));
-  Value bad_artifact = Core::not_(artifact_is_object);
-  if (Core::truthy(bad_artifact)) {
-    Value artifact_error = Core::runtime_error(Value("optimizer engine must return an optimized artifact"));
-    throw Core::as_error(artifact_error);
-  }
-  Value version = Core::get(artifact, Value("artifactVersion"), Value());
-  Value missing_version = Core::is_none(version);
-  if (Core::truthy(missing_version)) {
-    Core::set(artifact, Value("artifactVersion"), Value("axir-optimized-artifact-v1"));
-  }
-  Value name = Core::get(artifact, Value("optimizerName"), Value());
-  Value missing_name = Core::is_none(name);
-  if (Core::truthy(missing_name)) {
-    Core::set(artifact, Value("optimizerName"), engine_name);
-  }
-  Value engine_ver = Core::get(artifact, Value("optimizerVersion"), Value());
-  Value missing_engine_ver = Core::is_none(engine_ver);
-  if (Core::truthy(missing_engine_ver)) {
-    Core::set(artifact, Value("optimizerVersion"), engine_version);
-  }
-  Value component_map = Core::get(artifact, Value("componentMap"), Value());
-  Value missing_component_map = Core::is_none(component_map);
-  if (Core::truthy(missing_component_map)) {
-    Value snake_map = Core::get(artifact, Value("component_map"), empty_map);
-    Core::set(artifact, Value("componentMap"), snake_map);
-  }
-  Value metadata = Core::get(artifact, Value("metadata"), Value());
-  Value missing_metadata = Core::is_none(metadata);
-  if (Core::truthy(missing_metadata)) {
-    Value default_metadata = Value::object();
-    Core::set(artifact, Value("metadata"), default_metadata);
-  }
-  Value metadata_final = Core::get(artifact, Value("metadata"), Value());
-  Value provenance = Core::get(artifact, Value("provenance"), Value());
-  Value missing_provenance = Core::is_none(provenance);
-  if (Core::truthy(missing_provenance)) {
-    Value empty_provenance = Value::object();
-    Value metadata_provenance = Core::get(metadata_final, Value("provenance"), empty_provenance);
-    Core::set(artifact, Value("provenance"), metadata_provenance);
-  }
-  Value evidence = Core::get(artifact, Value("evidence"), Value());
-  Value missing_evidence = Core::is_none(evidence);
-  if (Core::truthy(missing_evidence)) {
-    Value empty_evidence = Value::object();
-    Value metadata_evidence = Core::get(metadata_final, Value("evidence"), empty_evidence);
-    Core::set(artifact, Value("evidence"), metadata_evidence);
-  }
-  Value validated = Core::_validate_optimized_artifact(artifact, components);
-  Value map = Core::get(validated, Value("componentMap"), Value());
-  Value changed = Core::_optimization_changed_components(components, map);
-  Core::set(validated, Value("changedComponents"), changed);
-  return validated;
-}
-
-Value Core::_build_optimizer_evidence_batch(Value eval_result, Value components) {
-  Value empty_list = Value::array();
-  Value empty_map = Value::object();
-  Value rows = Core::get(eval_result, Value("rows"), empty_list);
-  Value outputs = Value::array();
-  Value scores = Value::array();
-  Value score_vectors = Value::array();
-  Value trajectories = Value::array();
-  for (auto row : Core::iter(rows)) {
-    Value prediction = Core::get(row, Value("prediction"), empty_map);
-    Value output = Core::get(prediction, Value("output"), prediction);
-    Core::append(outputs, output);
-    Value scalar = Core::get(row, Value("scalar"), Value(0));
-    Core::append(scores, scalar);
-    Value vector = Core::get(row, Value("scores"), empty_map);
-    Core::append(score_vectors, vector);
-    Value trajectory = Value::object();
-    Value trace = Core::get(row, Value("trace"), Value());
-    Core::set(trajectory, Value("trace"), trace);
-    Core::set(trajectory, Value("output"), output);
-    Value row_error = Core::get(row, Value("error"), Value());
-    Value prediction_error = Core::get(prediction, Value("error"), row_error);
-    Value has_error = Core::is_not_none(prediction_error);
-    if (Core::truthy(has_error)) {
-      Core::set(trajectory, Value("error"), prediction_error);
-    }
-    Core::append(trajectories, trajectory);
-  }
-  Value reflective = Value::object();
-  for (auto component : Core::iter(components)) {
-    Value id = Core::get(component, Value("id"), Value(""));
-    Value items = Value::array();
-    for (auto row : Core::iter(rows)) {
-      Value entry = Value::object();
-      Value prediction = Core::get(row, Value("prediction"), empty_map);
-      Value output = Core::get(prediction, Value("output"), prediction);
-      Value scalar = Core::get(row, Value("scalar"), Value(0));
-      Value trace = Core::get(row, Value("trace"), Value());
-      Core::set(entry, Value("score"), scalar);
-      Core::set(entry, Value("output"), output);
-      Core::set(entry, Value("trace"), trace);
-      Value error = Core::get(row, Value("error"), Value());
-      Value has_error = Core::is_not_none(error);
-      if (Core::truthy(has_error)) {
-        Core::set(entry, Value("error"), error);
-      }
-      Core::append(items, entry);
-    }
-    Core::set(reflective, id, items);
-  }
-  Value out = Value::object();
-  Core::set(out, Value("contractVersion"), Value("axir-optimizer-evidence-v1"));
-  Value candidate_map = Core::get(eval_result, Value("candidateMap"), empty_map);
-  Core::set(out, Value("candidateMap"), candidate_map);
-  Core::set(out, Value("outputs"), outputs);
-  Core::set(out, Value("scores"), scores);
-  Core::set(out, Value("scoreVectors"), score_vectors);
-  Core::set(out, Value("trajectories"), trajectories);
-  Value avg = Core::get(eval_result, Value("avg"), Value(0));
-  Value sum = Core::get(eval_result, Value("sum"), Value(0));
-  Value count = Core::get(eval_result, Value("count"), Value(0));
-  Core::set(out, Value("avg"), avg);
-  Core::set(out, Value("sum"), sum);
-  Core::set(out, Value("count"), count);
-  Core::set(out, Value("reflectiveDataset"), reflective);
-  return out;
-}
-
-Value Core::_build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace) {
-  Value out = Value::object();
-  Core::set(out, Value("completionType"), Value("final"));
-  Core::set(out, Value("output"), output);
-  Core::set(out, Value("finalOutput"), output);
-  Core::set(out, Value("actionLog"), action_log);
-  Core::set(out, Value("usage"), usage);
-  Core::set(out, Value("trace"), trace);
-  Value empty_list = Value::array();
-  Core::set(out, Value("functionCalls"), empty_list);
-  Core::set(out, Value("toolErrors"), empty_list);
-  Core::set(out, Value("turnCount"), Value(0));
-  return out;
+  Value steps = Value::array();
+  Value traces = Value::array();
+  Value chat_log = Value::array();
+  Value usage = Value::object();
+  Value demos = Value::object();
+  Value state = Value::object();
+  Value id = Core::get(opts, Value("id"), Value("root.flow"));
+  Core::set(state, Value("program_kind"), Value("axflow"));
+  Core::set(state, Value("program_id"), id);
+  Core::set(state, Value("options"), opts);
+  Core::set(state, Value("steps"), steps);
+  Core::set(state, Value("returns"), empty_map);
+  Core::set(state, Value("demos"), demos);
+  Core::set(state, Value("traces"), traces);
+  Core::set(state, Value("chat_log"), chat_log);
+  Core::set(state, Value("usage"), usage);
+  return state;
 }
 
 Value Core::_program_descriptor(Value kind, Value id, Value metadata) {
@@ -12874,64 +12901,6 @@ Value Core::_program_trace_event(Value program_id, Value kind, Value payload) {
   Core::set(event, Value("kind"), kind);
   Core::set(event, Value("payload"), data);
   return event;
-}
-
-Value Core::_program_child_component_prefix(Value owner, Value node) {
-  Value path = Core::string_format(Value("{}.{}::"), owner, node);
-  return path;
-}
-
-Value Core::_program_prefix_component(Value component, Value owner, Value node) {
-  Value empty_map = Value::object();
-  Value child = Core::map_merge(empty_map, component);
-  Value child_owner = Core::string_format(Value("{}.{}"), owner, node);
-  Value child_id = Core::get(component, Value("id"), Value(""));
-  Value prefixed_id = Core::string_format(Value("{}::{}"), child_owner, child_id);
-  Core::set(child, Value("owner"), child_owner);
-  Core::set(child, Value("id"), prefixed_id);
-  return child;
-}
-
-Value Core::_program_slice_component_map(Value component_map, Value prefix) {
-  Value out = Value::object();
-  Value keys = Core::map_keys(component_map);
-  for (auto key : Core::iter(keys)) {
-    Value matches = Core::string_starts_with(key, prefix);
-    if (Core::truthy(matches)) {
-      Value prefix_len = Core::len(prefix);
-      Value short_key = Core::string_slice(key, prefix_len);
-      Value value = Core::get(component_map, key, Value());
-      Core::set(out, short_key, value);
-    }
-  }
-  return out;
-}
-
-Value Core::_flow_factory(Value options) {
-  Value empty_map = Value::object();
-  Value empty_list = Value::array();
-  Value opts_missing = Core::is_none(options);
-  Value opts = options;
-  if (Core::truthy(opts_missing)) {
-    opts = empty_map;
-  }
-  Value steps = Value::array();
-  Value traces = Value::array();
-  Value chat_log = Value::array();
-  Value usage = Value::object();
-  Value demos = Value::object();
-  Value state = Value::object();
-  Value id = Core::get(opts, Value("id"), Value("root.flow"));
-  Core::set(state, Value("program_kind"), Value("axflow"));
-  Core::set(state, Value("program_id"), id);
-  Core::set(state, Value("options"), opts);
-  Core::set(state, Value("steps"), steps);
-  Core::set(state, Value("returns"), empty_map);
-  Core::set(state, Value("demos"), demos);
-  Core::set(state, Value("traces"), traces);
-  Core::set(state, Value("chat_log"), chat_log);
-  Core::set(state, Value("usage"), usage);
-  return state;
 }
 
 Value Core::_flow_step(Value kind, Value name, Value program, Value options) {
@@ -12986,6 +12955,37 @@ Value Core::_flow_step(Value kind, Value name, Value program, Value options) {
   Core::set(step, Value("writes"), writes);
   Core::set(step, Value("isBarrier"), barrier);
   return step;
+}
+
+Value Core::_program_child_component_prefix(Value owner, Value node) {
+  Value path = Core::string_format(Value("{}.{}::"), owner, node);
+  return path;
+}
+
+Value Core::_program_prefix_component(Value component, Value owner, Value node) {
+  Value empty_map = Value::object();
+  Value child = Core::map_merge(empty_map, component);
+  Value child_owner = Core::string_format(Value("{}.{}"), owner, node);
+  Value child_id = Core::get(component, Value("id"), Value(""));
+  Value prefixed_id = Core::string_format(Value("{}::{}"), child_owner, child_id);
+  Core::set(child, Value("owner"), child_owner);
+  Core::set(child, Value("id"), prefixed_id);
+  return child;
+}
+
+Value Core::_program_slice_component_map(Value component_map, Value prefix) {
+  Value out = Value::object();
+  Value keys = Core::map_keys(component_map);
+  for (auto key : Core::iter(keys)) {
+    Value matches = Core::string_starts_with(key, prefix);
+    if (Core::truthy(matches)) {
+      Value prefix_len = Core::len(prefix);
+      Value short_key = Core::string_slice(key, prefix_len);
+      Value value = Core::get(component_map, key, Value());
+      Core::set(out, short_key, value);
+    }
+  }
+  return out;
 }
 
 Value Core::_flow_add_step(Value flow, Value step) {
@@ -13179,189 +13179,6 @@ Value Core::_flow_plan(Value flow) {
 Value Core::_flow_cache_key(Value values) {
   Value key = Core::json_stable_stringify(values);
   return key;
-}
-
-Value Core::_flow_get_optimizable_components(Value flow) {
-  Value empty_list = Value::array();
-  Value empty_map = Value::object();
-  Value owner = Core::get(flow, Value("program_id"), Value("root.flow"));
-  Value plan = Core::_flow_plan(flow);
-  Value current_plan = Core::get(flow, Value("optimized_graph_plan"), plan);
-  Value components = Value::array();
-  Value graph_id = Core::string_format(Value("{}::graph-plan"), owner);
-  Value constraints = Value::array();
-  Core::append(constraints, Value("Preserve node names, dependencies, and return contract."));
-  Value validation = Value::object();
-  Core::set(validation, Value("schema"), Value("axflow-plan-v1"));
-  Value graph = Core::_optimization_component(graph_id, owner, Value("flow-graph"), current_plan, Value("AxFlow execution graph and planner barrier metadata."), constraints, empty_list, Value(false), Value("json"), validation);
-  Core::append(components, graph);
-  Value steps = Core::get(flow, Value("steps"), empty_list);
-  for (auto step : Core::iter(steps)) {
-    Value program = Core::get(step, Value("program"), Value());
-    Value name = Core::get(step, Value("name"), Value(""));
-    Value child_components = Core::program_components(program);
-    for (auto component : Core::iter(child_components)) {
-      Value child = Core::_program_prefix_component(component, owner, name);
-      Core::append(components, child);
-    }
-  }
-  return components;
-}
-
-Value Core::_flow_apply_optimized_components(Value flow, Value component_map) {
-  Value empty_map = Value::object();
-  Value empty_list = Value::array();
-  Value updates_missing = Core::is_none(component_map);
-  Value updates = component_map;
-  if (Core::truthy(updates_missing)) {
-    updates = empty_map;
-  }
-  Value components = Core::_flow_get_optimizable_components(flow);
-  Core::_validate_optimization_component_map(components, updates);
-  Value owner = Core::get(flow, Value("program_id"), Value("root.flow"));
-  Value graph_id = Core::string_format(Value("{}::graph-plan"), owner);
-  Value graph_update = Core::get(updates, graph_id, Value());
-  Value has_graph_update = Core::is_not_none(graph_update);
-  if (Core::truthy(has_graph_update)) {
-    Value graph_is_object = Core::type_is(graph_update, Value("object"));
-    Value bad_graph = Core::not_(graph_is_object);
-    if (Core::truthy(bad_graph)) {
-      Value err = Core::runtime_error(Value("optimized flow graph-plan component must be an object"));
-      throw Core::as_error(err);
-    }
-    Core::set(flow, Value("optimized_graph_plan"), graph_update);
-  }
-  Value steps = Core::get(flow, Value("steps"), empty_list);
-  for (auto step : Core::iter(steps)) {
-    Value program = Core::get(step, Value("program"), Value());
-    Value name = Core::get(step, Value("name"), Value(""));
-    Value prefix = Core::_program_child_component_prefix(owner, name);
-    Value child_updates = Core::_program_slice_component_map(updates, prefix);
-    Value has_child_updates = Core::truthy_value(child_updates);
-    if (Core::truthy(has_child_updates)) {
-      Core::program_apply_components(program, child_updates);
-    }
-  }
-  return flow;
-}
-
-Value Core::_flow_snapshot_components(Value flow) {
-  Value components = Core::_flow_get_optimizable_components(flow);
-  Value snapshot = Core::_optimization_component_current_map(components);
-  return snapshot;
-}
-
-Value Core::_flow_restore_components(Value flow, Value snapshot) {
-  Value restored = Core::_flow_apply_optimized_components(flow, snapshot);
-  return restored;
-}
-
-Value Core::_flow_evaluate_optimization(Value flow, Value client, Value dataset, Value candidate_map, Value options) {
-  Value empty_map = Value::object();
-  Value empty_list = Value::array();
-  Value opts_missing = Core::is_none(options);
-  Value opts = options;
-  if (Core::truthy(opts_missing)) {
-    opts = empty_map;
-  }
-  Value candidate_missing = Core::is_none(candidate_map);
-  Value candidate = candidate_map;
-  if (Core::truthy(candidate_missing)) {
-    candidate = empty_map;
-  }
-  Value normalized = Core::_normalize_optimization_dataset(dataset);
-  Value train = Core::get(normalized, Value("train"), empty_list);
-  Value phase = Core::get(opts, Value("phase"), Value("train"));
-  Value max_calls_snake = Core::get(opts, Value("max_metric_calls"), Value(2147483647));
-  Value max_calls = Core::get(opts, Value("maxMetricCalls"), max_calls_snake);
-  Value forward_options = Core::get(opts, Value("forward_options"), empty_map);
-  Value original = Core::_flow_snapshot_components(flow);
-  Value rows = Value::array();
-  Value calls = Value(0);
-  Value result = Value::object();
-  try {
-    Value has_candidate = Core::truthy_value(candidate);
-    if (Core::truthy(has_candidate)) {
-      Core::_flow_apply_optimized_components(flow, candidate);
-    }
-    for (auto task : Core::iter(train)) {
-      Value too_many = Core::gte(calls, max_calls);
-      if (Core::truthy(too_many)) {
-        Value message = Core::string_format(Value("max metric calls exceeded: {}"), max_calls);
-        Value err = Core::runtime_error(message);
-        throw Core::as_error(err);
-      }
-      Value next_calls = Core::add(calls, Value(1));
-      calls = next_calls;
-      Value error = Core::none();
-      Value prediction = Value::object();
-      try {
-        Value input = Core::get(task, Value("input"), task);
-        Value output = Core::_flow_forward(flow, client, input, forward_options);
-        Value trace = Value::object();
-        Value traces = Core::get(flow, Value("traces"), empty_list);
-        Value chat_log = Core::get(flow, Value("chat_log"), empty_list);
-        Value usage = Core::get(flow, Value("usage"), empty_map);
-        Core::set(trace, Value("traces"), traces);
-        Core::set(trace, Value("chat_log"), chat_log);
-        prediction = Core::_build_agent_eval_prediction(output, chat_log, usage, trace);
-      } catch (const std::exception& e) {
-        Value forward_error = Core::exception_value(e);
-        Value error_message = Core::exception_message(forward_error);
-        error = Value::object();
-        Core::set(error, Value("message"), error_message);
-        Value trace = Value::object();
-        Value traces = Core::get(flow, Value("traces"), empty_list);
-        Value chat_log = Core::get(flow, Value("chat_log"), empty_list);
-        Value usage = Core::get(flow, Value("usage"), empty_map);
-        Core::set(trace, Value("traces"), traces);
-        Core::set(trace, Value("chat_log"), chat_log);
-        Core::set(prediction, Value("completionType"), Value("error"));
-        Core::set(prediction, Value("error"), error);
-        Core::set(prediction, Value("functionCalls"), empty_list);
-        Core::set(prediction, Value("actionLog"), chat_log);
-        Core::set(prediction, Value("usage"), usage);
-        Core::set(prediction, Value("trace"), trace);
-        Core::set(prediction, Value("turnCount"), Value(0));
-      }
-      Value completion_type = Core::get(prediction, Value("completionType"), Value("final"));
-      Value is_error = Core::eq(completion_type, Value("error"));
-      Value default_score = Value(1);
-      if (Core::truthy(is_error)) {
-        default_score = Value(0);
-      }
-      Value score_from_score = Core::get(task, Value("score"), default_score);
-      Value score_from_scores = Core::get(task, Value("scores"), score_from_score);
-      Value raw_scores = Core::get(task, Value("metric_score"), score_from_scores);
-      Value scores = Core::_normalize_optimization_metric_scores(raw_scores);
-      Value scalar_base = Core::_scalarize_optimization_scores(scores, opts);
-      Value scalar = Core::_adjust_optimization_score_for_actions(scalar_base, task, prediction);
-      Value trace_for_row = Core::get(prediction, Value("trace"), Value());
-      Value row = Core::_build_optimization_eval_row(task, prediction, scores, scalar, trace_for_row, error);
-      Core::append(rows, row);
-    }
-    result = Core::_build_optimization_eval_result(rows, candidate, phase);
-    Core::_flow_restore_components(flow, original);
-  } catch (const std::exception& e) {
-    Value outer_error = Core::exception_value(e);
-    Core::_flow_restore_components(flow, original);
-    throw Core::as_error(outer_error);
-  }
-  return result;
-}
-
-Value Core::_flow_optimize_with(Value flow, Value dataset, Value options, Value evaluator_available) {
-  Value empty_map = Value::object();
-  Value empty_list = Value::array();
-  Value components = Core::_flow_get_optimizable_components(flow);
-  Value trace = Value::object();
-  Value traces = Core::get(flow, Value("traces"), empty_list);
-  Value chat_log = Core::get(flow, Value("chat_log"), empty_list);
-  Core::set(trace, Value("traces"), traces);
-  Core::set(trace, Value("chat_log"), chat_log);
-  Value run = Core::_prepare_optimizer_run(Value("axflow"), components, dataset, options, trace, evaluator_available);
-  Value request = Core::get(run, Value("request"), empty_map);
-  return request;
 }
 
 Value Core::_flow_cache_read_write(Value flow, Value values, Value options, Value mode, Value cached_value) {
@@ -13854,6 +13671,255 @@ Value Core::_flow_forward(Value flow, Value client, Value values, Value options)
   Value done = Core::_program_trace_event(program_id, Value("flow_done"), done_payload);
   Core::append(traces, done);
   return output;
+}
+
+Value Core::_flow_get_optimizable_components(Value flow) {
+  Value empty_list = Value::array();
+  Value empty_map = Value::object();
+  Value owner = Core::get(flow, Value("program_id"), Value("root.flow"));
+  Value plan = Core::_flow_plan(flow);
+  Value current_plan = Core::get(flow, Value("optimized_graph_plan"), plan);
+  Value components = Value::array();
+  Value graph_id = Core::string_format(Value("{}::graph-plan"), owner);
+  Value constraints = Value::array();
+  Core::append(constraints, Value("Preserve node names, dependencies, and return contract."));
+  Value validation = Value::object();
+  Core::set(validation, Value("schema"), Value("axflow-plan-v1"));
+  Value graph = Core::_optimization_component(graph_id, owner, Value("flow-graph"), current_plan, Value("AxFlow execution graph and planner barrier metadata."), constraints, empty_list, Value(false), Value("json"), validation);
+  Core::append(components, graph);
+  Value steps = Core::get(flow, Value("steps"), empty_list);
+  for (auto step : Core::iter(steps)) {
+    Value program = Core::get(step, Value("program"), Value());
+    Value name = Core::get(step, Value("name"), Value(""));
+    Value child_components = Core::program_components(program);
+    for (auto component : Core::iter(child_components)) {
+      Value child = Core::_program_prefix_component(component, owner, name);
+      Core::append(components, child);
+    }
+  }
+  return components;
+}
+
+Value Core::_flow_apply_optimized_components(Value flow, Value component_map) {
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value updates_missing = Core::is_none(component_map);
+  Value updates = component_map;
+  if (Core::truthy(updates_missing)) {
+    updates = empty_map;
+  }
+  Value components = Core::_flow_get_optimizable_components(flow);
+  Core::_validate_optimization_component_map(components, updates);
+  Value owner = Core::get(flow, Value("program_id"), Value("root.flow"));
+  Value graph_id = Core::string_format(Value("{}::graph-plan"), owner);
+  Value graph_update = Core::get(updates, graph_id, Value());
+  Value has_graph_update = Core::is_not_none(graph_update);
+  if (Core::truthy(has_graph_update)) {
+    Value graph_is_object = Core::type_is(graph_update, Value("object"));
+    Value bad_graph = Core::not_(graph_is_object);
+    if (Core::truthy(bad_graph)) {
+      Value err = Core::runtime_error(Value("optimized flow graph-plan component must be an object"));
+      throw Core::as_error(err);
+    }
+    Core::set(flow, Value("optimized_graph_plan"), graph_update);
+  }
+  Value steps = Core::get(flow, Value("steps"), empty_list);
+  for (auto step : Core::iter(steps)) {
+    Value program = Core::get(step, Value("program"), Value());
+    Value name = Core::get(step, Value("name"), Value(""));
+    Value prefix = Core::_program_child_component_prefix(owner, name);
+    Value child_updates = Core::_program_slice_component_map(updates, prefix);
+    Value has_child_updates = Core::truthy_value(child_updates);
+    if (Core::truthy(has_child_updates)) {
+      Core::program_apply_components(program, child_updates);
+    }
+  }
+  return flow;
+}
+
+Value Core::_flow_snapshot_components(Value flow) {
+  Value components = Core::_flow_get_optimizable_components(flow);
+  Value snapshot = Core::_optimization_component_current_map(components);
+  return snapshot;
+}
+
+Value Core::_flow_restore_components(Value flow, Value snapshot) {
+  Value restored = Core::_flow_apply_optimized_components(flow, snapshot);
+  return restored;
+}
+
+Value Core::_flow_evaluate_optimization(Value flow, Value client, Value dataset, Value candidate_map, Value options) {
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value opts_missing = Core::is_none(options);
+  Value opts = options;
+  if (Core::truthy(opts_missing)) {
+    opts = empty_map;
+  }
+  Value candidate_missing = Core::is_none(candidate_map);
+  Value candidate = candidate_map;
+  if (Core::truthy(candidate_missing)) {
+    candidate = empty_map;
+  }
+  Value normalized = Core::_normalize_optimization_dataset(dataset);
+  Value train = Core::get(normalized, Value("train"), empty_list);
+  Value phase = Core::get(opts, Value("phase"), Value("train"));
+  Value max_calls_snake = Core::get(opts, Value("max_metric_calls"), Value(2147483647));
+  Value max_calls = Core::get(opts, Value("maxMetricCalls"), max_calls_snake);
+  Value forward_options = Core::get(opts, Value("forward_options"), empty_map);
+  Value original = Core::_flow_snapshot_components(flow);
+  Value rows = Value::array();
+  Value calls = Value(0);
+  Value result = Value::object();
+  try {
+    Value has_candidate = Core::truthy_value(candidate);
+    if (Core::truthy(has_candidate)) {
+      Core::_flow_apply_optimized_components(flow, candidate);
+    }
+    for (auto task : Core::iter(train)) {
+      Value too_many = Core::gte(calls, max_calls);
+      if (Core::truthy(too_many)) {
+        Value message = Core::string_format(Value("max metric calls exceeded: {}"), max_calls);
+        Value err = Core::runtime_error(message);
+        throw Core::as_error(err);
+      }
+      Value next_calls = Core::add(calls, Value(1));
+      calls = next_calls;
+      Value error = Core::none();
+      Value prediction = Value::object();
+      try {
+        Value input = Core::get(task, Value("input"), task);
+        Value output = Core::_flow_forward(flow, client, input, forward_options);
+        Value trace = Value::object();
+        Value traces = Core::get(flow, Value("traces"), empty_list);
+        Value chat_log = Core::get(flow, Value("chat_log"), empty_list);
+        Value usage = Core::get(flow, Value("usage"), empty_map);
+        Core::set(trace, Value("traces"), traces);
+        Core::set(trace, Value("chat_log"), chat_log);
+        prediction = Core::_build_agent_eval_prediction(output, chat_log, usage, trace);
+      } catch (const std::exception& e) {
+        Value forward_error = Core::exception_value(e);
+        Value error_message = Core::exception_message(forward_error);
+        error = Value::object();
+        Core::set(error, Value("message"), error_message);
+        Value trace = Value::object();
+        Value traces = Core::get(flow, Value("traces"), empty_list);
+        Value chat_log = Core::get(flow, Value("chat_log"), empty_list);
+        Value usage = Core::get(flow, Value("usage"), empty_map);
+        Core::set(trace, Value("traces"), traces);
+        Core::set(trace, Value("chat_log"), chat_log);
+        Core::set(prediction, Value("completionType"), Value("error"));
+        Core::set(prediction, Value("error"), error);
+        Core::set(prediction, Value("functionCalls"), empty_list);
+        Core::set(prediction, Value("actionLog"), chat_log);
+        Core::set(prediction, Value("usage"), usage);
+        Core::set(prediction, Value("trace"), trace);
+        Core::set(prediction, Value("turnCount"), Value(0));
+      }
+      Value completion_type = Core::get(prediction, Value("completionType"), Value("final"));
+      Value is_error = Core::eq(completion_type, Value("error"));
+      Value default_score = Value(1);
+      if (Core::truthy(is_error)) {
+        default_score = Value(0);
+      }
+      Value score_from_score = Core::get(task, Value("score"), default_score);
+      Value score_from_scores = Core::get(task, Value("scores"), score_from_score);
+      Value raw_scores = Core::get(task, Value("metric_score"), score_from_scores);
+      Value scores = Core::_normalize_optimization_metric_scores(raw_scores);
+      Value scalar_base = Core::_scalarize_optimization_scores(scores, opts);
+      Value scalar = Core::_adjust_optimization_score_for_actions(scalar_base, task, prediction);
+      Value trace_for_row = Core::get(prediction, Value("trace"), Value());
+      Value row = Core::_build_optimization_eval_row(task, prediction, scores, scalar, trace_for_row, error);
+      Core::append(rows, row);
+    }
+    result = Core::_build_optimization_eval_result(rows, candidate, phase);
+    Core::_flow_restore_components(flow, original);
+  } catch (const std::exception& e) {
+    Value outer_error = Core::exception_value(e);
+    Core::_flow_restore_components(flow, original);
+    throw Core::as_error(outer_error);
+  }
+  return result;
+}
+
+Value Core::_flow_optimize_with(Value flow, Value dataset, Value options, Value evaluator_available) {
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value components = Core::_flow_get_optimizable_components(flow);
+  Value trace = Value::object();
+  Value traces = Core::get(flow, Value("traces"), empty_list);
+  Value chat_log = Core::get(flow, Value("chat_log"), empty_list);
+  Core::set(trace, Value("traces"), traces);
+  Core::set(trace, Value("chat_log"), chat_log);
+  Value run = Core::_prepare_optimizer_run(Value("axflow"), components, dataset, options, trace, evaluator_available);
+  Value request = Core::get(run, Value("request"), empty_map);
+  return request;
+}
+
+Value Core::mcp_protocol_constants() {
+  Value versions = Value::array();
+  Core::append(versions, Value("2025-11-25"));
+  Core::append(versions, Value("2025-06-18"));
+  Core::append(versions, Value("2025-03-26"));
+  Core::append(versions, Value("2024-11-05"));
+  Value out = Value::object();
+  Core::set(out, Value("protocolVersion"), Value("2025-11-25"));
+  Core::set(out, Value("supportedProtocolVersions"), versions);
+  return out;
+}
+
+Value Core::mcp_jsonrpc_request(Value id, Value method, Value params) {
+  Value out = Value::object();
+  Core::set(out, Value("jsonrpc"), Value("2.0"));
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("method"), method);
+  Value missing = Core::is_none(params);
+  if (Core::truthy(missing)) {
+    // empty
+  }
+  if (!Core::truthy(missing)) {
+    Core::set(out, Value("params"), params);
+  }
+  return out;
+}
+
+Value Core::mcp_jsonrpc_notification(Value method, Value params) {
+  Value out = Value::object();
+  Core::set(out, Value("jsonrpc"), Value("2.0"));
+  Core::set(out, Value("method"), method);
+  Value missing = Core::is_none(params);
+  if (Core::truthy(missing)) {
+    // empty
+  }
+  if (!Core::truthy(missing)) {
+    Core::set(out, Value("params"), params);
+  }
+  return out;
+}
+
+Value Core::mcp_normalize_error(Value response) {
+  Value err = Core::get(response, Value("error"), Value());
+  Value missing = Core::is_none(err);
+  if (Core::truthy(missing)) {
+    Value ok = Value::object();
+    Value result = Core::get(response, Value("result"), Value());
+    Core::set(ok, Value("ok"), Value(true));
+    Core::set(ok, Value("result"), result);
+    return ok;
+  }
+  if (!Core::truthy(missing)) {
+    Value code = Core::get(err, Value("code"), Value(0));
+    Value message = Core::get(err, Value("message"), Value("MCP JSON-RPC error"));
+    Value data = Core::get(err, Value("data"), Value());
+    Value out = Value::object();
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("category"), Value("mcp"));
+    Core::set(out, Value("code"), code);
+    Core::set(out, Value("message"), message);
+    Core::set(out, Value("data"), data);
+    return out;
+  }
+  return response;
 }
 
 // END AXIR CORE EMITTED FUNCTIONS

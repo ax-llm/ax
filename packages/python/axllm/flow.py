@@ -21,31 +21,31 @@ from .gen import (
     _core_string_format,
     _core_truthy,
     _filter_optimization_components,
+    _adjust_optimization_score_for_actions,
+    _build_optimization_eval_result,
+    _build_optimization_eval_row,
+    _build_optimizer_request,
+    _deserialize_optimized_artifact,
+    _normalize_optimization_dataset,
+    _normalize_optimization_metric_scores,
+    _normalize_optimizer_engine_response,
+    _optimization_changed_components,
+    _optimization_component_current_map,
+    _prepare_optimizer_run,
+    _scalarize_optimization_scores,
+    _validate_optimization_component_map,
+    _validate_optimized_artifact,
 )
 from .agent import (
     OptimizerEngine,
     OptimizerEvaluator,
-    _adjust_optimization_score_for_actions,
-    _build_optimization_eval_result,
-    _build_optimization_eval_row,
     _build_agent_eval_prediction,
-    _build_optimizer_request,
     _call_optimizer_engine,
     _core_agent_stage_chat_log,
     _core_agent_stage_forward,
     _core_agent_stage_traces,
     _core_agent_stage_usage,
-    _normalize_optimization_dataset,
-    _normalize_optimization_metric_scores,
     _optimization_component,
-    _optimization_changed_components,
-    _optimization_component_current_map,
-    _normalize_optimizer_engine_response,
-    _prepare_optimizer_run,
-    _scalarize_optimization_scores,
-    _deserialize_optimized_artifact,
-    _validate_optimized_artifact,
-    _validate_optimization_component_map,
 )
 
 
@@ -411,6 +411,34 @@ def _core_program_apply_components(program, component_map):
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
+def _flow_factory(options: Any) -> Any:
+    empty_map = {}
+    empty_list = []
+    opts_missing = _core_is_none(options)
+    opts = options
+    if opts_missing:
+        opts = empty_map
+    else:
+        pass
+    steps = []
+    traces = []
+    chat_log = []
+    usage = {}
+    demos = {}
+    state = {}
+    id = _core_get(opts, "id", "root.flow")
+    state["program_kind"] = "axflow"
+    state["program_id"] = id
+    state["options"] = opts
+    state["steps"] = steps
+    state["returns"] = empty_map
+    state["demos"] = demos
+    state["traces"] = traces
+    state["chat_log"] = chat_log
+    state["usage"] = usage
+    return state
+
+
 def _program_descriptor(kind: str, id: str, metadata: Any) -> Any:
     empty_map = {}
     meta_missing = _core_is_none(metadata)
@@ -439,65 +467,6 @@ def _program_trace_event(program_id: str, kind: str, payload: Any) -> Any:
     event["kind"] = kind
     event["payload"] = data
     return event
-
-
-def _program_child_component_prefix(owner: str, node: str) -> str:
-    path = _core_string_format("{}.{}::", owner, node)
-    return path
-
-
-def _program_prefix_component(component: Any, owner: str, node: str) -> Any:
-    empty_map = {}
-    child = _core_map_merge(empty_map, component)
-    child_owner = _core_string_format("{}.{}", owner, node)
-    child_id = _core_get(component, "id", "")
-    prefixed_id = _core_string_format("{}::{}", child_owner, child_id)
-    child["owner"] = child_owner
-    child["id"] = prefixed_id
-    return child
-
-
-def _program_slice_component_map(component_map: Any, prefix: str) -> Any:
-    out = {}
-    keys = _core_map_keys(component_map)
-    for key in keys:
-        matches = _core_string_starts_with(key, prefix)
-        if matches:
-            prefix_len = _core_len(prefix)
-            short_key = _core_string_slice(key, prefix_len)
-            value = _core_get(component_map, key, None)
-            out[short_key] = value
-        else:
-            pass
-    return out
-
-
-def _flow_factory(options: Any) -> Any:
-    empty_map = {}
-    empty_list = []
-    opts_missing = _core_is_none(options)
-    opts = options
-    if opts_missing:
-        opts = empty_map
-    else:
-        pass
-    steps = []
-    traces = []
-    chat_log = []
-    usage = {}
-    demos = {}
-    state = {}
-    id = _core_get(opts, "id", "root.flow")
-    state["program_kind"] = "axflow"
-    state["program_id"] = id
-    state["options"] = opts
-    state["steps"] = steps
-    state["returns"] = empty_map
-    state["demos"] = demos
-    state["traces"] = traces
-    state["chat_log"] = chat_log
-    state["usage"] = usage
-    return state
 
 
 def _flow_step(kind: str, name: str, program: Any, options: Any) -> Any:
@@ -559,6 +528,37 @@ def _flow_step(kind: str, name: str, program: Any, options: Any) -> Any:
     step["writes"] = writes
     step["isBarrier"] = barrier
     return step
+
+
+def _program_child_component_prefix(owner: str, node: str) -> str:
+    path = _core_string_format("{}.{}::", owner, node)
+    return path
+
+
+def _program_prefix_component(component: Any, owner: str, node: str) -> Any:
+    empty_map = {}
+    child = _core_map_merge(empty_map, component)
+    child_owner = _core_string_format("{}.{}", owner, node)
+    child_id = _core_get(component, "id", "")
+    prefixed_id = _core_string_format("{}::{}", child_owner, child_id)
+    child["owner"] = child_owner
+    child["id"] = prefixed_id
+    return child
+
+
+def _program_slice_component_map(component_map: Any, prefix: str) -> Any:
+    out = {}
+    keys = _core_map_keys(component_map)
+    for key in keys:
+        matches = _core_string_starts_with(key, prefix)
+        if matches:
+            prefix_len = _core_len(prefix)
+            short_key = _core_string_slice(key, prefix_len)
+            value = _core_get(component_map, key, None)
+            out[short_key] = value
+        else:
+            pass
+    return out
 
 
 def _flow_add_step(flow: Any, step: Any) -> Any:
@@ -753,190 +753,6 @@ def _flow_plan(flow: Any) -> Any:
 def _flow_cache_key(values: Any) -> str:
     key = _core_json_stable_stringify(values)
     return key
-
-
-def _flow_get_optimizable_components(flow: Any) -> list[Any]:
-    empty_list = []
-    empty_map = {}
-    owner = _core_get(flow, "program_id", "root.flow")
-    plan = _flow_plan(flow)
-    current_plan = _core_get(flow, "optimized_graph_plan", plan)
-    components = []
-    graph_id = _core_string_format("{}::graph-plan", owner)
-    constraints = []
-    constraints.append("Preserve node names, dependencies, and return contract.")
-    validation = {}
-    validation["schema"] = "axflow-plan-v1"
-    graph = _optimization_component(graph_id, owner, "flow-graph", current_plan, "AxFlow execution graph and planner barrier metadata.", constraints, empty_list, False, "json", validation)
-    components.append(graph)
-    steps = _core_get(flow, "steps", empty_list)
-    for step in steps:
-        program = _core_get(step, "program", None)
-        name = _core_get(step, "name", "")
-        child_components = _core_program_components(program)
-        for component in child_components:
-            child = _program_prefix_component(component, owner, name)
-            components.append(child)
-    return components
-
-
-def _flow_apply_optimized_components(flow: Any, component_map: Any) -> Any:
-    empty_map = {}
-    empty_list = []
-    updates_missing = _core_is_none(component_map)
-    updates = component_map
-    if updates_missing:
-        updates = empty_map
-    else:
-        pass
-    components = _flow_get_optimizable_components(flow)
-    _validate_optimization_component_map(components, updates)
-    owner = _core_get(flow, "program_id", "root.flow")
-    graph_id = _core_string_format("{}::graph-plan", owner)
-    graph_update = _core_get(updates, graph_id, None)
-    has_graph_update = _core_is_not_none(graph_update)
-    if has_graph_update:
-        graph_is_object = _core_type_is(graph_update, "object")
-        bad_graph = _core_not(graph_is_object)
-        if bad_graph:
-            err = _core_runtime_error("optimized flow graph-plan component must be an object")
-            raise err
-        else:
-            pass
-        flow["optimized_graph_plan"] = graph_update
-    else:
-        pass
-    steps = _core_get(flow, "steps", empty_list)
-    for step in steps:
-        program = _core_get(step, "program", None)
-        name = _core_get(step, "name", "")
-        prefix = _program_child_component_prefix(owner, name)
-        child_updates = _program_slice_component_map(updates, prefix)
-        has_child_updates = _core_truthy(child_updates)
-        if has_child_updates:
-            _core_program_apply_components(program, child_updates)
-        else:
-            pass
-    return flow
-
-
-def _flow_snapshot_components(flow: Any) -> Any:
-    components = _flow_get_optimizable_components(flow)
-    snapshot = _optimization_component_current_map(components)
-    return snapshot
-
-
-def _flow_restore_components(flow: Any, snapshot: Any) -> Any:
-    restored = _flow_apply_optimized_components(flow, snapshot)
-    return restored
-
-
-def _flow_evaluate_optimization(flow: Any, client: Any, dataset: Any, candidate_map: Any, options: Any) -> Any:
-    empty_map = {}
-    empty_list = []
-    opts_missing = _core_is_none(options)
-    opts = options
-    if opts_missing:
-        opts = empty_map
-    else:
-        pass
-    candidate_missing = _core_is_none(candidate_map)
-    candidate = candidate_map
-    if candidate_missing:
-        candidate = empty_map
-    else:
-        pass
-    normalized = _normalize_optimization_dataset(dataset)
-    train = _core_get(normalized, "train", empty_list)
-    phase = _core_get(opts, "phase", "train")
-    max_calls_snake = _core_get(opts, "max_metric_calls", 2147483647)
-    max_calls = _core_get(opts, "maxMetricCalls", max_calls_snake)
-    forward_options = _core_get(opts, "forward_options", empty_map)
-    original = _flow_snapshot_components(flow)
-    rows = []
-    calls = 0
-    result = {}
-    try:
-        has_candidate = _core_truthy(candidate)
-        if has_candidate:
-            _flow_apply_optimized_components(flow, candidate)
-        else:
-            pass
-        for task in train:
-            too_many = _core_gte(calls, max_calls)
-            if too_many:
-                message = _core_string_format("max metric calls exceeded: {}", max_calls)
-                err = _core_runtime_error(message)
-                raise err
-            else:
-                pass
-            next_calls = _core_add(calls, 1)
-            calls = next_calls
-            error = _core_none()
-            prediction = {}
-            try:
-                input = _core_get(task, "input", task)
-                output = _flow_forward(flow, client, input, forward_options)
-                trace = {}
-                traces = _core_get(flow, "traces", empty_list)
-                chat_log = _core_get(flow, "chat_log", empty_list)
-                usage = _core_get(flow, "usage", empty_map)
-                trace["traces"] = traces
-                trace["chat_log"] = chat_log
-                prediction = _build_agent_eval_prediction(output, chat_log, usage, trace)
-            except Exception as forward_error:
-                error_message = _core_exception_message(forward_error)
-                error = {}
-                error["message"] = error_message
-                trace = {}
-                traces = _core_get(flow, "traces", empty_list)
-                chat_log = _core_get(flow, "chat_log", empty_list)
-                usage = _core_get(flow, "usage", empty_map)
-                trace["traces"] = traces
-                trace["chat_log"] = chat_log
-                prediction["completionType"] = "error"
-                prediction["error"] = error
-                prediction["functionCalls"] = empty_list
-                prediction["actionLog"] = chat_log
-                prediction["usage"] = usage
-                prediction["trace"] = trace
-                prediction["turnCount"] = 0
-            completion_type = _core_get(prediction, "completionType", "final")
-            is_error = _core_eq(completion_type, "error")
-            default_score = 1
-            if is_error:
-                default_score = 0
-            else:
-                pass
-            score_from_score = _core_get(task, "score", default_score)
-            score_from_scores = _core_get(task, "scores", score_from_score)
-            raw_scores = _core_get(task, "metric_score", score_from_scores)
-            scores = _normalize_optimization_metric_scores(raw_scores)
-            scalar_base = _scalarize_optimization_scores(scores, opts)
-            scalar = _adjust_optimization_score_for_actions(scalar_base, task, prediction)
-            trace_for_row = _core_get(prediction, "trace", None)
-            row = _build_optimization_eval_row(task, prediction, scores, scalar, trace_for_row, error)
-            rows.append(row)
-        result = _build_optimization_eval_result(rows, candidate, phase)
-        _flow_restore_components(flow, original)
-    except Exception as outer_error:
-        _flow_restore_components(flow, original)
-        raise outer_error
-    return result
-
-
-def _flow_optimize_with(flow: Any, dataset: Any, options: Any, evaluator_available: bool) -> Any:
-    empty_map = {}
-    empty_list = []
-    components = _flow_get_optimizable_components(flow)
-    trace = {}
-    traces = _core_get(flow, "traces", empty_list)
-    chat_log = _core_get(flow, "chat_log", empty_list)
-    trace["traces"] = traces
-    trace["chat_log"] = chat_log
-    run = _prepare_optimizer_run("axflow", components, dataset, options, trace, evaluator_available)
-    request = _core_get(run, "request", empty_map)
-    return request
 
 
 def _flow_cache_read_write(flow: Any, values: Any, options: Any, mode: str, cached_value: Any) -> Any:
@@ -1439,5 +1255,189 @@ def _flow_forward(flow: Any, client: Any, values: Any, options: Any) -> Any:
     done = _program_trace_event(program_id, "flow_done", done_payload)
     traces.append(done)
     return output
+
+
+def _flow_get_optimizable_components(flow: Any) -> list[Any]:
+    empty_list = []
+    empty_map = {}
+    owner = _core_get(flow, "program_id", "root.flow")
+    plan = _flow_plan(flow)
+    current_plan = _core_get(flow, "optimized_graph_plan", plan)
+    components = []
+    graph_id = _core_string_format("{}::graph-plan", owner)
+    constraints = []
+    constraints.append("Preserve node names, dependencies, and return contract.")
+    validation = {}
+    validation["schema"] = "axflow-plan-v1"
+    graph = _optimization_component(graph_id, owner, "flow-graph", current_plan, "AxFlow execution graph and planner barrier metadata.", constraints, empty_list, False, "json", validation)
+    components.append(graph)
+    steps = _core_get(flow, "steps", empty_list)
+    for step in steps:
+        program = _core_get(step, "program", None)
+        name = _core_get(step, "name", "")
+        child_components = _core_program_components(program)
+        for component in child_components:
+            child = _program_prefix_component(component, owner, name)
+            components.append(child)
+    return components
+
+
+def _flow_apply_optimized_components(flow: Any, component_map: Any) -> Any:
+    empty_map = {}
+    empty_list = []
+    updates_missing = _core_is_none(component_map)
+    updates = component_map
+    if updates_missing:
+        updates = empty_map
+    else:
+        pass
+    components = _flow_get_optimizable_components(flow)
+    _validate_optimization_component_map(components, updates)
+    owner = _core_get(flow, "program_id", "root.flow")
+    graph_id = _core_string_format("{}::graph-plan", owner)
+    graph_update = _core_get(updates, graph_id, None)
+    has_graph_update = _core_is_not_none(graph_update)
+    if has_graph_update:
+        graph_is_object = _core_type_is(graph_update, "object")
+        bad_graph = _core_not(graph_is_object)
+        if bad_graph:
+            err = _core_runtime_error("optimized flow graph-plan component must be an object")
+            raise err
+        else:
+            pass
+        flow["optimized_graph_plan"] = graph_update
+    else:
+        pass
+    steps = _core_get(flow, "steps", empty_list)
+    for step in steps:
+        program = _core_get(step, "program", None)
+        name = _core_get(step, "name", "")
+        prefix = _program_child_component_prefix(owner, name)
+        child_updates = _program_slice_component_map(updates, prefix)
+        has_child_updates = _core_truthy(child_updates)
+        if has_child_updates:
+            _core_program_apply_components(program, child_updates)
+        else:
+            pass
+    return flow
+
+
+def _flow_snapshot_components(flow: Any) -> Any:
+    components = _flow_get_optimizable_components(flow)
+    snapshot = _optimization_component_current_map(components)
+    return snapshot
+
+
+def _flow_restore_components(flow: Any, snapshot: Any) -> Any:
+    restored = _flow_apply_optimized_components(flow, snapshot)
+    return restored
+
+
+def _flow_evaluate_optimization(flow: Any, client: Any, dataset: Any, candidate_map: Any, options: Any) -> Any:
+    empty_map = {}
+    empty_list = []
+    opts_missing = _core_is_none(options)
+    opts = options
+    if opts_missing:
+        opts = empty_map
+    else:
+        pass
+    candidate_missing = _core_is_none(candidate_map)
+    candidate = candidate_map
+    if candidate_missing:
+        candidate = empty_map
+    else:
+        pass
+    normalized = _normalize_optimization_dataset(dataset)
+    train = _core_get(normalized, "train", empty_list)
+    phase = _core_get(opts, "phase", "train")
+    max_calls_snake = _core_get(opts, "max_metric_calls", 2147483647)
+    max_calls = _core_get(opts, "maxMetricCalls", max_calls_snake)
+    forward_options = _core_get(opts, "forward_options", empty_map)
+    original = _flow_snapshot_components(flow)
+    rows = []
+    calls = 0
+    result = {}
+    try:
+        has_candidate = _core_truthy(candidate)
+        if has_candidate:
+            _flow_apply_optimized_components(flow, candidate)
+        else:
+            pass
+        for task in train:
+            too_many = _core_gte(calls, max_calls)
+            if too_many:
+                message = _core_string_format("max metric calls exceeded: {}", max_calls)
+                err = _core_runtime_error(message)
+                raise err
+            else:
+                pass
+            next_calls = _core_add(calls, 1)
+            calls = next_calls
+            error = _core_none()
+            prediction = {}
+            try:
+                input = _core_get(task, "input", task)
+                output = _flow_forward(flow, client, input, forward_options)
+                trace = {}
+                traces = _core_get(flow, "traces", empty_list)
+                chat_log = _core_get(flow, "chat_log", empty_list)
+                usage = _core_get(flow, "usage", empty_map)
+                trace["traces"] = traces
+                trace["chat_log"] = chat_log
+                prediction = _build_agent_eval_prediction(output, chat_log, usage, trace)
+            except Exception as forward_error:
+                error_message = _core_exception_message(forward_error)
+                error = {}
+                error["message"] = error_message
+                trace = {}
+                traces = _core_get(flow, "traces", empty_list)
+                chat_log = _core_get(flow, "chat_log", empty_list)
+                usage = _core_get(flow, "usage", empty_map)
+                trace["traces"] = traces
+                trace["chat_log"] = chat_log
+                prediction["completionType"] = "error"
+                prediction["error"] = error
+                prediction["functionCalls"] = empty_list
+                prediction["actionLog"] = chat_log
+                prediction["usage"] = usage
+                prediction["trace"] = trace
+                prediction["turnCount"] = 0
+            completion_type = _core_get(prediction, "completionType", "final")
+            is_error = _core_eq(completion_type, "error")
+            default_score = 1
+            if is_error:
+                default_score = 0
+            else:
+                pass
+            score_from_score = _core_get(task, "score", default_score)
+            score_from_scores = _core_get(task, "scores", score_from_score)
+            raw_scores = _core_get(task, "metric_score", score_from_scores)
+            scores = _normalize_optimization_metric_scores(raw_scores)
+            scalar_base = _scalarize_optimization_scores(scores, opts)
+            scalar = _adjust_optimization_score_for_actions(scalar_base, task, prediction)
+            trace_for_row = _core_get(prediction, "trace", None)
+            row = _build_optimization_eval_row(task, prediction, scores, scalar, trace_for_row, error)
+            rows.append(row)
+        result = _build_optimization_eval_result(rows, candidate, phase)
+        _flow_restore_components(flow, original)
+    except Exception as outer_error:
+        _flow_restore_components(flow, original)
+        raise outer_error
+    return result
+
+
+def _flow_optimize_with(flow: Any, dataset: Any, options: Any, evaluator_available: bool) -> Any:
+    empty_map = {}
+    empty_list = []
+    components = _flow_get_optimizable_components(flow)
+    trace = {}
+    traces = _core_get(flow, "traces", empty_list)
+    chat_log = _core_get(flow, "chat_log", empty_list)
+    trace["traces"] = traces
+    trace["chat_log"] = chat_log
+    run = _prepare_optimizer_run("axflow", components, dataset, options, trace, evaluator_available)
+    request = _core_get(run, "request", empty_map)
+    return request
 
 # END AXIR CORE EMITTED FUNCTIONS

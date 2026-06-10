@@ -1209,6 +1209,7 @@ def _core_add(left, right): return left + right
 def _core_mul(left, right): return left * right
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
+def _core_lt(left, right): return left < right
 def _core_gt(left, right): return left > right
 def _core_gte(left, right): return left >= right
 def _core_contains(container, item): return False if container is None else item in container
@@ -1218,6 +1219,7 @@ def _core_is_none(value): return value is None
 def _core_is_not_none(value): return value is not None
 def _core_none(): return None
 def _core_coalesce(value, fallback): return fallback if value is None else value
+def _core_runtime_error(message): return RuntimeError(str(message))
 
 
 def _core_get(target, key, default=None):
@@ -1333,58 +1335,56 @@ def _core_ai_error_status(message, status=None, code=None, response_body=None, r
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
-def normalize_token_usage(usage: Any) -> Any:
-    out = {}
-    input_tokens = _core_get(usage, "input_tokens", 0)
-    prompt_tokens_snake = _core_get(usage, "prompt_tokens", input_tokens)
-    prompt_tokens = _core_get(usage, "promptTokens", prompt_tokens_snake)
-    output_tokens = _core_get(usage, "output_tokens", 0)
-    completion_tokens_snake = _core_get(usage, "completion_tokens", output_tokens)
-    completion_tokens = _core_get(usage, "completionTokens", completion_tokens_snake)
-    computed_total_tokens = _core_add(prompt_tokens, completion_tokens)
-    total_tokens_snake = _core_get(usage, "total_tokens", computed_total_tokens)
-    total_tokens = _core_get(usage, "totalTokens", total_tokens_snake)
-    out["prompt_tokens"] = prompt_tokens
-    out["completion_tokens"] = completion_tokens
-    out["total_tokens"] = total_tokens
-    reasoning_tokens_snake = _core_get(usage, "reasoning_tokens", None)
-    reasoning_tokens = _core_get(usage, "reasoningTokens", reasoning_tokens_snake)
-    has_reasoning = _core_is_not_none(reasoning_tokens)
-    if has_reasoning:
-        out["reasoning_tokens"] = reasoning_tokens
+def openai_build_chat_request(request: AxChatRequest) -> Any:
+    payload = {}
+    model = _core_get(request, "model", None)
+    payload["model"] = model
+    messages = []
+    chat_prompt = _core_get(request, "chat_prompt", None)
+    for message in chat_prompt:
+        provider_message = _openai_message_impl(message)
+        messages.append(provider_message)
+    payload["messages"] = messages
+    empty_functions = []
+    functions = _core_get(request, "functions", empty_functions)
+    has_functions = _core_truthy(functions)
+    if has_functions:
+        tools = []
+        for fn in functions:
+            tool = _openai_tool_spec_impl(fn)
+            tools.append(tool)
+        payload["tools"] = tools
+        tool_choice = _core_get(request, "function_call", "auto")
+        payload["tool_choice"] = tool_choice
     else:
         pass
-    cache_read_tokens_snake = _core_get(usage, "cache_read_tokens", None)
-    cache_read_tokens = _core_get(usage, "cacheReadTokens", cache_read_tokens_snake)
-    has_cache_read = _core_is_not_none(cache_read_tokens)
-    if has_cache_read:
-        out["cache_read_tokens"] = cache_read_tokens
+    response_format = _core_get(request, "response_format", None)
+    has_response_format = _core_truthy(response_format)
+    if has_response_format:
+        response_format_type = _core_get(response_format, "type", None)
+        is_json_object = _core_eq(response_format_type, "json_object")
+        if is_json_object:
+            json_mode_message = {}
+            json_mode_message["role"] = "system"
+            json_mode_message["content"] = "JSON output is required. Return only the requested JSON object."
+            messages.append(json_mode_message)
+            payload["messages"] = messages
+        else:
+            pass
+        is_json_schema = _core_eq(response_format_type, "json_schema")
+        if is_json_schema:
+            json_schema_format = {}
+            schema = _core_get(response_format, "schema", None)
+            json_schema_format["type"] = "json_schema"
+            json_schema_format["json_schema"] = schema
+            payload["response_format"] = json_schema_format
+        else:
+            payload["response_format"] = response_format
     else:
         pass
-    cache_creation_tokens_snake = _core_get(usage, "cache_creation_tokens", None)
-    cache_creation_tokens = _core_get(usage, "cacheCreationTokens", cache_creation_tokens_snake)
-    has_cache_creation = _core_is_not_none(cache_creation_tokens)
-    if has_cache_creation:
-        out["cache_creation_tokens"] = cache_creation_tokens
-    else:
-        pass
-    return out
-
-
-def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
-    has_usage = _core_truthy(usage)
-    missing_usage = _core_not(has_usage)
-    if missing_usage:
-        none = _core_none()
-        return none
-    else:
-        pass
-    tokens = normalize_token_usage(usage)
-    out = {}
-    out["ai"] = ai_name
-    out["model"] = model
-    out["tokens"] = tokens
-    return out
+    model_config = _core_get(request, "model_config", None)
+    _openai_apply_model_config_impl(payload, model_config)
+    return payload
 
 
 def merge_model_config(base: Any, override: Any = None, options: Any = None) -> AxModelConfig:
@@ -1456,120 +1456,70 @@ def validate_chat_request(request: AxChatRequest) -> None:
     return None
 
 
-def chat_response_to_completion(response: AxChatResponse) -> Any:
-    empty_results = []
-    results = _core_get(response, "results", empty_results)
-    empty_result = {}
-    result = _core_list_get(results, 0, empty_result)
-    content = _core_get(result, "content", "")
-    calls = []
-    empty_calls = []
-    function_calls = _core_get(result, "function_calls", empty_calls)
-    for call in function_calls:
-        fn = _core_get(call, "function", None)
-        id = _core_get(call, "id", None)
-        name = _core_get(fn, "name", None)
-        params = _core_get(fn, "params", None)
-        compat_call = {}
-        compat_call["id"] = id
-        compat_call["name"] = name
-        compat_call["params"] = params
-        calls.append(compat_call)
-    model_usage = _core_get(response, "model_usage", None)
-    usage = _core_get(model_usage, "tokens", None)
-    out = {}
-    out["content"] = content
-    out["function_calls"] = calls
-    out["usage"] = usage
-    return out
+def _openai_apply_model_config_impl(payload: Any, model_config: Any) -> None:
+    _openai_copy_config_key_impl(payload, model_config, "max_tokens", "max_completion_tokens")
+    _openai_copy_config_key_impl(payload, model_config, "maxTokens", "max_completion_tokens")
+    _openai_copy_config_key_impl(payload, model_config, "temperature", "temperature")
+    _openai_copy_config_key_impl(payload, model_config, "top_p", "top_p")
+    _openai_copy_config_key_impl(payload, model_config, "topP", "top_p")
+    _openai_copy_config_key_impl(payload, model_config, "n", "n")
+    _openai_copy_config_key_impl(payload, model_config, "presence_penalty", "presence_penalty")
+    _openai_copy_config_key_impl(payload, model_config, "presencePenalty", "presence_penalty")
+    _openai_copy_config_key_impl(payload, model_config, "frequency_penalty", "frequency_penalty")
+    _openai_copy_config_key_impl(payload, model_config, "frequencyPenalty", "frequency_penalty")
+    stop_snake = _core_get(model_config, "stop_sequences", None)
+    stop = _core_get(model_config, "stopSequences", stop_snake)
+    has_stop = _core_truthy(stop)
+    if has_stop:
+        payload["stop"] = stop
+    else:
+        pass
+    stream = _core_get(model_config, "stream", None)
+    is_stream = _core_truthy(stream)
+    if is_stream:
+        payload["stream"] = True
+        stream_options = {}
+        stream_options["include_usage"] = True
+        payload["stream_options"] = stream_options
+    else:
+        pass
+    return None
 
 
-def _openai_finish_reason_impl(value: Any) -> Any:
-    is_stop = _core_eq(value, "stop")
-    if is_stop:
-        return "stop"
-    else:
-        pass
-    is_length = _core_eq(value, "length")
-    if is_length:
-        return "length"
-    else:
-        pass
-    is_content_filter = _core_eq(value, "content_filter")
-    if is_content_filter:
-        return "error"
-    else:
-        pass
-    is_tool_calls = _core_eq(value, "tool_calls")
-    is_function_call = _core_eq(value, "function_call")
-    is_call = _core_or(is_tool_calls, is_function_call)
-    if is_call:
-        return "function_call"
-    else:
-        pass
-    none = _core_none()
-    return none
+def build_chat_request(service: AxAIService, request: AxChatRequest, options: Any = None) -> Any:
+    validate_chat_request(request)
+    payload = openai_build_chat_request(request)
+    return payload
 
 
-def _openai_tool_call_to_provider_impl(call: Any) -> Any:
-    fn = _core_get(call, "function", None)
-    params = _core_get(fn, "params", None)
-    params_is_string = _core_type_is(params, "string")
-    if params_is_string:
-        pass
-    else:
-        params_json = _core_json_stringify(params)
-        params = params_json
-    id = _core_get(call, "id", None)
-    name = _core_get(fn, "name", None)
-    function = {}
-    function["name"] = name
-    function["arguments"] = params
-    out = {}
-    out["id"] = id
-    out["type"] = "function"
-    out["function"] = function
-    return out
+def normalize_chat_response(raw: Any) -> AxChatResponse:
+    response = openai_normalize_chat_response(raw)
+    return response
 
 
-def _openai_content_part_impl(part: Any) -> Any:
-    type = _core_get(part, "type", None)
-    is_text = _core_eq(type, "text")
-    if is_text:
-        text = _core_get(part, "text", "")
-        out = {}
-        out["type"] = "text"
-        out["text"] = text
-        return out
+def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
+    response = openai_normalize_stream_delta(raw, state)
+    return response
+
+
+def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, target: str) -> None:
+    has_source = _core_map_contains(model_config, source)
+    if has_source:
+        value = _core_get(model_config, source, None)
+        payload[target] = value
     else:
         pass
-    is_image = _core_eq(type, "image")
-    if is_image:
-        mime_snake = _core_get(part, "mime_type", None)
-        mime_raw = _core_get(part, "mimeType", mime_snake)
-        mime = _core_coalesce(mime_raw, "image/png")
-        image_value = _core_get(part, "image", None)
-        image_raw = _core_get(part, "data", image_value)
-        image = _core_coalesce(image_raw, "")
-        is_data_url = _core_string_starts_with(image, "data:")
-        url = ""
-        if is_data_url:
-            url = image
-        else:
-            url = _core_string_format("data:{};base64,{}", mime, image)
-        details = _core_get(part, "details", "auto")
-        image_url = {}
-        image_url["url"] = url
-        image_url["detail"] = details
-        out = {}
-        out["type"] = "image_url"
-        out["image_url"] = image_url
-        return out
-    else:
-        pass
-    message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", type)
-    error = _core_ai_error_unsupported(message)
-    raise error
+    return None
+
+
+def build_embed_request(service: AxAIService, request: AxEmbedRequest, options: Any = None) -> Any:
+    payload = openai_build_embed_request(request)
+    return payload
+
+
+def normalize_embed_response(raw: Any) -> AxEmbedResponse:
+    response = openai_normalize_embed_response(raw)
+    return response
 
 
 def _openai_message_impl(message: Any) -> Any:
@@ -1648,6 +1598,149 @@ def _openai_message_impl(message: Any) -> Any:
     raise error
 
 
+def normalize_token_usage(usage: Any) -> Any:
+    out = {}
+    input_tokens = _core_get(usage, "input_tokens", 0)
+    prompt_tokens_snake = _core_get(usage, "prompt_tokens", input_tokens)
+    prompt_tokens = _core_get(usage, "promptTokens", prompt_tokens_snake)
+    output_tokens = _core_get(usage, "output_tokens", 0)
+    completion_tokens_snake = _core_get(usage, "completion_tokens", output_tokens)
+    completion_tokens = _core_get(usage, "completionTokens", completion_tokens_snake)
+    computed_total_tokens = _core_add(prompt_tokens, completion_tokens)
+    total_tokens_snake = _core_get(usage, "total_tokens", computed_total_tokens)
+    total_tokens = _core_get(usage, "totalTokens", total_tokens_snake)
+    out["prompt_tokens"] = prompt_tokens
+    out["completion_tokens"] = completion_tokens
+    out["total_tokens"] = total_tokens
+    reasoning_tokens_snake = _core_get(usage, "reasoning_tokens", None)
+    reasoning_tokens = _core_get(usage, "reasoningTokens", reasoning_tokens_snake)
+    has_reasoning = _core_is_not_none(reasoning_tokens)
+    if has_reasoning:
+        out["reasoning_tokens"] = reasoning_tokens
+    else:
+        pass
+    cache_read_tokens_snake = _core_get(usage, "cache_read_tokens", None)
+    cache_read_tokens = _core_get(usage, "cacheReadTokens", cache_read_tokens_snake)
+    has_cache_read = _core_is_not_none(cache_read_tokens)
+    if has_cache_read:
+        out["cache_read_tokens"] = cache_read_tokens
+    else:
+        pass
+    cache_creation_tokens_snake = _core_get(usage, "cache_creation_tokens", None)
+    cache_creation_tokens = _core_get(usage, "cacheCreationTokens", cache_creation_tokens_snake)
+    has_cache_creation = _core_is_not_none(cache_creation_tokens)
+    if has_cache_creation:
+        out["cache_creation_tokens"] = cache_creation_tokens
+    else:
+        pass
+    return out
+
+
+def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
+    has_usage = _core_truthy(usage)
+    missing_usage = _core_not(has_usage)
+    if missing_usage:
+        none = _core_none()
+        return none
+    else:
+        pass
+    tokens = normalize_token_usage(usage)
+    out = {}
+    out["ai"] = ai_name
+    out["model"] = model
+    out["tokens"] = tokens
+    return out
+
+
+def chat_response_to_completion(response: AxChatResponse) -> Any:
+    empty_results = []
+    results = _core_get(response, "results", empty_results)
+    empty_result = {}
+    result = _core_list_get(results, 0, empty_result)
+    content = _core_get(result, "content", "")
+    calls = []
+    empty_calls = []
+    function_calls = _core_get(result, "function_calls", empty_calls)
+    for call in function_calls:
+        fn = _core_get(call, "function", None)
+        id = _core_get(call, "id", None)
+        name = _core_get(fn, "name", None)
+        params = _core_get(fn, "params", None)
+        compat_call = {}
+        compat_call["id"] = id
+        compat_call["name"] = name
+        compat_call["params"] = params
+        calls.append(compat_call)
+    model_usage = _core_get(response, "model_usage", None)
+    usage = _core_get(model_usage, "tokens", None)
+    out = {}
+    out["content"] = content
+    out["function_calls"] = calls
+    out["usage"] = usage
+    return out
+
+
+def _openai_content_part_impl(part: Any) -> Any:
+    type = _core_get(part, "type", None)
+    is_text = _core_eq(type, "text")
+    if is_text:
+        text = _core_get(part, "text", "")
+        out = {}
+        out["type"] = "text"
+        out["text"] = text
+        return out
+    else:
+        pass
+    is_image = _core_eq(type, "image")
+    if is_image:
+        mime_snake = _core_get(part, "mime_type", None)
+        mime_raw = _core_get(part, "mimeType", mime_snake)
+        mime = _core_coalesce(mime_raw, "image/png")
+        image_value = _core_get(part, "image", None)
+        image_raw = _core_get(part, "data", image_value)
+        image = _core_coalesce(image_raw, "")
+        is_data_url = _core_string_starts_with(image, "data:")
+        url = ""
+        if is_data_url:
+            url = image
+        else:
+            url = _core_string_format("data:{};base64,{}", mime, image)
+        details = _core_get(part, "details", "auto")
+        image_url = {}
+        image_url["url"] = url
+        image_url["detail"] = details
+        out = {}
+        out["type"] = "image_url"
+        out["image_url"] = image_url
+        return out
+    else:
+        pass
+    message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", type)
+    error = _core_ai_error_unsupported(message)
+    raise error
+
+
+def _openai_tool_call_to_provider_impl(call: Any) -> Any:
+    fn = _core_get(call, "function", None)
+    params = _core_get(fn, "params", None)
+    params_is_string = _core_type_is(params, "string")
+    if params_is_string:
+        pass
+    else:
+        params_json = _core_json_stringify(params)
+        params = params_json
+    id = _core_get(call, "id", None)
+    name = _core_get(fn, "name", None)
+    function = {}
+    function["name"] = name
+    function["arguments"] = params
+    out = {}
+    out["id"] = id
+    out["type"] = "function"
+    out["function"] = function
+    return out
+
+
 def _openai_tool_spec_impl(fn: Any) -> Any:
     name = _core_get(fn, "name", None)
     description = _core_get(fn, "description", "")
@@ -1664,202 +1757,6 @@ def _openai_tool_spec_impl(fn: Any) -> Any:
     out["type"] = "function"
     out["function"] = function
     return out
-
-
-def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, target: str) -> None:
-    has_source = _core_map_contains(model_config, source)
-    if has_source:
-        value = _core_get(model_config, source, None)
-        payload[target] = value
-    else:
-        pass
-    return None
-
-
-def _openai_apply_model_config_impl(payload: Any, model_config: Any) -> None:
-    _openai_copy_config_key_impl(payload, model_config, "max_tokens", "max_completion_tokens")
-    _openai_copy_config_key_impl(payload, model_config, "maxTokens", "max_completion_tokens")
-    _openai_copy_config_key_impl(payload, model_config, "temperature", "temperature")
-    _openai_copy_config_key_impl(payload, model_config, "top_p", "top_p")
-    _openai_copy_config_key_impl(payload, model_config, "topP", "top_p")
-    _openai_copy_config_key_impl(payload, model_config, "n", "n")
-    _openai_copy_config_key_impl(payload, model_config, "presence_penalty", "presence_penalty")
-    _openai_copy_config_key_impl(payload, model_config, "presencePenalty", "presence_penalty")
-    _openai_copy_config_key_impl(payload, model_config, "frequency_penalty", "frequency_penalty")
-    _openai_copy_config_key_impl(payload, model_config, "frequencyPenalty", "frequency_penalty")
-    stop_snake = _core_get(model_config, "stop_sequences", None)
-    stop = _core_get(model_config, "stopSequences", stop_snake)
-    has_stop = _core_truthy(stop)
-    if has_stop:
-        payload["stop"] = stop
-    else:
-        pass
-    stream = _core_get(model_config, "stream", None)
-    is_stream = _core_truthy(stream)
-    if is_stream:
-        payload["stream"] = True
-        stream_options = {}
-        stream_options["include_usage"] = True
-        payload["stream_options"] = stream_options
-    else:
-        pass
-    return None
-
-
-def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
-    out = []
-    for call in calls:
-        fn = _core_get(call, "function", None)
-        params = _core_get(fn, "arguments", None)
-        params_is_string = _core_type_is(params, "string")
-        if params_is_string:
-            try:
-                parsed_params = _core_json_parse(params)
-                params = parsed_params
-            except Exception as parse_error:
-                pass
-        else:
-            pass
-        id = _core_get(call, "id", None)
-        name = _core_get(fn, "name", None)
-        function = {}
-        function["name"] = name
-        function["params"] = params
-        normalized = {}
-        normalized["id"] = id
-        normalized["type"] = "function"
-        normalized["function"] = function
-        out.append(normalized)
-    return out
-
-
-def _openai_normalize_choice_impl(choice: Any, raw: Any) -> Any:
-    empty_message = {}
-    message = _core_get(choice, "message", empty_message)
-    refusal = _core_get(message, "refusal", None)
-    has_refusal = _core_truthy(refusal)
-    if has_refusal:
-        error = _core_ai_error_refusal(refusal, raw)
-        raise error
-    else:
-        pass
-    index = _core_get(choice, "index", 0)
-    id = _core_string_str(index)
-    content_raw = _core_get(message, "content", None)
-    content = _core_none()
-    has_content = _core_truthy(content_raw)
-    if has_content:
-        content = content_raw
-    else:
-        content = _core_none()
-    empty_calls = []
-    tool_calls = _core_get(message, "tool_calls", empty_calls)
-    function_calls = _openai_normalize_tool_calls_impl(tool_calls)
-    finish_reason_raw = _core_get(choice, "finish_reason", None)
-    finish_reason = _openai_finish_reason_impl(finish_reason_raw)
-    out = {}
-    out["index"] = index
-    out["id"] = id
-    out["content"] = content
-    out["function_calls"] = function_calls
-    out["finish_reason"] = finish_reason
-    return out
-
-
-def _openai_stream_choice_impl(choice: Any, index_ids: Any) -> Any:
-    empty_delta = {}
-    delta = _core_get(choice, "delta", empty_delta)
-    calls = []
-    empty_tool_calls = []
-    tool_calls = _core_get(delta, "tool_calls", empty_tool_calls)
-    for call in tool_calls:
-        call_index = _core_get(call, "index", 0)
-        call_id = _core_get(call, "id", None)
-        has_call_id = _core_truthy(call_id)
-        if has_call_id:
-            index_ids[call_index] = call_id
-        else:
-            pass
-        stable_id = _core_get(index_ids, call_index, None)
-        has_stable_id = _core_truthy(stable_id)
-        if has_stable_id:
-            fn = _core_get(call, "function", None)
-            name = _core_get(fn, "name", None)
-            arguments = _core_get(fn, "arguments", None)
-            function = {}
-            function["name"] = name
-            function["params"] = arguments
-            normalized = {}
-            normalized["id"] = stable_id
-            normalized["type"] = "function"
-            normalized["function"] = function
-            calls.append(normalized)
-        else:
-            pass
-    index = _core_get(choice, "index", 0)
-    id = _core_string_str(index)
-    content = _core_get(delta, "content", None)
-    finish_reason_raw = _core_get(choice, "finish_reason", None)
-    finish_reason = _openai_finish_reason_impl(finish_reason_raw)
-    out = {}
-    out["index"] = index
-    out["id"] = id
-    out["content"] = content
-    out["function_calls"] = calls
-    out["finish_reason"] = finish_reason
-    return out
-
-
-def openai_build_chat_request(request: AxChatRequest) -> Any:
-    payload = {}
-    model = _core_get(request, "model", None)
-    payload["model"] = model
-    messages = []
-    chat_prompt = _core_get(request, "chat_prompt", None)
-    for message in chat_prompt:
-        provider_message = _openai_message_impl(message)
-        messages.append(provider_message)
-    payload["messages"] = messages
-    empty_functions = []
-    functions = _core_get(request, "functions", empty_functions)
-    has_functions = _core_truthy(functions)
-    if has_functions:
-        tools = []
-        for fn in functions:
-            tool = _openai_tool_spec_impl(fn)
-            tools.append(tool)
-        payload["tools"] = tools
-        tool_choice = _core_get(request, "function_call", "auto")
-        payload["tool_choice"] = tool_choice
-    else:
-        pass
-    response_format = _core_get(request, "response_format", None)
-    has_response_format = _core_truthy(response_format)
-    if has_response_format:
-        response_format_type = _core_get(response_format, "type", None)
-        is_json_object = _core_eq(response_format_type, "json_object")
-        if is_json_object:
-            json_mode_message = {}
-            json_mode_message["role"] = "system"
-            json_mode_message["content"] = "JSON output is required. Return only the requested JSON object."
-            messages.append(json_mode_message)
-            payload["messages"] = messages
-        else:
-            pass
-        is_json_schema = _core_eq(response_format_type, "json_schema")
-        if is_json_schema:
-            json_schema_format = {}
-            schema = _core_get(response_format, "schema", None)
-            json_schema_format["type"] = "json_schema"
-            json_schema_format["json_schema"] = schema
-            payload["response_format"] = json_schema_format
-        else:
-            payload["response_format"] = response_format
-    else:
-        pass
-    model_config = _core_get(request, "model_config", None)
-    _openai_apply_model_config_impl(payload, model_config)
-    return payload
 
 
 def openai_build_embed_request(request: AxEmbedRequest) -> Any:
@@ -1919,6 +1816,112 @@ def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str
     return out
 
 
+def _openai_normalize_choice_impl(choice: Any, raw: Any) -> Any:
+    empty_message = {}
+    message = _core_get(choice, "message", empty_message)
+    refusal = _core_get(message, "refusal", None)
+    has_refusal = _core_truthy(refusal)
+    if has_refusal:
+        error = _core_ai_error_refusal(refusal, raw)
+        raise error
+    else:
+        pass
+    index = _core_get(choice, "index", 0)
+    id = _core_string_str(index)
+    content_raw = _core_get(message, "content", None)
+    content = _core_none()
+    has_content = _core_truthy(content_raw)
+    if has_content:
+        content = content_raw
+    else:
+        content = _core_none()
+    empty_calls = []
+    tool_calls = _core_get(message, "tool_calls", empty_calls)
+    function_calls = _openai_normalize_tool_calls_impl(tool_calls)
+    finish_reason_raw = _core_get(choice, "finish_reason", None)
+    finish_reason = _openai_finish_reason_impl(finish_reason_raw)
+    out = {}
+    out["index"] = index
+    out["id"] = id
+    out["content"] = content
+    out["function_calls"] = function_calls
+    out["finish_reason"] = finish_reason
+    return out
+
+
+def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
+    out = []
+    for call in calls:
+        fn = _core_get(call, "function", None)
+        params = _core_get(fn, "arguments", None)
+        params_is_string = _core_type_is(params, "string")
+        if params_is_string:
+            try:
+                parsed_params = _core_json_parse(params)
+                params = parsed_params
+            except Exception as parse_error:
+                pass
+        else:
+            pass
+        id = _core_get(call, "id", None)
+        name = _core_get(fn, "name", None)
+        function = {}
+        function["name"] = name
+        function["params"] = params
+        normalized = {}
+        normalized["id"] = id
+        normalized["type"] = "function"
+        normalized["function"] = function
+        out.append(normalized)
+    return out
+
+
+def _openai_finish_reason_impl(value: Any) -> Any:
+    is_stop = _core_eq(value, "stop")
+    if is_stop:
+        return "stop"
+    else:
+        pass
+    is_length = _core_eq(value, "length")
+    if is_length:
+        return "length"
+    else:
+        pass
+    is_content_filter = _core_eq(value, "content_filter")
+    if is_content_filter:
+        return "error"
+    else:
+        pass
+    is_tool_calls = _core_eq(value, "tool_calls")
+    is_function_call = _core_eq(value, "function_call")
+    is_call = _core_or(is_tool_calls, is_function_call)
+    if is_call:
+        return "function_call"
+    else:
+        pass
+    none = _core_none()
+    return none
+
+
+def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxEmbedResponse:
+    embeddings = []
+    empty_data = []
+    data = _core_get(raw, "data", empty_data)
+    for item in data:
+        embedding = _core_get(item, "embedding", None)
+        embeddings.append(embedding)
+    raw_model = _core_get(raw, "model", None)
+    used_model = _core_coalesce(raw_model, model)
+    usage = _core_get(raw, "usage", None)
+    model_usage = _ai_model_usage_impl(ai_name, used_model, usage)
+    remote_id = _core_get(raw, "id", None)
+    out = {}
+    out["embeddings"] = embeddings
+    out["remote_id"] = remote_id
+    out["model_usage"] = model_usage
+    return out
+
+
 def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
     raw_is_object = _core_type_is(raw, "object")
     raw_not_object = _core_not(raw_is_object)
@@ -1967,22 +1970,47 @@ def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai",
     return out
 
 
-def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxEmbedResponse:
-    embeddings = []
-    empty_data = []
-    data = _core_get(raw, "data", empty_data)
-    for item in data:
-        embedding = _core_get(item, "embedding", None)
-        embeddings.append(embedding)
-    raw_model = _core_get(raw, "model", None)
-    used_model = _core_coalesce(raw_model, model)
-    usage = _core_get(raw, "usage", None)
-    model_usage = _ai_model_usage_impl(ai_name, used_model, usage)
-    remote_id = _core_get(raw, "id", None)
+def _openai_stream_choice_impl(choice: Any, index_ids: Any) -> Any:
+    empty_delta = {}
+    delta = _core_get(choice, "delta", empty_delta)
+    calls = []
+    empty_tool_calls = []
+    tool_calls = _core_get(delta, "tool_calls", empty_tool_calls)
+    for call in tool_calls:
+        call_index = _core_get(call, "index", 0)
+        call_id = _core_get(call, "id", None)
+        has_call_id = _core_truthy(call_id)
+        if has_call_id:
+            index_ids[call_index] = call_id
+        else:
+            pass
+        stable_id = _core_get(index_ids, call_index, None)
+        has_stable_id = _core_truthy(stable_id)
+        if has_stable_id:
+            fn = _core_get(call, "function", None)
+            name = _core_get(fn, "name", None)
+            arguments = _core_get(fn, "arguments", None)
+            function = {}
+            function["name"] = name
+            function["params"] = arguments
+            normalized = {}
+            normalized["id"] = stable_id
+            normalized["type"] = "function"
+            normalized["function"] = function
+            calls.append(normalized)
+        else:
+            pass
+    index = _core_get(choice, "index", 0)
+    id = _core_string_str(index)
+    content = _core_get(delta, "content", None)
+    finish_reason_raw = _core_get(choice, "finish_reason", None)
+    finish_reason = _openai_finish_reason_impl(finish_reason_raw)
     out = {}
-    out["embeddings"] = embeddings
-    out["remote_id"] = remote_id
-    out["model_usage"] = model_usage
+    out["index"] = index
+    out["id"] = id
+    out["content"] = content
+    out["function_calls"] = calls
+    out["finish_reason"] = finish_reason
     return out
 
 
@@ -2048,7 +2076,7 @@ def provider_resolve_profile(profile: str) -> Any:
     normalized = _core_string_lower(profile)
     aliases = _core_json_parse("{\"openai\":\"openai-compatible\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"mistral\":\"mistral\",\"reka\":\"reka\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\"}")
     is_known = _core_map_contains(aliases, normalized)
-    provider_id = _provider_normalize_profile(profile)
+    provider_id = provider_normalize_profile(profile)
     resolved = {}
     resolved["id"] = provider_id
     resolved["known"] = is_known
@@ -2398,7 +2426,7 @@ def provider_route_recommendation(providers: Any, request: Any, options: Any) ->
         raise error
     else:
         pass
-    requirements = _provider_route_request_requirements(request)
+    requirements = provider_route_request_requirements(request)
     best = _core_list_get(providers, 0, None)
     best_score = -999999
     best_missing = []
@@ -2533,7 +2561,7 @@ def provider_route_validation(providers: Any, request: Any, processing: Any, opt
     issues = []
     recommendations = []
     result = {}
-    recommendation = _provider_route_recommendation(providers, request, options)
+    recommendation = provider_route_recommendation(providers, request, options)
     degradations = _core_get(recommendation, "degradations", issues)
     for degradation in degradations:
         issues.append(degradation)
@@ -2783,7 +2811,7 @@ def provider_routing_stats(providers: Any) -> Any:
 
 
 def provider_descriptor(profile: str) -> Any:
-    provider_id = _provider_normalize_profile(profile)
+    provider_id = provider_normalize_profile(profile)
     openai_family = _core_json_parse("{\"openai-compatible\":{\"provider\":\"openai-compatible\",\"id\":\"openai-compatible\",\"name\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"auth\":\"bearer\",\"defaultModel\":\"gpt-4.1-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/webp\"]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"provider\":\"azure-openai\",\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"baseUrl\":\"https://{resource}.openai.azure.com/openai/deployments/{deployment}\",\"auth\":\"api_key_header\",\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"],\"maxSize\":20971520},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"provider\":\"deepseek\",\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"baseUrl\":\"https://api.deepseek.com\",\"auth\":\"bearer\",\"defaultModel\":\"deepseek-v4-flash\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"provider\":\"mistral\",\"id\":\"mistral\",\"name\":\"Mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"auth\":\"bearer\",\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"provider\":\"reka\",\"id\":\"reka\",\"name\":\"Reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"auth\":\"bearer\",\"defaultModel\":\"reka-core\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"provider\":\"cohere\",\"id\":\"cohere\",\"name\":\"Cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"auth\":\"bearer\",\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"provider\":\"grok\",\"id\":\"grok\",\"name\":\"Grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"auth\":\"bearer\",\"defaultModel\":\"grok-4.3\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"],\"maxSize\":20971520},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}")
     openai_family_descriptor = _core_get(openai_family, provider_id, None)
     is_openai_family = _core_is_not_none(openai_family_descriptor)
@@ -2967,7 +2995,7 @@ def provider_descriptor(profile: str) -> Any:
 
 
 def provider_operation_descriptor(profile: str, operation: str) -> Any:
-    descriptor = _provider_descriptor(profile)
+    descriptor = provider_descriptor(profile)
     operations = _core_get(descriptor, "operations", None)
     operation_desc = _core_get(operations, operation, None)
     missing = _core_is_none(operation_desc)
@@ -2980,439 +3008,8 @@ def provider_operation_descriptor(profile: str, operation: str) -> Any:
     return operation_desc
 
 
-def provider_build_chat_request(profile: str, request: AxChatRequest) -> Any:
-    provider_id = _provider_normalize_profile(profile)
-    is_responses = _core_eq(provider_id, "openai-responses")
-    is_gemini = _core_eq(provider_id, "google-gemini")
-    is_anthropic = _core_eq(provider_id, "anthropic")
-    payload = {}
-    if is_responses:
-        responses_payload = _openai_responses_build_chat_request(request)
-        payload = responses_payload
-    else:
-        if is_gemini:
-            gemini_payload = _gemini_build_chat_request(request)
-            payload = gemini_payload
-        else:
-            if is_anthropic:
-                anthropic_payload = _anthropic_build_chat_request(request)
-                payload = anthropic_payload
-            else:
-                compatible_payload = _openai_build_chat_request(request)
-                payload = compatible_payload
-    payload_with_quirks = _provider_apply_openai_compatible_profile_quirks(provider_id, payload, request)
-    payload = payload_with_quirks
-    return payload
-
-
-def _provider_apply_openai_compatible_profile_quirks(profile: str, payload: Any, request: Any) -> Any:
-    empty_map = {}
-    model_config = _core_get(request, "model_config", empty_map)
-    is_deepseek = _core_eq(profile, "deepseek")
-    if is_deepseek:
-        payload = _provider_apply_deepseek_chat_quirks(payload, model_config)
-    else:
-        pass
-    is_mistral = _core_eq(profile, "mistral")
-    if is_mistral:
-        payload = _provider_apply_mistral_chat_quirks(payload)
-    else:
-        pass
-    is_grok = _core_eq(profile, "grok")
-    if is_grok:
-        payload = _provider_apply_grok_chat_quirks(payload, request, model_config)
-    else:
-        pass
-    return payload
-
-
-def _provider_apply_deepseek_chat_quirks(payload: Any, model_config: Any) -> Any:
-    model = _core_get(payload, "model", "")
-    is_flash = _core_eq(model, "deepseek-v4-flash")
-    is_pro = _core_eq(model, "deepseek-v4-pro")
-    supports_thinking = _core_or(is_flash, is_pro)
-    is_reasoner = _core_eq(model, "deepseek-reasoner")
-    unsupported_tool_choice_left = _core_or(supports_thinking, is_reasoner)
-    if supports_thinking:
-        budget_snake = _core_get(model_config, "thinking_token_budget", None)
-        budget = _core_get(model_config, "thinkingTokenBudget", budget_snake)
-        reasoning = _core_get(payload, "reasoning_effort", None)
-        has_budget = _core_is_not_none(budget)
-        has_reasoning = _core_is_not_none(reasoning)
-        has_thinking_signal = _core_or(has_budget, has_reasoning)
-        budget_is_none = _core_eq(budget, "none")
-        reasoning_is_none = _core_eq(reasoning, "none")
-        disabled_signal = _core_or(budget_is_none, reasoning_is_none)
-        not_disabled_signal = _core_not(disabled_signal)
-        thinking_enabled = _core_and(has_thinking_signal, not_disabled_signal)
-        thinking = {}
-        if thinking_enabled:
-            thinking["type"] = "enabled"
-            is_xhigh = _core_eq(reasoning, "xhigh")
-            budget_is_highest = _core_eq(budget, "highest")
-            is_max_effort = _core_or(is_xhigh, budget_is_highest)
-            if is_max_effort:
-                payload["reasoning_effort"] = "max"
-            else:
-                is_high = _core_eq(reasoning, "high")
-                if is_high:
-                    payload["reasoning_effort"] = "high"
-                else:
-                    payload["reasoning_effort"] = "high"
-            _core_map_delete(payload, "temperature")
-            _core_map_delete(payload, "top_p")
-            _core_map_delete(payload, "presence_penalty")
-            _core_map_delete(payload, "frequency_penalty")
-        else:
-            thinking["type"] = "disabled"
-            _core_map_delete(payload, "reasoning_effort")
-        payload["thinking"] = thinking
-    else:
-        pass
-    if unsupported_tool_choice_left:
-        tool_choice = _core_get(payload, "tool_choice", None)
-        choice_none = _core_eq(tool_choice, "none")
-        if choice_none:
-            _core_map_delete(payload, "tools")
-        else:
-            pass
-        _core_map_delete(payload, "tool_choice")
-    else:
-        pass
-    return payload
-
-
-def _provider_apply_mistral_chat_quirks(payload: Any) -> Any:
-    max_completion = _core_get(payload, "max_completion_tokens", None)
-    has_max_completion = _core_is_not_none(max_completion)
-    if has_max_completion:
-        payload["max_tokens"] = max_completion
-        _core_map_delete(payload, "max_completion_tokens")
-    else:
-        pass
-    empty_list = []
-    messages = _core_get(payload, "messages", empty_list)
-    for message in messages:
-        content = _core_get(message, "content", None)
-        content_is_list = _core_type_is(content, "list")
-        if content_is_list:
-            for part in content:
-                part_type = _core_get(part, "type", "")
-                is_image_url = _core_eq(part_type, "image_url")
-                if is_image_url:
-                    empty_image = {}
-                    image = _core_get(part, "image_url", empty_image)
-                    url = _core_get(image, "url", None)
-                    next_image = {}
-                    next_image["url"] = url
-                    part["image_url"] = next_image
-                else:
-                    pass
-        else:
-            pass
-    return payload
-
-
-def _provider_apply_grok_chat_quirks(payload: Any, request: Any, model_config: Any) -> Any:
-    model = _core_get(payload, "model", "")
-    is_grok43 = _core_eq(model, "grok-4.3")
-    is_grok43_latest = _core_eq(model, "grok-4.3-latest")
-    is_grok43_any = _core_or(is_grok43, is_grok43_latest)
-    if is_grok43_any:
-        budget_snake = _core_get(model_config, "thinking_token_budget", None)
-        budget = _core_get(model_config, "thinkingTokenBudget", budget_snake)
-        has_budget = _core_is_not_none(budget)
-        if has_budget:
-            is_none = _core_eq(budget, "none")
-            is_minimal = _core_eq(budget, "minimal")
-            is_low = _core_eq(budget, "low")
-            is_medium = _core_eq(budget, "medium")
-            is_high = _core_eq(budget, "high")
-            is_highest = _core_eq(budget, "highest")
-            lowish = _core_or(is_minimal, is_low)
-            highish = _core_or(is_high, is_highest)
-            if is_none:
-                payload["reasoning_effort"] = "none"
-            else:
-                if lowish:
-                    payload["reasoning_effort"] = "low"
-                else:
-                    if is_medium:
-                        payload["reasoning_effort"] = "medium"
-                    else:
-                        if highish:
-                            payload["reasoning_effort"] = "high"
-                        else:
-                            pass
-        else:
-            pass
-        _core_map_delete(payload, "presence_penalty")
-        _core_map_delete(payload, "frequency_penalty")
-        _core_map_delete(payload, "stop")
-    else:
-        _core_map_delete(payload, "reasoning_effort")
-    empty_map = {}
-    search_snake = _core_get(request, "search_parameters", None)
-    search_camel = _core_get(request, "searchParameters", search_snake)
-    search_config_snake = _core_get(model_config, "search_parameters", search_camel)
-    search = _core_get(model_config, "searchParameters", search_config_snake)
-    has_search = _core_is_not_none(search)
-    if has_search:
-        search_payload = {}
-        mode = _core_get(search, "mode", None)
-        return_citations = _core_get(search, "returnCitations", None)
-        return_citations_snake = _core_get(search, "return_citations", return_citations)
-        from_date = _core_get(search, "fromDate", None)
-        from_date_snake = _core_get(search, "from_date", from_date)
-        to_date = _core_get(search, "toDate", None)
-        to_date_snake = _core_get(search, "to_date", to_date)
-        max_results = _core_get(search, "maxSearchResults", None)
-        max_results_snake = _core_get(search, "max_search_results", max_results)
-        sources = _core_get(search, "sources", None)
-        has_mode = _core_is_not_none(mode)
-        if has_mode:
-            search_payload["mode"] = mode
-        else:
-            pass
-        has_return_citations = _core_is_not_none(return_citations_snake)
-        if has_return_citations:
-            search_payload["return_citations"] = return_citations_snake
-        else:
-            pass
-        has_from_date = _core_is_not_none(from_date_snake)
-        if has_from_date:
-            search_payload["from_date"] = from_date_snake
-        else:
-            pass
-        has_to_date = _core_is_not_none(to_date_snake)
-        if has_to_date:
-            search_payload["to_date"] = to_date_snake
-        else:
-            pass
-        has_max_results = _core_is_not_none(max_results_snake)
-        if has_max_results:
-            search_payload["max_search_results"] = max_results_snake
-        else:
-            pass
-        if sources:
-            mapped_sources = []
-            for source in sources:
-                mapped_source = {}
-                source_type = _core_get(source, "type", None)
-                source_country = _core_get(source, "country", None)
-                excluded_websites_camel = _core_get(source, "excludedWebsites", None)
-                excluded_websites = _core_get(source, "excluded_websites", excluded_websites_camel)
-                allowed_websites_camel = _core_get(source, "allowedWebsites", None)
-                allowed_websites = _core_get(source, "allowed_websites", allowed_websites_camel)
-                safe_search_camel = _core_get(source, "safeSearch", None)
-                safe_search = _core_get(source, "safe_search", safe_search_camel)
-                x_handles_camel = _core_get(source, "xHandles", None)
-                x_handles = _core_get(source, "x_handles", x_handles_camel)
-                links = _core_get(source, "links", None)
-                has_source_type = _core_is_not_none(source_type)
-                if has_source_type:
-                    mapped_source["type"] = source_type
-                else:
-                    pass
-                has_source_country = _core_is_not_none(source_country)
-                if has_source_country:
-                    mapped_source["country"] = source_country
-                else:
-                    pass
-                has_excluded_websites = _core_is_not_none(excluded_websites)
-                if has_excluded_websites:
-                    mapped_source["excluded_websites"] = excluded_websites
-                else:
-                    pass
-                has_allowed_websites = _core_is_not_none(allowed_websites)
-                if has_allowed_websites:
-                    mapped_source["allowed_websites"] = allowed_websites
-                else:
-                    pass
-                has_safe_search = _core_is_not_none(safe_search)
-                if has_safe_search:
-                    mapped_source["safe_search"] = safe_search
-                else:
-                    pass
-                has_x_handles = _core_is_not_none(x_handles)
-                if has_x_handles:
-                    mapped_source["x_handles"] = x_handles
-                else:
-                    pass
-                has_links = _core_is_not_none(links)
-                if has_links:
-                    mapped_source["links"] = links
-                else:
-                    pass
-                mapped_sources.append(mapped_source)
-            search_payload["sources"] = mapped_sources
-        else:
-            pass
-        payload["search_parameters"] = search_payload
-    else:
-        pass
-    return payload
-
-
-def provider_build_embed_request(profile: str, request: AxEmbedRequest) -> Any:
-    provider_id = _provider_normalize_profile(profile)
-    is_gemini = _core_eq(provider_id, "google-gemini")
-    is_anthropic = _core_eq(provider_id, "anthropic")
-    payload = {}
-    if is_gemini:
-        gemini_payload = _gemini_build_embed_request(request)
-        payload = gemini_payload
-    else:
-        if is_anthropic:
-            error = _core_ai_error_unsupported("embed is not supported by Anthropic provider")
-            raise error
-        else:
-            openai_payload = _openai_build_embed_request(request)
-            payload = openai_payload
-    return payload
-
-
-def provider_normalize_chat_response(profile: str, raw: Any, ai_name: str, model: str) -> AxChatResponse:
-    provider_id = _provider_normalize_profile(profile)
-    is_responses = _core_eq(provider_id, "openai-responses")
-    is_gemini = _core_eq(provider_id, "google-gemini")
-    is_anthropic = _core_eq(provider_id, "anthropic")
-    response = {}
-    if is_responses:
-        responses_response = _openai_responses_normalize_chat_response(raw, ai_name, model)
-        response = responses_response
-    else:
-        if is_gemini:
-            gemini_response = _gemini_normalize_chat_response(raw, ai_name, model)
-            response = gemini_response
-        else:
-            if is_anthropic:
-                anthropic_response = _anthropic_normalize_chat_response(raw, ai_name, model)
-                response = anthropic_response
-            else:
-                compatible_response = _openai_normalize_chat_response(raw, ai_name, model)
-                response = compatible_response
-    return response
-
-
-def provider_normalize_stream_delta(profile: str, raw: Any, state: Any, ai_name: str, model: str) -> AxChatResponse:
-    provider_id = _provider_normalize_profile(profile)
-    is_responses = _core_eq(provider_id, "openai-responses")
-    is_gemini = _core_eq(provider_id, "google-gemini")
-    is_anthropic = _core_eq(provider_id, "anthropic")
-    response = {}
-    if is_responses:
-        responses_response = _openai_responses_normalize_stream_delta(raw, state, ai_name, model)
-        response = responses_response
-    else:
-        if is_gemini:
-            gemini_response = _gemini_normalize_chat_response(raw, ai_name, model)
-            response = gemini_response
-        else:
-            if is_anthropic:
-                anthropic_response = _anthropic_normalize_stream_delta(raw, state, ai_name, model)
-                response = anthropic_response
-            else:
-                compatible_response = _openai_normalize_stream_delta(raw, state, ai_name, model)
-                response = compatible_response
-    return response
-
-
-def provider_normalize_embed_response(profile: str, raw: Any, ai_name: str, model: str) -> AxEmbedResponse:
-    provider_id = _provider_normalize_profile(profile)
-    is_gemini = _core_eq(provider_id, "google-gemini")
-    response = {}
-    if is_gemini:
-        gemini_response = _gemini_normalize_embed_response(raw, ai_name, model)
-        response = gemini_response
-    else:
-        openai_response = _openai_normalize_embed_response(raw, ai_name, model)
-        response = openai_response
-    return response
-
-
-def provider_build_transcribe_request(profile: str, request: Any) -> Any:
-    provider_id = _provider_normalize_profile(profile)
-    is_responses = _core_eq(provider_id, "openai-responses")
-    is_gemini = _core_eq(provider_id, "google-gemini")
-    is_grok = _core_eq(provider_id, "grok")
-    payload = {}
-    if is_gemini:
-        gemini_payload = _gemini_build_transcribe_request(request)
-        payload = gemini_payload
-    else:
-        if is_grok:
-            grok_payload = _grok_build_transcribe_request(request)
-            payload = grok_payload
-        else:
-            responses_payload = _openai_responses_build_transcribe_request(request)
-            payload = responses_payload
-    return payload
-
-
-def provider_build_speak_request(profile: str, request: Any) -> Any:
-    provider_id = _provider_normalize_profile(profile)
-    is_responses = _core_eq(provider_id, "openai-responses")
-    is_gemini = _core_eq(provider_id, "google-gemini")
-    is_grok = _core_eq(provider_id, "grok")
-    payload = {}
-    if is_gemini:
-        gemini_payload = _gemini_build_speak_request(request)
-        payload = gemini_payload
-    else:
-        if is_grok:
-            grok_payload = _grok_build_speak_request(request)
-            payload = grok_payload
-        else:
-            responses_payload = _openai_responses_build_speak_request(request)
-            payload = responses_payload
-    return payload
-
-
-def provider_normalize_transcribe_response(profile: str, raw: Any) -> Any:
-    provider_id = _provider_normalize_profile(profile)
-    is_gemini = _core_eq(provider_id, "google-gemini")
-    if is_gemini:
-        gemini_out = _gemini_normalize_transcribe_response(raw)
-        return gemini_out
-    else:
-        pass
-    text = _core_get(raw, "text", "")
-    out = {}
-    out["text"] = text
-    language = _core_get(raw, "language", None)
-    has_language = _core_is_not_none(language)
-    if has_language:
-        out["language"] = language
-    else:
-        pass
-    duration = _core_get(raw, "duration", None)
-    has_duration = _core_is_not_none(duration)
-    if has_duration:
-        out["duration"] = duration
-    else:
-        pass
-    return out
-
-
-def provider_normalize_speak_response(profile: str, raw: Any, request: Any) -> Any:
-    provider_id = _provider_normalize_profile(profile)
-    is_gemini = _core_eq(provider_id, "google-gemini")
-    if is_gemini:
-        gemini_out = _gemini_normalize_speak_response(raw, request)
-        return gemini_out
-    else:
-        pass
-    data = _core_get(raw, "audio", raw)
-    format = _core_get(request, "format", "mp3")
-    out = {}
-    out["audio"] = data
-    out["format"] = format
-    return out
-
-
 def _provider_realtime_audio_descriptor(profile: str) -> Any:
-    descriptor = _provider_operation_descriptor(profile, "realtime_audio")
+    descriptor = provider_operation_descriptor(profile, "realtime_audio")
     return descriptor
 
 
@@ -3747,8 +3344,439 @@ def _openai_realtime_content_parts_impl(content: Any) -> list[Any]:
     return parts
 
 
+def provider_build_chat_request(profile: str, request: AxChatRequest) -> Any:
+    provider_id = provider_normalize_profile(profile)
+    is_responses = _core_eq(provider_id, "openai-responses")
+    is_gemini = _core_eq(provider_id, "google-gemini")
+    is_anthropic = _core_eq(provider_id, "anthropic")
+    payload = {}
+    if is_responses:
+        responses_payload = openai_responses_build_chat_request(request)
+        payload = responses_payload
+    else:
+        if is_gemini:
+            gemini_payload = _gemini_build_chat_request(request)
+            payload = gemini_payload
+        else:
+            if is_anthropic:
+                anthropic_payload = _anthropic_build_chat_request(request)
+                payload = anthropic_payload
+            else:
+                compatible_payload = openai_build_chat_request(request)
+                payload = compatible_payload
+    payload_with_quirks = _provider_apply_openai_compatible_profile_quirks(provider_id, payload, request)
+    payload = payload_with_quirks
+    return payload
+
+
+def _provider_apply_openai_compatible_profile_quirks(profile: str, payload: Any, request: Any) -> Any:
+    empty_map = {}
+    model_config = _core_get(request, "model_config", empty_map)
+    is_deepseek = _core_eq(profile, "deepseek")
+    if is_deepseek:
+        payload = _provider_apply_deepseek_chat_quirks(payload, model_config)
+    else:
+        pass
+    is_mistral = _core_eq(profile, "mistral")
+    if is_mistral:
+        payload = _provider_apply_mistral_chat_quirks(payload)
+    else:
+        pass
+    is_grok = _core_eq(profile, "grok")
+    if is_grok:
+        payload = _provider_apply_grok_chat_quirks(payload, request, model_config)
+    else:
+        pass
+    return payload
+
+
+def _provider_apply_deepseek_chat_quirks(payload: Any, model_config: Any) -> Any:
+    model = _core_get(payload, "model", "")
+    is_flash = _core_eq(model, "deepseek-v4-flash")
+    is_pro = _core_eq(model, "deepseek-v4-pro")
+    supports_thinking = _core_or(is_flash, is_pro)
+    is_reasoner = _core_eq(model, "deepseek-reasoner")
+    unsupported_tool_choice_left = _core_or(supports_thinking, is_reasoner)
+    if supports_thinking:
+        budget_snake = _core_get(model_config, "thinking_token_budget", None)
+        budget = _core_get(model_config, "thinkingTokenBudget", budget_snake)
+        reasoning = _core_get(payload, "reasoning_effort", None)
+        has_budget = _core_is_not_none(budget)
+        has_reasoning = _core_is_not_none(reasoning)
+        has_thinking_signal = _core_or(has_budget, has_reasoning)
+        budget_is_none = _core_eq(budget, "none")
+        reasoning_is_none = _core_eq(reasoning, "none")
+        disabled_signal = _core_or(budget_is_none, reasoning_is_none)
+        not_disabled_signal = _core_not(disabled_signal)
+        thinking_enabled = _core_and(has_thinking_signal, not_disabled_signal)
+        thinking = {}
+        if thinking_enabled:
+            thinking["type"] = "enabled"
+            is_xhigh = _core_eq(reasoning, "xhigh")
+            budget_is_highest = _core_eq(budget, "highest")
+            is_max_effort = _core_or(is_xhigh, budget_is_highest)
+            if is_max_effort:
+                payload["reasoning_effort"] = "max"
+            else:
+                is_high = _core_eq(reasoning, "high")
+                if is_high:
+                    payload["reasoning_effort"] = "high"
+                else:
+                    payload["reasoning_effort"] = "high"
+            _core_map_delete(payload, "temperature")
+            _core_map_delete(payload, "top_p")
+            _core_map_delete(payload, "presence_penalty")
+            _core_map_delete(payload, "frequency_penalty")
+        else:
+            thinking["type"] = "disabled"
+            _core_map_delete(payload, "reasoning_effort")
+        payload["thinking"] = thinking
+    else:
+        pass
+    if unsupported_tool_choice_left:
+        tool_choice = _core_get(payload, "tool_choice", None)
+        choice_none = _core_eq(tool_choice, "none")
+        if choice_none:
+            _core_map_delete(payload, "tools")
+        else:
+            pass
+        _core_map_delete(payload, "tool_choice")
+    else:
+        pass
+    return payload
+
+
+def _provider_apply_mistral_chat_quirks(payload: Any) -> Any:
+    max_completion = _core_get(payload, "max_completion_tokens", None)
+    has_max_completion = _core_is_not_none(max_completion)
+    if has_max_completion:
+        payload["max_tokens"] = max_completion
+        _core_map_delete(payload, "max_completion_tokens")
+    else:
+        pass
+    empty_list = []
+    messages = _core_get(payload, "messages", empty_list)
+    for message in messages:
+        content = _core_get(message, "content", None)
+        content_is_list = _core_type_is(content, "list")
+        if content_is_list:
+            for part in content:
+                part_type = _core_get(part, "type", "")
+                is_image_url = _core_eq(part_type, "image_url")
+                if is_image_url:
+                    empty_image = {}
+                    image = _core_get(part, "image_url", empty_image)
+                    url = _core_get(image, "url", None)
+                    next_image = {}
+                    next_image["url"] = url
+                    part["image_url"] = next_image
+                else:
+                    pass
+        else:
+            pass
+    return payload
+
+
+def _provider_apply_grok_chat_quirks(payload: Any, request: Any, model_config: Any) -> Any:
+    model = _core_get(payload, "model", "")
+    is_grok43 = _core_eq(model, "grok-4.3")
+    is_grok43_latest = _core_eq(model, "grok-4.3-latest")
+    is_grok43_any = _core_or(is_grok43, is_grok43_latest)
+    if is_grok43_any:
+        budget_snake = _core_get(model_config, "thinking_token_budget", None)
+        budget = _core_get(model_config, "thinkingTokenBudget", budget_snake)
+        has_budget = _core_is_not_none(budget)
+        if has_budget:
+            is_none = _core_eq(budget, "none")
+            is_minimal = _core_eq(budget, "minimal")
+            is_low = _core_eq(budget, "low")
+            is_medium = _core_eq(budget, "medium")
+            is_high = _core_eq(budget, "high")
+            is_highest = _core_eq(budget, "highest")
+            lowish = _core_or(is_minimal, is_low)
+            highish = _core_or(is_high, is_highest)
+            if is_none:
+                payload["reasoning_effort"] = "none"
+            else:
+                if lowish:
+                    payload["reasoning_effort"] = "low"
+                else:
+                    if is_medium:
+                        payload["reasoning_effort"] = "medium"
+                    else:
+                        if highish:
+                            payload["reasoning_effort"] = "high"
+                        else:
+                            pass
+        else:
+            pass
+        _core_map_delete(payload, "presence_penalty")
+        _core_map_delete(payload, "frequency_penalty")
+        _core_map_delete(payload, "stop")
+    else:
+        _core_map_delete(payload, "reasoning_effort")
+    empty_map = {}
+    search_snake = _core_get(request, "search_parameters", None)
+    search_camel = _core_get(request, "searchParameters", search_snake)
+    search_config_snake = _core_get(model_config, "search_parameters", search_camel)
+    search = _core_get(model_config, "searchParameters", search_config_snake)
+    has_search = _core_is_not_none(search)
+    if has_search:
+        search_payload = {}
+        mode = _core_get(search, "mode", None)
+        return_citations = _core_get(search, "returnCitations", None)
+        return_citations_snake = _core_get(search, "return_citations", return_citations)
+        from_date = _core_get(search, "fromDate", None)
+        from_date_snake = _core_get(search, "from_date", from_date)
+        to_date = _core_get(search, "toDate", None)
+        to_date_snake = _core_get(search, "to_date", to_date)
+        max_results = _core_get(search, "maxSearchResults", None)
+        max_results_snake = _core_get(search, "max_search_results", max_results)
+        sources = _core_get(search, "sources", None)
+        has_mode = _core_is_not_none(mode)
+        if has_mode:
+            search_payload["mode"] = mode
+        else:
+            pass
+        has_return_citations = _core_is_not_none(return_citations_snake)
+        if has_return_citations:
+            search_payload["return_citations"] = return_citations_snake
+        else:
+            pass
+        has_from_date = _core_is_not_none(from_date_snake)
+        if has_from_date:
+            search_payload["from_date"] = from_date_snake
+        else:
+            pass
+        has_to_date = _core_is_not_none(to_date_snake)
+        if has_to_date:
+            search_payload["to_date"] = to_date_snake
+        else:
+            pass
+        has_max_results = _core_is_not_none(max_results_snake)
+        if has_max_results:
+            search_payload["max_search_results"] = max_results_snake
+        else:
+            pass
+        if sources:
+            mapped_sources = []
+            for source in sources:
+                mapped_source = {}
+                source_type = _core_get(source, "type", None)
+                source_country = _core_get(source, "country", None)
+                excluded_websites_camel = _core_get(source, "excludedWebsites", None)
+                excluded_websites = _core_get(source, "excluded_websites", excluded_websites_camel)
+                allowed_websites_camel = _core_get(source, "allowedWebsites", None)
+                allowed_websites = _core_get(source, "allowed_websites", allowed_websites_camel)
+                safe_search_camel = _core_get(source, "safeSearch", None)
+                safe_search = _core_get(source, "safe_search", safe_search_camel)
+                x_handles_camel = _core_get(source, "xHandles", None)
+                x_handles = _core_get(source, "x_handles", x_handles_camel)
+                links = _core_get(source, "links", None)
+                has_source_type = _core_is_not_none(source_type)
+                if has_source_type:
+                    mapped_source["type"] = source_type
+                else:
+                    pass
+                has_source_country = _core_is_not_none(source_country)
+                if has_source_country:
+                    mapped_source["country"] = source_country
+                else:
+                    pass
+                has_excluded_websites = _core_is_not_none(excluded_websites)
+                if has_excluded_websites:
+                    mapped_source["excluded_websites"] = excluded_websites
+                else:
+                    pass
+                has_allowed_websites = _core_is_not_none(allowed_websites)
+                if has_allowed_websites:
+                    mapped_source["allowed_websites"] = allowed_websites
+                else:
+                    pass
+                has_safe_search = _core_is_not_none(safe_search)
+                if has_safe_search:
+                    mapped_source["safe_search"] = safe_search
+                else:
+                    pass
+                has_x_handles = _core_is_not_none(x_handles)
+                if has_x_handles:
+                    mapped_source["x_handles"] = x_handles
+                else:
+                    pass
+                has_links = _core_is_not_none(links)
+                if has_links:
+                    mapped_source["links"] = links
+                else:
+                    pass
+                mapped_sources.append(mapped_source)
+            search_payload["sources"] = mapped_sources
+        else:
+            pass
+        payload["search_parameters"] = search_payload
+    else:
+        pass
+    return payload
+
+
+def provider_build_embed_request(profile: str, request: AxEmbedRequest) -> Any:
+    provider_id = provider_normalize_profile(profile)
+    is_gemini = _core_eq(provider_id, "google-gemini")
+    is_anthropic = _core_eq(provider_id, "anthropic")
+    payload = {}
+    if is_gemini:
+        gemini_payload = _gemini_build_embed_request(request)
+        payload = gemini_payload
+    else:
+        if is_anthropic:
+            error = _core_ai_error_unsupported("embed is not supported by Anthropic provider")
+            raise error
+        else:
+            openai_payload = openai_build_embed_request(request)
+            payload = openai_payload
+    return payload
+
+
+def provider_normalize_chat_response(profile: str, raw: Any, ai_name: str, model: str) -> AxChatResponse:
+    provider_id = provider_normalize_profile(profile)
+    is_responses = _core_eq(provider_id, "openai-responses")
+    is_gemini = _core_eq(provider_id, "google-gemini")
+    is_anthropic = _core_eq(provider_id, "anthropic")
+    response = {}
+    if is_responses:
+        responses_response = openai_responses_normalize_chat_response(raw, ai_name, model)
+        response = responses_response
+    else:
+        if is_gemini:
+            gemini_response = _gemini_normalize_chat_response(raw, ai_name, model)
+            response = gemini_response
+        else:
+            if is_anthropic:
+                anthropic_response = _anthropic_normalize_chat_response(raw, ai_name, model)
+                response = anthropic_response
+            else:
+                compatible_response = openai_normalize_chat_response(raw, ai_name, model)
+                response = compatible_response
+    return response
+
+
+def provider_normalize_stream_delta(profile: str, raw: Any, state: Any, ai_name: str, model: str) -> AxChatResponse:
+    provider_id = provider_normalize_profile(profile)
+    is_responses = _core_eq(provider_id, "openai-responses")
+    is_gemini = _core_eq(provider_id, "google-gemini")
+    is_anthropic = _core_eq(provider_id, "anthropic")
+    response = {}
+    if is_responses:
+        responses_response = openai_responses_normalize_stream_delta(raw, state, ai_name, model)
+        response = responses_response
+    else:
+        if is_gemini:
+            gemini_response = _gemini_normalize_chat_response(raw, ai_name, model)
+            response = gemini_response
+        else:
+            if is_anthropic:
+                anthropic_response = _anthropic_normalize_stream_delta(raw, state, ai_name, model)
+                response = anthropic_response
+            else:
+                compatible_response = openai_normalize_stream_delta(raw, state, ai_name, model)
+                response = compatible_response
+    return response
+
+
+def provider_normalize_embed_response(profile: str, raw: Any, ai_name: str, model: str) -> AxEmbedResponse:
+    provider_id = provider_normalize_profile(profile)
+    is_gemini = _core_eq(provider_id, "google-gemini")
+    response = {}
+    if is_gemini:
+        gemini_response = _gemini_normalize_embed_response(raw, ai_name, model)
+        response = gemini_response
+    else:
+        openai_response = openai_normalize_embed_response(raw, ai_name, model)
+        response = openai_response
+    return response
+
+
+def provider_build_transcribe_request(profile: str, request: Any) -> Any:
+    provider_id = provider_normalize_profile(profile)
+    is_responses = _core_eq(provider_id, "openai-responses")
+    is_gemini = _core_eq(provider_id, "google-gemini")
+    is_grok = _core_eq(provider_id, "grok")
+    payload = {}
+    if is_gemini:
+        gemini_payload = _gemini_build_transcribe_request(request)
+        payload = gemini_payload
+    else:
+        if is_grok:
+            grok_payload = _grok_build_transcribe_request(request)
+            payload = grok_payload
+        else:
+            responses_payload = openai_responses_build_transcribe_request(request)
+            payload = responses_payload
+    return payload
+
+
+def provider_build_speak_request(profile: str, request: Any) -> Any:
+    provider_id = provider_normalize_profile(profile)
+    is_responses = _core_eq(provider_id, "openai-responses")
+    is_gemini = _core_eq(provider_id, "google-gemini")
+    is_grok = _core_eq(provider_id, "grok")
+    payload = {}
+    if is_gemini:
+        gemini_payload = _gemini_build_speak_request(request)
+        payload = gemini_payload
+    else:
+        if is_grok:
+            grok_payload = _grok_build_speak_request(request)
+            payload = grok_payload
+        else:
+            responses_payload = openai_responses_build_speak_request(request)
+            payload = responses_payload
+    return payload
+
+
+def provider_normalize_transcribe_response(profile: str, raw: Any) -> Any:
+    provider_id = provider_normalize_profile(profile)
+    is_gemini = _core_eq(provider_id, "google-gemini")
+    if is_gemini:
+        gemini_out = _gemini_normalize_transcribe_response(raw)
+        return gemini_out
+    else:
+        pass
+    text = _core_get(raw, "text", "")
+    out = {}
+    out["text"] = text
+    language = _core_get(raw, "language", None)
+    has_language = _core_is_not_none(language)
+    if has_language:
+        out["language"] = language
+    else:
+        pass
+    duration = _core_get(raw, "duration", None)
+    has_duration = _core_is_not_none(duration)
+    if has_duration:
+        out["duration"] = duration
+    else:
+        pass
+    return out
+
+
+def provider_normalize_speak_response(profile: str, raw: Any, request: Any) -> Any:
+    provider_id = provider_normalize_profile(profile)
+    is_gemini = _core_eq(provider_id, "google-gemini")
+    if is_gemini:
+        gemini_out = _gemini_normalize_speak_response(raw, request)
+        return gemini_out
+    else:
+        pass
+    data = _core_get(raw, "audio", raw)
+    format = _core_get(request, "format", "mp3")
+    out = {}
+    out["audio"] = data
+    out["format"] = format
+    return out
+
+
 def provider_normalize_realtime_event(profile: str, event: Any, state: Any, ai_name: str, model: str) -> AxChatResponse:
-    provider_id = _provider_normalize_profile(profile)
+    provider_id = provider_normalize_profile(profile)
     descriptor = _provider_realtime_audio_descriptor(provider_id)
     grammar = _core_get(descriptor, "grammar", "openai_realtime_compatible")
     is_gemini_live = _core_eq(grammar, "gemini_live_bidi")
@@ -3757,7 +3785,7 @@ def provider_normalize_realtime_event(profile: str, event: Any, state: Any, ai_n
         return gemini_response
     else:
         pass
-    response = _openai_responses_normalize_realtime_event(event, state, ai_name, model)
+    response = openai_responses_normalize_realtime_event(event, state, ai_name, model)
     return response
 
 
@@ -4188,6 +4216,175 @@ def openai_responses_build_speak_request(request: Any) -> Any:
     payload["voice"] = voice
     payload["response_format"] = response_format
     return payload
+
+
+def _grok_build_transcribe_request(request: Any) -> Any:
+    payload = {}
+    request_file = _core_get(request, "file", None)
+    audio_file = _core_get(request, "audio", request_file)
+    payload["file"] = audio_file
+    language = _core_get(request, "language", None)
+    has_language = _core_is_not_none(language)
+    if has_language:
+        payload["language"] = language
+    else:
+        pass
+    prompt = _core_get(request, "prompt", None)
+    has_prompt = _core_is_not_none(prompt)
+    if has_prompt:
+        payload["keyterm"] = prompt
+    else:
+        pass
+    payload["format"] = True
+    return payload
+
+
+def _grok_build_speak_request(request: Any) -> Any:
+    payload = {}
+    request_input = _core_get(request, "input", "")
+    text = _core_get(request, "text", request_input)
+    voice = _core_get(request, "voice", "eve")
+    voice_id = _core_get(voice, "id", voice)
+    language = _core_get(request, "language", "auto")
+    format = _core_get(request, "format", "mp3")
+    is_pcm16 = _core_eq(format, "pcm16")
+    is_raw = _core_eq(format, "raw")
+    is_pcm_like = _core_or(is_pcm16, is_raw)
+    codec = format
+    if is_pcm_like:
+        codec = "pcm"
+    else:
+        is_ulaw = _core_eq(format, "ulaw")
+        if is_ulaw:
+            codec = "mulaw"
+        else:
+            pass
+    output_format = {}
+    output_format["codec"] = codec
+    sample_rate_alt = _core_get(request, "sample_rate", None)
+    sample_rate = _core_get(request, "sampleRate", sample_rate_alt)
+    has_sample_rate = _core_is_not_none(sample_rate)
+    if has_sample_rate:
+        output_format["sample_rate"] = sample_rate
+    else:
+        pass
+    payload["text"] = text
+    payload["voice_id"] = voice_id
+    payload["language"] = language
+    payload["output_format"] = output_format
+    return payload
+
+
+def _gemini_build_transcribe_request(request: Any) -> Any:
+    payload = {}
+    contents = []
+    turn = {}
+    turn["role"] = "user"
+    parts = []
+    request_file = _core_get(request, "file", None)
+    audio = _core_get(request, "audio", request_file)
+    mime_type_raw = _core_get(audio, "mimeType", None)
+    mime_type = _core_get(audio, "mime_type", mime_type_raw)
+    has_mime = _core_is_not_none(mime_type)
+    if has_mime:
+        pass
+    else:
+        mime_type = "audio/wav"
+    data = _core_get(audio, "data", audio)
+    inline_data = {}
+    inline_data["mimeType"] = mime_type
+    inline_data["data"] = data
+    audio_part = {}
+    audio_part["inlineData"] = inline_data
+    parts.append(audio_part)
+    prompt = _core_get(request, "prompt", "Generate a transcript of the speech in this audio.")
+    text_part = {}
+    text_part["text"] = prompt
+    parts.append(text_part)
+    turn["parts"] = parts
+    contents.append(turn)
+    payload["contents"] = contents
+    return payload
+
+
+def _gemini_build_speak_request(request: Any) -> Any:
+    payload = {}
+    contents = []
+    turn = {}
+    turn["role"] = "user"
+    parts = []
+    request_input = _core_get(request, "input", "")
+    text = _core_get(request, "text", request_input)
+    text_part = {}
+    text_part["text"] = text
+    parts.append(text_part)
+    turn["parts"] = parts
+    contents.append(turn)
+    generation_config = {}
+    modalities = []
+    modalities.append("AUDIO")
+    generation_config["responseModalities"] = modalities
+    voice = _core_get(request, "voice", "Kore")
+    voice_id = _core_get(voice, "id", voice)
+    prebuilt = {}
+    prebuilt["voiceName"] = voice_id
+    voice_config = {}
+    voice_config["prebuiltVoiceConfig"] = prebuilt
+    speech_config = {}
+    speech_config["voiceConfig"] = voice_config
+    generation_config["speechConfig"] = speech_config
+    payload["contents"] = contents
+    payload["generationConfig"] = generation_config
+    return payload
+
+
+def _gemini_normalize_transcribe_response(raw: Any) -> Any:
+    empty_candidates = []
+    candidates = _core_get(raw, "candidates", empty_candidates)
+    text_parts = []
+    for candidate in candidates:
+        content = _core_get(candidate, "content", None)
+        empty_parts = []
+        parts = _core_get(content, "parts", empty_parts)
+        for part in parts:
+            text = _core_get(part, "text", None)
+            has_text = _core_is_not_none(text)
+            if has_text:
+                text_parts.append(text)
+            else:
+                pass
+    text = _core_string_join("", text_parts)
+    out = {}
+    out["text"] = text
+    return out
+
+
+def _gemini_normalize_speak_response(raw: Any, request: Any) -> Any:
+    audio = _core_get(raw, "audio", None)
+    format = _core_get(request, "format", "wav")
+    empty_candidates = []
+    candidates = _core_get(raw, "candidates", empty_candidates)
+    for candidate in candidates:
+        content = _core_get(candidate, "content", None)
+        empty_parts = []
+        parts = _core_get(content, "parts", empty_parts)
+        for part in parts:
+            inline_data = _core_get(part, "inlineData", None)
+            data = _core_get(inline_data, "data", None)
+            has_data = _core_is_not_none(data)
+            if has_data:
+                audio = data
+            else:
+                pass
+    has_audio = _core_is_not_none(audio)
+    if has_audio:
+        pass
+    else:
+        audio = raw
+    out = {}
+    out["audio"] = audio
+    out["format"] = format
+    return out
 
 
 def openai_responses_normalize_realtime_event(event: Any, state: Any, ai_name: str, model: str) -> AxChatResponse:
@@ -5818,32 +6015,6 @@ def _anthropic_normalize_stream_delta(event: Any, state: Any, ai_name: str, mode
     out["results"] = results
     out["remote_id"] = remote_id
     return out
-
-
-def build_chat_request(service: AxAIService, request: AxChatRequest, options: Any = None) -> Any:
-    validate_chat_request(request)
-    payload = openai_build_chat_request(request)
-    return payload
-
-
-def normalize_chat_response(raw: Any) -> AxChatResponse:
-    response = openai_normalize_chat_response(raw)
-    return response
-
-
-def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
-    response = openai_normalize_stream_delta(raw, state)
-    return response
-
-
-def build_embed_request(service: AxAIService, request: AxEmbedRequest, options: Any = None) -> Any:
-    payload = openai_build_embed_request(request)
-    return payload
-
-
-def normalize_embed_response(raw: Any) -> AxEmbedResponse:
-    response = openai_normalize_embed_response(raw)
-    return response
 
 # END AXIR CORE EMITTED FUNCTIONS
 

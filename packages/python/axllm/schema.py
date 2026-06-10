@@ -235,6 +235,21 @@ def _valid_url_shape(value):
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
+def validate_fields(fields: list[Any], values: Any, context: str = "value") -> None:
+    _validate_fields_impl(fields, values, context)
+    return None
+
+
+def to_json_schema(fields: list[Any], schema_title: str = "Schema", options: Any = None) -> dict[str, Any]:
+    schema = _schema_to_json_schema_impl(fields, schema_title, options)
+    return schema
+
+
+def validate_output(fields: list[Any], values: Any) -> Any:
+    validated = _validate_output_impl(fields, values)
+    return validated
+
+
 def _schema_required_impl(field: Field, options: Any) -> bool:
     strict_camel = _core_get(options, "strictStructuredOutputs", False)
     strict_snake = _core_get(options, "strict_structured_outputs", False)
@@ -243,6 +258,16 @@ def _schema_required_impl(field: Field, options: Any) -> bool:
     not_optional = _core_not(is_optional)
     required = _core_or(strict, not_optional)
     return required
+
+
+def validate_value(field: Field, value: Any, path: str = None) -> None:
+    _validate_value_impl(field, value, path)
+    return None
+
+
+def strip_internal(fields: list[Any], values: Any) -> Any:
+    public_values = _strip_internal_fields_impl(fields, values)
+    return public_values
 
 
 def _schema_flexible_json_as_string_impl(typ: FieldType, options: Any) -> bool:
@@ -259,6 +284,38 @@ def _schema_flexible_json_as_string_impl(typ: FieldType, options: Any) -> bool:
     flexible_type = _core_or(is_json, unshaped_object)
     as_string = _core_and(enabled, flexible_type)
     return as_string
+
+
+def _validate_fields_impl(fields: list[Any], values: Any, context: str) -> None:
+    values_is_object = _core_type_is(values, "object")
+    values_not_object = _core_not(values_is_object)
+    if values_not_object:
+        message = _core_string_format("{} must be an object", context)
+        error = _core_validation_error(message)
+        raise error
+    else:
+        pass
+    for field in fields:
+        field_name = _core_get(field, "name", None)
+        field_title = _core_get(field, "title", None)
+        is_optional = _core_get(field, "is_optional", False)
+        has_value = _core_map_contains(values, field_name)
+        missing = _core_not(has_value)
+        field_value = _core_get(values, field_name, None)
+        is_null = _core_is_none(field_value)
+        missing_or_null = _core_or(missing, is_null)
+        if missing_or_null:
+            required_missing = _core_not(is_optional)
+            if required_missing:
+                message = _core_string_format("Required field is missing: '{}'", field_title)
+                error = _core_validation_error(message)
+                raise error
+            else:
+                pass
+        else:
+            child_path = _core_string_format("{}.{}", context, field_name)
+            _validate_value_impl(field, field_value, child_path)
+    return None
 
 
 def _schema_json_type_impl(type_name: str) -> Any:
@@ -304,6 +361,97 @@ def _schema_json_type_impl(type_name: str) -> Any:
     else:
         pass
     return "string"
+
+
+def _validate_output_impl(fields: list[Any], values: Any) -> Any:
+    normalized = values
+    for field in fields:
+        field_name = _core_get(field, "name", None)
+        field_title = _core_get(field, "title", None)
+        has_name = _core_map_contains(normalized, field_name)
+        missing_name = _core_not(has_name)
+        has_title = _core_map_contains(normalized, field_title)
+        alias_title = _core_and(missing_name, has_title)
+        if alias_title:
+            title_value = _core_get(normalized, field_title, None)
+            normalized[field_name] = title_value
+        else:
+            pass
+    _validate_fields_impl(fields, normalized, "output")
+    return normalized
+
+
+def _validate_string_constraints_impl(value: str, field: Field) -> None:
+    typ = _core_get(field, "type", None)
+    title = _core_get(field, "title", None)
+    min_length = _core_get(typ, "min_length", None)
+    has_min = _core_is_not_none(min_length)
+    if has_min:
+        length = _core_len(value)
+        too_short = _core_lt(length, min_length)
+        if too_short:
+            message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long.", title, min_length)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    max_length = _core_get(typ, "max_length", None)
+    has_max = _core_is_not_none(max_length)
+    if has_max:
+        length = _core_len(value)
+        too_long = _core_gt(length, max_length)
+        if too_long:
+            message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long.", title, max_length)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    pattern = _core_get(typ, "pattern", None)
+    has_pattern = _core_is_not_none(pattern)
+    if has_pattern:
+        matches = _core_regex_match(pattern, value)
+        pattern_failed = _core_not(matches)
+        if pattern_failed:
+            message = _core_string_format("Field '{}' failed validation: String must match pattern /{}/.", title, pattern)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    format = _core_get(typ, "format", None)
+    is_email = _core_eq(format, "email")
+    if is_email:
+        valid_email = _core_regex_match("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", value)
+        invalid_email = _core_not(valid_email)
+        if invalid_email:
+            message = _core_string_format("Field '{}' failed validation: String must be a valid email address.", title)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    url_formats = []
+    url_formats.append("uri")
+    url_formats.append("url")
+    is_url_format = _core_contains(url_formats, format)
+    if is_url_format:
+        valid_url = _core_url_valid(value)
+        invalid_url = _core_not(valid_url)
+        if invalid_url:
+            message = _core_string_format("Invalid URL for '{}': Invalid URL format.", title)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    return None
 
 
 def _schema_enhance_description_impl(base: Any, typ: FieldType) -> Any:
@@ -419,6 +567,231 @@ def _schema_enhance_description_impl(base: Any, typ: FieldType) -> Any:
     else:
         pass
     return base
+
+
+def _validate_number_constraints_impl(value: float, field: Field) -> None:
+    typ = _core_get(field, "type", None)
+    title = _core_get(field, "title", None)
+    minimum = _core_get(typ, "minimum", None)
+    has_minimum = _core_is_not_none(minimum)
+    if has_minimum:
+        too_small = _core_lt(value, minimum)
+        if too_small:
+            message = _core_string_format("Field '{}' failed validation: Number must be at least {}.", title, minimum)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    maximum = _core_get(typ, "maximum", None)
+    has_maximum = _core_is_not_none(maximum)
+    if has_maximum:
+        too_large = _core_gt(value, maximum)
+        if too_large:
+            message = _core_string_format("Field '{}' failed validation: Number must be at most {}.", title, maximum)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    return None
+
+
+def _validate_value_impl(field: Field, value: Any, path: str) -> None:
+    field_name = _core_get(field, "name", None)
+    typ = _core_get(field, "type", None)
+    type_name = _core_get(typ, "name", None)
+    is_array = _core_get(typ, "is_array", False)
+    if is_array:
+        is_list = _core_type_is(value, "list")
+        not_list = _core_not(is_list)
+        if not_list:
+            message = _core_string_format("{} must be an array", path)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        item_field = _core_field_item(field)
+        for item in value:
+            _validate_value_impl(item_field, item, path)
+        return None
+    else:
+        pass
+    is_image = _core_eq(type_name, "image")
+    if is_image:
+        valid_image = _valid_image(value)
+        invalid_image = _core_not(valid_image)
+        if invalid_image:
+            message = _core_string_format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'", field_name)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        return None
+    else:
+        pass
+    is_audio = _core_eq(type_name, "audio")
+    if is_audio:
+        valid_audio = _valid_audio(value)
+        invalid_audio = _core_not(valid_audio)
+        if invalid_audio:
+            message = _core_string_format("Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'", field_name)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        return None
+    else:
+        pass
+    is_file = _core_eq(type_name, "file")
+    if is_file:
+        valid_file = _valid_file(value)
+        invalid_file = _core_not(valid_file)
+        if invalid_file:
+            message = _core_string_format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'", field_name)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        return None
+    else:
+        pass
+    is_url = _core_eq(type_name, "url")
+    if is_url:
+        valid_url_shape = _valid_url_shape(value)
+        invalid_url_shape = _core_not(valid_url_shape)
+        if invalid_url_shape:
+            message = _core_string_format("Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'", field_name)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        url_is_string = _core_type_is(value, "string")
+        if url_is_string:
+            valid_url = _core_url_valid(value)
+            invalid_url = _core_not(valid_url)
+            if invalid_url:
+                field_title = _core_get(field, "title", None)
+                message = _core_string_format("Invalid URL for '{}': Invalid URL format.", field_title)
+                error = _core_validation_error(message)
+                raise error
+            else:
+                pass
+        else:
+            pass
+        return None
+    else:
+        pass
+    string_types = []
+    string_types.append("string")
+    string_types.append("code")
+    string_types.append("date")
+    string_types.append("datetime")
+    string_types.append("dateRange")
+    string_types.append("datetimeRange")
+    is_string_type = _core_contains(string_types, type_name)
+    if is_string_type:
+        is_string = _core_type_is(value, "string")
+        not_string = _core_not(is_string)
+        if not_string:
+            message = _core_string_format("Validation failed: Expected '{}' to be a {}", field_name, type_name)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        _validate_string_constraints_impl(value, field)
+        return None
+    else:
+        pass
+    is_number_type = _core_eq(type_name, "number")
+    if is_number_type:
+        is_number = _core_type_is(value, "number")
+        not_number = _core_not(is_number)
+        if not_number:
+            message = _core_string_format("Validation failed: Expected '{}' to be a number", field_name)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        _validate_number_constraints_impl(value, field)
+        return None
+    else:
+        pass
+    is_boolean_type = _core_eq(type_name, "boolean")
+    if is_boolean_type:
+        is_boolean = _core_type_is(value, "boolean")
+        not_boolean = _core_not(is_boolean)
+        if not_boolean:
+            message = _core_string_format("Validation failed: Expected '{}' to be a boolean", field_name)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        return None
+    else:
+        pass
+    is_class_type = _core_eq(type_name, "class")
+    if is_class_type:
+        is_class_string = _core_type_is(value, "string")
+        not_class_string = _core_not(is_class_string)
+        if not_class_string:
+            message = _core_string_format("Validation failed: Expected '{}' to be a class", field_name)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        options = _core_get(typ, "options", None)
+        has_options = _core_truthy(options)
+        if has_options:
+            known_class = _core_contains(options, value)
+            unknown_class = _core_not(known_class)
+            if unknown_class:
+                message = _core_string_format("{} must be one of {}", path, options)
+                error = _core_validation_error(message)
+                raise error
+            else:
+                pass
+        else:
+            pass
+        return None
+    else:
+        pass
+    is_json_type = _core_eq(type_name, "json")
+    if is_json_type:
+        is_json = _core_type_is(value, "json")
+        not_json = _core_not(is_json)
+        if not_json:
+            message = _core_string_format("Validation failed: Expected '{}' to be JSON", field_name)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        return None
+    else:
+        pass
+    is_object_type = _core_eq(type_name, "object")
+    if is_object_type:
+        is_object = _core_type_is(value, "object")
+        not_object = _core_not(is_object)
+        if not_object:
+            message = _core_string_format("{} must be an object", path)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        nested_map = _core_get(typ, "fields", None)
+        has_nested = _core_truthy(nested_map)
+        if has_nested:
+            nested_fields = _core_fields_from_map(nested_map)
+            _validate_fields_impl(nested_fields, value, path)
+        else:
+            pass
+        return None
+    else:
+        pass
+    return None
 
 
 def _schema_apply_constraints_impl(schema: Any, typ: FieldType) -> Any:
@@ -680,6 +1053,22 @@ def _schema_field_schema_impl(field: Field, is_nested: bool, options: Any) -> An
     return nullable
 
 
+def _strip_internal_fields_impl(fields: list[Any], values: Any) -> Any:
+    public_values = {}
+    for field in fields:
+        is_internal = _core_get(field, "is_internal", False)
+        is_public = _core_not(is_internal)
+        field_name = _core_get(field, "name", None)
+        has_value = _core_map_contains(values, field_name)
+        keep = _core_and(is_public, has_value)
+        if keep:
+            field_value = _core_map_get(values, field_name)
+            public_values[field_name] = field_value
+        else:
+            pass
+    return public_values
+
+
 def _schema_to_json_schema_impl(fields: list[Any], schema_title: str, options: Any) -> dict[str, Any]:
     schema = {}
     properties = {}
@@ -704,394 +1093,5 @@ def _schema_to_json_schema_impl(fields: list[Any], schema_title: str, options: A
         else:
             pass
     return schema
-
-
-def _validate_string_constraints_impl(value: str, field: Field) -> None:
-    typ = _core_get(field, "type", None)
-    title = _core_get(field, "title", None)
-    min_length = _core_get(typ, "min_length", None)
-    has_min = _core_is_not_none(min_length)
-    if has_min:
-        length = _core_len(value)
-        too_short = _core_lt(length, min_length)
-        if too_short:
-            message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long.", title, min_length)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    max_length = _core_get(typ, "max_length", None)
-    has_max = _core_is_not_none(max_length)
-    if has_max:
-        length = _core_len(value)
-        too_long = _core_gt(length, max_length)
-        if too_long:
-            message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long.", title, max_length)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    pattern = _core_get(typ, "pattern", None)
-    has_pattern = _core_is_not_none(pattern)
-    if has_pattern:
-        matches = _core_regex_match(pattern, value)
-        pattern_failed = _core_not(matches)
-        if pattern_failed:
-            message = _core_string_format("Field '{}' failed validation: String must match pattern /{}/.", title, pattern)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    format = _core_get(typ, "format", None)
-    is_email = _core_eq(format, "email")
-    if is_email:
-        valid_email = _core_regex_match("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", value)
-        invalid_email = _core_not(valid_email)
-        if invalid_email:
-            message = _core_string_format("Field '{}' failed validation: String must be a valid email address.", title)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    url_formats = []
-    url_formats.append("uri")
-    url_formats.append("url")
-    is_url_format = _core_contains(url_formats, format)
-    if is_url_format:
-        valid_url = _core_url_valid(value)
-        invalid_url = _core_not(valid_url)
-        if invalid_url:
-            message = _core_string_format("Invalid URL for '{}': Invalid URL format.", title)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    return None
-
-
-def _validate_number_constraints_impl(value: float, field: Field) -> None:
-    typ = _core_get(field, "type", None)
-    title = _core_get(field, "title", None)
-    minimum = _core_get(typ, "minimum", None)
-    has_minimum = _core_is_not_none(minimum)
-    if has_minimum:
-        too_small = _core_lt(value, minimum)
-        if too_small:
-            message = _core_string_format("Field '{}' failed validation: Number must be at least {}.", title, minimum)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    maximum = _core_get(typ, "maximum", None)
-    has_maximum = _core_is_not_none(maximum)
-    if has_maximum:
-        too_large = _core_gt(value, maximum)
-        if too_large:
-            message = _core_string_format("Field '{}' failed validation: Number must be at most {}.", title, maximum)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    return None
-
-
-def _validate_fields_impl(fields: list[Any], values: Any, context: str) -> None:
-    values_is_object = _core_type_is(values, "object")
-    values_not_object = _core_not(values_is_object)
-    if values_not_object:
-        message = _core_string_format("{} must be an object", context)
-        error = _core_validation_error(message)
-        raise error
-    else:
-        pass
-    for field in fields:
-        field_name = _core_get(field, "name", None)
-        field_title = _core_get(field, "title", None)
-        is_optional = _core_get(field, "is_optional", False)
-        has_value = _core_map_contains(values, field_name)
-        missing = _core_not(has_value)
-        field_value = _core_get(values, field_name, None)
-        is_null = _core_is_none(field_value)
-        missing_or_null = _core_or(missing, is_null)
-        if missing_or_null:
-            required_missing = _core_not(is_optional)
-            if required_missing:
-                message = _core_string_format("Required field is missing: '{}'", field_title)
-                error = _core_validation_error(message)
-                raise error
-            else:
-                pass
-        else:
-            child_path = _core_string_format("{}.{}", context, field_name)
-            _validate_value_impl(field, field_value, child_path)
-    return None
-
-
-def _validate_output_impl(fields: list[Any], values: Any) -> Any:
-    normalized = values
-    for field in fields:
-        field_name = _core_get(field, "name", None)
-        field_title = _core_get(field, "title", None)
-        has_name = _core_map_contains(normalized, field_name)
-        missing_name = _core_not(has_name)
-        has_title = _core_map_contains(normalized, field_title)
-        alias_title = _core_and(missing_name, has_title)
-        if alias_title:
-            title_value = _core_get(normalized, field_title, None)
-            normalized[field_name] = title_value
-        else:
-            pass
-    _validate_fields_impl(fields, normalized, "output")
-    return normalized
-
-
-def _validate_value_impl(field: Field, value: Any, path: str) -> None:
-    field_name = _core_get(field, "name", None)
-    typ = _core_get(field, "type", None)
-    type_name = _core_get(typ, "name", None)
-    is_array = _core_get(typ, "is_array", False)
-    if is_array:
-        is_list = _core_type_is(value, "list")
-        not_list = _core_not(is_list)
-        if not_list:
-            message = _core_string_format("{} must be an array", path)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        item_field = _core_field_item(field)
-        for item in value:
-            _validate_value_impl(item_field, item, path)
-        return None
-    else:
-        pass
-    is_image = _core_eq(type_name, "image")
-    if is_image:
-        valid_image = _valid_image(value)
-        invalid_image = _core_not(valid_image)
-        if invalid_image:
-            message = _core_string_format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'", field_name)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        return None
-    else:
-        pass
-    is_audio = _core_eq(type_name, "audio")
-    if is_audio:
-        valid_audio = _valid_audio(value)
-        invalid_audio = _core_not(valid_audio)
-        if invalid_audio:
-            message = _core_string_format("Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'", field_name)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        return None
-    else:
-        pass
-    is_file = _core_eq(type_name, "file")
-    if is_file:
-        valid_file = _valid_file(value)
-        invalid_file = _core_not(valid_file)
-        if invalid_file:
-            message = _core_string_format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'", field_name)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        return None
-    else:
-        pass
-    is_url = _core_eq(type_name, "url")
-    if is_url:
-        valid_url_shape = _valid_url_shape(value)
-        invalid_url_shape = _core_not(valid_url_shape)
-        if invalid_url_shape:
-            message = _core_string_format("Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'", field_name)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        url_is_string = _core_type_is(value, "string")
-        if url_is_string:
-            valid_url = _core_url_valid(value)
-            invalid_url = _core_not(valid_url)
-            if invalid_url:
-                field_title = _core_get(field, "title", None)
-                message = _core_string_format("Invalid URL for '{}': Invalid URL format.", field_title)
-                error = _core_validation_error(message)
-                raise error
-            else:
-                pass
-        else:
-            pass
-        return None
-    else:
-        pass
-    string_types = []
-    string_types.append("string")
-    string_types.append("code")
-    string_types.append("date")
-    string_types.append("datetime")
-    string_types.append("dateRange")
-    string_types.append("datetimeRange")
-    is_string_type = _core_contains(string_types, type_name)
-    if is_string_type:
-        is_string = _core_type_is(value, "string")
-        not_string = _core_not(is_string)
-        if not_string:
-            message = _core_string_format("Validation failed: Expected '{}' to be a {}", field_name, type_name)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        _validate_string_constraints_impl(value, field)
-        return None
-    else:
-        pass
-    is_number_type = _core_eq(type_name, "number")
-    if is_number_type:
-        is_number = _core_type_is(value, "number")
-        not_number = _core_not(is_number)
-        if not_number:
-            message = _core_string_format("Validation failed: Expected '{}' to be a number", field_name)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        _validate_number_constraints_impl(value, field)
-        return None
-    else:
-        pass
-    is_boolean_type = _core_eq(type_name, "boolean")
-    if is_boolean_type:
-        is_boolean = _core_type_is(value, "boolean")
-        not_boolean = _core_not(is_boolean)
-        if not_boolean:
-            message = _core_string_format("Validation failed: Expected '{}' to be a boolean", field_name)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        return None
-    else:
-        pass
-    is_class_type = _core_eq(type_name, "class")
-    if is_class_type:
-        is_class_string = _core_type_is(value, "string")
-        not_class_string = _core_not(is_class_string)
-        if not_class_string:
-            message = _core_string_format("Validation failed: Expected '{}' to be a class", field_name)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        options = _core_get(typ, "options", None)
-        has_options = _core_truthy(options)
-        if has_options:
-            known_class = _core_contains(options, value)
-            unknown_class = _core_not(known_class)
-            if unknown_class:
-                message = _core_string_format("{} must be one of {}", path, options)
-                error = _core_validation_error(message)
-                raise error
-            else:
-                pass
-        else:
-            pass
-        return None
-    else:
-        pass
-    is_json_type = _core_eq(type_name, "json")
-    if is_json_type:
-        is_json = _core_type_is(value, "json")
-        not_json = _core_not(is_json)
-        if not_json:
-            message = _core_string_format("Validation failed: Expected '{}' to be JSON", field_name)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        return None
-    else:
-        pass
-    is_object_type = _core_eq(type_name, "object")
-    if is_object_type:
-        is_object = _core_type_is(value, "object")
-        not_object = _core_not(is_object)
-        if not_object:
-            message = _core_string_format("{} must be an object", path)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        nested_map = _core_get(typ, "fields", None)
-        has_nested = _core_truthy(nested_map)
-        if has_nested:
-            nested_fields = _core_fields_from_map(nested_map)
-            _validate_fields_impl(nested_fields, value, path)
-        else:
-            pass
-        return None
-    else:
-        pass
-    return None
-
-
-def _strip_internal_fields_impl(fields: list[Any], values: Any) -> Any:
-    public_values = {}
-    for field in fields:
-        is_internal = _core_get(field, "is_internal", False)
-        is_public = _core_not(is_internal)
-        field_name = _core_get(field, "name", None)
-        has_value = _core_map_contains(values, field_name)
-        keep = _core_and(is_public, has_value)
-        if keep:
-            field_value = _core_map_get(values, field_name)
-            public_values[field_name] = field_value
-        else:
-            pass
-    return public_values
-
-
-def to_json_schema(fields: list[Any], schema_title: str = "Schema", options: Any = None) -> dict[str, Any]:
-    schema = _schema_to_json_schema_impl(fields, schema_title, options)
-    return schema
-
-
-def validate_fields(fields: list[Any], values: Any, context: str = "value") -> None:
-    _validate_fields_impl(fields, values, context)
-    return None
-
-
-def validate_output(fields: list[Any], values: Any) -> Any:
-    validated = _validate_output_impl(fields, values)
-    return validated
-
-
-def validate_value(field: Field, value: Any, path: str = None) -> None:
-    _validate_value_impl(field, value, path)
-    return None
-
-
-def strip_internal(fields: list[Any], values: Any) -> Any:
-    public_values = _strip_internal_fields_impl(fields, values)
-    return public_values
 
 # END AXIR CORE EMITTED FUNCTIONS
