@@ -20,6 +20,7 @@
         <directory>${project.basedir}</directory>
         <includes>
           <include>axir-capabilities.json</include>
+          <include>skills/**/SKILL.md</include>
         </includes>
       </resource>
     </resources>

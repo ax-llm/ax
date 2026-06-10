@@ -1,0 +1,22 @@
+{{ $currentLang := .Params.language | default "typescript" }}
+{{ $currentSlug := .Params.slug_key | default "" }}
+{{ $groups := slice
+  (dict "id" "start" "title" "Start")
+  (dict "id" "concepts" "title" "Concepts")
+  (dict "id" "subsystems" "title" "Subsystems")
+  (dict "id" "skills" "title" "Skills")
+  (dict "id" "api" "title" "API Docs")
+}}
+{{ $langPages := where .Site.Pages "Params.language" $currentLang }}
+
+{{ range $groups }}
+  {{ $pages := sort (where $langPages "Params.nav_group" .id) "Weight" }}
+  {{ if $pages }}
+    <div class="side-section">
+      <div class="side-title">{{ .title }}</div>
+      {{ range $pages }}
+        <a href="{{ .RelPermalink }}"{{ if eq .Params.slug_key $currentSlug }} class="active" aria-current="page"{{ end }}>{{ .Title }}</a>
+      {{ end }}
+    </div>
+  {{ end }}
+{{ end }}

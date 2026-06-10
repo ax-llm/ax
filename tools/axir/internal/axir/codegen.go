@@ -140,6 +140,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"API.md":                                                      packageAPIReferenceMarkdown(model, "python"),
 		"README.md":                                                   packageREADME(model, "python"),
 	}
+	addPackageSkills(files, model, "python")
 	return writeFiles(outDir, files)
 }
 
@@ -238,6 +239,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"API.md":    packageAPIReferenceMarkdown(model, "java"),
 		"README.md": packageREADME(model, "java"),
 	}
+	addPackageSkills(files, model, "java")
 	return writeFiles(outDir, files)
 }
 
@@ -284,6 +286,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"API.md":                                                packageAPIReferenceMarkdown(model, "cpp"),
 		"README.md":                                             packageREADME(model, "cpp"),
 	}
+	addPackageSkills(files, model, "cpp")
 	return writeFiles(outDir, files)
 }
 
@@ -323,6 +326,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"API.md":                                            packageAPIReferenceMarkdown(model, "go"),
 		"README.md":                                         packageREADME(model, "go"),
 	}
+	addPackageSkills(files, model, "go")
 	return writeFiles(outDir, files)
 }
 
@@ -362,6 +366,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"API.md":                                          packageAPIReferenceMarkdown(model, "rust"),
 		"README.md":                                       packageREADME(model, "rust"),
 	}
+	addPackageSkills(files, model, "rust")
 	if err := writeFiles(outDir, files); err != nil {
 		return err
 	}

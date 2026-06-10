@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 420" role="img" aria-labelledby="title desc">
+  <title id="title">Pareto frontier</title>
+  <desc id="desc">GEPA keeps multiple optimized candidates visible along a quality, speed, and cost frontier.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .ink { fill: #0a2540; }
+    .muted { fill: #61758a; }
+    .axis { stroke: #aab7c4; stroke-width: 1.7; }
+    .grid { stroke: #e3e8ee; stroke-width: 1; }
+    .frontier { fill: none; stroke: #635bff; stroke-width: 3.4; stroke-linecap: round; }
+    .frontier-soft { fill: none; stroke: #635bff; stroke-width: 10; stroke-linecap: round; opacity: 0.12; }
+    .dominated { fill: #aab7c4; opacity: 0.5; }
+    .label { font-size: 12px; font-weight: 700; }
+    .small { font-size: 10px; font-weight: 620; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #f4f7fb; }
+      .muted { fill: #aab8cb; }
+      .axis { stroke: #64748b; }
+      .grid { stroke: #263246; }
+      .dominated { fill: #64748b; }
+    }
+  </style>
+  <g transform="translate(116 56)">
+    <g class="grid">
+      <path d="M0 250H720M0 188H720M0 126H720M0 64H720"/>
+      <path d="M144 0V310M288 0V310M432 0V310M576 0V310"/>
+    </g>
+    <path class="axis" d="M0 310H740M0 310V0"/>
+    <path class="frontier-soft" d="M60 58C142 72 196 112 252 154S376 222 486 246 620 268 698 284"/>
+    <path class="frontier" d="M60 58C142 72 196 112 252 154S376 222 486 246 620 268 698 284"/>
+    <circle cx="60" cy="58" r="9" fill="#b34836"/>
+    <circle cx="204" cy="116" r="9" fill="#a97009"/>
+    <circle cx="338" cy="202" r="9" fill="#0a8f7a"/>
+    <circle cx="486" cy="246" r="9" fill="#067ab8"/>
+    <circle cx="698" cy="284" r="9" fill="#635bff"/>
+    <circle class="dominated" cx="230" cy="236" r="7"/>
+    <circle class="dominated" cx="416" cy="284" r="7"/>
+    <circle class="dominated" cx="604" cy="316" r="7"/>
+    <text class="small muted" x="316" y="350">cost</text>
+    <text class="small muted" x="-34" y="166" transform="rotate(-90 -34 166)">quality</text>
+    <text class="label" x="76" y="44" fill="#b34836">quality</text>
+    <text class="label" x="350" y="194" fill="#0a8f7a">balanced</text>
+    <text class="label" x="558" y="238" fill="#635bff">cost</text>
+  </g>
+</svg>

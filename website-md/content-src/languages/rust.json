@@ -1,0 +1,96 @@
+{
+  "id": "rust",
+  "label": "Rust",
+  "shortLabel": "Rust",
+  "fence": "rust",
+  "packageName": "axllm",
+  "install": ["cargo test --manifest-path packages/rust/Cargo.toml"],
+  "exampleRoot": "packages/rust/examples",
+  "apiKind": "axir",
+  "optimizeName": "AxGEPA",
+  "optimizeIntro": "Use the generated `AxGEPA` optimizer surface for portable GEPA tuning. TypeScript also exposes the convenience `optimize()` helper; generated packages currently keep the optimizer explicit.",
+  "apiReference": "/rust/api/reference/",
+  "apiSections": {
+    "ai": ["AxAI"],
+    "ax": ["AxGen", "Tools"],
+    "s": ["Signatures"],
+    "agent": ["Agents And RLM", "Runtime Profiles", "MCP"],
+    "optimize": ["Optimizers"]
+  },
+  "snippets": {
+    "quickStart": [
+      "use axllm::{ai, ax};",
+      "use serde_json::json;",
+      "",
+      "let llm = ai(\"openai\", json!({\"apiKey\": std::env::var(\"OPENAI_API_KEY\")?}))?;",
+      "let classify = ax(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\")?;"
+    ],
+    "dspy": [
+      "let qa = ax(\"question:string -> answer:string, confidence:number\")?;"
+    ],
+    "signature": [
+      "let sig = s(\"email:string -> priority:class \\\"high, normal, low\\\"\")?;"
+    ],
+    "ax": ["let answer = ax(\"question:string -> answer:string\")?;"],
+    "agent": ["let helper = agent(\"question:string -> answer:string\")?;"],
+    "llm": [
+      "let client = ai(\"openai\", json!({\"apiKey\": std::env::var(\"OPENAI_API_KEY\")?}))?;"
+    ],
+    "telemetry": [
+      "let program = ax(\"text:string -> label:string\")?;",
+      "let usage = program.usage();"
+    ],
+    "optimize": [
+      "let engine = AxGEPA::new(reflection_client, json!({}));",
+      "let result = engine.optimize(request, evaluator);"
+    ]
+  },
+  "snippetGroups": {
+    "tools": {
+      "basic": [
+        "use axllm::{tool, FieldType};",
+        "",
+        "let search = tool(\"search\")",
+        "  .description(\"Search docs\")",
+        "  .arg(\"query\", FieldType::string())",
+        "  .handler(|args| Ok(json!([\"hit\"])));"
+      ],
+      "standardSchema": [
+        "// TypeScript owns the zod/valibot/arktype Standard Schema adapters.",
+        "// Generated packages expose the same Ax concept as JSON-schema-compatible tool descriptors.",
+        "let lookup = tool(\"lookupProduct\")",
+        "  .description(\"Look up product inventory\")",
+        "  .arg(\"productName\", FieldType::string())",
+        "  .handler(|_args| Ok(json!({\"price\": 79.99, \"inStock\": true})));"
+      ],
+      "namespaces": [
+        "let policy = tool(\"findPolicy\")",
+        "  .description(\"Find policies\")",
+        "  .arg(\"topic\", FieldType::string())",
+        "  .handler(|args| Ok(json!([format!(\"policy: {}\", args[\"topic\"])])));",
+        "// Group related tools under domain namespaces where the package surface supports it.",
+        "// Runtime calls should read like kb.findPolicy(...) or billing.lookupInvoice(...)."
+      ],
+      "ax": [
+        "let mut answer = axllm::ax(\"question:string -> answer:string\")?.with_tool(search);",
+        "let out = answer.forward(",
+        "  &mut llm,",
+        "  json!({\"question\": \"Can this customer get a refund?\"})",
+        ")?;"
+      ],
+      "agentFlat": [
+        "let mut assistant = axllm::agent(\"message:string -> reply:string\")?;",
+        "assistant.program.tools.push(search);"
+      ],
+      "agentGroups": [
+        "// Generated package discovery metadata follows the AxAgentFunctionGroup shape where supported.",
+        "let group = json!({",
+        "  \"namespace\": \"kb\",",
+        "  \"title\": \"Knowledge Base\",",
+        "  \"selectionCriteria\": \"Use for policy or documentation lookup.\",",
+        "  \"functions\": [\"search\"]",
+        "});"
+      ]
+    }
+  }
+}

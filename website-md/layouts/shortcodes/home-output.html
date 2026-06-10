@@ -1,0 +1,12 @@
+{{ $topic := .Get "topic" }}
+{{ $languages := hugo.Data.homepage_languages.languages }}
+<div class="home-output-panel" aria-label="{{ .Get "label" | default "Typed output" }}">
+  <div class="home-panel-title">{{ .Get "title" | default "Typed output" }}</div>
+  {{ range $index, $language := $languages }}
+    {{ $panel := index $language $topic }}
+    <div data-home-output-variant="{{ $language.id }}" data-home-active="{{ if eq $index 0 }}true{{ else }}false{{ end }}"{{ if ne $index 0 }} aria-hidden="true" inert{{ end }}>
+      <pre><code>{{ $panel.output }}</code></pre>
+      <div class="home-status"><span aria-hidden="true"></span>{{ $panel.status }}</div>
+    </div>
+  {{ end }}
+</div>

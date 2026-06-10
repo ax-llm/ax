@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 420" role="img" aria-labelledby="title desc">
+  <title id="title">Provider router map</title>
+  <desc id="desc">An Ax request routes through ai provider selection to OpenAI, Anthropic, Gemini, Responses, and OpenAI-compatible endpoints.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .ink { fill: #0a2540; }
+    .muted { fill: #61758a; }
+    .flow { fill: none; stroke: #9aa8ba; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+    .thin { fill: none; stroke: #c8d3df; stroke-width: 1.4; stroke-linecap: round; }
+    .blue { fill: #067ab8; }
+    .teal { fill: #0a8f7a; }
+    .amber { fill: #a97009; }
+    .rust { fill: #b34836; }
+    .green { fill: #0a8852; }
+    .violet { fill: #635bff; }
+    .soft-blue { fill: #e7f4ff; }
+    .soft-teal { fill: #e7fbf5; }
+    .soft-amber { fill: #fff5da; }
+    .soft-rust { fill: #fff0eb; }
+    .soft-green { fill: #e9fbf2; }
+    .soft-violet { fill: #f1efff; }
+    .big { font-size: 21px; font-weight: 760; }
+    .label { font-size: 13px; font-weight: 700; }
+    .small { font-size: 10px; font-weight: 620; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #f4f7fb; }
+      .muted { fill: #aab8cb; }
+      .flow { stroke: #78879d; }
+      .thin { stroke: #34445c; }
+      .soft-blue { fill: #10263a; }
+      .soft-teal { fill: #11342e; }
+      .soft-amber { fill: #302614; }
+      .soft-rust { fill: #351f1b; }
+      .soft-green { fill: #123323; }
+      .soft-violet { fill: #221f45; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow-provider" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#9aa8ba"/>
+    </marker>
+  </defs>
+
+  <text class="ink big" x="88" y="206">Ax request</text>
+  <text class="mono muted" x="90" y="232">chat stream embed</text>
+  <path class="flow" marker-end="url(#arrow-provider)" d="M280 214H412"/>
+
+  <circle class="soft-teal" cx="470" cy="214" r="52"/>
+  <circle class="teal" cx="470" cy="214" r="9"/>
+  <text class="label" x="452" y="286" fill="#0a8f7a">ai()</text>
+
+  <g>
+    <path class="flow" marker-end="url(#arrow-provider)" d="M522 202C610 106 704 88 814 92"/>
+    <circle class="soft-green" cx="842" cy="92" r="27"/><circle class="green" cx="842" cy="92" r="6"/><text class="label" x="882" y="97" fill="#0a8852">OpenAI</text>
+  </g>
+  <g>
+    <path class="flow" marker-end="url(#arrow-provider)" d="M524 210C614 150 706 144 814 150"/>
+    <circle class="soft-amber" cx="842" cy="150" r="27"/><circle class="amber" cx="842" cy="150" r="6"/><text class="label" x="882" y="155" fill="#a97009">Claude</text>
+  </g>
+  <g>
+    <path class="flow" marker-end="url(#arrow-provider)" d="M524 216H814"/>
+    <circle class="soft-blue" cx="842" cy="216" r="27"/><circle class="blue" cx="842" cy="216" r="6"/><text class="label" x="882" y="221" fill="#067ab8">Gemini</text>
+  </g>
+  <g>
+    <path class="flow" marker-end="url(#arrow-provider)" d="M524 224C616 286 706 292 814 288"/>
+    <circle class="soft-rust" cx="842" cy="288" r="27"/><circle class="rust" cx="842" cy="288" r="6"/><text class="label" x="882" y="293" fill="#b34836">Responses</text>
+  </g>
+  <g>
+    <path class="thin" d="M544 250C640 340 734 356 858 348"/>
+    <circle class="soft-violet" cx="886" cy="348" r="27"/><circle class="violet" cx="886" cy="348" r="6"/><text class="label" x="758" y="354" fill="#635bff">compatible</text>
+  </g>
+
+  <g>
+    <circle class="muted" cx="98" cy="304" r="3"/>
+    <text class="small muted" x="112" y="308">usage</text>
+    <circle class="muted" cx="176" cy="304" r="3"/>
+    <text class="small muted" x="190" y="308">retries</text>
+    <circle class="muted" cx="254" cy="304" r="3"/>
+    <text class="small muted" x="268" y="308">traces</text>
+  </g>
+</svg>

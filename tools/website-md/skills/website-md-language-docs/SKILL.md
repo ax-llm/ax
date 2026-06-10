@@ -1,0 +1,47 @@
+---
+name: website-md-language-docs
+description: Use when changing Ax website-md language docs, language-specific snippets, examples, API symbol mappings, generated package capabilities, or adding a new website-md language route. Keeps the markdown-only Hugo site source-audited and generated from repo truth.
+---
+
+# Website-MD Language Docs
+
+Use this skill when a change affects `website-md/`, Ax public APIs, examples, AxIR package docs, language capabilities, or docs that should appear in language-prefixed markdown routes.
+
+## Workflow
+
+1. Inspect current repo truth first:
+   - public exports in `src/ax/index.ts`
+   - subsystem skills in `src/ax/skills/`
+   - examples via `npm run example -- list` and the files it names
+   - generated package metadata under `packages/{python,java,cpp,go,rust}/`
+2. Update common prose once in `website-md/content-src/templates/`.
+3. Put language-specific install commands, snippets, package labels, and API section mappings in `website-md/content-src/languages/<language>.json`.
+   - Snippets may be plain arrays/strings for simple text, or metadata objects with `code`, `fence`, `verified`, `illustrative`, `sourcePath`, `requiresCredentials`, and `notes`.
+   - Prefer `sourcePath` pointing at a checked-in runnable example when a snippet is meant to be copy/paste runnable.
+   - Mark conceptual generated-language equivalents as `illustrative` or let the generator label them automatically.
+4. Add or reorder pages only in `website-md/content-src/site-map.json`; generated pages read this manifest.
+5. Do not hand-edit `website-md/.generated/` or generated package docs. If AxIR package truth is stale, refresh it with `npm run axir:generate-packages`.
+6. Keep old Astro docs untouched unless the user explicitly asks to change that site.
+
+## API Mapping
+
+- TypeScript subsystem API pages map TypeDoc pages from `src/docs/src/content/apidocs`.
+- Generated language subsystem API pages map sections from `packages/<language>/axir-api.json`.
+- Keep subsystem mappings small and intentional: `ai`, `ax`, `s`, `agent`, and `optimize`.
+- Keep API landing pages curated: everyday symbols belong in “Most Used”; noisy long-tail symbols can stay collapsed under advanced/full reference.
+
+## Checks
+
+Run the narrow checks for the surface you changed, then run:
+
+```bash
+npm run doc:build:markdown
+npm run axir:check-packages
+npm run example -- list
+npm run website-md:prepare
+npm run website-md:check
+npx biome check package.json scripts/website-md-prepare.mjs scripts/check-website-md-links.mjs .github/workflows/ci.yml --files-ignore-unknown=true
+git diff --check
+```
+
+If Hugo is not installed locally, install or point `PATH` at the pinned Hugo binary used by CI before running `website-md:check`.

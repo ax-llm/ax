@@ -1,0 +1,47 @@
+{{ $id := .id | default . }}
+{{ $label := .label | default $id }}
+<span class="language-mark language-mark-{{ $id }}" aria-hidden="true">
+  {{ if eq $id "typescript" }}
+    <svg viewBox="0 0 24 24" role="img" focusable="false">
+      <rect x="3" y="3" width="18" height="18" rx="4"></rect>
+      <text x="12" y="15.4" text-anchor="middle">TS</text>
+    </svg>
+  {{ else if eq $id "python" }}
+    <svg viewBox="0 0 24 24" role="img" focusable="false">
+      <path d="M8 4h7a3 3 0 0 1 3 3v3H9a3 3 0 0 0-3 3v1H4V9a5 5 0 0 1 5-5z"></path>
+      <path d="M16 20H9a3 3 0 0 1-3-3v-3h9a3 3 0 0 0 3-3v-1h2v5a5 5 0 0 1-5 5z"></path>
+      <circle cx="9" cy="7" r="1"></circle>
+      <circle cx="15" cy="17" r="1"></circle>
+    </svg>
+  {{ else if eq $id "java" }}
+    <svg viewBox="0 0 24 24" role="img" focusable="false">
+      <path d="M12 4c-1.6 1.3-1.6 2.3-.2 3.4 1.5 1.2 1.4 2.4-.4 3.7"></path>
+      <path d="M15 5.4c-1.1 1-1.1 1.8 0 2.7 1.1.8 1 1.8-.3 2.8"></path>
+      <path d="M6.5 13.2c2.4 1 8.6 1 11 0"></path>
+      <path d="M7.8 16c2 .7 6.4.7 8.4 0"></path>
+      <path d="M9 18.4c1.5.4 4.5.4 6 0"></path>
+    </svg>
+  {{ else if eq $id "cpp" }}
+    <svg viewBox="0 0 24 24" role="img" focusable="false">
+      <path d="M12 3.5 19.3 8v8L12 20.5 4.7 16V8z"></path>
+      <text x="9.5" y="15.1" text-anchor="middle">C</text>
+      <path d="M14.5 10.2v4.6M12.2 12.5h4.6M19.1 10.2v4.6M16.8 12.5h4.6"></path>
+    </svg>
+  {{ else if eq $id "go" }}
+    <svg viewBox="0 0 24 24" role="img" focusable="false">
+      <path d="M4 9h8"></path>
+      <path d="M3 12h7"></path>
+      <path d="M5 15h6"></path>
+      <circle cx="15" cy="12" r="5"></circle>
+      <path d="M17.4 10.6c-.7-.8-2.2-1.1-3.2-.4-1 .7-1.1 2.5-.2 3.4.9.9 2.5.8 3.4-.2"></path>
+    </svg>
+  {{ else if eq $id "rust" }}
+    <svg viewBox="0 0 24 24" role="img" focusable="false">
+      <circle cx="12" cy="12" r="7"></circle>
+      <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path>
+      <text x="12" y="15.1" text-anchor="middle">Rs</text>
+    </svg>
+  {{ else }}
+    <span>{{ upper (substr $label 0 2) }}</span>
+  {{ end }}
+</span>

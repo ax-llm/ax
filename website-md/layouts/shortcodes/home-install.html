@@ -1,0 +1,9 @@
+{{ $languages := hugo.Data.homepage_languages.languages }}
+<div class="home-install" aria-label="Install Ax">
+  <span>$</span>
+  <code>
+    {{ range $index, $language := $languages }}
+      <span data-home-lang-text="{{ $language.id }}" data-home-active="{{ if eq $index 0 }}true{{ else }}false{{ end }}"{{ if ne $index 0 }} aria-hidden="true"{{ end }}>{{ $language.command }}</span>
+    {{ end }}
+  </code>
+</div>

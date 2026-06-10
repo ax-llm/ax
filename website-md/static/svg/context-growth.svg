@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 420" role="img" aria-labelledby="title desc">
+  <title id="title">Context growth chart</title>
+  <desc id="desc">Naive agents grow prompt context every turn while Ax agents keep prompt context flatter by storing state in runtime sessions and context maps.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .ink { fill: #0a2540; }
+    .muted { fill: #61758a; }
+    .grid { stroke: #e3e8ee; stroke-width: 1; }
+    .axis { stroke: #aab7c4; stroke-width: 1.7; }
+    .naive { fill: none; stroke: #b34836; stroke-width: 3.4; stroke-linecap: round; }
+    .ax { fill: none; stroke: #0a8f7a; stroke-width: 3.4; stroke-linecap: round; }
+    .label { font-size: 12px; font-weight: 700; }
+    .small { font-size: 10px; font-weight: 620; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #f4f7fb; }
+      .muted { fill: #aab8cb; }
+      .grid { stroke: #263246; }
+      .axis { stroke: #64748b; }
+    }
+  </style>
+  <g transform="translate(116 56)">
+    <g class="grid">
+      <path d="M0 250H720M0 188H720M0 126H720M0 64H720"/>
+      <path d="M120 0V298M240 0V298M360 0V298M480 0V298M600 0V298"/>
+    </g>
+    <path class="axis" d="M0 298H740M0 298V0"/>
+    <path class="naive" d="M28 270C126 236 216 198 314 148C430 88 548 46 694 22"/>
+    <path class="ax" d="M28 270C176 260 316 258 464 252C568 248 632 248 694 244"/>
+    <circle cx="694" cy="22" r="7" fill="#b34836"/>
+    <circle cx="694" cy="244" r="7" fill="#0a8f7a"/>
+    <text class="label" x="554" y="52" fill="#b34836">transcript</text>
+    <text class="label" x="552" y="238" fill="#0a8f7a">Ax state</text>
+    <text class="small muted" x="328" y="338">turns</text>
+    <text class="small muted" x="-34" y="164" transform="rotate(-90 -34 164)">tokens</text>
+  </g>
+</svg>

@@ -1,0 +1,9 @@
+{{ $languages := hugo.Data.homepage_languages.languages }}
+<div class="home-language-pills" data-home-language-controls aria-label="Homepage code language">
+  {{ range $index, $language := $languages }}
+    <button type="button" data-home-language="{{ $language.id }}" aria-pressed="{{ if eq $index 0 }}true{{ else }}false{{ end }}">
+      {{ partial "language-mark.html" $language }}
+      <span class="home-language-label">{{ $language.label }}</span>
+    </button>
+  {{ end }}
+</div>

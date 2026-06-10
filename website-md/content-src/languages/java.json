@@ -1,0 +1,101 @@
+{
+  "id": "java",
+  "label": "Java",
+  "shortLabel": "Java",
+  "fence": "java",
+  "packageName": "dev.axllm:ax",
+  "install": [
+    "# use the generated package under packages/java",
+    "javac -cp packages/java packages/java/examples/SignatureSchemaExample.java"
+  ],
+  "exampleRoot": "packages/java/examples",
+  "apiKind": "axir",
+  "optimizeName": "AxGEPA",
+  "optimizeIntro": "Use the generated `AxGEPA` optimizer surface for portable GEPA tuning. TypeScript also exposes the convenience `optimize()` helper; generated packages currently keep the optimizer explicit.",
+  "apiReference": "/java/api/reference/",
+  "apiSections": {
+    "ai": ["AxAI"],
+    "ax": ["AxGen", "Tools"],
+    "s": ["Signatures"],
+    "agent": ["Agents And RLM", "Runtime Profiles", "MCP"],
+    "optimize": ["Optimizers"]
+  },
+  "snippets": {
+    "quickStart": [
+      "import dev.axllm.ax.Ax;",
+      "",
+      "var llm = Ax.ai(\"openai\", Map.of(\"apiKey\", System.getenv(\"OPENAI_API_KEY\")));",
+      "var classify = Ax.ax(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\");"
+    ],
+    "dspy": [
+      "var qa = Ax.ax(\"question:string -> answer:string, confidence:number\");"
+    ],
+    "signature": [
+      "var sig = Ax.s(\"email:string -> priority:class \\\"high, normal, low\\\"\");"
+    ],
+    "ax": ["var answer = Ax.ax(\"question:string -> answer:string\");"],
+    "agent": ["var helper = Ax.agent(\"question:string -> answer:string\");"],
+    "llm": [
+      "var client = Ax.ai(\"openai\", Map.of(\"apiKey\", System.getenv(\"OPENAI_API_KEY\")));"
+    ],
+    "telemetry": [
+      "var program = Ax.ax(\"text:string -> label:string\");",
+      "var usage = program.getUsage();"
+    ],
+    "optimize": [
+      "var engine = new AxGEPA(reflectionClient, Map.of());",
+      "var result = engine.optimize(request, evaluator);"
+    ]
+  },
+  "snippetGroups": {
+    "tools": {
+      "basic": [
+        "Tool search = Ax.fn(\"search\")",
+        "    .description(\"Search docs\")",
+        "    .arg(\"query\", Ax.f().string(\"Search query\"))",
+        "    .handler(args -> List.of(\"hit for \" + args.get(\"query\")))",
+        "    .build();"
+      ],
+      "standardSchema": [
+        "// TypeScript owns the zod/valibot/arktype Standard Schema adapters.",
+        "// Generated packages expose the same Ax concept as JSON-schema-compatible tool descriptors.",
+        "Tool lookup = Ax.fn(\"lookupProduct\")",
+        "    .description(\"Look up product inventory\")",
+        "    .arg(\"productName\", Ax.f().string(\"Exact product name\"))",
+        "    .build();"
+      ],
+      "namespaces": [
+        "Tool policy = Ax.fn(\"findPolicy\")",
+        "    .description(\"Find policies\")",
+        "    .arg(\"topic\", Ax.f().string())",
+        "    .handler(args -> List.of(\"policy: \" + args.get(\"topic\")))",
+        "    .build();",
+        "// Group related tools under domain namespaces where the package surface supports it.",
+        "// Runtime calls should read like kb.findPolicy(...) or billing.lookupInvoice(...)."
+      ],
+      "ax": [
+        "var answer = Ax.ax(\"question:string -> answer:string\");",
+        "var out = answer.forward(llm, Map.of(",
+        "    \"question\", \"Can this customer get a refund?\"",
+        "), Map.of(\"functions\", List.of(search)));"
+      ],
+      "agentFlat": [
+        "var assistant = Ax.agent(\"message:string -> reply:string\", Map.of(",
+        "    \"functions\", List.of(search),",
+        "    \"contextFields\", List.of()",
+        "));"
+      ],
+      "agentGroups": [
+        "var assistant = Ax.agent(\"message:string -> reply:string\", Map.of(",
+        "    \"functionDiscovery\", true,",
+        "    \"functions\", List.of(Map.of(",
+        "        \"namespace\", \"kb\",",
+        "        \"title\", \"Knowledge Base\",",
+        "        \"selectionCriteria\", \"Use for policy or documentation lookup.\",",
+        "        \"functions\", List.of(search)",
+        "    ))",
+        "));"
+      ]
+    }
+  }
+}

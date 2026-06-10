@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 420" role="img" aria-labelledby="title desc">
+  <title id="title">Language package matrix</title>
+  <desc id="desc">TypeScript reference semantics lower into AxIR Core and emit native Python, Java, C++, Go, and Rust packages.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .ink { fill: #0a2540; }
+    .muted { fill: #61758a; }
+    .link { fill: none; stroke: #bcc8d6; stroke-width: 1.8; stroke-linecap: round; }
+    .flow { fill: none; stroke: #9aa8ba; stroke-width: 2.2; stroke-linecap: round; }
+    .blue { fill: #067ab8; }
+    .teal { fill: #0a8f7a; }
+    .amber { fill: #a97009; }
+    .rust { fill: #b34836; }
+    .green { fill: #0a8852; }
+    .violet { fill: #635bff; }
+    .soft-blue { fill: #e7f4ff; }
+    .soft-teal { fill: #e7fbf5; }
+    .soft-amber { fill: #fff5da; }
+    .soft-rust { fill: #fff0eb; }
+    .soft-green { fill: #e9fbf2; }
+    .soft-violet { fill: #f1efff; }
+    .big { font-size: 21px; font-weight: 760; }
+    .label { font-size: 13px; font-weight: 700; }
+    .small { font-size: 10px; font-weight: 620; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #f4f7fb; }
+      .muted { fill: #aab8cb; }
+      .link { stroke: #465873; }
+      .flow { stroke: #78879d; }
+      .soft-blue { fill: #10263a; }
+      .soft-teal { fill: #11342e; }
+      .soft-amber { fill: #302614; }
+      .soft-rust { fill: #351f1b; }
+      .soft-green { fill: #123323; }
+      .soft-violet { fill: #221f45; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow-lang" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#9aa8ba"/>
+    </marker>
+  </defs>
+
+  <text class="ink big" x="88" y="202">TypeScript</text>
+  <text class="mono muted" x="90" y="228">reference</text>
+  <path class="flow" marker-end="url(#arrow-lang)" d="M256 214H388"/>
+
+  <circle class="soft-teal" cx="438" cy="214" r="54"/>
+  <circle class="teal" cx="438" cy="214" r="9"/>
+  <text class="label" x="402" y="288" fill="#0a8f7a">AxIR Core</text>
+
+  <path class="link" d="M492 214C590 106 690 82 804 98M492 214C606 158 698 154 812 170M492 214C608 218 700 228 802 236M492 214C600 276 694 298 812 306M492 214C610 320 724 340 876 342"/>
+  <g>
+    <circle class="soft-blue" cx="804" cy="98" r="28"/><circle class="blue" cx="804" cy="98" r="6"/><text class="label" x="846" y="103" fill="#067ab8">Python</text>
+    <circle class="soft-amber" cx="812" cy="170" r="28"/><circle class="amber" cx="812" cy="170" r="6"/><text class="label" x="854" y="175" fill="#a97009">Java</text>
+    <circle class="soft-rust" cx="802" cy="236" r="28"/><circle class="rust" cx="802" cy="236" r="6"/><text class="label" x="844" y="241" fill="#b34836">C++</text>
+    <circle class="soft-green" cx="812" cy="306" r="28"/><circle class="green" cx="812" cy="306" r="6"/><text class="label" x="854" y="311" fill="#0a8852">Go</text>
+    <circle class="soft-violet" cx="876" cy="342" r="28"/><circle class="violet" cx="876" cy="342" r="6"/><text class="label" x="918" y="347" fill="#635bff">Rust</text>
+  </g>
+</svg>

@@ -1,0 +1,167 @@
+{
+  "defaultLanguage": "typescript",
+  "languages": ["typescript", "python", "java", "cpp", "go", "rust"],
+  "navGroups": [
+    {
+      "id": "start",
+      "title": "Start",
+      "pages": [
+        {
+          "slug": "quick-start",
+          "title": "Quick Start",
+          "template": "quick-start",
+          "description": "Install Ax and run a typed LLM program."
+        },
+        {
+          "slug": "examples",
+          "title": "Examples",
+          "template": "examples",
+          "description": "Runnable no-key and provider-api examples."
+        }
+      ]
+    },
+    {
+      "id": "concepts",
+      "title": "Concepts",
+      "pages": [
+        {
+          "slug": "concepts/dspy",
+          "title": "DSPy",
+          "template": "concept-dspy",
+          "description": "The Ax take on DSPy-style typed LLM programs."
+        },
+        {
+          "slug": "concepts/signatures",
+          "title": "Signatures",
+          "template": "concept-signatures",
+          "description": "Typed input and output contracts for prompts, schemas, tools, and validation."
+        },
+        {
+          "slug": "concepts/tools",
+          "title": "Tools",
+          "template": "concept-tools",
+          "description": "Typed host functions, fn(), namespaces, function groups, and discovery."
+        },
+        {
+          "slug": "concepts/agents",
+          "title": "Agents",
+          "template": "concept-agents",
+          "description": "RLM agents, runtime sessions, context, memory, skills, discovery, and delegation."
+        },
+        {
+          "slug": "concepts/mcp",
+          "title": "MCP",
+          "template": "concept-mcp",
+          "description": "Connect MCP servers as Ax tools for generation, agents, prompts, resources, and runtime workflows."
+        },
+        {
+          "slug": "concepts/optimization",
+          "title": "Optimization",
+          "template": "concept-optimization",
+          "description": "GEPA, Pareto tradeoffs, demos, artifacts, and evaluation."
+        },
+        {
+          "slug": "concepts/llms",
+          "title": "LLMs",
+          "template": "concept-llms",
+          "description": "Provider clients, model catalogs, routing, audio, embeddings, thinking, and context caching."
+        },
+        {
+          "slug": "concepts/telemetry",
+          "title": "Telemetry",
+          "template": "concept-telemetry",
+          "description": "Traces, metrics, usage, costs, optimizer metrics, and production debugging."
+        }
+      ]
+    },
+    {
+      "id": "subsystems",
+      "title": "Subsystems",
+      "pages": [
+        {
+          "slug": "subsystems/ai",
+          "title": "ai() LLM Models",
+          "template": "subsystem-ai",
+          "description": "Create provider clients and select models."
+        },
+        {
+          "slug": "subsystems/ax",
+          "title": "ax() Generation",
+          "template": "subsystem-ax",
+          "description": "Run structured generation with tools, streaming, validation, traces, and usage."
+        },
+        {
+          "slug": "subsystems/s",
+          "title": "s() Signatures",
+          "template": "subsystem-s",
+          "description": "Parse or build signatures."
+        },
+        {
+          "slug": "subsystems/agent",
+          "title": "agent() Agents",
+          "template": "subsystem-agent",
+          "description": "Build agents with tools, child agents, runtime profiles, and context controls."
+        },
+        {
+          "slug": "subsystems/optimize",
+          "title": "optimize() GEPA",
+          "template": "subsystem-optimize",
+          "description": "Tune programs with the top-level GEPA helper."
+        }
+      ]
+    },
+    {
+      "id": "skills",
+      "title": "Skills",
+      "pages": [
+        {
+          "slug": "skills",
+          "title": "Overview",
+          "template": "skills",
+          "description": "Install language-specific Ax skills for coding agents."
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "title": "API Docs",
+      "pages": [
+        {
+          "slug": "api/ai",
+          "title": "ai() API",
+          "template": "api",
+          "subsystem": "ai",
+          "description": "Provider, model, routing, media, and embedding APIs."
+        },
+        {
+          "slug": "api/ax",
+          "title": "ax() API",
+          "template": "api",
+          "subsystem": "ax",
+          "description": "Structured generation APIs."
+        },
+        {
+          "slug": "api/s",
+          "title": "s() API",
+          "template": "api",
+          "subsystem": "s",
+          "description": "Signature and field APIs."
+        },
+        {
+          "slug": "api/agent",
+          "title": "agent() API",
+          "template": "api",
+          "subsystem": "agent",
+          "description": "Agent, runtime, context, skill, memory, MCP, and RLM APIs."
+        },
+        {
+          "slug": "api/optimize",
+          "title": "optimize() API",
+          "template": "api",
+          "subsystem": "optimize",
+          "description": "GEPA optimizer, Pareto, artifact, and evaluation APIs."
+        }
+      ]
+    }
+  ]
+}

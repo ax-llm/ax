@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 420" role="img" aria-labelledby="title desc">
+  <title id="title">Agent tree</title>
+  <desc id="desc">An Ax agent discovers function groups, calls tools, delegates to child agents, uses memory, and connects to MCP.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .ink { fill: #0a2540; }
+    .muted { fill: #61758a; }
+    .link { fill: none; stroke: #bcc8d6; stroke-width: 1.8; stroke-linecap: round; }
+    .blue { fill: #067ab8; }
+    .teal { fill: #0a8f7a; }
+    .amber { fill: #a97009; }
+    .green { fill: #0a8852; }
+    .violet { fill: #635bff; }
+    .soft-blue { fill: #e7f4ff; }
+    .soft-teal { fill: #e7fbf5; }
+    .soft-amber { fill: #fff5da; }
+    .soft-green { fill: #e9fbf2; }
+    .soft-violet { fill: #f1efff; }
+    .core { font-size: 21px; font-weight: 760; }
+    .label { font-size: 13px; font-weight: 700; }
+    .small { font-size: 10px; font-weight: 620; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #f4f7fb; }
+      .muted { fill: #aab8cb; }
+      .link { stroke: #465873; }
+      .soft-blue { fill: #10263a; }
+      .soft-teal { fill: #11342e; }
+      .soft-amber { fill: #302614; }
+      .soft-green { fill: #123323; }
+      .soft-violet { fill: #221f45; }
+    }
+  </style>
+
+  <circle class="soft-teal" cx="490" cy="112" r="56"/><circle class="teal" cx="490" cy="112" r="9"/>
+  <text class="ink core" x="454" y="205">agent()</text>
+
+  <path class="link" d="M470 166C404 226 328 250 238 264M490 170V266M512 166C584 226 662 250 752 264"/>
+  <path class="link" d="M238 264C204 302 184 328 156 356M238 264C270 300 294 326 326 356M490 266C460 302 440 328 410 356M490 266C522 302 546 328 580 356M752 264C722 302 704 328 678 356M752 264C786 302 808 328 840 356"/>
+
+  <g>
+    <circle class="soft-teal" cx="238" cy="264" r="29"/><circle class="teal" cx="238" cy="264" r="6"/><text class="label" x="124" y="269" fill="#0a8f7a">groups</text>
+    <circle class="soft-amber" cx="490" cy="266" r="29"/><circle class="amber" cx="490" cy="266" r="6"/><text class="label" x="528" y="271" fill="#a97009">tools</text>
+    <circle class="soft-blue" cx="752" cy="264" r="29"/><circle class="blue" cx="752" cy="264" r="6"/><text class="label" x="792" y="269" fill="#067ab8">children</text>
+    <circle class="soft-violet" cx="156" cy="356" r="21"/><circle class="violet" cx="156" cy="356" r="5"/><text class="small muted" x="184" y="360">discover</text>
+    <circle class="soft-green" cx="410" cy="356" r="21"/><circle class="green" cx="410" cy="356" r="5"/><text class="small muted" x="438" y="360">memory</text>
+    <circle class="soft-teal" cx="678" cy="356" r="21"/><circle class="teal" cx="678" cy="356" r="5"/><text class="small muted" x="706" y="360">MCP</text>
+  </g>
+</svg>

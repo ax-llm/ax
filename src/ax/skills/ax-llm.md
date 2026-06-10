@@ -13,7 +13,7 @@ Ax is a TypeScript library for building LLM-powered applications with type-safe 
 ## Imports & Factories
 
 ```typescript
-// Prefer factory functions: ax(), ai(), agent(), flow() — not new AxGen(), new AxAI(), etc.
+// Prefer factory functions: ax(), ai(), agent(), flow(); avoid class constructors.
 import { ax, ai, f, s, fn, agent, flow, AxMemory, AxMCPClient } from '@ax-llm/ax';
 import { z } from 'zod'; // optional — any Standard Schema v1 library works
 

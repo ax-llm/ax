@@ -1,0 +1,41 @@
+{{ $topic := .Get "topic" }}
+{{ $topicsParam := .Get "topics" }}
+{{ $group := .Get "group" | default $topic }}
+{{ $compact := eq (.Get "compact") "true" }}
+{{ $plainLabel := .Get "label" }}
+{{ $languages := hugo.Data.homepage_languages.languages }}
+{{ $topics := slice $topic }}
+{{ if $topicsParam }}
+  {{ $topics = split $topicsParam "," }}
+{{ end }}
+<div class="home-code-rotator{{ if $compact }} home-code-rotator-compact{{ end }}" data-home-code-group="{{ $group }}">
+  {{ range $topicIndex, $topicName := $topics }}
+    {{ $path := split $topicName "." }}
+    {{ range $index, $language := $languages }}
+      {{ $panel := $language }}
+      {{ range $path }}
+        {{ $panel = index $panel . }}
+      {{ end }}
+      {{ $code := $panel }}
+      {{ $filename := $plainLabel | default $language.label }}
+      {{ $label := $plainLabel | default $language.label }}
+      {{ if reflect.IsMap $panel }}
+        {{ $code = $panel.code }}
+        {{ $filename = $panel.filename | default $plainLabel | default $language.label }}
+        {{ $label = $panel.runtimeLabel | default $language.label }}
+      {{ end }}
+      {{ $active := and (eq $index 0) (or (not $topicsParam) (eq $topicIndex 0)) }}
+      <figure class="code-block home-code-block{{ if $compact }} home-code-block-compact{{ end }}" data-code-block data-home-code-panel data-home-code-group="{{ $group }}" data-home-lang="{{ $language.id }}"{{ if $topicsParam }} data-home-example="{{ $topicName }}"{{ end }} data-home-active="{{ if $active }}true{{ else }}false{{ end }}"{{ if not $active }} aria-hidden="true" inert{{ end }}>
+        <figcaption class="code-block-header">
+          <span class="code-block-lang">{{ $language.label }}</span>
+          <span class="home-code-file">{{ $filename }}</span>
+          {{ if $label }}<span class="home-code-context">{{ $label }}</span>{{ end }}
+          <button class="copy-code-button" type="button" aria-label="Copy {{ $language.label }} code block" data-copy-code data-pagefind-ignore>Copy</button>
+        </figcaption>
+        <div class="code-block-body">
+          {{ highlight $code $language.codeLang "" }}
+        </div>
+      </figure>
+    {{ end }}
+  {{ end }}
+</div>

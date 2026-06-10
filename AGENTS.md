@@ -29,7 +29,7 @@ Example:
 
 Prefer the modern factory-style API:
 
-- use `ai(...)`, `ax(...)`, `agent(...)`, `flow(...)`
+- use `ai(...)`, `ax(...)`, `agent(...)`, `flow(...)`, `optimize(...)`
 - prefer string signatures and `s(...)`
 - prefer `fn(...)` for tools
 
@@ -55,9 +55,12 @@ Use the skill files in `src/ax/skills/` as the primary subsystem documentation:
 
 When adding or changing a subsystem, update the relevant skill instead of expanding this file.
 
-Repo-maintainer skills that should not ship in Ax packages live under `tools/axir/skills/`.
+Repo-maintainer skills that should not ship in Ax packages live under `tools/*/skills/`.
 Use `tools/axir/skills/axir-language-backend/SKILL.md` when adding generated
 language backends.
+Use `tools/website-md/skills/website-md-language-docs/SKILL.md` when changing
+features, languages, examples, API symbols, AxIR capabilities, or generated
+website language docs.
 
 ## AxIR Backlog For Portable TS Changes
 

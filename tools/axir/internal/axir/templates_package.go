@@ -29,6 +29,7 @@ axllm = ["py.typed"]
 
 const pyManifestIn = `include README.md axir-capabilities.json
 recursive-include examples *.py *.md *.json *.sh
+recursive-include skills SKILL.md
 include axllm/py.typed
 `
 
@@ -54,6 +55,7 @@ const javaPomXML = `<project xmlns="http://maven.apache.org/POM/4.0.0"
         <directory>${project.basedir}</directory>
         <includes>
           <include>axir-capabilities.json</include>
+          <include>skills/**/SKILL.md</include>
         </includes>
       </resource>
     </resources>
@@ -102,6 +104,7 @@ sourceSets {
     resources {
       srcDirs = ['.']
       include 'axir-capabilities.json'
+      include 'skills/**/SKILL.md'
     }
   }
 }

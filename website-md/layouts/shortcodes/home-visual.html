@@ -1,0 +1,114 @@
+{{ $name := .Get 0 }}
+{{ if eq $name "battle-icons" }}
+<div class="home-inline-visual home-inline-visual-battle" data-home-inline-visual="battle-icons" aria-label="Streaming, validation, telemetry, and auto-retry">
+  <div class="home-battle-icon-row">
+    <span class="home-battle-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg><small>Streaming</small></span>
+    <span class="home-battle-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.4 2.8 8.4 7 10 4.2-1.6 7-5.6 7-10V6l-7-3z"/></svg><small>Validation</small></span>
+    <span class="home-battle-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><small>Telemetry</small></span>
+    <span class="home-battle-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14-4l-3 3"/><path d="M3 4v6h6"/><path d="M4 13a8 8 0 0 0 14 4l3-3"/><path d="M21 20v-6h-6"/></svg><small>Auto-retry</small></span>
+  </div>
+</div>
+{{ else if eq $name "pareto" }}
+<div class="home-inline-visual home-inline-visual-pareto" data-home-inline-visual="pareto" aria-hidden="true">
+  <svg viewBox="0 0 140 90" focusable="false">
+    <line x1="18" y1="5" x2="18" y2="75" class="home-svg-muted-stroke"/>
+    <line x1="18" y1="75" x2="130" y2="75" class="home-svg-muted-stroke"/>
+    <text x="72" y="88" text-anchor="middle" class="home-svg-label">accuracy - speed</text>
+    <path d="M24 12 Q45 18 60 35 Q78 52 125 65" class="home-svg-dash"/>
+    <circle cx="26" cy="14" r="4" class="home-svg-pink"/>
+    <circle cx="50" cy="27" r="4" class="home-svg-violet"/>
+    <circle cx="78" cy="47" r="4" class="home-svg-cyan"/>
+    <circle cx="115" cy="63" r="4" class="home-svg-blue"/>
+    <circle cx="65" cy="58" r="3" class="home-svg-quiet"/>
+    <circle cx="45" cy="50" r="3" class="home-svg-quiet"/>
+  </svg>
+</div>
+{{ else if eq $name "rlm-loop" }}
+<div class="home-inline-visual home-inline-visual-rlm" data-home-inline-visual="rlm-loop" aria-hidden="true">
+  <svg viewBox="0 0 140 90" focusable="false">
+    <path d="M70 70 A30 30 0 0 1 40 40" class="home-svg-rlm-strong"/>
+    <path d="M70 75 A38 38 0 0 1 32 37" class="home-svg-rlm-mid"/>
+    <path d="M70 80 A46 46 0 0 1 24 34" class="home-svg-rlm-soft"/>
+    <polygon points="38,38 44,42 42,36" class="home-svg-violet-soft"/>
+    <polygon points="30,35 36,39 34,33" class="home-svg-violet-faint"/>
+    <circle cx="70" cy="45" r="8" class="home-svg-violet"/>
+    <circle cx="70" cy="45" r="4" class="home-svg-panel-fill"/>
+    <text x="90" y="30" class="home-svg-label">Analyze</text>
+    <text x="95" y="50" class="home-svg-label">Refine</text>
+    <text x="88" y="70" class="home-svg-label">Synthesize</text>
+    <circle cx="86" cy="27" r="2" class="home-svg-violet-soft"/>
+    <circle cx="91" cy="47" r="2" class="home-svg-violet-soft"/>
+    <circle cx="84" cy="67" r="2" class="home-svg-violet-soft"/>
+  </svg>
+</div>
+{{ else if eq $name "agent-tree" }}
+<div class="home-inline-visual home-inline-visual-agent" data-home-inline-visual="agent-tree" aria-hidden="true">
+  <svg viewBox="0 0 140 90" focusable="false">
+    <line x1="70" y1="18" x2="35" y2="48" class="home-svg-muted-stroke"/>
+    <line x1="70" y1="18" x2="105" y2="48" class="home-svg-muted-stroke"/>
+    <line x1="35" y1="48" x2="18" y2="75" class="home-svg-muted-stroke"/>
+    <line x1="35" y1="48" x2="52" y2="75" class="home-svg-muted-stroke"/>
+    <line x1="105" y1="48" x2="105" y2="75" class="home-svg-muted-stroke"/>
+    <circle cx="70" cy="18" r="7" class="home-svg-green"/>
+    <text x="70" y="21" text-anchor="middle" class="home-svg-node-text">A</text>
+    <circle cx="35" cy="48" r="6" class="home-svg-green-mid"/>
+    <text x="35" y="51" text-anchor="middle" class="home-svg-node-text home-svg-node-text-small">A</text>
+    <circle cx="105" cy="48" r="6" class="home-svg-amber"/>
+    <text x="105" y="51" text-anchor="middle" class="home-svg-node-text home-svg-node-text-small">T</text>
+    <circle cx="18" cy="75" r="5" class="home-svg-green-soft"/>
+    <text x="18" y="78" text-anchor="middle" class="home-svg-node-text home-svg-node-text-tiny">A</text>
+    <circle cx="52" cy="75" r="5" class="home-svg-amber-soft"/>
+    <text x="52" y="78" text-anchor="middle" class="home-svg-node-text home-svg-node-text-tiny">T</text>
+    <circle cx="105" cy="75" r="5" class="home-svg-amber-soft"/>
+    <text x="105" y="78" text-anchor="middle" class="home-svg-node-text home-svg-node-text-tiny">T</text>
+    <circle cx="125" cy="18" r="3" class="home-svg-green-mid"/>
+    <text x="132" y="21" class="home-svg-label">Agent</text>
+    <circle cx="125" cy="30" r="3" class="home-svg-amber"/>
+    <text x="132" y="33" class="home-svg-label">Tool</text>
+  </svg>
+</div>
+{{ else if eq $name "context-growth" }}
+<div class="home-context-chart" data-home-inline-visual="context-growth">
+  <div class="home-chart-heading">
+    <div>
+      <h3>Prompt stays lean - across every turn</h3>
+      <p>State lives in the runtime session, not the LLM context.</p>
+    </div>
+    <span>RLM</span>
+  </div>
+  <svg class="home-context-svg" viewBox="0 0 348 178" aria-label="Ax Agent keeps prompt context nearly flat while naive agents grow with every turn" role="img">
+    <line x1="38" y1="150" x2="298" y2="150" class="home-chart-grid-line"/>
+    <line x1="38" y1="117.5" x2="298" y2="117.5" class="home-chart-grid-line"/>
+    <line x1="38" y1="85" x2="298" y2="85" class="home-chart-grid-line"/>
+    <line x1="38" y1="52.5" x2="298" y2="52.5" class="home-chart-grid-line"/>
+    <line x1="38" y1="20" x2="298" y2="20" class="home-chart-grid-line"/>
+    <text x="33" y="154" text-anchor="end" class="home-chart-axis">0</text>
+    <text x="33" y="89" text-anchor="end" class="home-chart-axis">500</text>
+    <text x="33" y="24" text-anchor="end" class="home-chart-axis">1k</text>
+    <text x="38" y="172" text-anchor="middle" class="home-chart-axis">1</text>
+    <text x="75.1" y="172" text-anchor="middle" class="home-chart-axis">2</text>
+    <text x="112.3" y="172" text-anchor="middle" class="home-chart-axis">3</text>
+    <text x="149.4" y="172" text-anchor="middle" class="home-chart-axis">4</text>
+    <text x="186.6" y="172" text-anchor="middle" class="home-chart-axis">5</text>
+    <text x="223.7" y="172" text-anchor="middle" class="home-chart-axis">6</text>
+    <text x="260.9" y="172" text-anchor="middle" class="home-chart-axis">7</text>
+    <text x="298" y="172" text-anchor="middle" class="home-chart-axis">8</text>
+    <path d="M38 139.6 L75.1 121.4 L112.3 98 L149.4 75.9 L186.6 56.4 L223.7 40.8 L260.9 31.7 L298 25.2 L298 150 L38 150 Z" class="home-chart-naive-area"/>
+    <path d="M38 139.6 L75.1 121.4 L112.3 98 L149.4 75.9 L186.6 56.4 L223.7 40.8 L260.9 31.7 L298 25.2" class="home-chart-naive-line"/>
+    <path d="M38 139.6 L75.1 138.6 L112.3 139 L149.4 138.2 L186.6 138.8 L223.7 138.3 L260.9 138.7 L298 138.4 L298 150 L38 150 Z" class="home-chart-ax-area"/>
+    <path d="M38 139.6 L75.1 138.6 L112.3 139 L149.4 138.2 L186.6 138.8 L223.7 138.3 L260.9 138.7 L298 138.4" class="home-chart-ax-line"/>
+    <circle cx="298" cy="25.2" r="3" class="home-chart-naive-dot"/>
+    <text x="305" y="29" class="home-chart-naive-label">naive</text>
+    <circle cx="298" cy="138.4" r="3.5" class="home-chart-ax-dot"/>
+    <text x="305" y="142" class="home-chart-ax-label">ax</text>
+    <text x="11" y="85" text-anchor="middle" transform="rotate(-90 11 85)" class="home-chart-axis">ctx tokens</text>
+  </svg>
+  <div class="home-chart-legend">
+    <span><i class="home-legend-naive"></i>Naive agent</span>
+    <span><i class="home-legend-ax"></i>Ax Agent (RLM)</span>
+    <strong>~10x less tokens</strong>
+  </div>
+</div>
+{{ else }}
+{{ errorf "unknown home visual %q" $name }}
+{{ end }}

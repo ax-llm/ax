@@ -1,0 +1,5 @@
+{{ $name := .Get 0 }}
+{{ $alt := .Get 1 | default $name }}
+<figure class="svg-figure">
+  <img src="{{ printf "svg/%s.svg" $name | relURL }}" alt="{{ $alt }}">
+</figure>

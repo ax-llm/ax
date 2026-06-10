@@ -1,0 +1,106 @@
+{
+  "id": "cpp",
+  "label": "C++",
+  "shortLabel": "C++",
+  "fence": "cpp",
+  "packageName": "axllm",
+  "install": [
+    "cmake -S packages/cpp -B /tmp/ax-cpp-build",
+    "cmake --build /tmp/ax-cpp-build"
+  ],
+  "exampleRoot": "packages/cpp/examples",
+  "apiKind": "axir",
+  "optimizeName": "AxGEPA",
+  "optimizeIntro": "Use the generated `AxGEPA` optimizer surface for portable GEPA tuning. TypeScript also exposes the convenience `optimize()` helper; generated packages currently keep the optimizer explicit.",
+  "apiReference": "/cpp/api/reference/",
+  "apiSections": {
+    "ai": ["AxAI"],
+    "ax": ["AxGen", "Tools"],
+    "s": ["Signatures"],
+    "agent": ["Agents And RLM", "Runtime Profiles", "MCP"],
+    "optimize": ["Optimizers"]
+  },
+  "snippets": {
+    "quickStart": [
+      "#include <axllm/axllm.hpp>",
+      "",
+      "auto llm = axllm::ai(\"openai\", axllm::object({{\"apiKey\", std::getenv(\"OPENAI_API_KEY\")}}));",
+      "auto classify = axllm::ax(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\");"
+    ],
+    "dspy": [
+      "auto qa = axllm::ax(\"question:string -> answer:string, confidence:number\");"
+    ],
+    "signature": [
+      "auto sig = axllm::s(\"email:string -> priority:class \\\"high, normal, low\\\"\");"
+    ],
+    "ax": ["auto answer = axllm::ax(\"question:string -> answer:string\");"],
+    "agent": [
+      "auto helper = axllm::agent(\"question:string -> answer:string\");"
+    ],
+    "llm": [
+      "auto client = axllm::ai(\"openai\", axllm::object({{\"apiKey\", std::getenv(\"OPENAI_API_KEY\")}}));"
+    ],
+    "telemetry": [
+      "auto program = axllm::ax(\"text:string -> label:string\");",
+      "auto usage = program.getUsage();"
+    ],
+    "optimize": [
+      "auto engine = axllm::AxGEPA(reflectionClient, axllm::object({}));",
+      "auto result = engine.optimize(request, evaluator);"
+    ]
+  },
+  "snippetGroups": {
+    "tools": {
+      "basic": [
+        "auto search = axllm::Tool(",
+        "  \"search\",",
+        "  \"Search docs\",",
+        "  axllm::object({",
+        "    {\"type\", \"object\"},",
+        "    {\"properties\", axllm::object({{\"query\", axllm::object({{\"type\", \"string\"}})}})},",
+        "    {\"required\", axllm::array({\"query\"})}",
+        "  }),",
+        "  [](axllm::Value) { return axllm::object({{\"title\", \"Ax docs\"}}); }",
+        ");"
+      ],
+      "standardSchema": [
+        "// TypeScript owns the zod/valibot/arktype Standard Schema adapters.",
+        "// Generated packages expose the same Ax concept as JSON-schema-compatible tool descriptors.",
+        "auto lookup = axllm::Tool(",
+        "  \"lookupProduct\",",
+        "  \"Look up product inventory\",",
+        "  axllm::object({{\"type\", \"object\"}}),",
+        "  handler",
+        ");"
+      ],
+      "namespaces": [
+        "auto policy = axllm::Tool(\"findPolicy\", \"Find policies\", axllm::object({}), handler);",
+        "// Group related tools under domain namespaces where the package surface supports it.",
+        "// Runtime calls should read like kb.findPolicy(...) or billing.lookupInvoice(...)."
+      ],
+      "ax": [
+        "auto answer = axllm::ax(\"question:string -> answer:string\");",
+        "auto out = answer.forward(llm, axllm::object({",
+        "  {\"question\", \"Can this customer get a refund?\"}",
+        "}), axllm::object({{\"functions\", axllm::array({search})}}));"
+      ],
+      "agentFlat": [
+        "auto assistant = axllm::agent(\"message:string -> reply:string\", axllm::object({",
+        "  {\"functions\", axllm::array({search})},",
+        "  {\"contextFields\", axllm::array({})}",
+        "}));"
+      ],
+      "agentGroups": [
+        "auto assistant = axllm::agent(\"message:string -> reply:string\", axllm::object({",
+        "  {\"functionDiscovery\", true},",
+        "  {\"functions\", axllm::array({axllm::object({",
+        "    {\"namespace\", \"kb\"},",
+        "    {\"title\", \"Knowledge Base\"},",
+        "    {\"selectionCriteria\", \"Use for policy or documentation lookup.\"},",
+        "    {\"functions\", axllm::array({search})}",
+        "  })})}",
+        "}));"
+      ]
+    }
+  }
+}

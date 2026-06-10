@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 420" role="img" aria-labelledby="title desc">
+  <title id="title">Recursive language model loop</title>
+  <desc id="desc">AxAgent cycles through distiller, executor, and responder stages around runtime state, with discovery and memory available at the edge.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .ink { fill: #0a2540; }
+    .muted { fill: #61758a; }
+    .loop { fill: none; stroke: #93a4b8; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+    .thin { fill: none; stroke: #c9d4e0; stroke-width: 1.5; stroke-linecap: round; }
+    .blue { fill: #067ab8; }
+    .teal { fill: #0a8f7a; }
+    .amber { fill: #a97009; }
+    .green { fill: #0a8852; }
+    .violet { fill: #635bff; }
+    .soft-blue { fill: #e7f4ff; }
+    .soft-teal { fill: #e7fbf5; }
+    .soft-amber { fill: #fff5da; }
+    .soft-green { fill: #e9fbf2; }
+    .soft-violet { fill: #f1efff; }
+    .label { font-size: 14px; font-weight: 720; }
+    .small { font-size: 10px; font-weight: 650; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #f4f7fb; }
+      .muted { fill: #aab8cb; }
+      .loop { stroke: #7f8ea3; }
+      .thin { stroke: #34445c; }
+      .soft-blue { fill: #10263a; }
+      .soft-teal { fill: #11342e; }
+      .soft-amber { fill: #302614; }
+      .soft-green { fill: #123323; }
+      .soft-violet { fill: #221f45; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow-rlm" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#93a4b8"/>
+    </marker>
+  </defs>
+
+  <path class="loop" marker-end="url(#arrow-rlm)" d="M250 214C294 122 402 88 486 110"/>
+  <path class="loop" marker-end="url(#arrow-rlm)" d="M548 126C620 138 668 168 698 206"/>
+  <path class="loop" marker-end="url(#arrow-rlm)" d="M690 254C642 312 574 338 510 326"/>
+  <path class="loop" marker-end="url(#arrow-rlm)" d="M462 318C342 348 248 302 222 238"/>
+
+  <g>
+    <circle class="soft-blue" cx="220" cy="214" r="42"/>
+    <circle class="blue" cx="220" cy="214" r="8"/>
+    <text class="label" x="126" y="219" fill="#067ab8">distiller</text>
+  </g>
+  <g>
+    <circle class="soft-teal" cx="522" cy="112" r="44"/>
+    <circle class="teal" cx="522" cy="112" r="8"/>
+    <text class="label" x="570" y="96" fill="#0a8f7a">executor</text>
+  </g>
+  <g>
+    <circle class="soft-amber" cx="522" cy="322" r="44"/>
+    <circle class="amber" cx="522" cy="322" r="8"/>
+    <text class="label" x="570" y="356" fill="#a97009">responder</text>
+  </g>
+  <g>
+    <circle class="soft-green" cx="698" cy="214" r="48"/>
+    <circle class="green" cx="698" cy="214" r="9"/>
+    <text class="label" x="754" y="219" fill="#0a8852">state</text>
+  </g>
+
+  <path class="thin" d="M728 177C772 136 812 114 844 102"/>
+  <path class="thin" d="M730 252C772 292 814 316 850 332"/>
+  <g>
+    <circle class="soft-teal" cx="850" cy="100" r="25"/>
+    <circle class="teal" cx="850" cy="100" r="6"/>
+    <text class="small muted" x="882" y="104">discover</text>
+  </g>
+  <g>
+    <circle class="soft-violet" cx="856" cy="334" r="25"/>
+    <circle class="violet" cx="856" cy="334" r="6"/>
+    <text class="small muted" x="888" y="338">memory</text>
+  </g>
+</svg>

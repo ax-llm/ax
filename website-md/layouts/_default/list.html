@@ -1,0 +1,16 @@
+{{ define "main" }}
+  <article>
+    {{ partial "content-with-toc.html" . }}
+    {{ if .Pages }}
+      <h2>Pages</h2>
+      <ul class="page-list">
+        {{ range .Pages.ByWeight }}
+          <li>
+            <a href="{{ .RelPermalink }}">{{ .Title }}</a>
+            {{ with .Description }}<span>{{ . }}</span>{{ end }}
+          </li>
+        {{ end }}
+      </ul>
+    {{ end }}
+  </article>
+{{ end }}

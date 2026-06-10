@@ -1,0 +1,19 @@
+<div class="backend-badges" aria-label="Supported Ax backends">
+  {{ $languages := slice
+    (dict "id" "typescript" "label" "TypeScript" "package" "@ax-llm/ax" "href" "/typescript/quick-start/")
+    (dict "id" "python" "label" "Python" "package" "axllm" "href" "/python/quick-start/")
+    (dict "id" "java" "label" "Java" "package" "com.axllm" "href" "/java/quick-start/")
+    (dict "id" "cpp" "label" "C++" "package" "axllm" "href" "/cpp/quick-start/")
+    (dict "id" "go" "label" "Go" "package" "github.com/ax-llm/ax" "href" "/go/quick-start/")
+    (dict "id" "rust" "label" "Rust" "package" "axllm" "href" "/rust/quick-start/")
+  }}
+  {{ range $languages }}
+    <a href="{{ .href }}">
+      {{ partial "language-mark.html" . }}
+      <span>
+        <strong>{{ .label }}</strong>
+        <small>{{ .package }}</small>
+      </span>
+    </a>
+  {{ end }}
+</div>

@@ -1,0 +1,124 @@
+{
+  "id": "python",
+  "label": "Python",
+  "shortLabel": "Py",
+  "fence": "python",
+  "packageName": "axllm",
+  "install": ["python -m pip install -e packages/python"],
+  "exampleRoot": "packages/python/examples",
+  "apiKind": "axir",
+  "optimizeName": "AxGEPA",
+  "optimizeIntro": "Use the generated `AxGEPA` optimizer surface for portable GEPA tuning. TypeScript also exposes the convenience `optimize()` helper; generated packages currently keep the optimizer explicit.",
+  "apiReference": "/python/api/reference/",
+  "apiSections": {
+    "ai": ["AxAI"],
+    "ax": ["AxGen", "Tools"],
+    "s": ["Signatures"],
+    "agent": ["Agents And RLM", "Runtime Profiles", "MCP"],
+    "optimize": ["Optimizers"]
+  },
+  "snippets": {
+    "quickStart": [
+      "from axllm import ai, ax",
+      "",
+      "llm = ai('openai', api_key=os.environ['OPENAI_API_KEY'])",
+      "classify = ax('review:string -> sentiment:class \"positive, negative, neutral\"')"
+    ],
+    "dspy": [
+      "from axllm import ai, ax",
+      "",
+      "qa = ax('question:string -> answer:string, confidence:number')"
+    ],
+    "signature": [
+      "from axllm import s",
+      "",
+      "sig = s('email:string -> priority:class \"high, normal, low\"')"
+    ],
+    "ax": [
+      "from axllm import ax",
+      "",
+      "answer = ax('question:string -> answer:string')"
+    ],
+    "agent": [
+      "from axllm import agent",
+      "",
+      "helper = agent('question:string -> answer:string')"
+    ],
+    "llm": [
+      "from axllm import ai",
+      "",
+      "client = ai('openai', api_key=os.environ['OPENAI_API_KEY'])"
+    ],
+    "telemetry": [
+      "from axllm import ax",
+      "",
+      "program = ax('text:string -> label:string')",
+      "usage = program.get_usage()"
+    ],
+    "optimize": [
+      "from axllm import AxGEPA",
+      "",
+      "engine = AxGEPA(reflection_client)",
+      "result = engine.optimize(request, evaluator)"
+    ]
+  },
+  "snippetGroups": {
+    "tools": {
+      "basic": [
+        "from axllm import f, fn",
+        "",
+        "search = (",
+        "    fn('search')",
+        "    .description('Search docs')",
+        "    .arg('query', f.string('Search query'))",
+        "    .handler(lambda args: ['hit for ' + args['query']])",
+        "    .build()",
+        ")"
+      ],
+      "standardSchema": [
+        "# TypeScript owns the zod/valibot/arktype Standard Schema adapters.",
+        "# Generated packages expose the same Ax concept as JSON-schema-compatible tool descriptors.",
+        "lookup_product = (",
+        "    fn('lookupProduct')",
+        "    .description('Look up product inventory')",
+        "    .arg('productName', f.string('Exact product name'))",
+        "    .handler(lambda args: {'price': 79.99, 'inStock': True})",
+        "    .build()",
+        ")"
+      ],
+      "namespaces": [
+        "policy = (",
+        "    fn('findPolicy')",
+        "    .namespace('kb')",
+        "    .description('Find policies')",
+        "    .arg('topic', f.string())",
+        "    .handler(lambda args: ['policy: ' + args['topic']])",
+        "    .build()",
+        ")",
+        "# Put related generated-package tools under domain namespaces where the package surface supports it.",
+        "# Runtime calls should read like kb.findPolicy(...) or billing.lookupInvoice(...)."
+      ],
+      "ax": [
+        "answer = ax('question:string -> answer:string')",
+        "out = answer.forward(llm, {'question': 'Can this customer get a refund?'}, {'functions': [search]})"
+      ],
+      "agentFlat": [
+        "assistant = agent('message:string -> reply:string', {",
+        "    'functions': [search],",
+        "    'contextFields': [],",
+        "})"
+      ],
+      "agentGroups": [
+        "assistant = agent('message:string -> reply:string', {",
+        "    'functionDiscovery': True,",
+        "    'functions': [{",
+        "        'namespace': 'kb',",
+        "        'title': 'Knowledge Base',",
+        "        'selectionCriteria': 'Use for policy or documentation lookup.',",
+        "        'functions': [search],",
+        "    }],",
+        "})"
+      ]
+    }
+  }
+}

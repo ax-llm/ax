@@ -1,0 +1,941 @@
+languages:
+  - id: typescript
+    label: TypeScript
+    shortLabel: TS
+    codeLang: typescript
+    command: npm install @ax-llm/ax
+    classifier:
+      filename: classify.ts
+      status: Type-safe, validated, auto-retried on failure
+      output: |
+        {
+          "sentiment": "positive"
+        }
+      code: |
+        import { ai, ax } from "@ax-llm/ax";
+
+        const llm = ai({ name: "openai" });
+        const classify = ax(
+          "review:string -> sentiment:class \"positive, negative, neutral\""
+        );
+
+        const result = await classify.forward(llm, {
+          review: "This product is amazing!",
+        });
+    heroAxgen:
+      filename: classify.ts
+      runtimeLabel: ax()
+      code: |
+        import { ai, ax } from "@ax-llm/ax";
+
+        const llm = ai({ name: "openai" });
+        const classify = ax(
+          'review:string -> sentiment:class "positive, negative, neutral"'
+        );
+
+        const result = await classify.forward(llm, {
+          review: "This product is amazing!",
+        });
+    heroFluent:
+      filename: extract.ts
+      runtimeLabel: ax() + f()
+      code: |
+        import { ai, ax, f } from "@ax-llm/ax";
+
+        const llm = ai({ name: "openai" });
+        const extract = ax(
+          f()
+            .input("invoice", f.string())
+            .output("vendor", f.string())
+            .output("total", f.number())
+            .build()
+        );
+
+        const result = await extract.forward(llm, { invoice });
+    heroAgent:
+      filename: agent.ts
+      runtimeLabel: agent()
+      code: |
+        import { agent, ai, fn } from "@ax-llm/ax";
+
+        const llm = ai({ name: "openai" });
+        const search = fn({
+          name: "search",
+          parameters: "query:string -> results:string[]",
+          handler: searchDocs,
+        });
+
+        const research = agent({
+          signature: "question:string -> answer:string",
+          functions: [search],
+        });
+
+        const result = await research.forward(llm, { question });
+    audio:
+      filename: audio.ts
+      runtimeLabel: speech:audio
+      code: |
+        import { ai, ax } from "@ax-llm/ax";
+
+        const llm = ai({ name: "openai" });
+        const narrator = ax("article:string -> speech:audio, summary:string");
+
+        const result = await narrator.forward(
+          llm,
+          { article },
+          { speech: { speak: { voice: "alloy", format: "mp3" } } }
+        );
+    signatureString:
+      filename: signatures.ts
+      code: |
+        const extract = ax(
+          "doc:string -> names:string[], dates:date[], amounts:number[]"
+        );
+    signatureFluent:
+      filename: fields.ts
+      code: |
+        const sig = f()
+          .input("document", f.string().min(10))
+          .output("summary", f.string().max(500))
+          .output("tags", f.string().array())
+          .build();
+    signatureSchema:
+      filename: schema.ts
+      code: |
+        const sig = f()
+          .output(z.object({
+            summary: z.string(),
+            score: z.number().min(1).max(10),
+          }))
+          .build();
+    agent:
+      filename: researcher.ts
+      runtimeLabel: JS runtime session
+      code: |
+        import { agent, ai, fn } from "@ax-llm/ax";
+
+        const llm = ai({ name: "openai" });
+        const research = agent({
+          name: "researcher",
+          signature: "question:string -> answer:string, sources:string[]",
+          functions: [
+            fn({
+              name: "search",
+              description: "Search internal docs",
+              parameters: "query:string -> results:string[]",
+              handler: searchDocs,
+            }),
+          ],
+          contextFields: ["largeDocument"],
+        });
+
+        const result = await research.forward(llm, {
+          question: "What changed in the release?",
+        });
+    provider:
+      filename: providers.ts
+      code: |
+        const openai = ai({ name: "openai" });
+        const claude = ai({ name: "anthropic" });
+        const local = ai({
+          name: "openai",
+          config: { baseURL: "http://localhost:11434/v1" },
+        });
+    graphjin:
+      filename: ax-agent.ts
+      code: |
+        import { AxMCPClient, AxMCPHTTPSSETransport, agent } from "@ax-llm/ax";
+
+        const transport = new AxMCPHTTPSSETransport(
+          "http://localhost:8080/api/v1/mcp"
+        );
+        const mcp = new AxMCPClient(transport);
+        await mcp.init();
+
+        const dataAnalyst = agent({
+          name: "data-analyst",
+          signature: "question:string -> answer:string",
+          functions: mcp.toFunction(),
+        });
+    patterns:
+      classification: ax("text:string -> category:class \"spam, ham, promo\"")
+      extraction: ax("document:string -> names:string[], dates:date[]")
+      qa: ax("context:string, question:string -> answer:string")
+      multimodal: ax("photo:image, question:string -> answer:string")
+      validation: ax("email:string, score:number -> valid:boolean")
+      streaming: ax("topic:string -> chunk:string")
+      translation: ax("text:string, targetLanguage:string -> translation:string")
+      workflows: ax("doc:string -> summary:string, keyPoints:string[]")
+  - id: python
+    label: Python
+    shortLabel: Python
+    codeLang: python
+    command: cd packages/python && python -m pip install -e .
+    classifier:
+      filename: classify.py
+      status: Validated Python dicts from the same Ax signature
+      output: |
+        {
+          "sentiment": "positive"
+        }
+      code: |
+        from axllm import ai, ax
+
+        llm = ai("openai")
+        classify = ax(
+            'review:string -> sentiment:class "positive, negative, neutral"'
+        )
+
+        result = classify.forward(llm, {
+            "review": "This product is amazing!"
+        })
+    heroAxgen:
+      filename: classify.py
+      runtimeLabel: ax()
+      code: |
+        from axllm import ai, ax
+
+        llm = ai("openai")
+        classify = ax(
+            'review:string -> sentiment:class "positive, negative, neutral"'
+        )
+
+        result = classify.forward(llm, {
+            "review": "This product is amazing!"
+        })
+    heroFluent:
+      filename: extract.py
+      runtimeLabel: ax() fields
+      code: |
+        from axllm import ai, ax
+
+        llm = ai("openai")
+        extract = ax(
+            "invoice:string -> vendor:string, total:number"
+        )
+
+        result = extract.forward(llm, {
+            "invoice": invoice
+        })
+    heroAgent:
+      filename: agent.py
+      runtimeLabel: agent()
+      code: |
+        from axllm import agent, ai
+
+        llm = ai("openai")
+        research = agent(
+            "question:string -> answer:string",
+            {"functions": [search_docs]},
+        )
+
+        result = research.forward(llm, {
+            "question": question
+        })
+    audio:
+      filename: audio.py
+      runtimeLabel: speech:audio
+      code: |
+        from axllm import ai, ax
+
+        llm = ai("openai")
+        narrator = ax("article:string -> speech:audio, summary:string")
+
+        result = narrator.forward(
+            llm,
+            {"article": article},
+            {"speech": {"speak": {"voice": "alloy", "format": "mp3"}}},
+        )
+    signatureString:
+      filename: signatures.py
+      code: |
+        extract = ax(
+            "doc:string -> names:string[], dates:date[], amounts:number[]"
+        )
+    signatureFluent:
+      filename: fields.py
+      code: |
+        analyze = ax(
+            "document:string -> summary:string, tags:string[]"
+        )
+        result = analyze.forward(llm, {"document": text})
+    signatureSchema:
+      filename: schema.py
+      code: |
+        sig = s(
+            "document:string -> summary:string, score:number"
+        )
+        schema = sig.to_json_schema("outputs")
+    agent:
+      filename: researcher.py
+      runtimeLabel: Python host session
+      code: |
+        from axllm import agent, ai
+
+        llm = ai("openai")
+        research = agent(
+            "question:string, largeDocument:string -> "
+            "answer:string, sources:string[]",
+            {
+                "functions": [search_docs],
+                "contextFields": ["largeDocument"],
+            },
+        )
+
+        result = research.forward(llm, {
+            "question": "What changed in the release?",
+            "largeDocument": doc,
+        })
+    provider:
+      filename: providers.py
+      code: |
+        openai = ai("openai")
+        claude = ai("anthropic")
+        local = ai("openai", {
+            "baseURL": "http://localhost:11434/v1"
+        })
+    graphjin:
+      filename: ax_agent.py
+      code: |
+        from axllm import agent
+        from axllm.mcp import MCPClient, HTTPSSETransport
+
+        transport = HTTPSSETransport(
+            "http://localhost:8080/api/v1/mcp"
+        )
+        mcp = MCPClient(transport)
+        mcp.init()
+
+        data_analyst = agent(
+            "question:string -> answer:string",
+            {"functions": mcp.to_functions()},
+        )
+    patterns:
+      classification: ax('text:string -> category:class "spam, ham, promo"')
+      extraction: ax("document:string -> names:string[], dates:date[]")
+      qa: ax("context:string, question:string -> answer:string")
+      multimodal: ax("photo:image, question:string -> answer:string")
+      validation: ax("email:string, score:number -> valid:boolean")
+      streaming: ax("topic:string -> chunk:string")
+      translation: ax("text:string, targetLanguage:string -> translation:string")
+      workflows: ax("doc:string -> summary:string, keyPoints:string[]")
+  - id: java
+    label: Java
+    shortLabel: Java
+    codeLang: java
+    command: cd packages/java && ./gradlew test
+    classifier:
+      filename: Classify.java
+      status: Java maps in, validated Ax fields out
+      output: |
+        {
+          "sentiment": "positive"
+        }
+      code: |
+        import dev.axllm.ax.*;
+        import java.util.*;
+
+        var llm = Ax.ai("openai", Map.of());
+        var classify = Ax.ax(
+          "review:string -> sentiment:class \"positive, negative, neutral\""
+        );
+
+        var result = classify.forward(llm, Map.of(
+          "review", "This product is amazing!"
+        ));
+    heroAxgen:
+      filename: Classify.java
+      runtimeLabel: Ax.ax()
+      code: |
+        import dev.axllm.ax.*;
+        import java.util.*;
+
+        var llm = Ax.ai("openai", Map.of());
+        var classify = Ax.ax(
+          "review:string -> sentiment:class \"positive, negative, neutral\""
+        );
+
+        var result = classify.forward(llm, Map.of(
+          "review", "This product is amazing!"
+        ));
+    heroFluent:
+      filename: Extract.java
+      runtimeLabel: Ax.ax() fields
+      code: |
+        import dev.axllm.ax.*;
+        import java.util.*;
+
+        var llm = Ax.ai("openai", Map.of());
+        var extract = Ax.ax(
+          "invoice:string -> vendor:string, total:number"
+        );
+
+        var result = extract.forward(llm, Map.of(
+          "invoice", invoice
+        ));
+    heroAgent:
+      filename: Agent.java
+      runtimeLabel: Ax.agent()
+      code: |
+        import dev.axllm.ax.*;
+        import java.util.*;
+
+        var llm = Ax.ai("openai", Map.of());
+        var research = Ax.agent(
+          "question:string -> answer:string",
+          Map.of("functions", List.of(searchDocs))
+        );
+
+        var result = research.forward(llm, Map.of(
+          "question", question
+        ));
+    audio:
+      filename: Audio.java
+      runtimeLabel: speech:audio
+      code: |
+        import dev.axllm.ax.*;
+        import java.util.*;
+
+        var llm = Ax.ai("openai", Map.of());
+        var narrator = Ax.ax("article:string -> speech:audio, summary:string");
+
+        var result = narrator.forward(
+          llm,
+          Map.of("article", article),
+          Map.of("speech", Map.of(
+            "speak", Map.of("voice", "alloy", "format", "mp3")
+          ))
+        );
+    signatureString:
+      filename: Signatures.java
+      code: |
+        var extract = Ax.ax(
+          "doc:string -> names:string[], dates:date[], amounts:number[]"
+        );
+    signatureFluent:
+      filename: Fields.java
+      code: |
+        var analyze = Ax.ax(
+          "document:string -> summary:string, tags:string[]"
+        );
+        var result = analyze.forward(llm, Map.of("document", text));
+    signatureSchema:
+      filename: Schema.java
+      code: |
+        AxSignature sig = Ax.s(
+          "document:string -> summary:string, score:number"
+        );
+        var schema = sig.toJSONSchema("outputs");
+    agent:
+      filename: Researcher.java
+      runtimeLabel: JVM host session
+      code: |
+        import dev.axllm.ax.*;
+        import java.util.*;
+
+        var llm = Ax.ai("openai", Map.of());
+        var research = Ax.agent(
+          "question:string, largeDocument:string -> answer:string, sources:string[]",
+          Map.of(
+            "functions", List.of(searchDocs),
+            "contextFields", List.of("largeDocument")
+          )
+        );
+
+        var result = research.forward(llm, Map.of(
+          "question", "What changed in the release?",
+          "largeDocument", doc
+        ));
+    provider:
+      filename: Providers.java
+      code: |
+        var openai = Ax.ai("openai", Map.of());
+        var claude = Ax.ai("anthropic", Map.of());
+        var local = Ax.ai("openai", Map.of(
+          "baseURL", "http://localhost:11434/v1"
+        ));
+    graphjin:
+      filename: AxAgent.java
+      code: |
+        var transport = new AxMCPHTTPSSETransport(
+          "http://localhost:8080/api/v1/mcp"
+        );
+        var mcp = new AxMCPClient(transport);
+        mcp.init();
+
+        var dataAnalyst = Ax.agent(
+          "question:string -> answer:string",
+          Map.of("functions", mcp.toFunctions())
+        );
+    patterns:
+      classification: Ax.ax("text:string -> category:class \"spam, ham, promo\"")
+      extraction: Ax.ax("document:string -> names:string[], dates:date[]")
+      qa: Ax.ax("context:string, question:string -> answer:string")
+      multimodal: Ax.ax("photo:image, question:string -> answer:string")
+      validation: Ax.ax("email:string, score:number -> valid:boolean")
+      streaming: Ax.ax("topic:string -> chunk:string")
+      translation: Ax.ax("text:string, targetLanguage:string -> translation:string")
+      workflows: Ax.ax("doc:string -> summary:string, keyPoints:string[]")
+  - id: cpp
+    label: C++
+    shortLabel: C++
+    codeLang: cpp
+    command: cd packages/cpp && cmake -S . -B build
+    classifier:
+      filename: classify.cpp
+      status: Native values, shared validation semantics
+      output: |
+        {
+          "sentiment": "positive"
+        }
+      code: |
+        #include "axllm/axllm.hpp"
+
+        auto llm = axllm::ai("openai");
+        auto classify = axllm::ax(
+          "review:string -> sentiment:class \"positive, negative, neutral\""
+        );
+
+        auto result = classify.forward(*llm, axllm::object({
+          {"review", "This product is amazing!"}
+        }));
+    heroAxgen:
+      filename: classify.cpp
+      runtimeLabel: ax()
+      code: |
+        #include "axllm/axllm.hpp"
+
+        auto llm = axllm::ai("openai");
+        auto classify = axllm::ax(
+          "review:string -> sentiment:class \"positive, negative, neutral\""
+        );
+
+        auto result = classify.forward(*llm, axllm::object({
+          {"review", "This product is amazing!"}
+        }));
+    heroFluent:
+      filename: extract.cpp
+      runtimeLabel: ax() fields
+      code: |
+        #include "axllm/axllm.hpp"
+
+        auto llm = axllm::ai("openai");
+        auto extract = axllm::ax(
+          "invoice:string -> vendor:string, total:number"
+        );
+
+        auto result = extract.forward(*llm, axllm::object({
+          {"invoice", invoice}
+        }));
+    heroAgent:
+      filename: agent.cpp
+      runtimeLabel: agent()
+      code: |
+        #include "axllm/axllm.hpp"
+
+        auto llm = axllm::ai("openai");
+        auto research = axllm::agent(
+          "question:string -> answer:string",
+          axllm::object({
+            {"functions", axllm::array({search_docs})}
+          })
+        );
+
+        auto result = research.forward(*llm, axllm::object({
+          {"question", question}
+        }));
+    audio:
+      filename: audio.cpp
+      runtimeLabel: speech:audio
+      code: |
+        #include "axllm/axllm.hpp"
+
+        auto llm = axllm::ai("openai");
+        auto narrator = axllm::ax(
+          "article:string -> speech:audio, summary:string"
+        );
+
+        auto result = narrator.forward(*llm, axllm::object({
+          {"article", article}
+        }));
+    signatureString:
+      filename: signatures.cpp
+      code: |
+        auto extract = axllm::ax(
+          "doc:string -> names:string[], dates:date[], amounts:number[]"
+        );
+    signatureFluent:
+      filename: fields.cpp
+      code: |
+        auto analyze = axllm::ax(
+          "document:string -> summary:string, tags:string[]"
+        );
+        auto result = analyze.forward(*llm, axllm::object({{"document", text}}));
+    signatureSchema:
+      filename: schema.cpp
+      code: |
+        auto sig = axllm::s(
+          "document:string -> summary:string, score:number"
+        );
+        auto schema = sig.to_json_schema("outputs");
+    agent:
+      filename: researcher.cpp
+      runtimeLabel: C++ host session
+      code: |
+        #include "axllm/axllm.hpp"
+
+        auto llm = axllm::ai("openai");
+        auto research = axllm::agent(
+          "question:string, largeDocument:string -> answer:string, sources:string[]",
+          axllm::object({
+            {"functions", axllm::array({search_docs})},
+            {"contextFields", axllm::array({"largeDocument"})}
+          })
+        );
+
+        auto result = research.forward(*llm, axllm::object({
+          {"question", "What changed in the release?"},
+          {"largeDocument", doc}
+        }));
+    provider:
+      filename: providers.cpp
+      code: |
+        auto openai = axllm::ai("openai");
+        auto claude = axllm::ai("anthropic");
+        auto local = axllm::ai("openai", axllm::object({
+          {"baseURL", "http://localhost:11434/v1"}
+        }));
+    graphjin:
+      filename: ax_agent.cpp
+      code: |
+        auto transport = axllm::MCPHTTPSSETransport(
+          "http://localhost:8080/api/v1/mcp"
+        );
+        auto mcp = axllm::MCPClient(transport);
+        mcp.init();
+
+        auto data_analyst = axllm::agent(
+          "question:string -> answer:string",
+          axllm::object({{"functions", mcp.to_functions()}})
+        );
+    patterns:
+      classification: axllm::ax("text:string -> category:class \"spam, ham, promo\"")
+      extraction: axllm::ax("document:string -> names:string[], dates:date[]")
+      qa: axllm::ax("context:string, question:string -> answer:string")
+      multimodal: axllm::ax("photo:image, question:string -> answer:string")
+      validation: axllm::ax("email:string, score:number -> valid:boolean")
+      streaming: axllm::ax("topic:string -> chunk:string")
+      translation: axllm::ax("text:string, targetLanguage:string -> translation:string")
+      workflows: axllm::ax("doc:string -> summary:string, keyPoints:string[]")
+  - id: go
+    label: Go
+    shortLabel: Go
+    codeLang: go
+    command: cd packages/go && go test ./...
+    classifier:
+      filename: classify.go
+      status: Go values through the same provider boundary
+      output: |
+        {
+          "sentiment": "positive"
+        }
+      code: |
+        import ax "github.com/ax-llm/ax/go"
+
+        llm := ax.NewAI("openai", nil)
+        classify := ax.NewAx(
+          "review:string -> sentiment:class \"positive, negative, neutral\"",
+          nil,
+        )
+
+        result, err := classify.Forward(ctx, llm, map[string]ax.Value{
+          "review": "This product is amazing!",
+        }, nil)
+    heroAxgen:
+      filename: classify.go
+      runtimeLabel: NewAx()
+      code: |
+        import ax "github.com/ax-llm/ax/go"
+
+        llm := ax.NewAI("openai", nil)
+        classify := ax.NewAx(
+          "review:string -> sentiment:class \"positive, negative, neutral\"",
+          nil,
+        )
+
+        result, err := classify.Forward(ctx, llm, map[string]ax.Value{
+          "review": "This product is amazing!",
+        }, nil)
+    heroFluent:
+      filename: extract.go
+      runtimeLabel: NewAx() fields
+      code: |
+        import ax "github.com/ax-llm/ax/go"
+
+        llm := ax.NewAI("openai", nil)
+        extract := ax.NewAx(
+          "invoice:string -> vendor:string, total:number",
+          nil,
+        )
+
+        result, err := extract.Forward(ctx, llm, map[string]ax.Value{
+          "invoice": invoice,
+        }, nil)
+    heroAgent:
+      filename: agent.go
+      runtimeLabel: NewAgent()
+      code: |
+        import ax "github.com/ax-llm/ax/go"
+
+        llm := ax.NewAI("openai", nil)
+        research := ax.NewAgent(
+          "question:string -> answer:string",
+          map[string]ax.Value{
+            "functions": ax.Array(searchDocs),
+          },
+        )
+
+        result, err := research.Forward(ctx, llm, map[string]ax.Value{
+          "question": question,
+        }, nil)
+    audio:
+      filename: audio.go
+      runtimeLabel: speech:audio
+      code: |
+        import ax "github.com/ax-llm/ax/go"
+
+        llm := ax.NewAI("openai", nil)
+        narrator := ax.NewAx(
+          "article:string -> speech:audio, summary:string",
+          nil,
+        )
+
+        result, err := narrator.Forward(ctx, llm, map[string]ax.Value{
+          "article": article,
+        }, nil)
+    signatureString:
+      filename: signatures.go
+      code: |
+        extract := ax.NewAx(
+          "doc:string -> names:string[], dates:date[], amounts:number[]",
+          nil,
+        )
+    signatureFluent:
+      filename: fields.go
+      code: |
+        analyze := ax.NewAx(
+          "document:string -> summary:string, tags:string[]",
+          nil,
+        )
+        result, err := analyze.Forward(ctx, llm, map[string]ax.Value{
+          "document": text,
+        }, nil)
+    signatureSchema:
+      filename: schema.go
+      code: |
+        sig := ax.NewSignature(
+          "document:string -> summary:string, score:number",
+        )
+        schema := sig.ToJSONSchema("outputs")
+    agent:
+      filename: researcher.go
+      runtimeLabel: Go host session
+      code: |
+        import ax "github.com/ax-llm/ax/go"
+
+        llm := ax.NewAI("openai", nil)
+        research := ax.NewAgent(
+          "question:string, largeDocument:string -> answer:string, sources:string[]",
+          map[string]ax.Value{
+            "functions": ax.Array(searchDocs),
+            "contextFields": ax.Array("largeDocument"),
+          },
+        )
+
+        result, err := research.Forward(ctx, llm, map[string]ax.Value{
+          "question": "What changed in the release?",
+          "largeDocument": doc,
+        }, nil)
+    provider:
+      filename: providers.go
+      code: |
+        openai := ax.NewAI("openai", nil)
+        claude := ax.NewAI("anthropic", nil)
+        local := ax.NewAI("openai", map[string]ax.Value{
+          "baseURL": "http://localhost:11434/v1",
+        })
+    graphjin:
+      filename: ax_agent.go
+      code: |
+        transport := ax.NewMCPHTTPSSETransport(
+          "http://localhost:8080/api/v1/mcp",
+        )
+        mcp := ax.NewMCPClient(transport)
+        err := mcp.Init(ctx)
+
+        dataAnalyst := ax.NewAgent(
+          "question:string -> answer:string",
+          map[string]ax.Value{
+            "functions": mcp.ToFunctions(),
+          },
+        )
+    patterns:
+      classification: ax.NewAx("text:string -> category:class \"spam, ham, promo\"", nil)
+      extraction: ax.NewAx("document:string -> names:string[], dates:date[]", nil)
+      qa: ax.NewAx("context:string, question:string -> answer:string", nil)
+      multimodal: ax.NewAx("photo:image, question:string -> answer:string", nil)
+      validation: ax.NewAx("email:string, score:number -> valid:boolean", nil)
+      streaming: ax.NewAx("topic:string -> chunk:string", nil)
+      translation: ax.NewAx("text:string, targetLanguage:string -> translation:string", nil)
+      workflows: ax.NewAx("doc:string -> summary:string, keyPoints:string[]", nil)
+  - id: rust
+    label: Rust
+    shortLabel: Rust
+    codeLang: rust
+    command: cd packages/rust && cargo test --all-targets
+    classifier:
+      filename: classify.rs
+      status: Result-based errors, serde_json at Ax boundaries
+      output: |
+        {
+          "sentiment": "positive"
+        }
+      code: |
+        use axllm::{ai, ax};
+        use serde_json::json;
+
+        let mut llm = ai("openai", json!({}))?;
+        let mut classify = ax(
+          "review:string -> sentiment:class \"positive, negative, neutral\""
+        )?;
+
+        let result = classify.forward(&mut llm, json!({
+          "review": "This product is amazing!"
+        }))?;
+    heroAxgen:
+      filename: classify.rs
+      runtimeLabel: ax()
+      code: |
+        use axllm::{ai, ax};
+        use serde_json::json;
+
+        let mut llm = ai("openai", json!({}))?;
+        let mut classify = ax(
+          "review:string -> sentiment:class \"positive, negative, neutral\""
+        )?;
+
+        let result = classify.forward(&mut llm, json!({
+          "review": "This product is amazing!"
+        }))?;
+    heroFluent:
+      filename: extract.rs
+      runtimeLabel: ax() fields
+      code: |
+        use axllm::{ai, ax};
+        use serde_json::json;
+
+        let mut llm = ai("openai", json!({}))?;
+        let mut extract = ax(
+          "invoice:string -> vendor:string, total:number"
+        )?;
+
+        let result = extract.forward(&mut llm, json!({
+          "invoice": invoice
+        }))?;
+    heroAgent:
+      filename: agent.rs
+      runtimeLabel: agent()
+      code: |
+        use axllm::{agent, ai};
+        use serde_json::json;
+
+        let mut llm = ai("openai", json!({}))?;
+        let mut research = agent(
+          "question:string -> answer:string"
+        )?.with_functions(vec![search_docs]);
+
+        let result = research.forward(&mut llm, json!({
+          "question": question
+        }))?;
+    audio:
+      filename: audio.rs
+      runtimeLabel: speech:audio
+      code: |
+        use axllm::{ai, ax};
+        use serde_json::json;
+
+        let mut llm = ai("openai", json!({}))?;
+        let mut narrator = ax(
+          "article:string -> speech:audio, summary:string"
+        )?;
+
+        let result = narrator.forward(&mut llm, json!({
+          "article": article
+        }))?;
+    signatureString:
+      filename: signatures.rs
+      code: |
+        let mut extract = ax(
+          "doc:string -> names:string[], dates:date[], amounts:number[]"
+        )?;
+    signatureFluent:
+      filename: fields.rs
+      code: |
+        let mut analyze = ax(
+          "document:string -> summary:string, tags:string[]"
+        )?;
+        let result = analyze.forward(&mut llm, json!({
+          "document": text
+        }))?;
+    signatureSchema:
+      filename: schema.rs
+      code: |
+        let sig = s(
+          "document:string -> summary:string, score:number"
+        )?;
+        let schema = sig.to_json_schema("outputs");
+    agent:
+      filename: researcher.rs
+      runtimeLabel: Rust host session
+      code: |
+        use axllm::{agent, ai};
+        use serde_json::json;
+
+        let mut llm = ai("openai", json!({}))?;
+        let mut research = agent(
+          "question:string, largeDocument:string -> answer:string, sources:string[]"
+        )?;
+
+        let result = research.forward(&mut llm, json!({
+          "question": "What changed in the release?",
+          "largeDocument": doc
+        }))?;
+    provider:
+      filename: providers.rs
+      code: |
+        let openai = ai("openai", json!({}))?;
+        let claude = ai("anthropic", json!({}))?;
+        let local = ai("openai", json!({
+          "baseURL": "http://localhost:11434/v1"
+        }))?;
+    graphjin:
+      filename: ax_agent.rs
+      code: |
+        let transport = MCPHTTPSSETransport::new(
+          "http://localhost:8080/api/v1/mcp"
+        );
+        let mut mcp = MCPClient::new(transport);
+        mcp.init().await?;
+
+        let mut data_analyst = agent(
+          "question:string -> answer:string"
+        )?.with_functions(mcp.to_functions());
+    patterns:
+      classification: ax("text:string -> category:class \"spam, ham, promo\"")?
+      extraction: ax("document:string -> names:string[], dates:date[]")?
+      qa: ax("context:string, question:string -> answer:string")?
+      multimodal: ax("photo:image, question:string -> answer:string")?
+      validation: ax("email:string, score:number -> valid:boolean")?
+      streaming: ax("topic:string -> chunk:string")?
+      translation: ax("text:string, targetLanguage:string -> translation:string")?
+      workflows: ax("doc:string -> summary:string, keyPoints:string[]")?

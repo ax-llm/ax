@@ -18,6 +18,10 @@ audio
 .data
 demos.json
 site/dist
+website-md/.generated/
+website-md/public/
+website-md/.hugo_build.lock
+website-md/static/vendor/
 .astro
 .tsimp
 *.mp4

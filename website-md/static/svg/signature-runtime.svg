@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 420" role="img" aria-labelledby="title desc">
+  <title id="title">Signature to runtime pipeline</title>
+  <desc id="desc">A signature feeds prompt, schema, and example lanes into provider execution, retry feedback, and typed output.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .ink { fill: #0a2540; }
+    .muted { fill: #61758a; }
+    .flow { fill: none; stroke: #93a4b8; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .quiet { fill: none; stroke: #c9d4e0; stroke-width: 1.2; stroke-linecap: round; }
+    .lane { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .blue-stroke { stroke: #067ab8; }
+    .teal-stroke { stroke: #0a8f7a; }
+    .amber-stroke { stroke: #a97009; }
+    .rust-stroke { stroke: #b34836; }
+    .green-stroke { stroke: #0a8852; }
+    .violet-stroke { stroke: #635bff; }
+    .blue { fill: #067ab8; }
+    .teal { fill: #0a8f7a; }
+    .amber { fill: #a97009; }
+    .rust { fill: #b34836; }
+    .green { fill: #0a8852; }
+    .violet { fill: #635bff; }
+    .soft-blue { fill: #e7f4ff; }
+    .soft-teal { fill: #e7fbf5; }
+    .soft-amber { fill: #fff5da; }
+    .soft-rust { fill: #fff0eb; }
+    .soft-green { fill: #e9fbf2; }
+    .soft-violet { fill: #f1efff; }
+    .core { font-size: 21px; font-weight: 760; }
+    .label { font-size: 14px; font-weight: 720; }
+    .small { font-size: 10px; font-weight: 650; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10px; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #f4f7fb; }
+      .muted { fill: #aab8cb; }
+      .flow { stroke: #7f8ea3; }
+      .quiet { stroke: #34445c; }
+      .soft-blue { fill: #10263a; }
+      .soft-teal { fill: #11342e; }
+      .soft-amber { fill: #302614; }
+      .soft-rust { fill: #351f1b; }
+      .soft-green { fill: #123323; }
+      .soft-violet { fill: #221f45; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow-signature" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#93a4b8"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#067ab8"/>
+    </marker>
+    <marker id="arrow-teal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#0a8f7a"/>
+    </marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#a97009"/>
+    </marker>
+    <marker id="arrow-violet" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#635bff"/>
+    </marker>
+  </defs>
+
+  <g>
+    <circle class="soft-teal" cx="144" cy="210" r="58"/>
+    <circle class="teal" cx="144" cy="210" r="8"/>
+    <text class="ink core" x="144" y="202" text-anchor="middle">signature</text>
+    <text class="mono muted" x="144" y="229" text-anchor="middle">input -> output</text>
+  </g>
+
+  <path class="flow" marker-end="url(#arrow-signature)" d="M204 210H286"/>
+  <path class="quiet" d="M287 146V274"/>
+  <path class="lane blue-stroke" marker-end="url(#arrow-blue)" d="M288 146C398 92 524 104 634 158"/>
+  <path class="lane teal-stroke" marker-end="url(#arrow-teal)" d="M288 210H634"/>
+  <path class="lane amber-stroke" marker-end="url(#arrow-amber)" d="M288 274C398 326 524 312 634 246"/>
+
+  <g>
+    <circle class="soft-blue" cx="344" cy="126" r="26"/>
+    <circle class="blue" cx="344" cy="126" r="6"/>
+    <text class="label" x="382" y="111" fill="#067ab8">prompt</text>
+  </g>
+  <g>
+    <circle class="soft-teal" cx="344" cy="210" r="26"/>
+    <circle class="teal" cx="344" cy="210" r="6"/>
+    <text class="label" x="382" y="191" fill="#0a8f7a">schema</text>
+  </g>
+  <g>
+    <circle class="soft-amber" cx="344" cy="294" r="26"/>
+    <circle class="amber" cx="344" cy="294" r="6"/>
+    <text class="label" x="382" y="324" fill="#a97009">examples</text>
+  </g>
+
+  <g>
+    <circle class="soft-rust" cx="668" cy="174" r="38"/>
+    <circle class="rust" cx="668" cy="174" r="7"/>
+    <text class="label" x="714" y="179" fill="#b34836">provider</text>
+  </g>
+  <g>
+    <circle class="soft-green" cx="668" cy="256" r="32"/>
+    <circle class="green" cx="668" cy="256" r="7"/>
+    <text class="label" x="714" y="261" fill="#0a8852">retry</text>
+  </g>
+  <path class="lane rust-stroke" d="M646 206C624 224 622 240 644 258"/>
+  <path class="lane green-stroke" marker-end="url(#arrow-teal)" d="M686 254C716 232 716 201 687 181"/>
+
+  <path class="lane violet-stroke" marker-end="url(#arrow-violet)" d="M742 214H830"/>
+  <g>
+    <circle class="soft-violet" cx="876" cy="214" r="38"/>
+    <circle class="violet" cx="876" cy="214" r="7"/>
+    <text class="label" x="876" y="274" fill="#635bff" text-anchor="middle">output</text>
+  </g>
+</svg>

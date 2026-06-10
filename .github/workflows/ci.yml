@@ -11,6 +11,7 @@ env:
   GOMODCACHE: /tmp/go-mod
   CARGO_TARGET_DIR: /tmp/axir-cargo-target
   AXIR_CARGO_OFFLINE_FIRST: '1'
+  HUGO_VERSION: '0.162.0'
 
 jobs:
   build:
@@ -153,6 +154,28 @@ jobs:
       - name: Check generated package freshness
         run: npm run axir:check-packages
 
+  website-md:
+    name: Markdown Website
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install Hugo
+        run: |
+          curl -sL "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_${HUGO_VERSION}_linux-amd64.tar.gz" -o /tmp/hugo.tar.gz
+          tar -C /tmp -xzf /tmp/hugo.tar.gz hugo
+          sudo mv /tmp/hugo /usr/local/bin/hugo
+          hugo version
+      - name: Install dependencies
+        run: npm ci
+      - name: Check markdown website
+        run: npm run website-md:check
+
   axir-verify:
     name: AxIR Verify (${{ matrix.target }})
     runs-on: ubuntu-latest
@@ -221,6 +244,7 @@ jobs:
       - workspace-tests
       - generated-examples
       - axir-packages
+      - website-md
       - axir-verify
     steps:
       - name: Check all CI shards
@@ -231,6 +255,7 @@ jobs:
             "${{ needs.workspace-tests.result }}" \
             "${{ needs.generated-examples.result }}" \
             "${{ needs.axir-packages.result }}" \
+            "${{ needs.website-md.result }}" \
             "${{ needs.axir-verify.result }}"; do
             if [ "$result" != "success" ]; then
               echo "CI shard failed or was skipped: $result"

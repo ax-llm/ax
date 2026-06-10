@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ if .IsHome }}{{ .Site.Title }}{{ else }}{{ .Title }} | {{ .Site.Title }}{{ end }}</title>
+    {{ $pageDescription := .Description | default .Site.Params.description }}
+    <meta name="description" content="{{ $pageDescription }}">
+    {{ with .Params.redirect_to }}
+      <meta http-equiv="refresh" content="0; url={{ . | relURL }}">
+      <link rel="canonical" href="{{ . | relURL }}">
+    {{ end }}
+    <script>
+      (() => {
+        try {
+          const mode = localStorage.getItem("ax-md-theme") || "auto";
+          if (mode !== "auto") document.documentElement.dataset.theme = mode;
+        } catch {}
+      })();
+    </script>
+    <link rel="stylesheet" href="{{ "css/site.css" | relURL }}">
+    <script src="{{ "js/site.js" | relURL }}" defer></script>
+    {{ if in .RawContent "```mermaid" }}
+      <script src="{{ "js/mermaid-init.js" | relURL }}" type="module"></script>
+    {{ end }}
+  </head>
+  {{ $bodyClass := "site-body" }}
+  {{ if .IsHome }}
+    {{ $bodyClass = printf "%s is-home" $bodyClass }}
+  {{ else }}
+    {{ $bodyClass = printf "%s page-group-%s" $bodyClass (.Params.nav_group | default "root") }}
+  {{ end }}
+  {{ with .Params.body_class }}
+    {{ $bodyClass = printf "%s %s" $bodyClass . }}
+  {{ end }}
+  <body class="{{ $bodyClass }}">
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    {{ $currentLang := .Params.language | default "typescript" }}
+    {{ $currentSlug := .Params.slug_key | default "" }}
+    {{ $currentSection := .Params.section_nav | default .Params.nav_group | default "" }}
+    {{ $pageSection := $currentSection | default "home" }}
+    {{ $pageSlug := $currentSlug | default "home" }}
+    {{ $pageSource := .Params.source | default "" }}
+    {{ with .File }}
+      {{ if not $pageSource }}
+        {{ $pageSource = .Path }}
+      {{ end }}
+    {{ end }}
+    {{ if not $pageSource }}
+      {{ $pageSource = .RelPermalink }}
+    {{ end }}
+    {{ $pageKind := .Params.kind | default "" }}
+    {{ $pageSymbol := .Params.symbol | default "" }}
+    {{ $sourceName := replaceRE "^.*/" "" $pageSource }}
+    {{ $sourceStem := replaceRE "\\.md$" "" $sourceName }}
+    {{ if not $pageSymbol }}
+      {{ if findRE "^(Class|Interface|Function|TypeAlias|Variable|Enumeration|Enum)\\." $sourceStem }}
+        {{ $pageSymbol = replaceRE "^(Class|Interface|Function|TypeAlias|Variable|Enumeration|Enum)\\." "" $sourceStem }}
+      {{ else }}
+        {{ $pageSymbol = .Title }}
+      {{ end }}
+    {{ end }}
+    {{ if not $pageKind }}
+      {{ if findRE "^Class\\." $sourceStem }}
+        {{ $pageKind = "class" }}
+      {{ else if findRE "^Interface\\." $sourceStem }}
+        {{ $pageKind = "interface" }}
+      {{ else if findRE "^Function\\." $sourceStem }}
+        {{ $pageKind = "function" }}
+      {{ else if findRE "^TypeAlias\\." $sourceStem }}
+        {{ $pageKind = "type" }}
+      {{ else if findRE "^Variable\\." $sourceStem }}
+        {{ $pageKind = "variable" }}
+      {{ else if findRE "^(Enumeration|Enum)\\." $sourceStem }}
+        {{ $pageKind = "enum" }}
+      {{ else if eq $pageSection "skills" }}
+        {{ $pageKind = "skill" }}
+      {{ else if eq $pageSection "examples" }}
+        {{ $pageKind = "example" }}
+      {{ else if eq $pageSection "api" }}
+        {{ $pageKind = "api" }}
+      {{ else }}
+        {{ $pageKind = $pageSection }}
+      {{ end }}
+    {{ end }}
+    {{ $languages := slice
+      (dict "id" "typescript" "label" "TypeScript" "package" "@ax-llm/ax")
+      (dict "id" "python" "label" "Python" "package" "axllm")
+      (dict "id" "java" "label" "Java" "package" "com.axllm")
+      (dict "id" "cpp" "label" "C++" "package" "axllm")
+      (dict "id" "go" "label" "Go" "package" "github.com/ax-llm/ax")
+      (dict "id" "rust" "label" "Rust" "package" "axllm")
+    }}
+    {{ $currentLanguage := index $languages 0 }}
+    {{ range $languages }}
+      {{ if eq .id $currentLang }}
+        {{ $currentLanguage = . }}
+      {{ end }}
+    {{ end }}
+    <div class="search-index-metadata" data-pagefind-ignore>
+      <span data-pagefind-meta="title">{{ if .IsHome }}{{ .Site.Title }}{{ else }}{{ .Title }}{{ end }}</span>
+      <span data-pagefind-meta="description">{{ $pageDescription }}</span>
+      <span data-pagefind-meta="language" data-pagefind-filter="language">{{ $currentLang }}</span>
+      <span data-pagefind-meta="section" data-pagefind-filter="section">{{ $pageSection }}</span>
+      <span data-pagefind-meta="slug" data-pagefind-filter="slug">{{ $pageSlug }}</span>
+      <span data-pagefind-meta="source" data-pagefind-filter="source">{{ $pageSource }}</span>
+      <span data-pagefind-meta="kind" data-pagefind-filter="kind">{{ $pageKind }}</span>
+      <span data-pagefind-meta="symbol">{{ $pageSymbol }}</span>
+    </div>
+    <header class="site-header" data-pagefind-ignore>
+      <div class="header-main">
+        <a class="brand" href="{{ "/" | relURL }}" aria-label="Ax home">
+          <span class="brand-name">ax</span>
+        </a>
+        <div class="site-search" data-site-search data-search-language="{{ $currentLang }}" data-search-language-label="{{ $currentLanguage.label }}">
+          <label class="sr-only" for="site-search-input">Search documentation</label>
+          <div class="search-field">
+            <input id="site-search-input" class="search-input" type="search" placeholder="Search documentation" autocomplete="off" aria-autocomplete="list" aria-controls="site-search-results" aria-expanded="false" aria-activedescendant="" data-search-input>
+            <button class="search-scope-toggle" type="button" aria-label="Search all documentation" aria-pressed="false" title="Search all documentation" data-search-scope-toggle>
+              <span data-search-scope-label>{{ $currentLanguage.label }}</span>
+            </button>
+            <span class="search-shortcut" aria-hidden="true">/</span>
+          </div>
+          <div id="site-search-results" class="search-results" role="listbox" aria-label="Search results" data-search-results hidden></div>
+        </div>
+        <div class="top-controls">
+          <details class="language-menu" data-language-menu>
+            <summary class="language-menu-button" aria-label="Select documentation language">
+              {{ partial "language-mark.html" $currentLanguage }}
+              <span class="language-menu-current">
+                <strong>{{ $currentLanguage.label }}</strong>
+                <small>{{ $currentLanguage.package }}</small>
+              </span>
+              <span class="language-menu-chevron" aria-hidden="true">v</span>
+            </summary>
+            <div class="language-menu-panel" role="menu" aria-label="Documentation languages">
+              {{ range $languages }}
+                {{ $id := .id }}
+                {{ $href := printf "/%s/quick-start/" $id }}
+                {{ $matches := where (where $.Site.Pages "Params.language" $id) "Params.slug_key" $currentSlug }}
+                {{ with index $matches 0 }}
+                  {{ $href = .RelPermalink }}
+                {{ end }}
+                <a href="{{ $href | relURL }}" role="menuitem"{{ if eq $id $currentLang }} class="active" aria-current="page"{{ end }}>
+                  {{ partial "language-mark.html" . }}
+                  <span>
+                    <strong>{{ .label }}</strong>
+                    <small>{{ .package }}</small>
+                  </span>
+                </a>
+              {{ end }}
+            </div>
+          </details>
+          <a class="top-icon-link" href="{{ .Site.Params.github }}" aria-label="GitHub repository" title="GitHub">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M12 2.4a9.7 9.7 0 0 0-3.1 18.9c.48.09.66-.2.66-.46v-1.7c-2.7.59-3.27-1.14-3.27-1.14-.44-1.12-1.08-1.42-1.08-1.42-.88-.6.07-.59.07-.59.98.07 1.5 1.01 1.5 1.01.87 1.48 2.28 1.05 2.84.8.09-.63.34-1.05.62-1.3-2.16-.25-4.43-1.08-4.43-4.8 0-1.06.38-1.93 1-2.61-.1-.25-.43-1.24.1-2.57 0 0 .82-.26 2.68 1a9.2 9.2 0 0 1 4.88 0c1.86-1.26 2.67-1 2.67-1 .54 1.33.2 2.32.1 2.57.63.68 1 1.55 1 2.61 0 3.73-2.27 4.55-4.44 4.79.35.3.66.9.66 1.81v2.68c0 .26.17.56.67.46A9.7 9.7 0 0 0 12 2.4z"></path>
+            </svg>
+          </a>
+          <button class="theme-toggle" type="button" aria-label="Theme: Auto. Switch to light theme" title="Theme: Auto" data-theme-switcher data-theme-toggle data-theme-mode="auto">
+            <span class="theme-icon" data-theme-icon="auto">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="4" y="5" width="16" height="11" rx="2"></rect>
+                <path d="M9 20h6M12 16v4"></path>
+              </svg>
+            </span>
+            <span class="theme-icon" data-theme-icon="light">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="4"></circle>
+                <path d="M12 2.5v3M12 18.5v3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M2.5 12h3M18.5 12h3M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"></path>
+              </svg>
+            </span>
+            <span class="theme-icon" data-theme-icon="dark">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M20 15.2A7.5 7.5 0 0 1 8.8 4a8.2 8.2 0 1 0 11.2 11.2z"></path>
+              </svg>
+            </span>
+          </button>
+        </div>
+      </div>
+      <nav class="section-nav{{ if .IsHome }} section-nav-home{{ end }}" aria-label="Documentation sections">
+        <a href="{{ printf "/%s/quick-start/" $currentLang | relURL }}"{{ if eq $currentSlug "quick-start" }} class="active" aria-current="page"{{ end }}>Quick Start</a>
+        <a href="{{ printf "/%s/examples/" $currentLang | relURL }}"{{ if eq $currentSlug "examples" }} class="active" aria-current="page"{{ end }}>Examples</a>
+        <a href="{{ printf "/%s/concepts/dspy/" $currentLang | relURL }}"{{ if eq $currentSection "concepts" }} class="active" aria-current="page"{{ end }}>Concepts</a>
+        <a href="{{ printf "/%s/subsystems/ai/" $currentLang | relURL }}"{{ if eq $currentSection "subsystems" }} class="active" aria-current="page"{{ end }}>Subsystems</a>
+        <a href="{{ printf "/%s/skills/" $currentLang | relURL }}"{{ if eq $currentSection "skills" }} class="active" aria-current="page"{{ end }}>Skills</a>
+        <a href="{{ printf "/%s/api/ai/" $currentLang | relURL }}"{{ if eq $currentSection "api" }} class="active" aria-current="page"{{ end }}>API Docs</a>
+      </nav>
+    </header>
+
+    {{ if .Params.redirect_to }}
+      <main id="main-content" class="content content-redirect" data-pagefind-body>
+        {{ block "main" . }}{{ end }}
+      </main>
+    {{ else if .IsHome }}
+      <main id="main-content" class="content content-home" data-pagefind-body>
+        {{ block "main" . }}{{ end }}
+      </main>
+    {{ else if .Params.standalone }}
+      <main id="main-content" class="content content-standalone" data-pagefind-body>
+        {{ block "main" . }}{{ end }}
+      </main>
+    {{ else }}
+      {{ $tocEnabled := ne .Params.toc false }}
+      {{ $h2Count := len (findRE `<h2\b` .Content) }}
+      {{ $showToc := and $tocEnabled (ge $h2Count 3) (in .TableOfContents "<ul>") }}
+      <div class="page-shell{{ if $showToc }} has-toc{{ end }}">
+        <main id="main-content" class="content" data-pagefind-body>
+          {{ block "main" . }}{{ end }}
+        </main>
+        <details class="mobile-docs-nav" data-mobile-docs data-pagefind-ignore>
+          <summary>Docs</summary>
+          <div class="mobile-docs-panel">
+            {{ partial "side-nav.html" . }}
+          </div>
+        </details>
+        <aside class="side-nav" aria-label="Documentation navigation" data-pagefind-ignore>
+          {{ partial "side-nav.html" . }}
+        </aside>
+        {{ if $showToc }}
+          <aside class="toc-nav" aria-label="On this page" data-pagefind-ignore>
+            {{ partial "page-toc.html" . }}
+          </aside>
+        {{ end }}
+      </div>
+    {{ end }}
+  </body>
+</html>

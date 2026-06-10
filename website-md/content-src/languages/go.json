@@ -1,0 +1,100 @@
+{
+  "id": "go",
+  "label": "Go",
+  "shortLabel": "Go",
+  "fence": "go",
+  "packageName": "github.com/ax-llm/ax/go",
+  "install": ["go run ./packages/go/examples/signature_schema"],
+  "exampleRoot": "packages/go/examples",
+  "apiKind": "axir",
+  "optimizeName": "AxGEPA",
+  "optimizeIntro": "Use the generated `AxGEPA` optimizer surface for portable GEPA tuning. TypeScript also exposes the convenience `optimize()` helper; generated packages currently keep the optimizer explicit.",
+  "apiReference": "/go/api/reference/",
+  "apiSections": {
+    "ai": ["AxAI"],
+    "ax": ["AxGen", "Tools"],
+    "s": ["Signatures"],
+    "agent": ["Agents And RLM", "Runtime Profiles", "MCP"],
+    "optimize": ["Optimizers"]
+  },
+  "snippets": {
+    "quickStart": [
+      "import axllm \"github.com/ax-llm/ax/go\"",
+      "",
+      "client := axllm.NewAI(\"openai\", map[string]axllm.Value{\"apiKey\": os.Getenv(\"OPENAI_API_KEY\")})",
+      "classify := axllm.NewAx(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\", nil)"
+    ],
+    "dspy": [
+      "qa := axllm.NewAx(\"question:string -> answer:string, confidence:number\", nil)"
+    ],
+    "signature": [
+      "sig := axllm.S(\"email:string -> priority:class \\\"high, normal, low\\\"\")"
+    ],
+    "ax": ["answer := axllm.NewAx(\"question:string -> answer:string\", nil)"],
+    "agent": [
+      "helper := axllm.NewAgent(\"question:string -> answer:string\", nil)"
+    ],
+    "llm": [
+      "client := axllm.NewAI(\"openai\", map[string]axllm.Value{\"apiKey\": os.Getenv(\"OPENAI_API_KEY\")})"
+    ],
+    "telemetry": [
+      "program := axllm.NewAx(\"text:string -> label:string\", nil)",
+      "usage := program.GetUsage()"
+    ],
+    "optimize": [
+      "engine := axllm.NewAxGEPA(reflectionClient, nil)",
+      "result := engine.Optimize(request, evaluator)"
+    ]
+  },
+  "snippetGroups": {
+    "tools": {
+      "basic": {
+        "sourcePath": "packages/go/examples/axgen_scripted_client_tool/main.go",
+        "notes": [
+          "Shortened from the checked-in scripted-client tool example."
+        ],
+        "code": [
+          "search := axllm.Fn(\"search\").WithHandler(func(args map[string]axllm.Value) (axllm.Value, error) {",
+          "  return axllm.Object(\"title\", \"Ax docs\"), nil",
+          "})"
+        ]
+      },
+      "standardSchema": [
+        "// TypeScript owns the zod/valibot/arktype Standard Schema adapters.",
+        "// Generated packages expose the same Ax concept as JSON-schema-compatible tool descriptors.",
+        "lookup := axllm.Fn(\"lookupProduct\").WithHandler(func(args map[string]axllm.Value) (axllm.Value, error) {",
+        "  return axllm.Object(\"price\", 79.99, \"inStock\", true), nil",
+        "})"
+      ],
+      "namespaces": [
+        "policy := axllm.Fn(\"findPolicy\").WithHandler(policyHandler)",
+        "// Group related tools under domain namespaces where the package surface supports it.",
+        "// Runtime calls should read like kb.findPolicy(...) or billing.lookupInvoice(...)."
+      ],
+      "ax": [
+        "answer := axllm.NewAx(\"question:string -> answer:string\", nil)",
+        "answer.Functions = []axllm.Tool{search}",
+        "out, err := answer.Forward(context.Background(), client, map[string]axllm.Value{",
+        "  \"question\": \"Can this customer get a refund?\",",
+        "}, nil)"
+      ],
+      "agentFlat": [
+        "assistant := axllm.NewAgent(\"message:string -> reply:string\", map[string]axllm.Value{",
+        "  \"functions\": axllm.Array(search),",
+        "  \"contextFields\": []axllm.Value{},",
+        "})"
+      ],
+      "agentGroups": [
+        "assistant := axllm.NewAgent(\"message:string -> reply:string\", map[string]axllm.Value{",
+        "  \"functionDiscovery\": true,",
+        "  \"functions\": []axllm.Value{map[string]axllm.Value{",
+        "    \"namespace\": \"kb\",",
+        "    \"title\": \"Knowledge Base\",",
+        "    \"selectionCriteria\": \"Use for policy or documentation lookup.\",",
+        "    \"functions\": axllm.Array(search),",
+        "  }},",
+        "})"
+      ]
+    }
+  }
+}

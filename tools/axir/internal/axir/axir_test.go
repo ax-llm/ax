@@ -758,6 +758,12 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("generated %s package missing %s; files=%v", tc.target, want, files)
 				}
 			}
+			for _, want := range expectedPackageSkillFiles(tc.target) {
+				if !containsString(files, want) {
+					t.Fatalf("generated %s package missing skill %s; files=%v", tc.target, want, files)
+				}
+				assertGeneratedSkillFrontmatter(t, dir, want, tc.target)
+			}
 			for _, profileExample := range runtimeProfileExampleGuards(tc.target) {
 				data, err := os.ReadFile(filepath.Join(dir, profileExample))
 				if err != nil {
@@ -1106,6 +1112,51 @@ func checkGeneratedFileDoesNotContain(t *testing.T, root, rel string, forbidden 
 			t.Fatalf("%s should not contain %q:\n%s", rel, item, text)
 		}
 	}
+}
+
+func expectedPackageSkillFiles(target string) []string {
+	files := []string{}
+	for _, spec := range packageSkillSpecs {
+		name := skillName(target, spec)
+		files = append(files, "skills/"+name+"/SKILL.md")
+	}
+	sort.Strings(files)
+	return files
+}
+
+func assertGeneratedSkillFrontmatter(t *testing.T, root, rel, target string) {
+	t.Helper()
+	text := readRepoFile(t, root, filepath.FromSlash(rel))
+	name := frontmatterStringValue(text, "name")
+	description := frontmatterStringValue(text, "description")
+	version := frontmatterStringValue(text, "version")
+	wantName := strings.TrimSuffix(strings.TrimPrefix(rel, "skills/"), "/SKILL.md")
+	if name != wantName {
+		t.Fatalf("%s frontmatter name = %q, want %q", rel, name, wantName)
+	}
+	if !strings.HasPrefix(name, "ax-"+target+"-") {
+		t.Fatalf("%s frontmatter name should be language-prefixed for %s", rel, target)
+	}
+	if description == "" || !strings.Contains(description, skillTargetConfig(target).Language) || !strings.Contains(description, packageNameForTarget(target)) {
+		t.Fatalf("%s frontmatter description should route to language and package, got %q", rel, description)
+	}
+	if version != generatedPackageVersion() {
+		t.Fatalf("%s frontmatter version = %q, want %q", rel, version, generatedPackageVersion())
+	}
+	for _, forbidden := range []string{"axir-language-backend", "website-md-language-docs"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("%s should not include maintainer skill %q:\n%s", rel, forbidden, text)
+		}
+	}
+}
+
+func frontmatterStringValue(markdown, key string) string {
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(key) + `:\s*"?([^"\n\r]+)"?\s*$`)
+	match := re.FindStringSubmatch(markdown)
+	if len(match) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(match[1])
 }
 
 type generatedCoreAuditEntry struct {
