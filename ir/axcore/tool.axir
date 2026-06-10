@@ -23,6 +23,7 @@ module @ax.tool version "0.1" {
     attr core_kind = "func"
     attr effect = "throws"
     attr emit_module = "gen"
+    attr private = true
     ref validate = @validate_fields
     tag "native-tool-call"
     type signature = "(list<Tool>, json) -> json throws"

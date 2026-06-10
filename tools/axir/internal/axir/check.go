@@ -181,7 +181,7 @@ func checkOp(file string, op Operation, symbols map[string]Operation) Diagnostic
 					d = append(d, diag("error", file, attr.Line, "%s", unknownCoreIntrinsicError(callee)))
 				}
 			} else if !strings.HasPrefix(callee, "_") {
-				if _, ok := symbols[callee]; !ok && !isGeneratedCoreFunctionName(callee) {
+				if _, ok := symbols[callee]; !ok && !isGeneratedCoreFunctionName(symbols, callee) {
 					d = append(d, diag("error", file, attr.Line, "missing callee @%s; use @%s for symbol calls or define @%s", callee, callee, callee))
 				}
 			}
@@ -207,29 +207,13 @@ func checkOp(file string, op Operation, symbols map[string]Operation) Diagnostic
 	return d
 }
 
-func isGeneratedCoreFunctionName(name string) bool {
-	for _, group := range [][]pythonCoreFuncSpec{
-		pythonSignatureCoreFuncs,
-		pythonSchemaCoreFuncs,
-		pythonPromptCoreFuncs,
-		pythonAICoreFuncs,
-		pythonGenCoreFuncs,
-		pythonProgramCoreFuncs,
-		pythonAgentCoreFuncs,
-	} {
-		for _, spec := range group {
-			if spec.Name == name || spec.Symbol == name {
-				return true
-			}
-		}
-	}
-	for _, generated := range javaCoreFuncNames {
-		if generated == name {
+func isGeneratedCoreFunctionName(symbols map[string]Operation, name string) bool {
+	for sym, op := range symbols {
+		if sym == name {
 			return true
 		}
-	}
-	for _, generated := range cppCoreFuncNames {
-		if generated == name {
+		private := AttrString(op, "private") == "true"
+		if nativeCoreFuncName(sym, op, private) == name {
 			return true
 		}
 	}

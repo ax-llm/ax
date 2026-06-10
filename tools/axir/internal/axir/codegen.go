@@ -90,6 +90,10 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 	if err != nil {
 		return err
 	}
+	mcpModule, err := BuildPythonMCP(model)
+	if err != nil {
+		return err
+	}
 	flow, err := BuildPythonFlow(model)
 	if err != nil {
 		return err
@@ -108,7 +112,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"axllm/gen.py":                                          gen,
 		"axllm/agent.py":                                        agent,
 		"axllm/flow.py":                                         flow,
-		"axllm/mcp.py":                                          pyMCP,
+		"axllm/mcp.py":                                          mcpModule,
 		"axllm/conformance.py":                                  pyConformance,
 		"axllm/providers/__init__.py":                           pyProvidersInit,
 		"axllm/providers/openai.py":                             pyOpenAIProvider,
@@ -249,11 +253,15 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 	if err != nil {
 		return err
 	}
+	header, err := BuildCppHeader(model)
+	if err != nil {
+		return err
+	}
 	files := map[string]string{
 		"CMakeLists.txt":                                        renderPackageTemplate(cppCMakeLists, version),
 		"cmake/axllmConfig.cmake.in":                            cppCMakeConfig,
-		"axllm/axllm.hpp":                                       cppHeader,
-		"axllm/axllm.cpp":                                       strings.Replace(cppRuntime, "// AXIR_CORE_CPP_FUNCTIONS\n", core, 1),
+		"axllm/axllm.hpp":                                       header,
+		"axllm/axllm.cpp":                                       core,
 		"axllm/mcp.hpp":                                         cppMCPHeader,
 		"axllm/mcp.cpp":                                         cppMCPSource,
 		"conformance.cpp":                                       cppConformance,

@@ -397,11 +397,11 @@ module @ax.ai version "0.1" {
       block @entry(%service: AxAIService, %request: AxChatRequest, %options: json) {
         op core.call {
           attr args = [%request]
-          attr callee = "validate_chat_request"
+          attr callee = @validate_chat_request
         }
         op core.call {
           attr args = [%request]
-          attr callee = "openai_build_chat_request"
+          attr callee = @openai_build_chat_request
           attr result = %payload
         }
         op core.return {
@@ -421,7 +421,7 @@ module @ax.ai version "0.1" {
       block @entry(%raw: json) {
         op core.call {
           attr args = [%raw]
-          attr callee = "openai_normalize_chat_response"
+          attr callee = @openai_normalize_chat_response
           attr result = %response
         }
         op core.return {
@@ -441,7 +441,7 @@ module @ax.ai version "0.1" {
       block @entry(%raw: json, %state: json) {
         op core.call {
           attr args = [%raw, %state]
-          attr callee = "openai_normalize_stream_delta"
+          attr callee = @openai_normalize_stream_delta
           attr result = %response
         }
         op core.return {
@@ -460,7 +460,7 @@ module @ax.ai version "0.1" {
       block @entry(%service: AxAIService, %request: AxEmbedRequest, %options: json) {
         op core.call {
           attr args = [%request]
-          attr callee = "openai_build_embed_request"
+          attr callee = @openai_build_embed_request
           attr result = %payload
         }
         op core.return {
@@ -480,7 +480,7 @@ module @ax.ai version "0.1" {
       block @entry(%raw: json) {
         op core.call {
           attr args = [%raw]
-          attr callee = "openai_normalize_embed_response"
+          attr callee = @openai_normalize_embed_response
           attr result = %response
         }
         op core.return {
@@ -493,7 +493,6 @@ module @ax.ai version "0.1" {
   op ax.ai.semantic @normalize_token_usage {
     attr core_kind = "func"
     attr emit_module = "ai"
-    attr private = true
     tag "token-usage-core-helper"
     type signature = "(json) -> json"
     region @body {
@@ -710,7 +709,7 @@ module @ax.ai version "0.1" {
         }
         op core.call {
           attr args = [%usage]
-          attr callee = "normalize_token_usage"
+          attr callee = @normalize_token_usage
           attr result = %tokens
         }
         op core.map {

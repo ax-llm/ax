@@ -4,6 +4,7 @@ module @ax.optimize version "0.1" {
   op ax.optimize.component @optimization_component {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(id:string, owner:string, kind:string, current:json, description:string, constraints:list<string>, depends_on:list<string>, preserve:bool, format:string, validation:json) -> json"
     body @entry(%id: string, %owner: string, %kind: string, %current: json, %description: string, %constraints: json, %depends_on: json, %preserve: bool, %format: string, %validation: json) {
       %out = core.map
@@ -24,6 +25,7 @@ module @ax.optimize version "0.1" {
   op ax.optimize.artifact @optimized_artifact {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(optimizer_name:string, optimizer_version:string, component_map:json, metadata:json) -> json"
     body @entry(%optimizer_name: string, %optimizer_version: string, %component_map: json, %metadata: json) {
       %empty_map = core.map
@@ -49,7 +51,7 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @validate_optimization_component_value {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
     attr private = true
     type signature = "(component:json, value:json) -> bool throws"
     body @entry(%component: json, %value: json) {
@@ -137,7 +139,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @validate_optimization_component_map {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(components:list<json>, component_map:json) -> bool throws"
     body @entry(%components: json, %component_map: json) {
       %known = core.list
@@ -167,7 +170,7 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @validate_optimized_artifact_provenance {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
     attr private = true
     type signature = "(artifact:json, components:list<json>) -> bool throws"
     body @entry(%artifact: json, %components: json) {
@@ -204,7 +207,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @validate_optimized_artifact {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(artifact:json, components:list<json>) -> json throws"
     body @entry(%artifact: json, %components: json) {
       %is_object = core.type_is %artifact type "object"
@@ -283,7 +287,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @serialize_optimized_artifact {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(artifact:json) -> string"
     body @entry(%artifact: json) {
       %text = core.call intrinsic.json.stringify(%artifact)
@@ -293,7 +298,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @deserialize_optimized_artifact {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(text:string, components:list<json>) -> json throws"
     body @entry(%text: string, %components: json) {
       %artifact = core.call intrinsic.json.parse(%text)
@@ -304,7 +310,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @optimization_changed_components {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(components:list<json>, component_map:json) -> list<json>"
     body @entry(%components: json, %component_map: json) {
       %changes = core.list
@@ -329,7 +336,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @optimization_component_current_map {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(components:list<json>) -> json"
     body @entry(%components: json) {
       %out = core.map
@@ -344,7 +352,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @normalize_optimization_dataset {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(dataset:json) -> json"
     body @entry(%dataset: json) {
       %empty_list = core.list
@@ -367,7 +376,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @normalize_optimization_metric_scores {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(raw:json) -> json"
     body @entry(%raw: json) {
       %is_number = core.type_is %raw type "number"
@@ -390,7 +400,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @scalarize_optimization_scores {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(scores:json, options:json) -> f64"
     body @entry(%scores: json, %options: json) {
       %metric_key = core.get %options["paretoMetricKey"] default ""
@@ -421,7 +432,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @optimization_action_name_matches {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(expected:string, call:json) -> bool"
     body @entry(%expected: string, %call: json) {
       %qualified = core.get %call["qualifiedName"] default ""
@@ -438,7 +450,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @adjust_optimization_score_for_actions {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(score:f64, task:json, prediction:json) -> f64"
     body @entry(%score: json, %task: json, %prediction: json) {
       %empty_list = core.list
@@ -494,6 +507,7 @@ module @ax.optimize version "0.1" {
   op ax.optimize.semantic @map_optimization_judge_quality_to_score {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(quality:string) -> f64"
     body @entry(%quality: string) {
       %normalized = core.call intrinsic.string.lower(%quality)
@@ -529,6 +543,7 @@ module @ax.optimize version "0.1" {
   op ax.optimize.semantic @build_optimization_judge_payload {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(task:json, prediction:json, criteria:string) -> json"
     body @entry(%task: json, %prediction: json, %criteria: string) {
       %empty_list = core.list
@@ -571,7 +586,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @build_optimization_eval_row {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(task:json, prediction:json, scores:json, scalar:f64, trace:json, error:json) -> json"
     body @entry(%task: json, %prediction: json, %scores: json, %scalar: json, %trace: json, %error: json) {
       %out = core.map
@@ -591,7 +607,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @build_optimization_eval_result {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(rows:list<json>, candidate_map:json, phase:string) -> json"
     body @entry(%rows: json, %candidate_map: json, %phase: string) {
       %sum = core.let 0
@@ -623,7 +640,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @filter_optimization_components {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(components:list<json>, target:json) -> list<json> throws"
     body @entry(%components: json, %target: json) {
       %out = core.list
@@ -700,7 +718,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @build_optimizer_request {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(program_kind:string, components:list<json>, dataset:list<json>, options:json, trace:json) -> json"
     body @entry(%program_kind: string, %components: json, %dataset: json, %options: json, %trace: json) {
       %out = core.map
@@ -724,7 +743,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @prepare_optimizer_run {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(program_kind:string, components:list<json>, dataset:json, options:json, trace:json, evaluator_available:bool) -> json throws"
     body @entry(%program_kind: string, %components: json, %dataset: json, %options: json, %trace: json, %evaluator_available: bool) {
       %empty_map = core.map
@@ -758,7 +778,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @normalize_optimizer_engine_response {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(response:json, engine_name:string, engine_version:string, components:list<json>) -> json throws"
     body @entry(%response: json, %engine_name: string, %engine_version: string, %components: json) {
       %response_is_object = core.type_is %response type "object"
@@ -843,7 +864,8 @@ module @ax.optimize version "0.1" {
 
   op ax.optimize.semantic @build_optimizer_evidence_batch {
     attr core_kind = "func"
-    attr emit_module = "agent"
+    attr emit_module = "gen"
+    attr private = true
     type signature = "(eval_result:json, components:list<json>) -> json"
     body @entry(%eval_result: json, %components: json) {
       %empty_list = core.list
@@ -919,6 +941,7 @@ module @ax.optimize version "0.1" {
   op ax.optimize.semantic @build_agent_eval_prediction {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(output:json, action_log:list<json>, usage:json, trace:json) -> json"
     body @entry(%output: json, %action_log: json, %usage: json, %trace: json) {
       %out = core.map

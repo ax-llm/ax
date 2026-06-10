@@ -3579,6 +3579,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @provider_realtime_audio_descriptor {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     attr effect = "throws"
     tag "provider-realtime-audio-descriptor"
     type signature = "(profile:string) -> json throws"
@@ -5099,6 +5100,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @grok_build_transcribe_request {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     tag "src/ax/ai/x-grok/api.ts"
     type signature = "(json) -> json"
     body @entry(%request: json) {
@@ -5126,6 +5128,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @grok_build_speak_request {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     tag "src/ax/ai/x-grok/api.ts"
     type signature = "(json) -> json"
     body @entry(%request: json) {
@@ -5169,6 +5172,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @gemini_build_transcribe_request {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     tag "src/ax/ai/google-gemini/api.ts"
     type signature = "(json) -> json"
     body @entry(%request: json) {
@@ -5207,6 +5211,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @gemini_build_speak_request {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     tag "src/ax/ai/google-gemini/api.ts"
     type signature = "(json) -> json"
     body @entry(%request: json) {
@@ -5244,6 +5249,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @gemini_normalize_transcribe_response {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     tag "src/ax/ai/google-gemini/api.ts"
     type signature = "(json) -> json"
     body @entry(%raw: json) {
@@ -5273,6 +5279,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @gemini_normalize_speak_response {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     tag "src/ax/ai/google-gemini/api.ts"
     type signature = "(json, json) -> json"
     body @entry(%raw: json, %request: json) {
@@ -5494,6 +5501,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @gemini_build_chat_request {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     attr effect = "throws"
     tag "src/ax/ai/google-gemini/api.ts"
     type signature = "(AxChatRequest) -> json throws"
@@ -5862,6 +5870,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @gemini_build_embed_request {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     tag "src/ax/ai/google-gemini/api.ts"
     type signature = "(AxEmbedRequest) -> json"
     body @entry(%request: AxEmbedRequest) {
@@ -5891,6 +5900,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @gemini_normalize_chat_response {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     attr effect = "throws"
     tag "src/ax/ai/google-gemini/api.ts"
     type signature = "(json, string, string) -> AxChatResponse throws"
@@ -6149,6 +6159,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @gemini_normalize_embed_response {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     tag "src/ax/ai/google-gemini/api.ts"
     type signature = "(json, string, string) -> AxEmbedResponse"
     body @entry(%raw: json, %ai_name: string, %model: string) {
@@ -6175,6 +6186,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @anthropic_build_chat_request {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     attr effect = "throws"
     tag "src/ax/ai/anthropic/api.ts"
     type signature = "(AxChatRequest) -> json throws"
@@ -6687,6 +6699,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @anthropic_normalize_chat_response {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     attr effect = "throws"
     tag "src/ax/ai/anthropic/api.ts"
     type signature = "(json, string, string) -> AxChatResponse throws"
@@ -6946,6 +6959,7 @@ module @ax.provider version "0.1" {
   op ax.provider.semantic @anthropic_normalize_stream_delta {
     attr core_kind = "func"
     attr emit_module = "ai"
+    attr private = true
     attr effect = "throws"
     tag "src/ax/ai/anthropic/api.ts"
     type signature = "(json, json, string, string) -> AxChatResponse throws"

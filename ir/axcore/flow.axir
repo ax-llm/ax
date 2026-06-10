@@ -4,6 +4,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_factory {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(options?:json) -> json"
     body @entry(%options: json) {
       %empty_map = core.map
@@ -37,6 +38,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_step {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(kind:string, name:string, program:json, options:json) -> json throws"
     body @entry(%kind: string, %name: string, %program: json, %options: json) {
       %trimmed = core.string_trim %name
@@ -103,6 +105,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_add_step {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(flow:json, step:json) -> json throws"
     body @entry(%flow: json, %step: json) {
       %steps = core.get %flow["steps"]
@@ -126,6 +129,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_set_returns {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(flow:json, returns:json) -> json"
     body @entry(%flow: json, %returns: json) {
       %empty_map = core.map
@@ -223,6 +227,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_plan {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(flow:json) -> json"
     body @entry(%flow: json) {
       %steps = core.get %flow["steps"]
@@ -329,6 +334,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_cache_key {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(values:json) -> string"
     body @entry(%values: json) {
       %key = core.call intrinsic.json.stable_stringify(%values)
@@ -888,6 +894,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_forward {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(flow:json, client:json, values:json, options?:json) -> json throws"
     body @entry(%flow: json, %client: json, %values: json, %options: json) {
       %empty_map = core.map
@@ -932,6 +939,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_get_optimizable_components {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(flow:json) -> list<json>"
     body @entry(%flow: json) {
       %empty_list = core.list
@@ -964,6 +972,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_apply_optimized_components {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(flow:json, component_map:json) -> json throws"
     body @entry(%flow: json, %component_map: json) {
       %empty_map = core.map
@@ -1010,6 +1019,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_snapshot_components {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(flow:json) -> json"
     body @entry(%flow: json) {
       %components = core.call @flow_get_optimizable_components(%flow)
@@ -1021,6 +1031,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_restore_components {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(flow:json, snapshot:json) -> json throws"
     body @entry(%flow: json, %snapshot: json) {
       %restored = core.call @flow_apply_optimized_components(%flow, %snapshot)
@@ -1031,6 +1042,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_evaluate_optimization {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(flow:json, client:json, dataset:json, candidate_map:json, options:json) -> json throws"
     body @entry(%flow: json, %client: json, %dataset: json, %candidate_map: json, %options: json) {
       %empty_map = core.map
@@ -1133,6 +1145,7 @@ module @ax.flow version "0.1" {
   op ax.flow.semantic @flow_optimize_with {
     attr core_kind = "func"
     attr emit_module = "flow"
+    attr private = true
     type signature = "(flow:json, dataset:json, options:json, evaluator_available:bool) -> json throws"
     body @entry(%flow: json, %dataset: json, %options: json, %evaluator_available: bool) {
       %empty_map = core.map

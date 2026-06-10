@@ -4,6 +4,7 @@ module @ax.gen version "0.1" {
   op ax.gen.semantic @build_gen_chat_request {
     attr core_kind = "func"
     attr emit_module = "gen"
+    attr private = true
     ref prompt = @render_prompt
     type signature = "(AxGen, list<json>, json) -> AxChatRequest throws"
     region @body {
@@ -307,6 +308,7 @@ module @ax.gen version "0.1" {
     attr core_kind = "method"
     attr effect = "throws"
     attr emit_module = "gen"
+    attr emit_name = "_forward_impl"
     ref execute_tool = @execute_tool_call
     ref strip = @strip_internal_fields
     ref validate = @validate_output
@@ -336,7 +338,7 @@ module @ax.gen version "0.1" {
         }
         op core.call {
           attr args = [%input_fields, %values, "input"]
-          attr callee = "validate_fields"
+          attr callee = @validate_fields
         }
         op core.get {
           attr key = "prompt_template"
@@ -581,7 +583,7 @@ module @ax.gen version "0.1" {
                         block @else {
                           op core.call {
                             attr args = [%output_fields, %last_tool_result]
-                            attr callee = "validate_output"
+                            attr callee = @validate_output
                             attr result = %validated_tool_result
                           }
                           op core.call {
@@ -595,7 +597,7 @@ module @ax.gen version "0.1" {
                           }
                           op core.call {
                             attr args = [%output_fields, %processed_tool_result]
-                            attr callee = "strip_internal"
+                            attr callee = @strip_internal_fields
                             attr result = %public_tool_result
                           }
                           op core.call {
@@ -633,7 +635,7 @@ module @ax.gen version "0.1" {
                           }
                           op core.call {
                             attr args = [%output_fields, %output]
-                            attr callee = "validate_output"
+                            attr callee = @validate_output
                             attr result = %validated
                           }
                           op core.call {
@@ -647,7 +649,7 @@ module @ax.gen version "0.1" {
                           }
                           op core.call {
                             attr args = [%output_fields, %processed]
-                            attr callee = "strip_internal"
+                            attr callee = @strip_internal_fields
                             attr result = %public_output
                           }
                           op core.call {

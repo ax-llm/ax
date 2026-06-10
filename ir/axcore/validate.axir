@@ -66,6 +66,7 @@ module @ax.validate version "0.1" {
   op ax.validate.semantic @strip_internal_fields {
     attr core_kind = "func"
     attr emit_module = "schema"
+    attr emit_name = "strip_internal"
     tag "internal-output"
     type signature = "(list<Field>, json) -> json"
     region @body {

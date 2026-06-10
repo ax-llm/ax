@@ -7,17 +7,21 @@ import (
 )
 
 func BuildGoCore(model AxRuntimeModel) (string, error) {
-	body, err := emitGoCoreFunctions(model)
+	specs, err := BuildCoreFuncRegistry(model)
+	if err != nil {
+		return "", err
+	}
+	body, err := emitGoCoreFunctions(model, specs, CoreFuncNames(specs))
 	if err != nil {
 		return "", err
 	}
 	return strings.Replace(goRuntime, "// AXIR_CORE_GO_FUNCTIONS\n", body, 1), nil
 }
 
-func emitGoCoreFunctions(model AxRuntimeModel) (string, error) {
+func emitGoCoreFunctions(model AxRuntimeModel, specs []CoreFuncSpec, names map[string]string) (string, error) {
 	var b strings.Builder
 	b.WriteString("// BEGIN AXIR CORE EMITTED FUNCTIONS\n")
-	for _, spec := range javaCoreFuncs {
+	for _, spec := range specs {
 		op, ok := model.Symbols[spec.Symbol]
 		if !ok {
 			return "", fmt.Errorf("missing Core function @%s", spec.Symbol)
@@ -25,7 +29,7 @@ func emitGoCoreFunctions(model AxRuntimeModel) (string, error) {
 		if model.BodySources[spec.Symbol] != "core" {
 			return "", fmt.Errorf("Core function @%s is missing body_source=core", spec.Symbol)
 		}
-		text, err := emitGoCoreFunction(op, spec.Name)
+		text, err := emitGoCoreFunction(names, op, spec.Name)
 		if err != nil {
 			return "", err
 		}
@@ -36,7 +40,7 @@ func emitGoCoreFunctions(model AxRuntimeModel) (string, error) {
 	return b.String(), nil
 }
 
-func emitGoCoreFunction(op Operation, name string) (string, error) {
+func emitGoCoreFunction(names map[string]string, op Operation, name string) (string, error) {
 	body, err := BuildCoreBody(op)
 	if err != nil {
 		return "", fmt.Errorf("@%s: %w", op.Symbol, err)
@@ -76,7 +80,7 @@ func emitGoCoreFunction(op Operation, name string) (string, error) {
 	}
 	emittedTerminal := false
 	for _, stmt := range block.Stmts {
-		lines, err := emitGoCoreStmt(stmt)
+		lines, err := emitGoCoreStmt(names, stmt)
 		if err != nil {
 			return "", fmt.Errorf("@%s: %w", op.Symbol, err)
 		}
@@ -116,14 +120,14 @@ func collectGoLocals(block CoreBlock, locals map[string]bool) {
 	}
 }
 
-func emitGoCoreStmt(stmt CoreStmt) ([]string, error) {
+func emitGoCoreStmt(names map[string]string, stmt CoreStmt) ([]string, error) {
 	switch stmt.Kind {
 	case "break":
 		return []string{"panic(coreBreak{})"}, nil
 	case "continue":
 		return []string{"panic(coreContinue{})"}, nil
 	case "call":
-		callee := goCallee(stmt.Callee)
+		callee := goCallee(names, stmt.Callee)
 		args := make([]string, 0, len(stmt.Args))
 		for _, arg := range stmt.Args {
 			args = append(args, goLiteral(arg))
@@ -158,11 +162,11 @@ func emitGoCoreStmt(stmt CoreStmt) ([]string, error) {
 	case "set":
 		return []string{fmt.Sprintf("coreSet(%s, %s, %s)", goLiteral(stmt.Target), goLiteral(stmt.Key), goLiteral(stmt.Value))}, nil
 	case "for":
-		return emitGoFor(stmt)
+		return emitGoFor(names, stmt)
 	case "if":
-		return emitGoIf(stmt)
+		return emitGoIf(names, stmt)
 	case "loop":
-		return emitGoLoop(stmt)
+		return emitGoLoop(names, stmt)
 	case "return":
 		if _, ok := Attr(stmt.Op, "value"); !ok {
 			return []string{"panic(coreReturn{value: nil})"}, nil
@@ -174,15 +178,15 @@ func emitGoCoreStmt(stmt CoreStmt) ([]string, error) {
 		}
 		return []string{fmt.Sprintf("panic(AxError{Category: \"runtime\", Message: %s})", strconv.Quote(stmt.Message))}, nil
 	case "try":
-		return emitGoTry(stmt)
+		return emitGoTry(names, stmt)
 	default:
 		return nil, fmt.Errorf("unsupported Go Core op %q", stmt.Op.Name)
 	}
 }
 
-func emitGoFor(stmt CoreStmt) ([]string, error) {
+func emitGoFor(names map[string]string, stmt CoreStmt) ([]string, error) {
 	lines := []string{fmt.Sprintf("for _, %s = range coreIter(%s) {", goName(stmt.Item), goLiteral(stmt.Iter)), "	var coreLoopSignal any", "	func() {", "		defer func() {", "			if r := recover(); r != nil {", "				switch r.(type) {", "				case coreBreak, coreContinue:", "					coreLoopSignal = r", "				default:", "					panic(r)", "				}", "			}", "		}()"}
-	bodyLines, err := emitGoRegionBlock(firstBodyBlock(stmt))
+	bodyLines, err := emitGoRegionBlock(names, firstBodyBlock(stmt))
 	if err != nil {
 		return nil, err
 	}
@@ -193,10 +197,10 @@ func emitGoFor(stmt CoreStmt) ([]string, error) {
 	return lines, nil
 }
 
-func emitGoIf(stmt CoreStmt) ([]string, error) {
+func emitGoIf(names map[string]string, stmt CoreStmt) ([]string, error) {
 	cond := goLiteral(stmt.Cond)
 	lines := []string{fmt.Sprintf("if coreTruthy(%s) {", cond)}
-	thenLines, err := emitGoRegionBlock(firstBodyBlock(stmt))
+	thenLines, err := emitGoRegionBlock(names, firstBodyBlock(stmt))
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +210,7 @@ func emitGoIf(stmt CoreStmt) ([]string, error) {
 	if len(stmt.Regions) > 1 && len(stmt.Regions[1].Blocks) > 0 {
 		elseBlock = stmt.Regions[1].Blocks[0]
 	}
-	elseLines, err := emitGoRegionBlock(elseBlock)
+	elseLines, err := emitGoRegionBlock(names, elseBlock)
 	if err != nil {
 		return nil, err
 	}
@@ -215,9 +219,9 @@ func emitGoIf(stmt CoreStmt) ([]string, error) {
 	return lines, nil
 }
 
-func emitGoLoop(stmt CoreStmt) ([]string, error) {
+func emitGoLoop(names map[string]string, stmt CoreStmt) ([]string, error) {
 	lines := []string{"for {", "	var coreLoopSignal any", "	func() {", "		defer func() {", "			if r := recover(); r != nil {", "				switch r.(type) {", "				case coreBreak, coreContinue:", "					coreLoopSignal = r", "				default:", "					panic(r)", "				}", "			}", "		}()"}
-	bodyLines, err := emitGoRegionBlock(firstBodyBlock(stmt))
+	bodyLines, err := emitGoRegionBlock(names, firstBodyBlock(stmt))
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +232,7 @@ func emitGoLoop(stmt CoreStmt) ([]string, error) {
 	return lines, nil
 }
 
-func emitGoTry(stmt CoreStmt) ([]string, error) {
+func emitGoTry(names map[string]string, stmt CoreStmt) ([]string, error) {
 	if len(stmt.Regions) != 2 {
 		return nil, fmt.Errorf("core.try must contain exactly try and catch regions")
 	}
@@ -237,7 +241,7 @@ func emitGoTry(stmt CoreStmt) ([]string, error) {
 		return nil, fmt.Errorf("core.try missing error binding")
 	}
 	lines := []string{"func() {", "	var coreCaught any", "	func() {", "		defer func() {", "			if r := recover(); r != nil {", "				switch r.(type) {", "				case coreReturn, coreBreak, coreContinue:", "					panic(r)", "				default:", "					coreCaught = r", "				}", "			}", "		}()"}
-	tryLines, err := emitGoRegionBlock(firstBodyBlock(stmt))
+	tryLines, err := emitGoRegionBlock(names, firstBodyBlock(stmt))
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +253,7 @@ func emitGoTry(stmt CoreStmt) ([]string, error) {
 	if len(stmt.Regions[1].Blocks) > 0 {
 		catchBlock = stmt.Regions[1].Blocks[0]
 	}
-	catchLines, err := emitGoRegionBlock(catchBlock)
+	catchLines, err := emitGoRegionBlock(names, catchBlock)
 	if err != nil {
 		return nil, err
 	}
@@ -260,13 +264,13 @@ func emitGoTry(stmt CoreStmt) ([]string, error) {
 	return lines, nil
 }
 
-func emitGoRegionBlock(block CoreBlock) ([]string, error) {
+func emitGoRegionBlock(names map[string]string, block CoreBlock) ([]string, error) {
 	if len(block.Stmts) == 0 {
 		return []string{"// empty"}, nil
 	}
 	var lines []string
 	for _, child := range block.Stmts {
-		childLines, err := emitGoCoreStmt(child)
+		childLines, err := emitGoCoreStmt(names, child)
 		if err != nil {
 			return nil, err
 		}
@@ -305,13 +309,11 @@ func goBodyIsTerminal(body CoreBody) bool {
 	return goStmtIsTerminal(block.Stmts[len(block.Stmts)-1])
 }
 
-func goCallee(callee string) string {
+func goCallee(names map[string]string, callee string) string {
 	if strings.HasPrefix(callee, "@") {
 		symbol := Symbol(callee)
-		for _, spec := range javaCoreFuncs {
-			if spec.Symbol == symbol {
-				return spec.Name
-			}
+		if name, ok := names[symbol]; ok {
+			return name
 		}
 		return "_" + symbol
 	}

@@ -6,376 +6,55 @@ import (
 	"strings"
 )
 
-type cppCoreFuncSpec struct {
-	Symbol string
-	Name   string
-}
-
-var cppCoreFuncs = []cppCoreFuncSpec{
-	{Symbol: "signature_parse_fields_impl", Name: "_signature_parse_fields_impl"},
-	{Symbol: "signature_validate_field_shape_impl", Name: "_signature_validate_field_shape_impl"},
-	{Symbol: "signature_parse_field_impl", Name: "_signature_parse_field_impl"},
-	{Symbol: "signature_parse_impl", Name: "_signature_parse_impl"},
-	{Symbol: "signature_validate_impl", Name: "_signature_validate_impl"},
-	{Symbol: "parse_signature", Name: "parse_signature"},
-	{Symbol: "validate_signature", Name: "validate_signature"},
-	{Symbol: "schema_required_impl", Name: "_schema_required_impl"},
-	{Symbol: "schema_flexible_json_as_string_impl", Name: "_schema_flexible_json_as_string_impl"},
-	{Symbol: "schema_json_type_impl", Name: "_schema_json_type_impl"},
-	{Symbol: "schema_enhance_description_impl", Name: "_schema_enhance_description_impl"},
-	{Symbol: "schema_apply_constraints_impl", Name: "_schema_apply_constraints_impl"},
-	{Symbol: "schema_nullable_optional_impl", Name: "_schema_nullable_optional_impl"},
-	{Symbol: "schema_object_from_fields_impl", Name: "_schema_object_from_fields_impl"},
-	{Symbol: "schema_field_schema_impl", Name: "_schema_field_schema_impl"},
-	{Symbol: "schema_to_json_schema_impl", Name: "_schema_to_json_schema_impl"},
-	{Symbol: "validate_string_constraints_impl", Name: "_validate_string_constraints_impl"},
-	{Symbol: "validate_number_constraints_impl", Name: "_validate_number_constraints_impl"},
-	{Symbol: "validate_fields_impl", Name: "_validate_fields_impl"},
-	{Symbol: "validate_output_impl", Name: "_validate_output_impl"},
-	{Symbol: "validate_value_impl", Name: "_validate_value_impl"},
-	{Symbol: "strip_internal_fields_impl", Name: "_strip_internal_fields_impl"},
-	{Symbol: "to_json_schema", Name: "to_json_schema"},
-	{Symbol: "validate_fields", Name: "validate_fields"},
-	{Symbol: "validate_output", Name: "validate_output"},
-	{Symbol: "validate_value", Name: "validate_value"},
-	{Symbol: "strip_internal_fields", Name: "strip_internal"},
-	{Symbol: "template_parse_impl", Name: "_template_parse_impl"},
-	{Symbol: "template_render_tree_impl", Name: "_template_render_tree_impl"},
-	{Symbol: "template_collect_vars_impl", Name: "_template_collect_vars_impl"},
-	{Symbol: "template_validate_impl", Name: "_template_validate_impl"},
-	{Symbol: "prompt_structured_impl", Name: "_prompt_structured_impl"},
-	{Symbol: "prompt_user_content_impl", Name: "_prompt_user_content_impl"},
-	{Symbol: "prompt_messages_impl", Name: "_prompt_messages_impl"},
-	{Symbol: "render_template_content", Name: "render_template_content"},
-	{Symbol: "collect_template_variable_names", Name: "collect_template_variable_names"},
-	{Symbol: "validate_prompt_template_syntax", Name: "validate_prompt_template_syntax"},
-	{Symbol: "render_prompt", Name: "render_prompt"},
-	{Symbol: "tool_spec_impl", Name: "_tool_spec_impl"},
-	{Symbol: "function_call_mode_impl", Name: "_function_call_mode_impl"},
-	{Symbol: "build_gen_chat_request", Name: "_build_gen_chat_request"},
-	{Symbol: "complete_with_retries_impl", Name: "_complete_with_retries_impl"},
-	{Symbol: "parse_output_impl", Name: "_parse_output_impl"},
-	{Symbol: "set_examples", Name: "_set_examples"},
-	{Symbol: "set_demos", Name: "_set_demos"},
-	{Symbol: "render_examples", Name: "_render_examples"},
-	{Symbol: "render_demos", Name: "_render_demos"},
-	{Symbol: "apply_field_processors", Name: "_apply_field_processors"},
-	{Symbol: "run_assertions", Name: "_run_assertions"},
-	{Symbol: "append_assertion_retry_messages", Name: "_append_assertion_retry_messages"},
-	{Symbol: "record_trace", Name: "_record_trace"},
-	{Symbol: "should_continue_steps", Name: "_should_continue_steps"},
-	{Symbol: "response_function_calls_impl", Name: "_response_function_calls_impl"},
-	{Symbol: "completion_call_to_chat_impl", Name: "_completion_call_to_chat_impl"},
-	{Symbol: "append_tool_call_messages_impl", Name: "_append_tool_call_messages_impl"},
-	{Symbol: "tool_result_message_impl", Name: "_tool_result_message_impl"},
-	{Symbol: "tool_error_message_impl", Name: "_tool_error_message_impl"},
-	{Symbol: "append_validation_retry_messages_impl", Name: "_append_validation_retry_messages_impl"},
-	{Symbol: "execute_tool_call", Name: "_execute_tool_call"},
-	{Symbol: "forward", Name: "_forward_impl"},
-	{Symbol: "stream_event_content_parts_impl", Name: "_stream_event_content_parts_impl"},
-	{Symbol: "fold_stream", Name: "fold_stream"},
-	{Symbol: "normalize_token_usage", Name: "normalize_token_usage"},
-	{Symbol: "ai_model_usage_impl", Name: "_ai_model_usage_impl"},
-	{Symbol: "merge_model_config", Name: "merge_model_config"},
-	{Symbol: "validate_chat_request", Name: "validate_chat_request"},
-	{Symbol: "chat_response_to_completion", Name: "chat_response_to_completion"},
-	{Symbol: "openai_finish_reason_impl", Name: "_openai_finish_reason_impl"},
-	{Symbol: "openai_tool_call_to_provider_impl", Name: "_openai_tool_call_to_provider_impl"},
-	{Symbol: "openai_content_part_impl", Name: "_openai_content_part_impl"},
-	{Symbol: "openai_message_impl", Name: "_openai_message_impl"},
-	{Symbol: "openai_tool_spec_impl", Name: "_openai_tool_spec_impl"},
-	{Symbol: "openai_copy_config_key_impl", Name: "_openai_copy_config_key_impl"},
-	{Symbol: "openai_apply_model_config_impl", Name: "_openai_apply_model_config_impl"},
-	{Symbol: "openai_normalize_tool_calls_impl", Name: "_openai_normalize_tool_calls_impl"},
-	{Symbol: "openai_normalize_choice_impl", Name: "_openai_normalize_choice_impl"},
-	{Symbol: "openai_stream_choice_impl", Name: "_openai_stream_choice_impl"},
-	{Symbol: "openai_build_chat_request", Name: "openai_build_chat_request"},
-	{Symbol: "openai_build_embed_request", Name: "openai_build_embed_request"},
-	{Symbol: "openai_normalize_chat_response", Name: "openai_normalize_chat_response"},
-	{Symbol: "openai_normalize_stream_delta", Name: "openai_normalize_stream_delta"},
-	{Symbol: "openai_normalize_embed_response", Name: "openai_normalize_embed_response"},
-	{Symbol: "openai_normalize_error", Name: "openai_normalize_error"},
-	{Symbol: "provider_normalize_profile", Name: "provider_normalize_profile"},
-	{Symbol: "provider_profile_registry", Name: "provider_profile_registry"},
-	{Symbol: "provider_resolve_profile", Name: "provider_resolve_profile"},
-	{Symbol: "provider_model_catalog_summary", Name: "provider_model_catalog_summary"},
-	{Symbol: "provider_model_catalog_registry", Name: "_provider_model_catalog_registry"},
-	{Symbol: "provider_model_catalog", Name: "provider_model_catalog"},
-	{Symbol: "provider_route_request_requirements", Name: "provider_route_request_requirements"},
-	{Symbol: "provider_features_support", Name: "_provider_features_support"},
-	{Symbol: "provider_route_score", Name: "_provider_route_score"},
-	{Symbol: "provider_route_recommendation", Name: "provider_route_recommendation"},
-	{Symbol: "provider_route_any_supports", Name: "_provider_route_any_supports"},
-	{Symbol: "provider_route_validation", Name: "provider_route_validation"},
-	{Symbol: "provider_balancer_retry_policy", Name: "provider_balancer_retry_policy"},
-	{Symbol: "provider_balancer_metric_score", Name: "provider_balancer_metric_score"},
-	{Symbol: "provider_balancer_candidate_allowed", Name: "provider_balancer_candidate_allowed"},
-	{Symbol: "provider_routing_stats", Name: "provider_routing_stats"},
-	{Symbol: "provider_descriptor", Name: "provider_descriptor"},
-	{Symbol: "provider_operation_descriptor", Name: "provider_operation_descriptor"},
-	{Symbol: "provider_build_chat_request", Name: "provider_build_chat_request"},
-	{Symbol: "provider_apply_openai_compatible_profile_quirks", Name: "_provider_apply_openai_compatible_profile_quirks"},
-	{Symbol: "provider_apply_deepseek_chat_quirks", Name: "_provider_apply_deepseek_chat_quirks"},
-	{Symbol: "provider_apply_mistral_chat_quirks", Name: "_provider_apply_mistral_chat_quirks"},
-	{Symbol: "provider_apply_grok_chat_quirks", Name: "_provider_apply_grok_chat_quirks"},
-	{Symbol: "provider_build_embed_request", Name: "provider_build_embed_request"},
-	{Symbol: "provider_normalize_chat_response", Name: "provider_normalize_chat_response"},
-	{Symbol: "provider_normalize_stream_delta", Name: "provider_normalize_stream_delta"},
-	{Symbol: "provider_normalize_embed_response", Name: "provider_normalize_embed_response"},
-	{Symbol: "provider_build_transcribe_request", Name: "provider_build_transcribe_request"},
-	{Symbol: "provider_build_speak_request", Name: "provider_build_speak_request"},
-	{Symbol: "provider_normalize_transcribe_response", Name: "provider_normalize_transcribe_response"},
-	{Symbol: "provider_normalize_speak_response", Name: "provider_normalize_speak_response"},
-	{Symbol: "provider_realtime_audio_descriptor", Name: "_provider_realtime_audio_descriptor"},
-	{Symbol: "provider_build_realtime_audio_setup", Name: "provider_build_realtime_audio_setup"},
-	{Symbol: "provider_build_realtime_audio_input", Name: "provider_build_realtime_audio_input"},
-	{Symbol: "openai_realtime_compatible_build_setup", Name: "_openai_realtime_compatible_build_setup"},
-	{Symbol: "openai_realtime_compatible_build_input", Name: "_openai_realtime_compatible_build_input"},
-	{Symbol: "gemini_live_bidi_build_setup", Name: "_gemini_live_bidi_build_setup"},
-	{Symbol: "gemini_live_bidi_build_input", Name: "_gemini_live_bidi_build_input"},
-	{Symbol: "realtime_request_system_instruction_impl", Name: "_realtime_request_system_instruction_impl"},
-	{Symbol: "realtime_request_user_messages_impl", Name: "_realtime_request_user_messages_impl"},
-	{Symbol: "openai_realtime_content_parts_impl", Name: "_openai_realtime_content_parts_impl"},
-	{Symbol: "provider_normalize_realtime_event", Name: "provider_normalize_realtime_event"},
-	{Symbol: "openai_responses_build_chat_request", Name: "openai_responses_build_chat_request"},
-	{Symbol: "openai_responses_apply_model_config_impl", Name: "_openai_responses_apply_model_config_impl"},
-	{Symbol: "openai_responses_tool_spec_impl", Name: "_openai_responses_tool_spec_impl"},
-	{Symbol: "openai_responses_input_item_impl", Name: "_openai_responses_input_item_impl"},
-	{Symbol: "openai_responses_content_parts_impl", Name: "_openai_responses_content_parts_impl"},
-	{Symbol: "openai_responses_content_part_impl", Name: "_openai_responses_content_part_impl"},
-	{Symbol: "openai_responses_normalize_chat_response", Name: "openai_responses_normalize_chat_response"},
-	{Symbol: "openai_responses_merge_output_item_impl", Name: "_openai_responses_merge_output_item_impl"},
-	{Symbol: "openai_responses_content_to_text_impl", Name: "_openai_responses_content_to_text_impl"},
-	{Symbol: "openai_responses_extract_citations_impl", Name: "_openai_responses_extract_citations_impl"},
-	{Symbol: "openai_responses_function_call_impl", Name: "_openai_responses_function_call_impl"},
-	{Symbol: "openai_responses_normalize_stream_delta", Name: "openai_responses_normalize_stream_delta"},
-	{Symbol: "openai_responses_build_transcribe_request", Name: "openai_responses_build_transcribe_request"},
-	{Symbol: "openai_responses_build_speak_request", Name: "openai_responses_build_speak_request"},
-	{Symbol: "openai_responses_normalize_realtime_event", Name: "openai_responses_normalize_realtime_event"},
-	{Symbol: "gemini_live_bidi_normalize_realtime_event", Name: "_gemini_live_bidi_normalize_realtime_event"},
-	{Symbol: "gemini_build_chat_request", Name: "gemini_build_chat_request"},
-	{Symbol: "gemini_apply_model_config_impl", Name: "_gemini_apply_model_config_impl"},
-	{Symbol: "gemini_message_impl", Name: "_gemini_message_impl"},
-	{Symbol: "gemini_content_parts_impl", Name: "_gemini_content_parts_impl"},
-	{Symbol: "gemini_content_part_impl", Name: "_gemini_content_part_impl"},
-	{Symbol: "gemini_function_declaration_impl", Name: "_gemini_function_declaration_impl"},
-	{Symbol: "gemini_tool_config_impl", Name: "_gemini_tool_config_impl"},
-	{Symbol: "gemini_build_embed_request", Name: "gemini_build_embed_request"},
-	{Symbol: "gemini_normalize_chat_response", Name: "gemini_normalize_chat_response"},
-	{Symbol: "gemini_merge_response_part_impl", Name: "_gemini_merge_response_part_impl"},
-	{Symbol: "gemini_extract_citations_impl", Name: "_gemini_extract_citations_impl"},
-	{Symbol: "gemini_usage_impl", Name: "_gemini_usage_impl"},
-	{Symbol: "gemini_normalize_embed_response", Name: "gemini_normalize_embed_response"},
-	{Symbol: "grok_build_transcribe_request", Name: "_grok_build_transcribe_request"},
-	{Symbol: "grok_build_speak_request", Name: "_grok_build_speak_request"},
-	{Symbol: "gemini_build_transcribe_request", Name: "_gemini_build_transcribe_request"},
-	{Symbol: "gemini_build_speak_request", Name: "_gemini_build_speak_request"},
-	{Symbol: "gemini_normalize_transcribe_response", Name: "_gemini_normalize_transcribe_response"},
-	{Symbol: "gemini_normalize_speak_response", Name: "_gemini_normalize_speak_response"},
-	{Symbol: "anthropic_build_chat_request", Name: "anthropic_build_chat_request"},
-	{Symbol: "anthropic_apply_model_config_impl", Name: "_anthropic_apply_model_config_impl"},
-	{Symbol: "anthropic_thinking_config_impl", Name: "_anthropic_thinking_config_impl"},
-	{Symbol: "anthropic_message_impl", Name: "_anthropic_message_impl"},
-	{Symbol: "anthropic_content_parts_impl", Name: "_anthropic_content_parts_impl"},
-	{Symbol: "anthropic_content_part_impl", Name: "_anthropic_content_part_impl"},
-	{Symbol: "anthropic_tool_spec_impl", Name: "_anthropic_tool_spec_impl"},
-	{Symbol: "anthropic_tool_choice_impl", Name: "_anthropic_tool_choice_impl"},
-	{Symbol: "anthropic_normalize_chat_response", Name: "anthropic_normalize_chat_response"},
-	{Symbol: "anthropic_merge_response_block_impl", Name: "_anthropic_merge_response_block_impl"},
-	{Symbol: "anthropic_append_citations_impl", Name: "_anthropic_append_citations_impl"},
-	{Symbol: "anthropic_finish_reason_impl", Name: "_anthropic_finish_reason_impl"},
-	{Symbol: "anthropic_usage_impl", Name: "_anthropic_usage_impl"},
-	{Symbol: "anthropic_normalize_stream_delta", Name: "anthropic_normalize_stream_delta"},
-	{Symbol: "build_chat_request", Name: "build_chat_request"},
-	{Symbol: "normalize_chat_response", Name: "normalize_chat_response"},
-	{Symbol: "normalize_stream_delta", Name: "normalize_stream_delta"},
-	{Symbol: "build_embed_request", Name: "build_embed_request"},
-	{Symbol: "normalize_embed_response", Name: "normalize_embed_response"},
-	{Symbol: "agent_reserved_runtime_names", Name: "_agent_reserved_runtime_names"},
-	{Symbol: "agent_runtime_language_tokens", Name: "_agent_runtime_language_tokens"},
-	{Symbol: "agent_runtime_language_alias_key", Name: "_agent_runtime_language_alias_key"},
-	{Symbol: "agent_runtime_is_javascript_alias", Name: "_agent_runtime_is_javascript_alias"},
-	{Symbol: "agent_runtime_code_field_name", Name: "_agent_runtime_code_field_name"},
-	{Symbol: "agent_runtime_code_fence_language", Name: "_agent_runtime_code_fence_language"},
-	{Symbol: "normalize_agent_runtime", Name: "_normalize_agent_runtime"},
-	{Symbol: "normalize_agent_policy", Name: "_normalize_agent_policy"},
-	{Symbol: "agent_policy_flags", Name: "_agent_policy_flags"},
-	{Symbol: "agent_policy_action", Name: "_agent_policy_action"},
-	{Symbol: "agent_policy_vocabulary_registry", Name: "_agent_policy_vocabulary_registry"},
-	{Symbol: "agent_context_policy_registry", Name: "_agent_context_policy_registry"},
-	{Symbol: "agent_context_policy_migration_error", Name: "_agent_context_policy_migration_error"},
-	{Symbol: "agent_context_budget_profile", Name: "_agent_context_budget_profile"},
-	{Symbol: "agent_context_preset_profile", Name: "_agent_context_preset_profile"},
-	{Symbol: "agent_context_event_name", Name: "_agent_context_event_name"},
-	{Symbol: "agent_context_event_reason", Name: "_agent_context_event_reason"},
-	{Symbol: "agent_policy_registry", Name: "_agent_policy_registry"},
-	{Symbol: "policy_flag_enabled", Name: "_policy_flag_enabled"},
-	{Symbol: "select_actor_primitives", Name: "_select_actor_primitives"},
-	{Symbol: "select_protocol_actions", Name: "_select_protocol_actions"},
-	{Symbol: "select_runtime_globals", Name: "_select_runtime_globals"},
-	{Symbol: "validate_policy_reserved_names", Name: "_validate_policy_reserved_names"},
-	{Symbol: "render_actor_primitive_guidance", Name: "_render_actor_primitive_guidance"},
-	{Symbol: "record_policy_event", Name: "_record_policy_event"},
-	{Symbol: "normalize_policy_action_result", Name: "_normalize_policy_action_result"},
-	{Symbol: "build_agent_actor_prompt_policy", Name: "_build_agent_actor_prompt_policy"},
-	{Symbol: "resolve_agent_context_policy", Name: "_resolve_agent_context_policy"},
-	{Symbol: "resolve_agent_executor_model_policy", Name: "_resolve_agent_executor_model_policy"},
-	{Symbol: "select_agent_executor_model", Name: "_select_agent_executor_model"},
-	{Symbol: "agent_compute_effective_chat_budget", Name: "_agent_compute_effective_chat_budget"},
-	{Symbol: "agent_action_log_char_count", Name: "_agent_action_log_char_count"},
-	{Symbol: "agent_compute_dynamic_runtime_chars", Name: "_agent_compute_dynamic_runtime_chars"},
-	{Symbol: "agent_context_pressure", Name: "_agent_context_pressure"},
-	{Symbol: "agent_render_context_pressure", Name: "_agent_render_context_pressure"},
-	{Symbol: "agent_smart_stringify", Name: "_agent_smart_stringify"},
-	{Symbol: "agent_record_context_event", Name: "_agent_record_context_event"},
-	{Symbol: "agent_entry_turn", Name: "_agent_entry_turn"},
-	{Symbol: "agent_entry_is_error", Name: "_agent_entry_is_error"},
-	{Symbol: "agent_entry_summary", Name: "_agent_entry_summary"},
-	{Symbol: "agent_entry_callables_text", Name: "_agent_entry_callables_text"},
-	{Symbol: "agent_distill_structured_action_output", Name: "_agent_distill_structured_action_output"},
-	{Symbol: "agent_render_full_action_entry", Name: "_agent_render_full_action_entry"},
-	{Symbol: "agent_render_compact_action_entry", Name: "_agent_render_compact_action_entry"},
-	{Symbol: "agent_fallback_checkpoint_summary", Name: "_agent_fallback_checkpoint_summary"},
-	{Symbol: "agent_build_deterministic_tombstone", Name: "_agent_build_deterministic_tombstone"},
-	{Symbol: "agent_apply_context_management", Name: "_agent_apply_context_management"},
-	{Symbol: "agent_working_code_state", Name: "_agent_working_code_state"},
-	{Symbol: "agent_refresh_checkpoint_state", Name: "_agent_refresh_checkpoint_state"},
-	{Symbol: "agent_build_action_log_parts", Name: "_agent_build_action_log_parts"},
-	{Symbol: "agent_render_runtime_state_summary", Name: "_agent_render_runtime_state_summary"},
-	{Symbol: "agent_prepare_actor_context", Name: "_agent_prepare_actor_context"},
-	{Symbol: "agent_build_action_evidence_summary", Name: "_agent_build_action_evidence_summary"},
-	{Symbol: "agent_sanitize_action_log_entries", Name: "_agent_sanitize_action_log_entries"},
-	{Symbol: "agent_context_fixture_result", Name: "_agent_context_fixture_result"},
-	{Symbol: "normalize_agent_callable", Name: "_normalize_agent_callable"},
-	{Symbol: "normalize_agent_group", Name: "_normalize_agent_group"},
-	{Symbol: "normalize_agent_callable_inventory", Name: "_normalize_agent_callable_inventory"},
-	{Symbol: "split_agent_callable_inventory", Name: "_split_agent_callable_inventory"},
-	{Symbol: "render_agent_discovery_catalog", Name: "_render_agent_discovery_catalog"},
-	{Symbol: "normalize_agent_string_list", Name: "_normalize_agent_string_list"},
-	{Symbol: "normalize_agent_discover_request", Name: "_normalize_agent_discover_request"},
-	{Symbol: "agent_append_unique_by_field", Name: "_agent_append_unique_by_field"},
-	{Symbol: "agent_render_discovered_tool_docs", Name: "_agent_render_discovered_tool_docs"},
-	{Symbol: "agent_render_loaded_skills", Name: "_agent_render_loaded_skills"},
-	{Symbol: "agent_discover", Name: "_agent_discover"},
-	{Symbol: "normalize_agent_recall_request", Name: "_normalize_agent_recall_request"},
-	{Symbol: "agent_merge_memory_results", Name: "_agent_merge_memory_results"},
-	{Symbol: "agent_recall", Name: "_agent_recall"},
-	{Symbol: "normalize_agent_used_request", Name: "_normalize_agent_used_request"},
-	{Symbol: "agent_used", Name: "_agent_used"},
-	{Symbol: "normalize_agent_guidance_payload", Name: "_normalize_agent_guidance_payload"},
-	{Symbol: "agent_append_guidance", Name: "_agent_append_guidance"},
-	{Symbol: "agent_execute_callable", Name: "_agent_execute_callable"},
-	{Symbol: "normalize_agent_final_payload", Name: "_normalize_agent_final_payload"},
-	{Symbol: "normalize_agent_clarification_payload", Name: "_normalize_agent_clarification_payload"},
-	{Symbol: "agent_optimizer_metadata", Name: "_agent_optimizer_metadata"},
-	{Symbol: "agent_begin_trace", Name: "_agent_begin_trace"},
-	{Symbol: "agent_record_trace_event", Name: "_agent_record_trace_event"},
-	{Symbol: "agent_normalize_host_boundary_event", Name: "_agent_normalize_host_boundary_event"},
-	{Symbol: "agent_finalize_trace", Name: "_agent_finalize_trace"},
-	{Symbol: "agent_export_trace", Name: "_agent_export_trace"},
-	{Symbol: "agent_replay_trace", Name: "_agent_replay_trace"},
-	{Symbol: "agent_export_runtime_state", Name: "_agent_export_runtime_state"},
-	{Symbol: "agent_restore_runtime_state", Name: "_agent_restore_runtime_state"},
-	{Symbol: "agent_runtime_build_globals", Name: "_agent_runtime_build_globals"},
-	{Symbol: "agent_runtime_sanitize_bindings", Name: "_agent_runtime_sanitize_bindings"},
-	{Symbol: "normalize_agent_runtime_snapshot", Name: "_normalize_agent_runtime_snapshot"},
-	{Symbol: "agent_runtime_append_action_log", Name: "_agent_runtime_append_action_log"},
-	{Symbol: "normalize_agent_runtime_step_result", Name: "_normalize_agent_runtime_step_result"},
-	{Symbol: "agent_runtime_execution_options", Name: "_agent_runtime_execution_options"},
-	{Symbol: "agent_runtime_lifecycle_event", Name: "_agent_runtime_lifecycle_event"},
-	{Symbol: "agent_runtime_create_session", Name: "_agent_runtime_create_session"},
-	{Symbol: "agent_runtime_execute_step", Name: "_agent_runtime_execute_step"},
-	{Symbol: "agent_runtime_inspect_state", Name: "_agent_runtime_inspect_state"},
-	{Symbol: "agent_runtime_export_session_state", Name: "_agent_runtime_export_session_state"},
-	{Symbol: "agent_runtime_restore_session_state", Name: "_agent_runtime_restore_session_state"},
-	{Symbol: "agent_runtime_close_session", Name: "_agent_runtime_close_session"},
-	{Symbol: "agent_runtime_test", Name: "_agent_runtime_test"},
-	{Symbol: "agent_factory", Name: "_agent_factory"},
-	{Symbol: "split_context_values", Name: "_split_context_values"},
-	{Symbol: "build_distiller_inputs", Name: "_build_distiller_inputs"},
-	{Symbol: "build_executor_inputs", Name: "_build_executor_inputs"},
-	{Symbol: "build_responder_inputs", Name: "_build_responder_inputs"},
-	{Symbol: "normalize_agent_completion_payload", Name: "_normalize_agent_completion_payload"},
-	{Symbol: "throw_agent_clarification", Name: "_throw_agent_clarification"},
-	{Symbol: "merge_agent_chat_log", Name: "_merge_agent_chat_log"},
-	{Symbol: "merge_agent_usage", Name: "_merge_agent_usage"},
-	{Symbol: "agent_get_state", Name: "_agent_get_state"},
-	{Symbol: "agent_set_state", Name: "_agent_set_state"},
-	{Symbol: "agent_stage_options", Name: "_agent_stage_options"},
-	{Symbol: "extract_agent_runtime_code", Name: "_extract_agent_runtime_code"},
-	{Symbol: "agent_forward", Name: "_agent_forward"},
-	{Symbol: "optimization_component", Name: "_optimization_component"},
-	{Symbol: "optimized_artifact", Name: "_optimized_artifact"},
-	{Symbol: "validate_optimization_component_value", Name: "_validate_optimization_component_value"},
-	{Symbol: "validate_optimization_component_map", Name: "_validate_optimization_component_map"},
-	{Symbol: "validate_optimized_artifact_provenance", Name: "_validate_optimized_artifact_provenance"},
-	{Symbol: "validate_optimized_artifact", Name: "_validate_optimized_artifact"},
-	{Symbol: "serialize_optimized_artifact", Name: "_serialize_optimized_artifact"},
-	{Symbol: "deserialize_optimized_artifact", Name: "_deserialize_optimized_artifact"},
-	{Symbol: "optimization_changed_components", Name: "_optimization_changed_components"},
-	{Symbol: "optimization_component_current_map", Name: "_optimization_component_current_map"},
-	{Symbol: "normalize_optimization_dataset", Name: "_normalize_optimization_dataset"},
-	{Symbol: "normalize_optimization_metric_scores", Name: "_normalize_optimization_metric_scores"},
-	{Symbol: "scalarize_optimization_scores", Name: "_scalarize_optimization_scores"},
-	{Symbol: "optimization_action_name_matches", Name: "_optimization_action_name_matches"},
-	{Symbol: "adjust_optimization_score_for_actions", Name: "_adjust_optimization_score_for_actions"},
-	{Symbol: "map_optimization_judge_quality_to_score", Name: "_map_optimization_judge_quality_to_score"},
-	{Symbol: "build_optimization_judge_payload", Name: "_build_optimization_judge_payload"},
-	{Symbol: "build_optimization_eval_row", Name: "_build_optimization_eval_row"},
-	{Symbol: "build_optimization_eval_result", Name: "_build_optimization_eval_result"},
-	{Symbol: "filter_optimization_components", Name: "_filter_optimization_components"},
-	{Symbol: "build_optimizer_request", Name: "_build_optimizer_request"},
-	{Symbol: "prepare_optimizer_run", Name: "_prepare_optimizer_run"},
-	{Symbol: "normalize_optimizer_engine_response", Name: "_normalize_optimizer_engine_response"},
-	{Symbol: "build_optimizer_evidence_batch", Name: "_build_optimizer_evidence_batch"},
-	{Symbol: "build_agent_eval_prediction", Name: "_build_agent_eval_prediction"},
-	{Symbol: "program_descriptor", Name: "_program_descriptor"},
-	{Symbol: "program_trace_event", Name: "_program_trace_event"},
-	{Symbol: "program_child_component_prefix", Name: "_program_child_component_prefix"},
-	{Symbol: "program_prefix_component", Name: "_program_prefix_component"},
-	{Symbol: "program_slice_component_map", Name: "_program_slice_component_map"},
-	{Symbol: "flow_factory", Name: "_flow_factory"},
-	{Symbol: "flow_step", Name: "_flow_step"},
-	{Symbol: "flow_add_step", Name: "_flow_add_step"},
-	{Symbol: "flow_set_returns", Name: "_flow_set_returns"},
-	{Symbol: "flow_plan_entry", Name: "_flow_plan_entry"},
-	{Symbol: "flow_plan_can_share_group", Name: "_flow_plan_can_share_group"},
-	{Symbol: "flow_plan", Name: "_flow_plan"},
-	{Symbol: "flow_cache_key", Name: "_flow_cache_key"},
-	{Symbol: "flow_get_optimizable_components", Name: "_flow_get_optimizable_components"},
-	{Symbol: "flow_apply_optimized_components", Name: "_flow_apply_optimized_components"},
-	{Symbol: "flow_snapshot_components", Name: "_flow_snapshot_components"},
-	{Symbol: "flow_restore_components", Name: "_flow_restore_components"},
-	{Symbol: "flow_evaluate_optimization", Name: "_flow_evaluate_optimization"},
-	{Symbol: "flow_optimize_with", Name: "_flow_optimize_with"},
-	{Symbol: "flow_cache_read_write", Name: "_flow_cache_read_write"},
-	{Symbol: "flow_check_abort", Name: "_flow_check_abort"},
-	{Symbol: "flow_project_returns", Name: "_flow_project_returns"},
-	{Symbol: "flow_get_path", Name: "_flow_get_path"},
-	{Symbol: "flow_record_child_chat_log", Name: "_flow_record_child_chat_log"},
-	{Symbol: "flow_record_child_usage", Name: "_flow_record_child_usage"},
-	{Symbol: "flow_record_child_traces", Name: "_flow_record_child_traces"},
-	{Symbol: "flow_execute_program_node", Name: "_flow_execute_program_node"},
-	{Symbol: "flow_execute_step", Name: "_flow_execute_step"},
-	{Symbol: "flow_merge_parallel_results", Name: "_flow_merge_parallel_results"},
-	{Symbol: "flow_execute_nested_steps", Name: "_flow_execute_nested_steps"},
-	{Symbol: "flow_execute_steps", Name: "_flow_execute_steps"},
-	{Symbol: "flow_forward", Name: "_flow_forward"},
-}
-
-var cppCoreFuncNames = func() map[string]string {
-	out := map[string]string{}
-	for _, spec := range cppCoreFuncs {
-		out[spec.Symbol] = spec.Name
-	}
-	return out
-}()
-
 func BuildCppCore(model AxRuntimeModel) (string, error) {
-	return emitCppCoreFunctions(model, cppCoreFuncs)
+	specs, err := BuildCoreFuncRegistry(model)
+	if err != nil {
+		return "", err
+	}
+	core, err := emitCppCoreFunctions(model, specs, CoreFuncNames(specs))
+	if err != nil {
+		return "", err
+	}
+	return strings.Replace(cppRuntime, "// AXIR_CORE_CPP_FUNCTIONS\n", core, 1), nil
 }
 
-func emitCppCoreFunctions(model AxRuntimeModel, specs []cppCoreFuncSpec) (string, error) {
+// BuildCppHeader injects the emitted Core function declarations into the
+// public header so the hand-maintained declaration list cannot drift from
+// the registry.
+func BuildCppHeader(model AxRuntimeModel) (string, error) {
+	specs, err := BuildCoreFuncRegistry(model)
+	if err != nil {
+		return "", err
+	}
+	decls, err := emitCppCoreDeclarations(model, specs)
+	if err != nil {
+		return "", err
+	}
+	return strings.Replace(cppHeader, "  // AXIR_CORE_CPP_DECLARATIONS\n", decls, 1), nil
+}
+
+func emitCppCoreDeclarations(model AxRuntimeModel, specs []CoreFuncSpec) (string, error) {
+	var b strings.Builder
+	b.WriteString("  // BEGIN AXIR CORE EMITTED DECLARATIONS\n")
+	for _, spec := range specs {
+		body, err := BuildCoreBody(model.Symbols[spec.Symbol])
+		if err != nil {
+			return "", fmt.Errorf("@%s: %w", spec.Symbol, err)
+		}
+		if len(body.Blocks) == 0 {
+			return "", fmt.Errorf("@%s has no Core body blocks", spec.Symbol)
+		}
+		var args []string
+		for _, arg := range body.Blocks[0].Args {
+			args = append(args, "Value "+cppName("%"+arg.Name))
+		}
+		fmt.Fprintf(&b, "  static Value %s(%s);\n", spec.Name, strings.Join(args, ", "))
+	}
+	b.WriteString("  // END AXIR CORE EMITTED DECLARATIONS\n")
+	return b.String(), nil
+}
+
+func emitCppCoreFunctions(model AxRuntimeModel, specs []CoreFuncSpec, names map[string]string) (string, error) {
 	var b strings.Builder
 	b.WriteString("// BEGIN AXIR CORE EMITTED FUNCTIONS\n")
 	for _, spec := range specs {
@@ -386,7 +65,7 @@ func emitCppCoreFunctions(model AxRuntimeModel, specs []cppCoreFuncSpec) (string
 		if model.BodySources[spec.Symbol] != "core" {
 			return "", fmt.Errorf("Core function @%s is missing body_source=core", spec.Symbol)
 		}
-		text, err := emitCppCoreFunction(op, spec.Name)
+		text, err := emitCppCoreFunction(names, op, spec.Name)
 		if err != nil {
 			return "", err
 		}
@@ -397,7 +76,7 @@ func emitCppCoreFunctions(model AxRuntimeModel, specs []cppCoreFuncSpec) (string
 	return b.String(), nil
 }
 
-func emitCppCoreFunction(op Operation, name string) (string, error) {
+func emitCppCoreFunction(names map[string]string, op Operation, name string) (string, error) {
 	body, err := BuildCoreBody(op)
 	if err != nil {
 		return "", fmt.Errorf("@%s: %w", op.Symbol, err)
@@ -416,7 +95,7 @@ func emitCppCoreFunction(op Operation, name string) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Value Core::%s(%s) {\n", name, strings.Join(args, ", "))
 	for _, stmt := range block.Stmts {
-		lines, err := emitCppCoreStmt(stmt, declared)
+		lines, err := emitCppCoreStmt(names, stmt, declared)
 		if err != nil {
 			return "", fmt.Errorf("@%s: %w", op.Symbol, err)
 		}
@@ -428,14 +107,14 @@ func emitCppCoreFunction(op Operation, name string) (string, error) {
 	return b.String(), nil
 }
 
-func emitCppCoreStmt(stmt CoreStmt, declared map[string]bool) ([]string, error) {
+func emitCppCoreStmt(names map[string]string, stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	switch stmt.Kind {
 	case "break":
 		return []string{"break;"}, nil
 	case "continue":
 		return []string{"continue;"}, nil
 	case "call":
-		callee := cppCallee(stmt.Callee)
+		callee := cppCallee(names, stmt.Callee)
 		args := make([]string, 0, len(stmt.Args))
 		for _, arg := range stmt.Args {
 			args = append(args, cppLiteral(arg))
@@ -476,13 +155,13 @@ func emitCppCoreStmt(stmt CoreStmt, declared map[string]bool) ([]string, error) 
 	case "set":
 		return []string{fmt.Sprintf("Core::set(%s, %s, %s);", cppLiteral(stmt.Target), cppLiteral(stmt.Key), cppLiteral(stmt.Value))}, nil
 	case "for":
-		return emitCppFor(stmt, declared)
+		return emitCppFor(names, stmt, declared)
 	case "if":
-		return emitCppIf(stmt, declared)
+		return emitCppIf(names, stmt, declared)
 	case "loop":
-		return emitCppLoop(stmt, declared)
+		return emitCppLoop(names, stmt, declared)
 	case "try":
-		return emitCppTry(stmt, declared)
+		return emitCppTry(names, stmt, declared)
 	case "return":
 		if _, ok := Attr(stmt.Op, "value"); !ok {
 			return []string{"return Value();"}, nil
@@ -498,7 +177,7 @@ func emitCppCoreStmt(stmt CoreStmt, declared map[string]bool) ([]string, error) 
 	}
 }
 
-func emitCppFor(stmt CoreStmt, declared map[string]bool) ([]string, error) {
+func emitCppFor(names map[string]string, stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	if stmt.Item == "" || stmt.Iter == "" {
 		return nil, fmt.Errorf("core.for missing item or in")
 	}
@@ -507,7 +186,7 @@ func emitCppFor(stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	childDeclared := copyCppScope(declared)
 	childDeclared[item] = true
 	body := firstBodyBlock(stmt)
-	childLines, err := emitCppRegionBlock(body, childDeclared)
+	childLines, err := emitCppRegionBlock(names, body, childDeclared)
 	if err != nil {
 		return nil, err
 	}
@@ -516,13 +195,13 @@ func emitCppFor(stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	return lines, nil
 }
 
-func emitCppIf(stmt CoreStmt, declared map[string]bool) ([]string, error) {
+func emitCppIf(names map[string]string, stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	if stmt.Cond == "" {
 		return nil, fmt.Errorf("core.if missing condition")
 	}
 	cond := cppLiteral(stmt.Cond)
 	lines := []string{fmt.Sprintf("if (Core::truthy(%s)) {", cond)}
-	thenLines, err := emitCppRegionBlock(firstBodyBlock(stmt), copyCppScope(declared))
+	thenLines, err := emitCppRegionBlock(names, firstBodyBlock(stmt), copyCppScope(declared))
 	if err != nil {
 		return nil, err
 	}
@@ -534,7 +213,7 @@ func emitCppIf(stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	}
 	if len(elseBlock.Stmts) > 0 {
 		lines = append(lines, fmt.Sprintf("if (!Core::truthy(%s)) {", cond))
-		elseLines, err := emitCppRegionBlock(elseBlock, copyCppScope(declared))
+		elseLines, err := emitCppRegionBlock(names, elseBlock, copyCppScope(declared))
 		if err != nil {
 			return nil, err
 		}
@@ -544,10 +223,10 @@ func emitCppIf(stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	return lines, nil
 }
 
-func emitCppLoop(stmt CoreStmt, declared map[string]bool) ([]string, error) {
+func emitCppLoop(names map[string]string, stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	body := firstBodyBlock(stmt)
 	lines := []string{"while (true) {"}
-	bodyLines, err := emitCppRegionBlock(body, copyCppScope(declared))
+	bodyLines, err := emitCppRegionBlock(names, body, copyCppScope(declared))
 	if err != nil {
 		return nil, err
 	}
@@ -556,7 +235,7 @@ func emitCppLoop(stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	return lines, nil
 }
 
-func emitCppTry(stmt CoreStmt, declared map[string]bool) ([]string, error) {
+func emitCppTry(names map[string]string, stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	if len(stmt.Regions) != 2 {
 		return nil, fmt.Errorf("core.try must contain exactly try and catch regions")
 	}
@@ -573,7 +252,7 @@ func emitCppTry(stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	if len(stmt.Regions[0].Blocks) > 0 {
 		tryBlock = stmt.Regions[0].Blocks[0]
 	}
-	tryLines, err := emitCppRegionBlock(tryBlock, copyCppScope(declared))
+	tryLines, err := emitCppRegionBlock(names, tryBlock, copyCppScope(declared))
 	if err != nil {
 		return nil, err
 	}
@@ -586,7 +265,7 @@ func emitCppTry(stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	if len(stmt.Regions[1].Blocks) > 0 {
 		catchBlock = stmt.Regions[1].Blocks[0]
 	}
-	catchLines, err := emitCppRegionBlock(catchBlock, catchDeclared)
+	catchLines, err := emitCppRegionBlock(names, catchBlock, catchDeclared)
 	if err != nil {
 		return nil, err
 	}
@@ -595,11 +274,11 @@ func emitCppTry(stmt CoreStmt, declared map[string]bool) ([]string, error) {
 	return lines, nil
 }
 
-func emitCppRegionBlock(block CoreBlock, declared map[string]bool) ([]string, error) {
+func emitCppRegionBlock(names map[string]string, block CoreBlock, declared map[string]bool) ([]string, error) {
 	if len(block.Stmts) == 0 {
 		return []string{"  // empty"}, nil
 	}
-	lines, err := emitCppCoreBlock(block, declared)
+	lines, err := emitCppCoreBlock(names, block, declared)
 	if err != nil {
 		return nil, err
 	}
@@ -609,10 +288,10 @@ func emitCppRegionBlock(block CoreBlock, declared map[string]bool) ([]string, er
 	return lines, nil
 }
 
-func emitCppCoreBlock(block CoreBlock, declared map[string]bool) ([]string, error) {
+func emitCppCoreBlock(names map[string]string, block CoreBlock, declared map[string]bool) ([]string, error) {
 	var lines []string
 	for _, child := range block.Stmts {
-		childLines, err := emitCppCoreStmt(child, declared)
+		childLines, err := emitCppCoreStmt(names, child, declared)
 		if err != nil {
 			return nil, err
 		}
@@ -637,18 +316,15 @@ func copyCppScope(in map[string]bool) map[string]bool {
 	return out
 }
 
-func cppCallee(callee string) string {
+func cppCallee(names map[string]string, callee string) string {
 	if strings.HasPrefix(callee, "@") {
-		if name, ok := cppCoreFuncNames[Symbol(callee)]; ok {
+		if name, ok := names[Symbol(callee)]; ok {
 			return "Core::" + name
 		}
 		return "Core::_" + Symbol(callee)
 	}
 	if target, ok := coreIntrinsicCpp[CoreIntrinsic(callee)]; ok {
 		return target
-	}
-	if name, ok := cppCoreFuncNames[callee]; ok {
-		return "Core::" + name
 	}
 	return "Core::" + callee
 }

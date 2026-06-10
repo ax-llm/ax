@@ -2884,7 +2884,7 @@ func TestPythonPromptConformanceFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("python3", "-m", "axllm.conformance", promptConformancePath())
-	cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
+	cmd.Env = fixtureEnv(dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("python prompt conformance fixtures failed: %v\n%s", err, out)
@@ -2907,7 +2907,7 @@ func TestPythonAxGenConformanceFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("python3", "-m", "axllm.conformance", axgenConformancePath())
-	cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
+	cmd.Env = fixtureEnv(dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("python conformance fixtures failed: %v\n%s", err, out)
@@ -2930,7 +2930,7 @@ func TestPythonAxAIConformanceFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("python3", "-m", "axllm.conformance", axaiConformancePath())
-	cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
+	cmd.Env = fixtureEnv(dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("python AxAI conformance fixtures failed: %v\n%s", err, out)
@@ -2953,7 +2953,7 @@ func TestPythonAxAgentConformanceFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("python3", "-m", "axllm.conformance", axagentConformancePath())
-	cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
+	cmd.Env = fixtureEnv(dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("python AxAgent conformance fixtures failed: %v\n%s", err, out)
@@ -2976,7 +2976,7 @@ func TestPythonAxOptimizeConformanceFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("python3", "-m", "axllm.conformance", axoptimizeConformancePath())
-	cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
+	cmd.Env = fixtureEnv(dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("python AxOptimize conformance fixtures failed: %v\n%s", err, out)
@@ -3008,7 +3008,7 @@ func TestPythonSignatureSchemaValidationConformanceFixtures(t *testing.T) {
 		{name: "validation", path: validationConformancePath(), want: "ok output-valid-nested"},
 	} {
 		cmd := exec.Command("python3", "-m", "axllm.conformance", tc.path)
-		cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
+		cmd.Env = fixtureEnv(dir)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("python %s conformance fixtures failed: %v\n%s", tc.name, err, out)
@@ -3332,6 +3332,105 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 	}
 }
 
+// fixtureEnv returns the process environment with provider endpoint and
+// credential overrides removed, so scripted conformance fixtures cannot be
+// skewed by a developer's local ANTHROPIC_BASE_URL/OPENAI_API_KEY etc.
+func fixtureEnv(pythonPath string) []string {
+	var env []string
+	if pythonPath != "" {
+		env = append(env, "PYTHONPATH="+pythonPath)
+	}
+	for _, kv := range os.Environ() {
+		name, _, ok := strings.Cut(kv, "=")
+		if !ok || name == "PYTHONPATH" {
+			continue
+		}
+		if strings.HasSuffix(name, "_BASE_URL") || strings.HasSuffix(name, "_API_KEY") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
+}
+
+func TestPythonModulesSelfContained(t *testing.T) {
+	bundle, err := LoadBundle(rootPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := Compile(bundle, "python", dir); err != nil {
+		t.Fatal(err)
+	}
+	moduleDir := filepath.Join(dir, "axllm")
+	entries, err := os.ReadDir(moduleDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Python is the only target without compile-time reference checking, so
+	// every underscore helper a module calls must be defined in that module,
+	// bound at module scope, or imported from a sibling. Guards against
+	// emit-list drift (missing gemini/grok audio functions) and callee naming
+	// mismatches (pythonCallee underscore-prefixing public core functions).
+	defRe := regexp.MustCompile(`(?m)^\s*def (_[a-z0-9_]+)\(`)
+	bindRe := regexp.MustCompile(`(?m)^\s*(_[a-z0-9_]+) = `)
+	callRe := regexp.MustCompile(`[^.\w](_[a-z0-9_]+)\(`)
+	multiImportRe := regexp.MustCompile(`(?s)from \.[a-z_]+ import \(([^)]*)\)`)
+	singleImportRe := regexp.MustCompile(`(?m)^from \.[a-z_]+ import ([^(\n]+)$`)
+	nameRe := regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
+	totalCalls := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".py") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(moduleDir, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(raw)
+		allowed := map[string]bool{}
+		for _, match := range defRe.FindAllStringSubmatch(text, -1) {
+			allowed[match[1]] = true
+		}
+		for _, match := range bindRe.FindAllStringSubmatch(text, -1) {
+			allowed[match[1]] = true
+		}
+		for _, re := range []*regexp.Regexp{multiImportRe, singleImportRe} {
+			for _, match := range re.FindAllStringSubmatch(text, -1) {
+				for _, name := range nameRe.FindAllString(match[1], -1) {
+					allowed[name] = true
+				}
+			}
+		}
+		for _, match := range callRe.FindAllStringSubmatch(text, -1) {
+			totalCalls++
+			if !allowed[match[1]] {
+				t.Errorf("%s calls %s but never defines or imports it", entry.Name(), match[1])
+			}
+		}
+	}
+	if totalCalls == 0 {
+		t.Fatal("no underscore helper references found in generated Python; audit regexes are stale")
+	}
+	aiFile, err := os.ReadFile(filepath.Join(moduleDir, "ai.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(aiFile)
+	for _, want := range []string{
+		"def _grok_build_transcribe_request(",
+		"def _grok_build_speak_request(",
+		"def _gemini_build_transcribe_request(",
+		"def _gemini_build_speak_request(",
+		"def _gemini_normalize_transcribe_response(",
+		"def _gemini_normalize_speak_response(",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated Python ai.py missing audio core function %q", want)
+		}
+	}
+}
+
 func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	bundle, err := LoadBundle(rootPath())
 	if err != nil {
@@ -3612,6 +3711,7 @@ public class Smoke {
 		t.Fatalf("javac failed: %v\n%s", err, out)
 	}
 	java := exec.Command(javaPath, "-cp", dir, "Smoke")
+	java.Env = fixtureEnv("")
 	out, err = java.CombinedOutput()
 	if err != nil {
 		if strings.Contains(string(out), "Unable to locate a Java Runtime") {
@@ -3623,6 +3723,7 @@ public class Smoke {
 		t.Fatalf("unexpected java output: %s", out)
 	}
 	java = exec.Command(javaPath, "-cp", dir, "dev.axllm.ax.Conformance", signatureConformancePath(), schemaConformancePath(), validationConformancePath(), promptConformancePath(), axgenConformancePath(), axaiConformancePath(), axagentConformancePath(), axoptimizeConformancePath())
+	java.Env = fixtureEnv("")
 	out, err = java.CombinedOutput()
 	if err != nil {
 		if strings.Contains(string(out), "Unable to locate a Java Runtime") {
@@ -3720,12 +3821,12 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"Value Core::openai_normalize_stream_delta(",
 		"Value Core::openai_build_embed_request(",
 		"Value Core::openai_normalize_error(",
-		"Value Core::gemini_build_chat_request(",
-		"Value Core::gemini_normalize_chat_response(",
-		"Value Core::gemini_normalize_embed_response(",
-		"Value Core::anthropic_build_chat_request(",
-		"Value Core::anthropic_normalize_chat_response(",
-		"Value Core::anthropic_normalize_stream_delta(",
+		"Value Core::_gemini_build_chat_request(",
+		"Value Core::_gemini_normalize_chat_response(",
+		"Value Core::_gemini_normalize_embed_response(",
+		"Value Core::_anthropic_build_chat_request(",
+		"Value Core::_anthropic_normalize_chat_response(",
+		"Value Core::_anthropic_normalize_stream_delta(",
 		"Value Core::_normalize_agent_runtime(",
 		"Value Core::_normalize_agent_policy(",
 		"Value Core::_normalize_agent_callable_inventory(",
@@ -3852,7 +3953,9 @@ int main() {
 	if err != nil {
 		t.Fatalf("C++ smoke compile failed: %v\n%s", err, out)
 	}
-	out, err = exec.Command(smokeBin).CombinedOutput()
+	smokeCmd := exec.Command(smokeBin)
+	smokeCmd.Env = fixtureEnv("")
+	out, err = smokeCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("C++ smoke failed: %v\n%s", err, out)
 	}
@@ -3866,7 +3969,7 @@ int main() {
 	if err != nil {
 		t.Fatalf("C++ conformance compile failed: %v\n%s", err, out)
 	}
-	out, err = exec.Command(
+	conformanceCmd := exec.Command(
 		conformanceBin,
 		signatureConformancePath(),
 		schemaConformancePath(),
@@ -3876,7 +3979,9 @@ int main() {
 		axaiConformancePath(),
 		axagentConformancePath(),
 		axoptimizeConformancePath(),
-	).CombinedOutput()
+	)
+	conformanceCmd.Env = fixtureEnv("")
+	out, err = conformanceCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("C++ conformance failed: %v\n%s", err, out)
 	}

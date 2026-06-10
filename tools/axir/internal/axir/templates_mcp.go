@@ -16,6 +16,24 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .tool import Tool
+# AXIR_CORE_IMPORTS
+
+
+def _core_get(target, key, default=None):
+    if target is None:
+        return default
+    if isinstance(target, dict):
+        return target.get(key, default)
+    if isinstance(target, (list, tuple)) and isinstance(key, int):
+        return target[key] if 0 <= key < len(target) else default
+    return getattr(target, key, default)
+
+
+def _core_is_none(value):
+    return value is None
+
+
+# AXIR_CORE_MCP_FUNCTIONS
 
 
 AX_MCP_PROTOCOL_VERSION = "2025-11-25"

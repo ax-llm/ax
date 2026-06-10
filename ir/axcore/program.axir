@@ -11,6 +11,7 @@ module @ax.program version "0.1" {
   op ax.program.semantic @program_descriptor {
     attr core_kind = "func"
     attr emit_module = "program"
+    attr private = true
     type signature = "(kind:string, id:string, metadata:json) -> json"
     body @entry(%kind: string, %id: string, %metadata: json) {
       %empty_map = core.map
@@ -31,6 +32,7 @@ module @ax.program version "0.1" {
   op ax.program.semantic @program_trace_event {
     attr core_kind = "func"
     attr emit_module = "program"
+    attr private = true
     type signature = "(program_id:string, kind:string, payload:json) -> json"
     body @entry(%program_id: string, %kind: string, %payload: json) {
       %empty_map = core.map
@@ -51,6 +53,7 @@ module @ax.program version "0.1" {
   op ax.program.semantic @program_child_component_prefix {
     attr core_kind = "func"
     attr emit_module = "program"
+    attr private = true
     type signature = "(owner:string, node:string) -> string"
     body @entry(%owner: string, %node: string) {
       %path = core.call intrinsic.string.format("{}.{}::", %owner, %node)
@@ -61,6 +64,7 @@ module @ax.program version "0.1" {
   op ax.program.semantic @program_prefix_component {
     attr core_kind = "func"
     attr emit_module = "program"
+    attr private = true
     type signature = "(component:json, owner:string, node:string) -> json"
     body @entry(%component: json, %owner: string, %node: string) {
       %empty_map = core.map
@@ -77,6 +81,7 @@ module @ax.program version "0.1" {
   op ax.program.semantic @program_slice_component_map {
     attr core_kind = "func"
     attr emit_module = "program"
+    attr private = true
     type signature = "(component_map:json, prefix:string) -> json"
     body @entry(%component_map: json, %prefix: string) {
       %out = core.map

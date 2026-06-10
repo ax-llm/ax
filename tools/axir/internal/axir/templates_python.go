@@ -116,6 +116,7 @@ from dataclasses import dataclass, field as dataclass_field
 import copy
 import re
 from typing import Any
+# AXIR_CORE_IMPORTS
 
 
 class AxSignatureError(ValueError):
@@ -623,6 +624,7 @@ const pySchema = `from __future__ import annotations
 import copy
 import re
 from typing import Any
+# AXIR_CORE_IMPORTS
 
 
 class AxValidationError(ValueError):
@@ -939,6 +941,7 @@ const pyPrompt = `from __future__ import annotations
 import json
 import re
 from typing import Any
+# AXIR_CORE_IMPORTS
 
 
 PROMPT_FEATURES = {
@@ -1521,6 +1524,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable
+# AXIR_CORE_IMPORTS
 
 
 class AxAIServiceError(Exception):
@@ -2720,6 +2724,7 @@ def _core_add(left, right): return left + right
 def _core_mul(left, right): return left * right
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
+def _core_lt(left, right): return left < right
 def _core_gt(left, right): return left > right
 def _core_gte(left, right): return left >= right
 def _core_contains(container, item): return False if container is None else item in container
@@ -2729,6 +2734,7 @@ def _core_is_none(value): return value is None
 def _core_is_not_none(value): return value is not None
 def _core_none(): return None
 def _core_coalesce(value, fallback): return fallback if value is None else value
+def _core_runtime_error(message): return RuntimeError(str(message))
 
 
 def _core_get(target, key, default=None):
@@ -2955,6 +2961,7 @@ from .ai import AIClient, chat_response_to_completion
 from .prompt import AxPromptTemplate
 from .schema import strip_internal, validate_fields, validate_output
 from .signature import AxSignature
+# AXIR_CORE_IMPORTS
 
 
 def _call_optimizer_engine(engine, request: dict[str, Any], evaluator):
@@ -3471,6 +3478,10 @@ def _core_exception_message(error):
     return str(error)
 
 
+def _core_regex_match(pattern, value):
+    return isinstance(value, str) and re.search(pattern, value) is not None
+
+
 def _core_runtime_error(message):
     return RuntimeError(str(message))
 
@@ -3810,32 +3821,33 @@ from .gen import (
     _core_string_format,
     _core_truthy,
     _filter_optimization_components,
+    _adjust_optimization_score_for_actions,
+    _build_optimization_eval_result,
+    _build_optimization_eval_row,
+    _build_optimizer_request,
+    _deserialize_optimized_artifact,
+    _normalize_optimization_dataset,
+    _normalize_optimization_metric_scores,
+    _normalize_optimizer_engine_response,
+    _optimization_changed_components,
+    _optimization_component_current_map,
+    _prepare_optimizer_run,
+    _scalarize_optimization_scores,
+    _validate_optimization_component_map,
+    _validate_optimized_artifact,
 )
 from .agent import (
     OptimizerEngine,
     OptimizerEvaluator,
-    _adjust_optimization_score_for_actions,
-    _build_optimization_eval_result,
-    _build_optimization_eval_row,
     _build_agent_eval_prediction,
-    _build_optimizer_request,
     _call_optimizer_engine,
     _core_agent_stage_chat_log,
     _core_agent_stage_forward,
     _core_agent_stage_traces,
     _core_agent_stage_usage,
-    _normalize_optimization_dataset,
-    _normalize_optimization_metric_scores,
     _optimization_component,
-    _optimization_changed_components,
-    _optimization_component_current_map,
-    _normalize_optimizer_engine_response,
-    _prepare_optimizer_run,
-    _scalarize_optimization_scores,
-    _deserialize_optimized_artifact,
-    _validate_optimized_artifact,
-    _validate_optimization_component_map,
 )
+# AXIR_CORE_IMPORTS
 
 
 class _FlowCallable:
@@ -4211,8 +4223,23 @@ import math
 import re
 from typing import Any
 
-from .gen import AxGen
-from .signature import AxSignature
+from .gen import (
+    AxGen,
+    _adjust_optimization_score_for_actions,
+    _build_optimization_eval_result,
+    _build_optimization_eval_row,
+    _deserialize_optimized_artifact,
+    _normalize_optimization_dataset,
+    _normalize_optimization_metric_scores,
+    _normalize_optimizer_engine_response,
+    _optimization_component_current_map,
+    _prepare_optimizer_run,
+    _scalarize_optimization_scores,
+    _validate_optimization_component_map,
+    _validate_optimized_artifact,
+)
+from .signature import AxSignature, parse_signature
+# AXIR_CORE_IMPORTS
 
 
 class AxAgentClarificationError(RuntimeError):
@@ -5243,6 +5270,10 @@ def _core_runtime_error(message):
     return RuntimeError(str(message))
 
 
+def _core_json_pretty(value):
+    return json.dumps(value, indent=2)
+
+
 def _core_agent_stage_forward(stage, client, values, options):
     return stage.forward(client, values or {}, options or {})
 
@@ -5407,7 +5438,22 @@ from pathlib import Path
 from typing import Any
 
 from .ai import AnthropicClient, AzureOpenAIClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, RekaClient, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry
-from .gen import ax, fold_stream
+from .gen import (
+    ax,
+    fold_stream,
+    _adjust_optimization_score_for_actions,
+    _build_optimization_eval_result,
+    _build_optimization_eval_row,
+    _build_optimizer_evidence_batch,
+    _deserialize_optimized_artifact,
+    _filter_optimization_components,
+    _normalize_optimization_dataset,
+    _normalize_optimization_metric_scores,
+    _optimization_changed_components,
+    _scalarize_optimization_scores,
+    _serialize_optimized_artifact,
+    _validate_optimized_artifact,
+)
 from .flow import (
     _FlowCallable,
     _flow_add_step,
@@ -5426,23 +5472,11 @@ from .agent import (
     AxGEPA,
     OptimizerEngine,
     OptimizerEvaluator,
-    _adjust_optimization_score_for_actions,
     _agent_context_fixture_result,
     _build_agent_eval_prediction,
-    _build_optimizer_evidence_batch,
-    _build_optimization_eval_row,
-    _build_optimization_eval_result,
     _build_optimization_judge_payload,
-    _deserialize_optimized_artifact,
-    _filter_optimization_components,
     _map_optimization_judge_quality_to_score,
-    _normalize_optimization_dataset,
-    _normalize_optimization_metric_scores,
-    _optimization_changed_components,
     _optimized_artifact,
-    _scalarize_optimization_scores,
-    _serialize_optimized_artifact,
-    _validate_optimized_artifact,
     _normalize_agent_clarification_payload,
     _normalize_agent_final_payload,
     _normalize_agent_runtime_step_result,

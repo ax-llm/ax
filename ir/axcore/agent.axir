@@ -4,6 +4,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_factory {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     ref parse = @parse_signature
     type signature = "(string|AxSignature, options?:json) -> json throws"
     body @entry(%signature: json, %options: json) {
@@ -133,6 +134,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_reserved_runtime_names {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "() -> list<string>"
     body @entry {
       %registry = core.call @agent_policy_vocabulary_registry()
@@ -236,6 +238,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @normalize_agent_runtime {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%options: json) {
       %empty_map = core.map
@@ -305,6 +308,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @normalize_agent_policy {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%options: json) {
       %empty_map = core.map
@@ -329,6 +333,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @agent_policy_flags {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%options: json) {
       %function_discovery_camel = core.get %options["functionDiscovery"] default false
@@ -387,6 +392,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @agent_policy_vocabulary_registry {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "() -> json"
     body @entry {
       %registry = core.map
@@ -736,6 +742,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @agent_policy_registry {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%policy: json, %flags: json) {
       %vocabulary = core.call @agent_policy_vocabulary_registry()
@@ -862,6 +869,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @select_actor_primitives {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string) -> json"
     body @entry(%registry: json, %stage: string) {
       %empty_list = core.list
@@ -886,6 +894,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @select_protocol_actions {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%registry: json) {
       %empty_list = core.list
@@ -897,6 +906,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @select_runtime_globals {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%registry: json) {
       %empty_list = core.list
@@ -908,6 +918,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @validate_policy_reserved_names {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string) -> void throws"
     body @entry(%registry: json, %name: string) {
       %reserved = core.call @agent_reserved_runtime_names()
@@ -926,6 +937,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @render_actor_primitive_guidance {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string) -> string"
     body @entry(%registry: json, %stage: string) {
       %primitives = core.call @select_actor_primitives(%registry, %stage)
@@ -944,6 +956,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @record_policy_event {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string, json) -> void"
     body @entry(%state: json, %action: string, %payload: json) {
       %empty_list = core.list
@@ -962,6 +975,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @normalize_policy_action_result {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(string, json) -> json"
     body @entry(%action: string, %payload: json) {
       %out = core.map
@@ -986,6 +1000,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @build_agent_actor_prompt_policy {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%state: json) {
       %runtime_contract = core.get %state["runtime_contract"]
@@ -1021,6 +1036,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @resolve_agent_context_policy {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json throws"
     body @entry(%options: json) {
       %empty_map = core.map
@@ -1140,6 +1156,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @resolve_agent_executor_model_policy {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json throws"
     body @entry(%options: json) {
       %empty_list = core.list
@@ -1267,6 +1284,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @select_agent_executor_model {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%policy: json, %actor_model_state: json) {
       %none = core.call intrinsic.none()
@@ -1320,6 +1338,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_compute_effective_chat_budget {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(number, number) -> number"
     body @entry(%base_budget: json, %fixed_overhead_chars: json) {
       %context_registry = core.call @agent_context_policy_registry()
@@ -1368,6 +1387,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_compute_dynamic_runtime_chars {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(list<json>, number, number) -> number"
     body @entry(%entries: json, %target_prompt_chars: json, %max_runtime_chars: json) {
       %context_registry = core.call @agent_context_policy_registry()
@@ -1413,6 +1433,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_context_pressure {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(number, number, bool) -> string"
     body @entry(%mutable_prompt_chars: json, %effective_budget_chars: json, %checkpoint_active: json) {
       %context_registry = core.call @agent_context_policy_registry()
@@ -1453,6 +1474,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_render_context_pressure {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(string) -> string"
     body @entry(%pressure: string) {
       %context_registry = core.call @agent_context_policy_registry()
@@ -1473,6 +1495,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_smart_stringify {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, number) -> string"
     body @entry(%value: json, %max_chars: json) {
       %context_registry = core.call @agent_context_policy_registry()
@@ -1522,6 +1545,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_record_context_event {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%state: json, %event: json) {
       %empty_list = core.list
@@ -1755,6 +1779,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_fallback_checkpoint_summary {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(list<json>, list<number>) -> string"
     body @entry(%entries: json, %turns: json) {
       %empty_list = core.list
@@ -1851,6 +1876,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_apply_context_management {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%state: json) {
       %empty_list = core.list
@@ -2017,6 +2043,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_refresh_checkpoint_state {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%state: json) {
       %empty_list = core.list
@@ -2122,6 +2149,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_build_action_log_parts {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string) -> json"
     body @entry(%state: json, %hygiene_mode: string) {
       %empty_list = core.list
@@ -2319,6 +2347,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_render_runtime_state_summary {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> string"
     body @entry(%state: json, %policy: json) {
       %empty_map = core.map
@@ -2455,6 +2484,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_prepare_actor_context {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%state: json) {
       %empty_list = core.list
@@ -2581,6 +2611,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_build_action_evidence_summary {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> string"
     body @entry(%state: json) {
       %empty_list = core.list
@@ -2810,6 +2841,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_context_fixture_result {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json throws"
     body @entry(%state: json, %fixture: json) {
       %empty_list = core.list
@@ -2928,6 +2960,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @normalize_agent_callable {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string) -> json throws"
     body @entry(%raw: json, %namespace: string) {
       %name = core.get %raw["name"] default ""
@@ -2958,6 +2991,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @normalize_agent_group {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json throws"
     body @entry(%raw: json) {
       %empty_list = core.list
@@ -2997,6 +3031,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @normalize_agent_callable_inventory {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json throws"
     body @entry(%options: json) {
       %empty_list = core.list
@@ -3048,6 +3083,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @split_agent_callable_inventory {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%inventory: json) {
       %inline = core.list
@@ -3070,6 +3106,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @render_agent_discovery_catalog {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%split: json) {
       %empty_list = core.list
@@ -3170,6 +3207,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @normalize_agent_discover_request {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json throws"
     body @entry(%state: json, %request: json) {
       %empty_list = core.list
@@ -3264,6 +3302,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @agent_render_discovered_tool_docs {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> string"
     body @entry(%docs: json) {
       %lines = core.list
@@ -3288,6 +3327,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @agent_render_loaded_skills {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> string"
     body @entry(%skills: json) {
       %lines = core.list
@@ -3312,6 +3352,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @agent_discover {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> void"
     body @entry(%state: json, %request: json) {
       %empty_list = core.list
@@ -3414,6 +3455,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @normalize_agent_recall_request {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json throws"
     body @entry(%state: json, %request: json) {
       %flags = core.get %state["policy_flags"]
@@ -3434,6 +3476,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @agent_merge_memory_results {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%existing: json, %incoming: json) {
       %out = core.let %existing
@@ -3455,6 +3498,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @agent_recall {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> void"
     body @entry(%state: json, %request: json) {
       %empty_list = core.list
@@ -3487,6 +3531,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @normalize_agent_used_request {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string) -> json throws"
     body @entry(%request: json, %default_stage: string) {
       %is_map = core.type_is %request type "object"
@@ -3519,6 +3564,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @agent_used {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json, string) -> void"
     body @entry(%state: json, %request: json, %stage: string) {
       %empty_list = core.list
@@ -3593,6 +3639,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @normalize_agent_guidance_payload {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string) -> json throws"
     body @entry(%value: json, %triggered_by: string) {
       %is_map = core.type_is %value type "object"
@@ -3626,6 +3673,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @agent_append_guidance {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%state: json, %payload: json) {
       %empty_list = core.list
@@ -3659,6 +3707,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @agent_execute_callable {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json, json) -> json"
     body @entry(%state: json, %request: json, %options: json) {
       %empty_list = core.list
@@ -3700,6 +3749,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @normalize_agent_final_payload {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%value: json) {
       %is_map = core.type_is %value type "object"
@@ -3724,6 +3774,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @normalize_agent_clarification_payload {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json throws"
     body @entry(%value: json) {
       %is_map = core.type_is %value type "object"
@@ -3761,6 +3812,7 @@ module @ax.agent version "0.1" {
   op ax.agent.policy @agent_optimizer_metadata {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%state: json) {
       %policy = core.get %state["policy"] default null
@@ -3797,6 +3849,7 @@ module @ax.agent version "0.1" {
   op ax.agent.trace @agent_begin_trace {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%state: json, %input: json) {
       %events = core.list
@@ -3817,6 +3870,7 @@ module @ax.agent version "0.1" {
   op ax.agent.trace @agent_record_trace_event {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string, json) -> json"
     body @entry(%state: json, %kind: string, %payload: json) {
       %empty_map = core.map
@@ -3854,6 +3908,7 @@ module @ax.agent version "0.1" {
   op ax.agent.trace @agent_normalize_host_boundary_event {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(string, json, json, string) -> json"
     body @entry(%boundary: string, %request: json, %result: json, %status: string) {
       %out = core.map
@@ -3868,6 +3923,7 @@ module @ax.agent version "0.1" {
   op ax.agent.trace @agent_finalize_trace {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string, json) -> json"
     body @entry(%state: json, %status: string, %output: json) {
       %empty_map = core.map
@@ -3907,6 +3963,7 @@ module @ax.agent version "0.1" {
   op ax.agent.trace @agent_export_trace {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%state: json) {
       %empty_map = core.map
@@ -3940,6 +3997,7 @@ module @ax.agent version "0.1" {
   op ax.agent.trace @agent_replay_trace {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json throws"
     body @entry(%trace: json, %fixtures: json) {
       %empty_list = core.list
@@ -4001,6 +4059,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_export_runtime_state {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%state: json) {
       %empty_map = core.map
@@ -4062,6 +4121,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_restore_runtime_state {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%state: json, %snapshot: json) {
       %empty_map = core.map
@@ -4125,6 +4185,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_runtime_build_globals {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json throws"
     body @entry(%state: json, %values: json) {
       %empty_list = core.list
@@ -4241,6 +4302,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_runtime_append_action_log {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%state: json, %entry: json) {
       %empty_list = core.list
@@ -4276,6 +4338,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @normalize_agent_runtime_step_result {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string) -> json throws"
     body @entry(%raw: json, %code: string) {
       %empty_map = core.map
@@ -4388,6 +4451,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_runtime_execution_options {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%state: json, %options: json) {
       %empty_map = core.map
@@ -4431,6 +4495,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_runtime_lifecycle_event {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string, json) -> json"
     body @entry(%state: json, %action: string, %details: json) {
       %empty_map = core.map
@@ -4446,6 +4511,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_runtime_create_session {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json, json, json) -> json"
     body @entry(%state: json, %runtime: json, %globals: json, %options: json) {
       %runtime_options = core.call @agent_runtime_execution_options(%state, %options)
@@ -4463,6 +4529,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_runtime_execute_step {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json, json, string, json) -> json"
     body @entry(%state: json, %runtime: json, %session: json, %code: string, %options: json) {
       %runtime_options = core.call @agent_runtime_execution_options(%state, %options)
@@ -4558,6 +4625,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_runtime_inspect_state {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json, json) -> json"
     body @entry(%state: json, %session: json, %options: json) {
       %inspection = core.call intrinsic.agent.runtime.inspect(%session, %options)
@@ -4574,6 +4642,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_runtime_export_session_state {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json, json) -> json"
     body @entry(%state: json, %session: json, %options: json) {
       %raw_snapshot = core.call intrinsic.agent.runtime.export_state(%session, %options)
@@ -4594,6 +4663,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_runtime_restore_session_state {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json, json, json) -> json"
     body @entry(%state: json, %session: json, %snapshot: json, %options: json) {
       %normalized_snapshot = core.call @normalize_agent_runtime_snapshot(%snapshot)
@@ -4615,6 +4685,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_runtime_close_session {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%state: json, %session: json) {
       %closed = core.call intrinsic.agent.runtime.close(%session)
@@ -4629,6 +4700,7 @@ module @ax.agent version "0.1" {
   op ax.agent.runtime @agent_runtime_test {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json, string, json, json) -> json throws"
     body @entry(%state: json, %runtime: json, %code: string, %values: json, %options: json) {
       %globals = core.call @agent_runtime_build_globals(%state, %values)
@@ -4651,6 +4723,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @split_context_values {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%state: json, %values: json) {
       %empty_list = core.list
@@ -4676,6 +4749,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @build_distiller_inputs {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%state: json, %values: json) {
       %empty_map = core.map
@@ -4691,6 +4765,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @build_executor_inputs {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json, json) -> json"
     body @entry(%state: json, %values: json, %distiller_payload: json) {
       %empty_list = core.list
@@ -4737,6 +4812,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @build_responder_inputs {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json, json) -> json"
     body @entry(%state: json, %values: json, %executor_payload: json) {
       %empty_list = core.list
@@ -4763,6 +4839,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @normalize_agent_completion_payload {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json throws"
     body @entry(%output: json) {
       %completion = core.get %output["completion"] default %output
@@ -4785,6 +4862,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @throw_agent_clarification {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> void throws"
     body @entry(%payload: json, %state: json) {
       %type = core.get %payload["type"]
@@ -4802,6 +4880,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @merge_agent_chat_log {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json, json, json) -> list<json>"
     body @entry(%state: json, %distiller: json, %executor: json, %responder: json) {
       %logs = core.list
@@ -4831,6 +4910,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @merge_agent_usage {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%state: json) {
       %empty_list = core.list
@@ -4846,6 +4926,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_get_state {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json) -> json"
     body @entry(%state: json) {
       %empty_map = core.map
@@ -4857,6 +4938,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_set_state {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> json"
     body @entry(%state: json, %runtime_state: json) {
       core.set %state["runtime_state"] = %runtime_state
@@ -4867,6 +4949,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_stage_options {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, string, json) -> json"
     body @entry(%state: json, %stage: string, %forward_options: json) {
       %empty_map = core.map
@@ -4921,6 +5004,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @extract_agent_runtime_code {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json) -> string throws"
     body @entry(%state: json, %executor_output: json) {
       %runtime_contract = core.get %state["runtime_contract"]
@@ -4943,6 +5027,7 @@ module @ax.agent version "0.1" {
   op ax.agent.semantic @agent_forward {
     attr core_kind = "func"
     attr emit_module = "agent"
+    attr private = true
     type signature = "(json, json, json, json, json, json, json) -> json throws"
     body @entry(%state: json, %distiller: json, %executor: json, %responder: json, %client: json, %values: json, %options: json) {
       core.call @agent_begin_trace(%state, %values)

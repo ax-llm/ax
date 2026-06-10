@@ -1,7 +1,6 @@
 package axir
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -16,14 +15,8 @@ func BuildRustCore(model AxRuntimeModel) (string, error) {
 }
 
 func validateRustCoreSymbols(model AxRuntimeModel) error {
-	for _, spec := range javaCoreFuncs {
-		op, ok := model.Symbols[spec.Symbol]
-		if !ok {
-			return fmt.Errorf("missing Core function @%s", spec.Symbol)
-		}
-		if AttrString(op, "body_source") != "core" {
-			return fmt.Errorf("Core function @%s is missing body_source=core", spec.Symbol)
-		}
-	}
-	return nil
+	// Rust does not emit Core bodies yet; building the registry still
+	// enforces routing, naming, and module-rank invariants for the target.
+	_, err := BuildCoreFuncRegistry(model)
+	return err
 }
