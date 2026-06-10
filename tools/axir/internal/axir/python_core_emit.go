@@ -61,8 +61,11 @@ func buildPythonCoreModule(model AxRuntimeModel, module, template, marker string
 	if err != nil {
 		return "", err
 	}
-	out := strings.Replace(template, marker, body, 1)
-	return strings.Replace(out, "# AXIR_CORE_IMPORTS\n", renderPythonCoreImports(st.imports, template), 1), nil
+	out, err := mustInject(template, marker, body, "python "+module)
+	if err != nil {
+		return "", err
+	}
+	return mustInject(out, "# AXIR_CORE_IMPORTS\n", renderPythonCoreImports(st.imports, template), "python "+module)
 }
 
 // renderPythonCoreImports renders the generated cross-module imports,

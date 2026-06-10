@@ -113,6 +113,22 @@ type verifyTargetResult struct {
 	err     error
 }
 
+// scrubbedEnviron returns the process environment without provider endpoint
+// or credential overrides (*_BASE_URL, *_API_KEY), so scripted verification
+// steps (conformance fixtures, no-key examples, package smokes) cannot be
+// skewed by the developer's shell.
+func scrubbedEnviron() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		name, _, ok := strings.Cut(kv, "=")
+		if ok && (strings.HasSuffix(name, "_BASE_URL") || strings.HasSuffix(name, "_API_KEY")) {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
+}
+
 func verifyOneTarget(index int, target string, bundle Bundle, workDir string, conformanceRoot string, runtimeProfiles []string, mode string, progress *verifyProgress) verifyTargetResult {
 	targetReport := VerifyTargetReport{
 		Target:   target,
@@ -135,6 +151,27 @@ func verifyOneTarget(index int, target string, bundle Bundle, workDir string, co
 		return verifyTargetResult{index: index, report: targetReport, failure: fmt.Sprintf("%s manifest: %v", target, err)}
 	}
 	targetReport.finishStep("manifest", "ok", "axir-capabilities.json", start)
+	start = targetReport.startStep("provenance")
+	verifyModel, err := BuildRuntimeModel(LowerToCore(bundle))
+	if err != nil {
+		targetReport.finishStep("provenance", "fail", err.Error(), start)
+		return verifyTargetResult{index: index, report: targetReport, failure: fmt.Sprintf("%s provenance: %v", target, err)}
+	}
+	provenance, err := AuditProvenanceDir(verifyModel, target, targetReport.OutDir)
+	if err != nil {
+		targetReport.finishStep("provenance", "fail", err.Error(), start)
+		return verifyTargetResult{index: index, report: targetReport, failure: fmt.Sprintf("%s provenance: %v", target, err)}
+	}
+	switch {
+	case provenance.Enforced && len(provenance.Violations) > 0:
+		message := strings.Join(provenance.Violations, "; ")
+		targetReport.finishStep("provenance", "fail", message, start)
+		return verifyTargetResult{index: index, report: targetReport, failure: fmt.Sprintf("%s provenance: %s", target, message)}
+	case provenance.Enforced:
+		targetReport.finishStep("provenance", "ok", fmt.Sprintf("%d core functions emitted from IR", provenance.EmittedFunctions), start)
+	default:
+		targetReport.finishStep("provenance", "skip", "report-only until this target emits Core bodies", start)
+	}
 	var targetErr error
 	switch target {
 	case "python":
@@ -363,7 +400,7 @@ func verifyGoGojaProfile(report VerifyTargetReport) (VerifyTargetReport, error) 
 		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-goja", Status: "skip", Message: "go not found"})
 		return report, nil
 	}
-	if err := runVerifyCommand(&report, "runtime profile javascript-goja", report.OutDir, os.Environ(), goTool, "run", "./examples/runtime_profiles/javascript_goja"); err != nil {
+	if err := runVerifyCommand(&report, "runtime profile javascript-goja", report.OutDir, scrubbedEnviron(), goTool, "run", "./examples/runtime_profiles/javascript_goja"); err != nil {
 		return report, err
 	}
 	return report, nil
@@ -375,7 +412,7 @@ func verifyRustQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, er
 		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs cargo", Status: "skip", Message: "cargo not found"})
 		return report, nil
 	}
-	if err := runCargoVerifyCommand(&report, "runtime profile javascript-quickjs", report.OutDir, os.Environ(), cargo, "run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--features", "runtime-quickjs", "--example", "javascript_quickjs"); err != nil {
+	if err := runCargoVerifyCommand(&report, "runtime profile javascript-quickjs", report.OutDir, scrubbedEnviron(), cargo, "run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--features", "runtime-quickjs", "--example", "javascript_quickjs"); err != nil {
 		return report, err
 	}
 	return report, nil
@@ -404,7 +441,7 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 		report.Steps = append(report.Steps, VerifyStep{Name: "go", Status: "skip", Message: "go not found"})
 		return report, nil
 	}
-	env := runtimeProtocolEnv(conformanceRoot, os.Environ())
+	env := runtimeProtocolEnv(conformanceRoot, scrubbedEnviron())
 	if err := runVerifyCommand(&report, "go test", report.OutDir, env, goTool, "test", "./..."); err != nil {
 		return report, err
 	}
@@ -477,7 +514,7 @@ func main() {
 `), 0o644); err != nil {
 		return err
 	}
-	return runVerifyCommand(report, "package go consumer", consumerDir, os.Environ(), goTool, "run", ".")
+	return runVerifyCommand(report, "package go consumer", consumerDir, scrubbedEnviron(), goTool, "run", ".")
 }
 
 func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
@@ -486,7 +523,7 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		report.Steps = append(report.Steps, VerifyStep{Name: "cargo", Status: "skip", Message: "cargo not found"})
 		return report, nil
 	}
-	env := runtimeProtocolEnv(conformanceRoot, os.Environ())
+	env := runtimeProtocolEnv(conformanceRoot, scrubbedEnviron())
 	if err := runVerifyCommand(&report, "cargo fmt", report.OutDir, env, cargo, "fmt", "--check", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml")); err != nil {
 		return report, err
 	}
@@ -556,7 +593,7 @@ fn main() -> AxResult<()> {
 	if err := os.WriteFile(filepath.Join(consumerDir, "src", "main.rs"), []byte(mainRs), 0o644); err != nil {
 		return err
 	}
-	return runCargoVerifyCommand(report, "package rust consumer", consumerDir, os.Environ(), cargo, "run", "--quiet", "--manifest-path", filepath.Join(consumerDir, "Cargo.toml"))
+	return runCargoVerifyCommand(report, "package rust consumer", consumerDir, scrubbedEnviron(), cargo, "run", "--quiet", "--manifest-path", filepath.Join(consumerDir, "Cargo.toml"))
 }
 
 func conformanceRootFor(rootFile string) string {
@@ -625,7 +662,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		report.Steps = append(report.Steps, VerifyStep{Name: "python3", Status: "skip", Message: "python3 not found"})
 		return report, nil
 	}
-	env := runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "PYTHONPATH="+report.OutDir))
+	env := runtimeProtocolEnv(conformanceRoot, append(scrubbedEnviron(), "PYTHONPATH="+report.OutDir))
 	if err := runVerifyCommand(&report, "compileall", "", env, python, "-m", "compileall", "-q", filepath.Join(report.OutDir, "axllm")); err != nil {
 		return report, err
 	}
@@ -669,7 +706,7 @@ func verifyPythonPackageSmoke(report *VerifyTargetReport, conformanceRoot string
 	}
 	if err := exec.Command(python, "-c", "import setuptools.build_meta").Run(); err != nil {
 		report.Steps = append(report.Steps, VerifyStep{Name: "package python install", Status: "skip", Message: "setuptools.build_meta not available"})
-		env := runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "PYTHONPATH="+report.OutDir))
+		env := runtimeProtocolEnv(conformanceRoot, append(scrubbedEnviron(), "PYTHONPATH="+report.OutDir))
 		return runVerifyCommand(report, "package python source import", "", env, python, "-c", "import axllm; print('python-package-source-ok', axllm.s('question:string -> answer:string').to_json_schema()['type'])")
 	}
 	installDir := filepath.Join(report.OutDir, "_package_python", "site")
@@ -679,11 +716,11 @@ func verifyPythonPackageSmoke(report *VerifyTargetReport, conformanceRoot string
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
 		return err
 	}
-	env := runtimeProtocolEnv(conformanceRoot, os.Environ())
+	env := runtimeProtocolEnv(conformanceRoot, scrubbedEnviron())
 	if err := runVerifyCommand(report, "package python install", "", env, python, "-m", "pip", "install", "--no-deps", "--no-build-isolation", "--target", installDir, report.OutDir); err != nil {
 		return err
 	}
-	env = runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "PYTHONPATH="+installDir))
+	env = runtimeProtocolEnv(conformanceRoot, append(scrubbedEnviron(), "PYTHONPATH="+installDir))
 	if err := runVerifyCommand(report, "package python import", "", env, python, "-c", "import axllm; print('python-package-ok', axllm.s('question:string -> answer:string').to_json_schema()['type'])"); err != nil {
 		return err
 	}
@@ -710,7 +747,7 @@ func verifyPythonQuickJSProfile(report VerifyTargetReport, conformanceRoot strin
 		return report, nil
 	}
 	report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs server", Status: "ok", Message: serverSource})
-	env := runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "PYTHONPATH="+report.OutDir, "AXIR_QUICKJS_RUNTIME_SERVER="+server))
+	env := runtimeProtocolEnv(conformanceRoot, append(scrubbedEnviron(), "PYTHONPATH="+report.OutDir, "AXIR_QUICKJS_RUNTIME_SERVER="+server))
 	return report, runVerifyCommand(&report, "runtime profile javascript-quickjs", "", env, python, filepath.Join(report.OutDir, "examples", "runtime_profiles", "javascript_quickjs.py"))
 }
 
@@ -729,7 +766,7 @@ func verifyPythonPyodideProfile(report VerifyTargetReport, conformanceRoot strin
 		return report, nil
 	}
 	report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide server", Status: "ok", Message: source})
-	env := runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "PYTHONPATH="+report.OutDir, "AXIR_PYODIDE_RUNTIME_SERVER="+server))
+	env := runtimeProtocolEnv(conformanceRoot, append(scrubbedEnviron(), "PYTHONPATH="+report.OutDir, "AXIR_PYODIDE_RUNTIME_SERVER="+server))
 	return report, runVerifyCommand(&report, "runtime profile python-pyodide", "", env, python, filepath.Join(report.OutDir, "examples", "runtime_profiles", "python_pyodide.py"))
 }
 
@@ -755,7 +792,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	files = append(files, examples...)
 	sort.Strings(files)
 	args := append([]string{"-cp", report.OutDir, "-d", report.OutDir}, files...)
-	env := runtimeProtocolEnv(conformanceRoot, os.Environ())
+	env := runtimeProtocolEnv(conformanceRoot, scrubbedEnviron())
 	if err := runVerifyCommand(&report, "javac", "", env, javac, args...); err != nil {
 		return report, err
 	}
@@ -813,22 +850,22 @@ func verifyJavaPackageSmoke(report *VerifyTargetReport, javac, java string) erro
 	}
 	sort.Strings(baseFiles)
 	args := append([]string{"-d", classesDir}, baseFiles...)
-	if err := runVerifyCommand(report, "package java compile", "", os.Environ(), javac, args...); err != nil {
+	if err := runVerifyCommand(report, "package java compile", "", scrubbedEnviron(), javac, args...); err != nil {
 		return err
 	}
 	jarPath := filepath.Join(pkgDir, "ax.jar")
-	if err := runVerifyCommand(report, "package java jar", "", os.Environ(), jar, "--create", "--file", jarPath, "-C", classesDir, "."); err != nil {
+	if err := runVerifyCommand(report, "package java jar", "", scrubbedEnviron(), jar, "--create", "--file", jarPath, "-C", classesDir, "."); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(exampleClassesDir, 0o755); err != nil {
 		return err
 	}
 	example := filepath.Join(report.OutDir, "examples", "SignatureSchemaExample.java")
-	if err := runVerifyCommand(report, "package java example compile", "", os.Environ(), javac, "-cp", jarPath, "-d", exampleClassesDir, example); err != nil {
+	if err := runVerifyCommand(report, "package java example compile", "", scrubbedEnviron(), javac, "-cp", jarPath, "-d", exampleClassesDir, example); err != nil {
 		return err
 	}
 	classpath := jarPath + string(os.PathListSeparator) + exampleClassesDir
-	if err := runVerifyCommand(report, "package java example", "", os.Environ(), java, "-cp", classpath, "SignatureSchemaExample"); err != nil {
+	if err := runVerifyCommand(report, "package java example", "", scrubbedEnviron(), java, "-cp", classpath, "SignatureSchemaExample"); err != nil {
 		return err
 	}
 	if err := verifyOptionalJavaBuildTool(report, "maven package", "mvn", "AXIR_VERIFY_MAVEN", "-q", "-DskipTests", "package"); err != nil {
@@ -847,7 +884,7 @@ func verifyOptionalJavaBuildTool(report *VerifyTargetReport, name, command, flag
 		report.Steps = append(report.Steps, VerifyStep{Name: "package java " + name, Status: "skip", Message: command + " not found"})
 		return nil
 	}
-	return runVerifyCommand(report, "package java "+name, report.OutDir, os.Environ(), path, args...)
+	return runVerifyCommand(report, "package java "+name, report.OutDir, scrubbedEnviron(), path, args...)
 }
 
 func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, error) {
@@ -883,13 +920,13 @@ func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, er
 	sort.Strings(files)
 	classpath := report.OutDir + string(os.PathListSeparator) + cp
 	args := append([]string{"-cp", classpath, "-d", report.OutDir}, files...)
-	if err := runVerifyCommand(&report, "compile runtime profile javascript-quickjs", "", os.Environ(), javac, args...); err != nil {
+	if err := runVerifyCommand(&report, "compile runtime profile javascript-quickjs", "", scrubbedEnviron(), javac, args...); err != nil {
 		return report, err
 	}
-	if err := runVerifyCommand(&report, "runtime profile javascript-quickjs", "", os.Environ(), java, "-cp", classpath, "JavaScriptQuickJsExample"); err != nil {
+	if err := runVerifyCommand(&report, "runtime profile javascript-quickjs", "", scrubbedEnviron(), java, "-cp", classpath, "JavaScriptQuickJsExample"); err != nil {
 		return report, err
 	}
-	if err := runVerifyCommand(&report, "runtime profile javascript-quickjs protocol server", "", os.Environ(), java, "-cp", classpath, "dev.axllm.ax.runtime.quickjs.AxQuickJsProtocolServer", "--self-test"); err != nil {
+	if err := runVerifyCommand(&report, "runtime profile javascript-quickjs protocol server", "", scrubbedEnviron(), java, "-cp", classpath, "dev.axllm.ax.runtime.quickjs.AxQuickJsProtocolServer", "--self-test"); err != nil {
 		return report, err
 	}
 	return report, nil
@@ -916,10 +953,10 @@ func verifyJavaPyodideProfile(report VerifyTargetReport, conformanceRoot string)
 	}
 	report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide server", Status: "ok", Message: source})
 	sourceFile := filepath.Join(report.OutDir, "examples", "runtime_profiles", "PythonPyodideExample.java")
-	if err := runVerifyCommand(&report, "compile runtime profile python-pyodide", "", os.Environ(), javac, "-cp", report.OutDir, "-d", report.OutDir, sourceFile); err != nil {
+	if err := runVerifyCommand(&report, "compile runtime profile python-pyodide", "", scrubbedEnviron(), javac, "-cp", report.OutDir, "-d", report.OutDir, sourceFile); err != nil {
 		return report, err
 	}
-	env := runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "AXIR_PYODIDE_RUNTIME_SERVER="+server))
+	env := runtimeProtocolEnv(conformanceRoot, append(scrubbedEnviron(), "AXIR_PYODIDE_RUNTIME_SERVER="+server))
 	if err := runVerifyCommand(&report, "runtime profile python-pyodide", "", env, java, "-cp", report.OutDir, "PythonPyodideExample"); err != nil {
 		return report, err
 	}
@@ -967,10 +1004,10 @@ func quickJSJavaProtocolServerCommand(report *VerifyTargetReport, bundle Bundle)
 	sort.Strings(files)
 	classpath := javaOutDir + string(os.PathListSeparator) + cp
 	args := append([]string{"-cp", classpath, "-d", javaOutDir}, files...)
-	if err := runVerifyCommand(report, "compile runtime profile javascript-quickjs server", "", os.Environ(), javac, args...); err != nil {
+	if err := runVerifyCommand(report, "compile runtime profile javascript-quickjs server", "", scrubbedEnviron(), javac, args...); err != nil {
 		return "", "", err
 	}
-	if err := runVerifyCommand(report, "runtime profile javascript-quickjs protocol server", "", os.Environ(), java, "-cp", classpath, "dev.axllm.ax.runtime.quickjs.AxQuickJsProtocolServer", "--self-test"); err != nil {
+	if err := runVerifyCommand(report, "runtime profile javascript-quickjs protocol server", "", scrubbedEnviron(), java, "-cp", classpath, "dev.axllm.ax.runtime.quickjs.AxQuickJsProtocolServer", "--self-test"); err != nil {
 		return "", "", err
 	}
 	server := quoteCommandArg(java) + " -cp " + quoteCommandArg(classpath) + " dev.axllm.ax.runtime.quickjs.AxQuickJsProtocolServer"
@@ -990,7 +1027,7 @@ func pyodideRuntimeServerCommand(outDir, conformanceRoot string) (string, string
 	}
 	script := filepath.Join(outDir, "examples", "runtime_profiles", "resolve_pyodide_runtime_server.sh")
 	cmd := exec.Command(sh, script)
-	cmd.Env = runtimeProtocolEnv(conformanceRoot, os.Environ())
+	cmd.Env = runtimeProtocolEnv(conformanceRoot, scrubbedEnviron())
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -1043,7 +1080,7 @@ func quickJS4JClasspath(outDir string) (string, string, error) {
 	}
 	script := filepath.Join(outDir, "examples", "runtime_profiles", "resolve_quickjs4j_cp.sh")
 	cmd := exec.Command(sh, script)
-	cmd.Env = os.Environ()
+	cmd.Env = scrubbedEnviron()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -1411,9 +1448,13 @@ func runCommandMessage(dir string, env []string, command string, args ...string)
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	if env != nil {
-		cmd.Env = env
+	if env == nil {
+		// Verification subprocesses never need provider endpoint or
+		// credential overrides; a nil env must not inherit them from the
+		// developer's shell.
+		env = scrubbedEnviron()
 	}
+	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	message := strings.TrimSpace(string(out))
 	if err != nil {

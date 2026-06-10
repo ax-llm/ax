@@ -47,6 +47,9 @@ try {
     })
   );
   phase('check', () => runAxir(['check', rootAxir], { env }));
+  phase('audit provenance', () =>
+    runAxir(['audit', 'provenance', rootAxir], { env })
+  );
   phase('lower', runLower);
   phase('verify release', () =>
     runAxir(

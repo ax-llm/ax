@@ -15,7 +15,7 @@ func BuildJavaCore(model AxRuntimeModel) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.Replace(javaCore, "// AXIR_CORE_JAVA_FUNCTIONS\n", body, 1), nil
+	return mustInject(javaCore, "// AXIR_CORE_JAVA_FUNCTIONS\n", body, "javaCore")
 }
 
 func emitJavaCoreFunctions(model AxRuntimeModel, specs []CoreFuncSpec, names map[string]string) (string, error) {

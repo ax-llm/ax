@@ -15,7 +15,7 @@ func BuildGoCore(model AxRuntimeModel) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.Replace(goRuntime, "// AXIR_CORE_GO_FUNCTIONS\n", body, 1), nil
+	return mustInject(goRuntime, "// AXIR_CORE_GO_FUNCTIONS\n", body, "goRuntime")
 }
 
 func emitGoCoreFunctions(model AxRuntimeModel, specs []CoreFuncSpec, names map[string]string) (string, error) {

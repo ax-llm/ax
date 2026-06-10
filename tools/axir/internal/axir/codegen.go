@@ -41,6 +41,16 @@ func Compile(bundle Bundle, target, outDir string) error {
 	if emitErr != nil {
 		return emitErr
 	}
+	provenance, err := AuditProvenanceDir(model, target, outDir)
+	if err != nil {
+		return err
+	}
+	if err := WriteProvenanceManifest(outDir, provenance); err != nil {
+		return err
+	}
+	if provenance.Enforced && len(provenance.Violations) > 0 {
+		return fmt.Errorf("provenance audit failed for %s:\n  %s", target, strings.Join(provenance.Violations, "\n  "))
+	}
 	return ValidateGeneratedPackageHygiene(outDir, target)
 }
 

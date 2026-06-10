@@ -15,7 +15,7 @@ func BuildCppCore(model AxRuntimeModel) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.Replace(cppRuntime, "// AXIR_CORE_CPP_FUNCTIONS\n", core, 1), nil
+	return mustInject(cppRuntime, "// AXIR_CORE_CPP_FUNCTIONS\n", core, "cppRuntime")
 }
 
 // BuildCppHeader injects the emitted Core function declarations into the
@@ -30,7 +30,7 @@ func BuildCppHeader(model AxRuntimeModel) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.Replace(cppHeader, "  // AXIR_CORE_CPP_DECLARATIONS\n", decls, 1), nil
+	return mustInject(cppHeader, "  // AXIR_CORE_CPP_DECLARATIONS\n", decls, "cppHeader")
 }
 
 func emitCppCoreDeclarations(model AxRuntimeModel, specs []CoreFuncSpec) (string, error) {

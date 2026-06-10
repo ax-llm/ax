@@ -36,6 +36,8 @@ func run(args []string) error {
 		return runExplain(args[1:])
 	case "compile":
 		return runCompile(args[1:])
+	case "audit":
+		return runAudit(args[1:])
 	case "verify":
 		return runVerify(args[1:])
 	case "help", "-h", "--help":
@@ -217,6 +219,75 @@ func runCompile(args []string) error {
 		return err
 	}
 	fmt.Printf("wrote %s package to %s\n", *target, filepath.Clean(*outDir))
+	return nil
+}
+
+func runAudit(args []string) error {
+	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	targets := fs.String("targets", "python,java,cpp,go,rust", "comma-separated targets to audit")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 || fs.Arg(0) != "provenance" {
+		return fmt.Errorf("usage: axir audit provenance [--targets t1,t2] <root.axir>")
+	}
+	bundle, err := axir.LoadBundle(fs.Arg(1))
+	if err != nil {
+		return err
+	}
+	if ds := axir.Check(bundle); ds.HasErrors() {
+		return ds
+	}
+	model, err := axir.BuildRuntimeModel(axir.LowerToCore(bundle))
+	if err != nil {
+		return err
+	}
+	emitters := map[string]func(axir.AxRuntimeModel, string) error{
+		"python": axir.EmitPython,
+		"java":   axir.EmitJava,
+		"cpp":    axir.EmitCpp,
+		"go":     axir.EmitGo,
+		"rust":   axir.EmitRust,
+	}
+	failed := false
+	for _, target := range strings.Split(*targets, ",") {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+		emit, ok := emitters[target]
+		if !ok {
+			return fmt.Errorf("unknown audit target %q", target)
+		}
+		dir, err := os.MkdirTemp("", "axir-audit-"+target+"-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(dir)
+		if err := emit(model, dir); err != nil {
+			return fmt.Errorf("%s: emit failed: %w", target, err)
+		}
+		report, err := axir.AuditProvenanceDir(model, target, dir)
+		if err != nil {
+			return fmt.Errorf("%s: %w", target, err)
+		}
+		mode := "report"
+		if report.Enforced {
+			mode = "enforced"
+		}
+		fmt.Printf("%s (%s): %d core functions emitted across %d files, %d violation(s)\n",
+			target, mode, report.EmittedFunctions, len(report.Files), len(report.Violations))
+		for _, violation := range report.Violations {
+			fmt.Printf("  - %s\n", violation)
+		}
+		if report.Enforced && len(report.Violations) > 0 {
+			failed = true
+		}
+	}
+	if failed {
+		return fmt.Errorf("provenance audit failed")
+	}
 	return nil
 }
 
