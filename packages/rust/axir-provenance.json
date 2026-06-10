@@ -1,0 +1,9 @@
+{
+  "target": "rust",
+  "enforced": false,
+  "emitted_functions": 0,
+  "files": {},
+  "violations": [
+    "rust does not emit Core bodies yet: 0/353 registry functions emitted (hand-written template port, fixture-verified only)"
+  ]
+}
