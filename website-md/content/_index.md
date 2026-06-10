@@ -177,55 +177,6 @@ description: "The universal way to build with LLMs: typed signatures, tools, age
 </div>
 </section>
 
-<section class="home-section" aria-labelledby="one-signature">
-<div class="home-section-heading">
-  <p class="home-section-label">One signature, native code</p>
-  <h2 id="one-signature">String signatures, fluent builders, and schema output share the same semantics.</h2>
-  <p>AxIR keeps the behavior portable without pretending the generated packages are TypeScript transpilation. TypeScript remains the reference runtime; native packages get package-shaped APIs and checked capability metadata.</p>
-</div>
-<div class="home-signature-grid">
-  <article class="home-code-card">
-    <div class="home-card-icon icon-violet" aria-hidden="true">S</div>
-    <h3>String syntax</h3>
-    {{< home-code topic="signatureString" group="signature-string" compact="true" label="String syntax" >}}
-    <p>Concise contracts for classification, extraction, QA, translation, streaming, and workflows.</p>
-  </article>
-  <article class="home-code-card">
-    <div class="home-card-icon icon-teal" aria-hidden="true">F</div>
-    <h3>Native fields</h3>
-    {{< home-code topic="signatureFluent" group="signature-fluent" compact="true" label="Native fields" >}}
-    <p>Field-level constraints, arrays, objects, classes, optional values, media, and validators.</p>
-  </article>
-  <article class="home-code-card">
-    <div class="home-card-icon icon-blue" aria-hidden="true">Z</div>
-    <h3>Schema output</h3>
-    {{< home-code topic="signatureSchema" group="signature-schema" compact="true" label="Schema output" >}}
-    <p>The same semantic schema feeds prompts, validation, retries, traces, docs, and optimization.</p>
-  </article>
-</div>
-<div class="home-resource-row home-resource-row-tight">
-  <div>
-    <p class="home-section-label">Compiler-backed packages</p>
-    <h3>Switch languages without losing the concept.</h3>
-    <p>The markdown site is generated from common educational templates plus language-specific snippets, install commands, API mappings, and generated package metadata.</p>
-  </div>
-  <div>
-    {{< svg "axir-compiler" "AxIR compiler pipeline" >}}
-  </div>
-</div>
-<div class="home-resource-row home-resource-row-tight">
-  <div>
-    <p class="home-section-label">Native package matrix</p>
-    <h3>One semantic core, package-shaped APIs.</h3>
-    <p>AxIR emits native package surfaces and verifies them with capability manifests, examples, and conformance fixtures instead of pretending every language is TypeScript.</p>
-  </div>
-  <div>
-    {{< svg "language-matrix" "Language package matrix" >}}
-  </div>
-</div>
-{{< backend-badges >}}
-</section>
-
 <section class="home-section home-agent-section" aria-labelledby="agents-that-work">
 <div class="home-section-heading home-agent-heading">
   <p class="home-section-label">Agents</p>
@@ -372,51 +323,77 @@ description: "The universal way to build with LLMs: typed signatures, tools, age
 </div>
 </section>
 
-<section class="home-section" aria-labelledby="one-interface">
+<section class="home-section home-model-section" aria-labelledby="use-any-model">
 <div class="home-section-heading">
-  <p class="home-section-label">Models, providers, and routing</p>
-  <h2 id="one-interface">One interface, every LLM.</h2>
-  <p><code>ai()</code> keeps provider differences at the model boundary. Your signatures stay stable while provider setup, aliases, routing, streaming, embeddings, audio, context caching, and usage accounting live in the LLM layer.</p>
+  <p class="home-section-label">LLM providers</p>
+  <h2 id="use-any-model">Use any model.</h2>
+  <p>Pick OpenAI, Claude, Gemini, a gateway, or a local OpenAI-compatible endpoint in <code>ai()</code>. Your signatures, tools, traces, and outputs stay the same.</p>
 </div>
-<div class="home-provider-layout">
+<div class="home-provider-layout home-provider-layout-simple">
   <div>
-    <div class="home-provider-grid">
-      <article><strong>OpenAI</strong><code>ai({ name: "openai" })</code></article>
-      <article><strong>Anthropic</strong><code>ai({ name: "anthropic" })</code></article>
-      <article><strong>Google Gemini</strong><code>ai({ name: "google-gemini" })</code></article>
-      <article><strong>Cohere</strong><code>ai({ name: "cohere" })</code></article>
-      <article><strong>DeepSeek</strong><code>ai({ name: "deepseek" })</code></article>
-      <article><strong>Mistral</strong><code>ai({ name: "mistral" })</code></article>
-      <article><strong>Grok</strong><code>ai({ name: "grok" })</code></article>
-      <article><strong>Reka</strong><code>ai({ name: "reka" })</code></article>
-      <article><strong>AWS Bedrock</strong><code>ai({ name: "aws-bedrock" })</code></article>
+    <div class="home-provider-strip" aria-label="Supported provider examples">
+      <span>OpenAI</span>
+      <span>Claude</span>
+      <span>Gemini</span>
+      <span>OpenAI-compatible</span>
+      <span>Local</span>
     </div>
     {{< home-code topic="provider" group="provider" compact="true" label="Provider setup" >}}
+    <p class="home-inline-note">Need routing, embeddings, audio, or context caching? <a href="/typescript/concepts/llms/">Read the LLM guide</a>.</p>
   </div>
-  <div class="home-type-panel" aria-label="Ax field types">
-    <h3>Rich type system</h3>
-    <div><code>string</code><span>name:string</span><small>Text</small></div>
-    <div><code>number</code><span>score:number</span><small>Numeric</small></div>
-    <div><code>boolean</code><span>valid:boolean</span><small>True/false</small></div>
-    <div><code>class</code><span>cat:class "a,b"</span><small>Enum</small></div>
-    <div><code>string[]</code><span>tags:string[]</span><small>Array</small></div>
-    <div><code>json</code><span>data:json</span><small>Object</small></div>
-    <div><code>image</code><span>photo:image</span><small>Image</small></div>
-    <div><code>audio</code><span>clip:audio</span><small>Audio</small></div>
-    <div><code>date</code><span>due:date</span><small>Date</small></div>
+  <div class="home-provider-visual">
+    {{< svg "provider-router" "Provider router map" >}}
+  </div>
+</div>
+</section>
+
+<section class="home-section home-compiler-section" aria-labelledby="compiler-ir">
+<div class="home-section-heading">
+  <p class="home-section-label">AxIR compiler</p>
+  <h2 id="compiler-ir">One IR, native packages, checked semantics.</h2>
+  <p>Ax is built around a portable intermediate representation. TypeScript is the reference runtime; AxIR lowers signatures, schemas, providers, generators, agents, flows, MCP, and optimizers into a shared semantic core, then emits native package surfaces for Python, Java, C++, Go, and Rust.</p>
+</div>
+<div class="home-signature-grid">
+  <article class="home-code-card">
+    <div class="home-card-icon icon-violet" aria-hidden="true">S</div>
+    <h3>Signature syntax</h3>
+    {{< home-code topic="signatureString" group="signature-string" compact="true" label="Signature syntax" >}}
+    <p>String signatures become AxIR contracts that the compiler can lower into prompts, schemas, validators, examples, traces, and typed outputs.</p>
+  </article>
+  <article class="home-code-card">
+    <div class="home-card-icon icon-teal" aria-hidden="true">F</div>
+    <h3>Field schema IR</h3>
+    {{< home-code topic="signatureFluent" group="signature-fluent" compact="true" label="Field schema IR" >}}
+    <p>Fluent fields, media types, arrays, enums, constraints, and validators preserve field semantics across native packages.</p>
+  </article>
+  <article class="home-code-card">
+    <div class="home-card-icon icon-blue" aria-hidden="true">Z</div>
+    <h3>Structured schema output</h3>
+    {{< home-code topic="signatureSchema" group="signature-schema" compact="true" label="Structured schema output" >}}
+    <p>Schema-backed output keeps generated code aligned with the same parse, retry, docs, telemetry, and optimization contract.</p>
+  </article>
+</div>
+<div class="home-resource-row home-resource-row-tight">
+  <div>
+    <p class="home-section-label">Compiler pipeline</p>
+    <h3>TypeScript reference runtime -> AxIR -> native APIs.</h3>
+    <p>The package compiler emits language-shaped APIs instead of transpiling TypeScript. Each backend keeps native names, errors, builders, callbacks, transports, and runtime profiles while sharing the same Ax semantics.</p>
+  </div>
+  <div>
+    {{< svg "axir-compiler" "AxIR compiler pipeline" >}}
   </div>
 </div>
 <div class="home-resource-row home-resource-row-tight">
   <div>
-    <p class="home-section-label">Provider surface</p>
-    <h3>OpenAI, Responses, Claude, Gemini, local routers, and more.</h3>
-    <p>Use OpenAI-compatible endpoints for gateways and local inference, Responses for richer OpenAI event surfaces, and routers for failover or quota-aware dispatch.</p>
-    <p><a href="/typescript/concepts/llms/">Read the LLM guide</a> or <a href="/typescript/subsystems/ai/">open the <code>ai()</code> subsystem</a>.</p>
+    <p class="home-section-label">Conformance gate</p>
+    <h3>Capability manifests keep every backend honest.</h3>
+    <p>Generated package examples, API metadata, capability manifests, and conformance fixtures are checked by <code>axir verify</code> so new languages can slot in without guessing what the surface supports.</p>
   </div>
   <div>
-    {{< svg "provider-router" "Provider router map" >}}
+    {{< svg "language-matrix" "Language package matrix" >}}
   </div>
 </div>
+{{< backend-badges >}}
 </section>
 
 <section class="home-section home-graphjin" aria-labelledby="graphjin">

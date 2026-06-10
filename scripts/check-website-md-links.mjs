@@ -725,6 +725,31 @@ function collectQualityFailures(rel, html, failures) {
     if (!hasClass(html, 'div', 'home-signature-grid')) {
       failures.push(`${rel}: homepage missing signature story cards`);
     }
+    if (!hasClass(html, 'section', 'home-compiler-section')) {
+      failures.push(`${rel}: homepage missing AxIR compiler section`);
+    }
+    for (const oldCompilerText of [
+      'One signature, native code',
+      'String signatures, fluent builders, and schema output share the same semantics.',
+    ]) {
+      if (html.includes(oldCompilerText)) {
+        failures.push(`${rel}: homepage still has confusing compiler title`);
+      }
+    }
+    for (const compilerTerm of [
+      'AxIR compiler',
+      'One IR, native packages, checked semantics.',
+      'portable intermediate representation',
+      'TypeScript is the reference runtime',
+      'native package surfaces',
+      'axir verify',
+    ]) {
+      if (!html.includes(compilerTerm)) {
+        failures.push(
+          `${rel}: homepage compiler section missing ${compilerTerm}`
+        );
+      }
+    }
     if (html.includes('Prompt strings are glue. Signatures are contracts.')) {
       failures.push(`${rel}: homepage still has confusing signature title`);
     }
@@ -786,8 +811,51 @@ function collectQualityFailures(rel, html, failures) {
     if (!hasClass(html, 'div', 'home-provider-layout')) {
       failures.push(`${rel}: homepage missing provider/type section`);
     }
+    if (!hasClass(html, 'section', 'home-model-section')) {
+      failures.push(
+        `${rel}: homepage missing simplified model/provider section`
+      );
+    }
+    if (!hasClass(html, 'div', 'home-provider-strip')) {
+      failures.push(
+        `${rel}: homepage provider section missing simple provider strip`
+      );
+    }
+    if (html.includes('One interface, every LLM.')) {
+      failures.push(`${rel}: homepage still has complex provider title`);
+    }
+    if (html.includes('Rich type system')) {
+      failures.push(
+        `${rel}: homepage provider section still includes type table`
+      );
+    }
+    for (const providerTerm of [
+      'Use any model.',
+      'OpenAI-compatible',
+      'Need routing, embeddings, audio, or context caching?',
+    ]) {
+      if (!html.includes(providerTerm)) {
+        failures.push(
+          `${rel}: homepage provider section missing ${providerTerm}`
+        );
+      }
+    }
     if (!hasClass(html, 'section', 'home-graphjin')) {
       failures.push(`${rel}: homepage missing GraphJin cross-promo`);
+    }
+    const providerIndex = html.indexOf('home-provider-layout');
+    const compilerIndex = html.indexOf('home-compiler-section');
+    const graphjinIndex = html.indexOf('home-graphjin');
+    if (
+      providerIndex < 0 ||
+      compilerIndex < 0 ||
+      graphjinIndex < 0 ||
+      compilerIndex < providerIndex ||
+      compilerIndex > graphjinIndex
+    ) {
+      failures.push(
+        `${rel}: homepage compiler section must be second last above GraphJin`
+      );
     }
     if (countOccurrences(html, 'language-mark-') < 6) {
       failures.push(`${rel}: homepage missing language logo marks`);

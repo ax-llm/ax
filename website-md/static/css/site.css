@@ -3413,6 +3413,41 @@ pre.mermaid {
   align-items: start;
 }
 
+.home-provider-layout-simple {
+  grid-template-columns: minmax(0, 0.92fr) minmax(280px, 1.08fr);
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.home-provider-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.8rem;
+}
+
+.home-provider-strip span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--bg);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1;
+  padding: 0.45rem 0.62rem;
+}
+
+.home-inline-note {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0.85rem 0 0;
+}
+
+.home-provider-visual .svg-figure {
+  margin: 0;
+}
+
 .home-provider-grid article {
   padding: 0.78rem;
 }
