@@ -901,26 +901,39 @@ impl OpenAICompatibleClient {
     }
 
     pub fn transcribe(&mut self, request: Value) -> AxResult<Value> {
-        match self.profile.as_str() {
+        let profile = self.profile.clone();
+        let body = core_value_to_json(&provider_build_transcribe_request(&[
+            CoreValue::from(profile.as_str()),
+            core_value_from_json(&request),
+        ])?);
+        let raw = match profile.as_str() {
             "google-gemini" => {
                 let model = string_at(&request, "model").unwrap_or_else(|| self.model.clone());
                 let path = format!(
                     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
                     self.api_key
                 );
-                normalize_gemini_transcribe_response(
-                    self.post_json(&path, gemini_transcribe_body(&request))?,
-                )
+                self.post_json(&path, body)?
             }
-            "grok" => normalize_passthrough_response(self.post_data("/stt", grok_transcribe_body(&request))?),
-            _ => normalize_passthrough_response(
-                self.post_data("/audio/transcriptions", openai_transcribe_body(&request))?,
-            ),
-        }
+            "grok" => self.post_data("/stt", body)?,
+            _ => self.post_data("/audio/transcriptions", body)?,
+        };
+        let payload = normalize_passthrough_response(raw)?;
+        let normalized = provider_normalize_transcribe_response(&[
+            CoreValue::from(profile.as_str()),
+            core_value_from_json(&payload),
+            core_value_from_json(&request),
+        ])?;
+        Ok(core_value_to_json(&normalized))
     }
 
     pub fn speak(&mut self, request: Value) -> AxResult<Value> {
-        let mut response = match self.profile.as_str() {
+        let profile = self.profile.clone();
+        let body = core_value_to_json(&provider_build_speak_request(&[
+            CoreValue::from(profile.as_str()),
+            core_value_from_json(&request),
+        ])?);
+        let raw = match profile.as_str() {
             "google-gemini" => {
                 let model = string_at(&request, "model")
                     .unwrap_or_else(|| "gemini-2.5-flash-preview-tts".to_string());
@@ -928,28 +941,19 @@ impl OpenAICompatibleClient {
                     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
                     self.api_key
                 );
-                normalize_gemini_speak_response(
-                    self.post_json(&path, gemini_speak_body(&request))?,
-                    &request,
-                )?
+                self.post_json(&path, body)?
             }
-            "grok" => normalize_passthrough_response(self.post_json("/tts", grok_speak_body(&request))?)?,
-            "mistral" => normalize_passthrough_response(
-                self.post_json("/audio/speech", mistral_speak_body(&request))?,
-            )?,
-            _ => normalize_passthrough_response(
-                self.post_json("/audio/speech", openai_speak_body(&request))?,
-            )?,
+            "grok" => self.post_json("/tts", body)?,
+            "mistral" => self.post_json("/audio/speech", body)?,
+            _ => self.post_json("/audio/speech", body)?,
         };
-        if response.get("format").is_none() {
-            if let Some(obj) = response.as_object_mut() {
-                obj.insert(
-                    "format".to_string(),
-                    request.get("format").cloned().unwrap_or_else(|| json!("mp3")),
-                );
-            }
-        }
-        Ok(response)
+        let payload = normalize_passthrough_response(raw)?;
+        let normalized = provider_normalize_speak_response(&[
+            CoreValue::from(profile.as_str()),
+            core_value_from_json(&payload),
+            core_value_from_json(&request),
+        ])?;
+        Ok(core_value_to_json(&normalized))
     }
 
     pub fn realtime(&self, event: Value) -> AxResult<Value> {
