@@ -1,9 +1,9 @@
 {
   "target": "rust",
   "enforced": false,
-  "emitted_functions": 155,
+  "emitted_functions": 199,
   "files": {},
   "violations": [
-    "rust emits 155/353 core functions from the IR (modules: ai, prompt, schema, signature); the remainder is hand-written pending migration and fixture-verified only"
+    "rust emits 199/353 core functions from the IR (modules: ai, gen, prompt, schema, signature); the remainder is hand-written pending migration and fixture-verified only"
   ]
 }
