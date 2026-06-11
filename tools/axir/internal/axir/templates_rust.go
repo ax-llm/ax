@@ -33,6 +33,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 rquickjs = { version = "0.12", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
 `
 
 const rustLib = `pub mod mcp;
@@ -332,24 +333,12 @@ impl AxSignature {
         } else {
             &self.outputs
         };
-        let mut properties = Map::new();
-        let mut required = Vec::new();
-        for field in fields {
-            if field.is_internal {
-                continue;
-            }
-            properties.insert(field.name.clone(), field_schema(field, options));
-            if !field.is_optional || strict_structured_outputs(options) {
-                required.push(Value::String(field.name.clone()));
-            }
-        }
-        json!({
-            "type": "object",
-            "title": "Schema",
-            "properties": properties,
-            "required": required,
-            "additionalProperties": false
-        })
+        core_fields_value(fields)
+            .and_then(|fields_value| {
+                to_json_schema(&[fields_value, CoreValue::from("Schema"), core_value_from_json(options)])
+            })
+            .map(|schema| core_value_to_json(&schema))
+            .unwrap_or(Value::Null)
     }
 }
 
@@ -415,169 +404,6 @@ fn title_case(name: &str) -> String {
         }
     }
     out
-}
-
-fn flexible_json_fields_as_string(options: &Value) -> bool {
-    options
-        .get("flexibleJsonFieldsAsString")
-        .or_else(|| options.get("flexible_json_fields_as_string"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-}
-
-fn strict_structured_outputs(options: &Value) -> bool {
-    options
-        .get("strictStructuredOutputs")
-        .or_else(|| options.get("strict_structured_outputs"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-}
-
-fn apply_nullable_optional(schema: &mut Value, field: &Field, options: &Value) {
-    if !field.is_optional || !strict_structured_outputs(options) {
-        return;
-    }
-    match schema.get("type").cloned() {
-        Some(Value::String(value)) => {
-            schema["type"] = Value::Array(vec![Value::String(value), Value::String("null".to_string())]);
-        }
-        Some(Value::Array(mut values)) => {
-            if !values.iter().any(|value| value.as_str() == Some("null")) {
-                values.push(Value::String("null".to_string()));
-            }
-            schema["type"] = Value::Array(values);
-        }
-        _ => {}
-    }
-}
-
-fn append_json_string_guidance(description: &str) -> String {
-    append_description_sentence(
-        description,
-        "Return this field as a JSON-encoded string that can be parsed with JSON.parse.",
-    )
-}
-
-fn append_description_sentence(description: &str, sentence: &str) -> String {
-    if description.is_empty() {
-        sentence.to_string()
-    } else {
-        format!("{description}. {sentence}")
-    }
-}
-
-fn field_schema(field: &Field, options: &Value) -> Value {
-    let flexible_as_string = flexible_json_fields_as_string(options);
-    let mut schema = match field.field_type.name.as_str() {
-        "number" | "float" => json!({"type": "number"}),
-        "integer" | "int" => json!({"type": "integer"}),
-        "boolean" | "bool" => json!({"type": "boolean"}),
-        "class" => json!({"type": "string", "enum": field.field_type.options.clone().unwrap_or_default()}),
-        "url" => json!({"type": "string", "format": "uri"}),
-        "date" => json!({"type": "string", "format": "date"}),
-        "datetime" => json!({"type": "string", "format": "date-time"}),
-        "dateRange" | "datetimeRange" => json!({"type": "string"}),
-        "audio" => json!({"type": "string"}),
-        "object" => {
-            let mut properties = Map::new();
-            let mut required = Vec::new();
-            if let Some(fields) = &field.field_type.fields {
-                for (name, raw) in fields {
-                    let child = field_from_payload(name, raw);
-                    if child.is_internal {
-                        continue;
-                    }
-                    properties.insert(name.clone(), field_schema(&child, options));
-                    if !child.is_optional || strict_structured_outputs(options) {
-                        required.push(Value::String(name.clone()));
-                    }
-                }
-            }
-            if properties.is_empty() {
-                if flexible_as_string {
-                    json!({"type": "string"})
-                } else {
-                    json!({"type": ["object", "array", "string", "number", "boolean", "null"]})
-                }
-            } else {
-                json!({"type": "object", "properties": properties, "required": required, "additionalProperties": false})
-            }
-        }
-        "file" => json!({"type": "object"}),
-        "json" => {
-            if flexible_as_string {
-                json!({"type": "string"})
-            } else {
-                json!({"type": ["object", "array", "string", "number", "boolean", "null"]})
-            }
-        }
-        _ => json!({"type": "string"}),
-    };
-    let explicit_description = if field.field_type.is_array {
-        field.field_type.description.as_ref().or(field.description.as_ref())
-    } else {
-        field.description.as_ref().or(field.field_type.description.as_ref())
-    };
-    if let Some(description) = explicit_description {
-        schema["description"] = Value::String(enhance_description(description, &field.field_type));
-    } else {
-        let description = enhance_description("", &field.field_type);
-        if !description.is_empty() {
-            schema["description"] = Value::String(description);
-        }
-    }
-    if let Some(value) = field.field_type.min_length {
-        schema["minLength"] = json_number(value);
-    }
-    if let Some(value) = field.field_type.max_length {
-        schema["maxLength"] = json_number(value);
-    }
-    if let Some(value) = field.field_type.minimum {
-        schema["minimum"] = json_number(value);
-    }
-    if let Some(value) = field.field_type.maximum {
-        schema["maximum"] = json_number(value);
-    }
-    if let Some(value) = &field.field_type.pattern {
-        schema["pattern"] = Value::String(value.clone());
-    }
-    if let Some(value) = &field.field_type.format {
-        schema["format"] = Value::String(value.clone());
-    }
-    if field.field_type.is_array {
-        let array_description = field.description.clone().or_else(|| {
-            schema
-                .get("description")
-                .and_then(Value::as_str)
-                .map(ToString::to_string)
-        });
-        schema = json!({"type": "array", "items": schema});
-        if let Some(description) = array_description {
-            schema["description"] = Value::String(description);
-        }
-    }
-    if flexible_as_string
-        && matches!(field.field_type.name.as_str(), "json" | "object")
-        && schema.get("type").and_then(Value::as_str) == Some("string")
-    {
-        let base = schema
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        schema["description"] = Value::String(append_json_string_guidance(base));
-    }
-    if field.field_type.name == "audio" {
-        let base = schema
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        schema["description"] = Value::String(append_description_sentence(
-            base,
-            "Return plain text to synthesize as speech; do not return audio bytes or JSON audio objects.",
-        ));
-    }
-    apply_nullable_optional(&mut schema, field, options);
-    schema
 }
 
 fn field_from_payload(name: &str, raw: &Value) -> Field {
@@ -770,55 +596,6 @@ fn build_fixture_signature(fixture: &Value) -> AxResult<AxSignature> {
         .get("signature")
         .and_then(Value::as_str)
         .unwrap_or("question:string -> answer:string"))
-}
-
-fn enhance_description(base: &str, field_type: &FieldType) -> String {
-    let mut parts = Vec::new();
-    if !base.is_empty() {
-        parts.push(base.to_string());
-    }
-    match (field_type.min_length, field_type.max_length) {
-        (Some(min), Some(max)) => parts.push(format!(
-            "Minimum length: {} characters, maximum length: {} characters",
-            trim_num(min),
-            trim_num(max)
-        )),
-        (Some(min), None) => parts.push(format!("Minimum length: {} characters", trim_num(min))),
-        (None, Some(max)) => parts.push(format!("Maximum length: {} characters", trim_num(max))),
-        _ => {}
-    }
-    match (field_type.minimum, field_type.maximum) {
-        (Some(min), Some(max)) => parts.push(format!(
-            "Minimum value: {}, maximum value: {}",
-            trim_num(min),
-            trim_num(max)
-        )),
-        (Some(min), None) => parts.push(format!("Minimum value: {}", trim_num(min))),
-        (None, Some(max)) => parts.push(format!("Maximum value: {}", trim_num(max))),
-        _ => {}
-    }
-    if let Some(pattern_description) = &field_type.pattern_description {
-        parts.push(pattern_description.clone());
-    }
-    match field_type.name.as_str() {
-        "date" => parts.push("Format: YYYY-MM-DD".to_string()),
-        "datetime" => parts.push("Format: ISO 8601 date-time".to_string()),
-        "dateRange" => {
-            parts.push("Format: JSON object with start and end dates, or YYYY-MM-DD/YYYY-MM-DD".to_string())
-        }
-        "datetimeRange" => parts.push(
-            "Format: JSON object with start and end ISO 8601 date-times, or ISO interval start/end"
-                .to_string(),
-        ),
-        _ => {}
-    }
-    if field_type.format.as_deref() == Some("email") {
-        parts.push("Must be a valid email address format".to_string());
-    }
-    if field_type.format.as_deref() == Some("uri") || field_type.name == "url" {
-        parts.push("Must be a valid URL format".to_string());
-    }
-    parts.join(", ")
 }
 
 fn trim_num(value: f64) -> String {
@@ -2305,7 +2082,7 @@ fn validate_tool_args(tool: &Tool, args: &Value) -> AxResult<()> {
         .iter()
         .map(|(name, raw)| field_from_payload(name, raw))
         .collect::<Vec<_>>();
-    validate_fields(&fields, args)
+    validate_fields_native(&fields, args)
 }
 
 pub struct AxGen {
@@ -2458,7 +2235,7 @@ impl AxGen {
                             .and_then(|call| call.get("output"))
                             .cloned()
                             .unwrap_or_else(|| json!({}));
-                        validate_fields(&self.signature.outputs, &output)?;
+                        validate_fields_native(&self.signature.outputs, &output)?;
                         self.apply_field_processors(&mut output);
                         strip_internal_fields(&self.signature.outputs, &mut output);
                         self.traces.push(json!({"input": input, "output": output, "tool_calls": calls_seen}));
@@ -2494,7 +2271,7 @@ impl AxGen {
                     continue;
                 }
             };
-            if let Err(err) = validate_fields(&self.signature.outputs, &output) {
+            if let Err(err) = validate_fields_native(&self.signature.outputs, &output) {
                 if attempt == 2 {
                     return Err(err);
                 }
@@ -3621,7 +3398,7 @@ fn run_json_schema_fixture(fixture: &Value) -> AxResult<()> {
 fn run_validate_output_fixture(fixture: &Value) -> AxResult<()> {
     let sig = build_fixture_signature(fixture)?;
     let values = fixture.get("values").cloned().unwrap_or_else(|| json!({}));
-    let result = validate_fields(&sig.outputs, &values);
+    let result = validate_fields_native(&sig.outputs, &values);
     expect_validation_result(result, fixture)
 }
 
@@ -3636,7 +3413,7 @@ fn run_validate_value_fixture(fixture: &Value) -> AxResult<()> {
         })
         .unwrap_or_else(|| Field::new("value", FieldType::string()));
     let value = fixture.get("value").cloned().unwrap_or(Value::Null);
-    let result = validate_field_value(&field, &value);
+    let result = validate_field_value_native(&field, &value);
     expect_validation_result(result, fixture)
 }
 
@@ -5619,143 +5396,6 @@ fn normalized_program_kind(fixture: &Value) -> &'static str {
     }
 }
 
-fn validate_fields(fields: &[Field], values: &Value) -> AxResult<()> {
-    let values = values
-        .as_object()
-        .ok_or_else(|| AxError::validation("Expected output values to be an object"))?;
-    for field in fields {
-        let value = values.get(&field.name).unwrap_or(&Value::Null);
-        if !field.is_optional && value.is_null() {
-            return Err(AxError::validation(format!(
-                "Required field is missing: '{}'",
-                field.name
-            )));
-        }
-        validate_field_value(field, value)?;
-    }
-    Ok(())
-}
-
-fn validate_field_value(field: &Field, value: &Value) -> AxResult<()> {
-    if value.is_null() && field.is_optional {
-        return Ok(());
-    }
-    if field.field_type.is_array {
-        let items = value
-            .as_array()
-            .ok_or_else(|| AxError::validation(format!("Expected '{}' to be an array", field.name)))?;
-        let mut item_field = field.clone();
-        item_field.field_type.is_array = false;
-        for item in items {
-            validate_field_value(&item_field, item)?;
-        }
-        return Ok(());
-    }
-    match field.field_type.name.as_str() {
-        "string" | "code" | "date" | "dateRange" | "datetime" | "datetimeRange" | "url" => {
-            let text = value
-                .as_str()
-                .ok_or_else(|| AxError::validation(format!("Expected '{}' to be a string", field.name)))?;
-            if let Some(min) = field.field_type.min_length {
-                if text.chars().count() < min as usize {
-                    return Err(AxError::validation(format!(
-                        "'{}' must be at least {} characters",
-                        field.name,
-                        trim_num(min)
-                    )));
-                }
-            }
-            if let Some(max) = field.field_type.max_length {
-                if text.chars().count() > max as usize {
-                    return Err(AxError::validation(format!(
-                        "'{}' must be at most {} characters",
-                        field.name,
-                        trim_num(max)
-                    )));
-                }
-            }
-            if field.field_type.format.as_deref() == Some("email") && !text.contains('@') {
-                return Err(AxError::validation(format!(
-                    "'{}' must be a valid email address",
-                    field.name
-                )));
-            }
-        }
-        "number" => {
-            let number = value
-                .as_f64()
-                .ok_or_else(|| AxError::validation(format!("Expected '{}' to be a number", field.name)))?;
-            if let Some(min) = field.field_type.minimum {
-                if number < min {
-                    return Err(AxError::validation(format!(
-                        "'{}' must be at least {}",
-                        field.name,
-                        trim_num(min)
-                    )));
-                }
-            }
-            if let Some(max) = field.field_type.maximum {
-                if number > max {
-                    return Err(AxError::validation(format!(
-                        "'{}' must be at most {}",
-                        field.name,
-                        trim_num(max)
-                    )));
-                }
-            }
-        }
-        "boolean" => {
-            if !value.is_boolean() {
-                return Err(AxError::validation(format!("Expected '{}' to be a boolean", field.name)));
-            }
-        }
-        "class" => {
-            let text = value
-                .as_str()
-                .ok_or_else(|| AxError::validation(format!("Expected '{}' to be a string", field.name)))?;
-            let options = field.field_type.options.clone().unwrap_or_default();
-            if !options.iter().any(|option| option == text) {
-                return Err(AxError::validation(format!(
-                    "Expected '{}' to be one of: {}",
-                    field.name,
-                    options.join(", ")
-                )));
-            }
-        }
-        "object" => {
-            if !value.is_object() {
-                return Err(AxError::validation(format!("Expected '{}' to be an object", field.name)));
-            }
-            if let Some(fields) = &field.field_type.fields {
-                let nested = fields
-                    .iter()
-                    .map(|(name, raw)| field_from_payload(name, raw))
-                    .collect::<Vec<_>>();
-                validate_fields(&nested, value)?;
-            }
-        }
-        "file" => {
-            let object = value
-                .as_object()
-                .ok_or_else(|| AxError::validation(format!(
-                    "Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'",
-                    field.name
-                )))?;
-            let has_mime = object.contains_key("mimeType");
-            let has_data = object.contains_key("data");
-            let has_file_uri = object.contains_key("fileUri");
-            if !has_mime || has_data == has_file_uri {
-                return Err(AxError::validation(format!(
-                    "Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'",
-                    field.name
-                )));
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
 fn strip_internal_fields(fields: &[Field], values: &mut Value) {
     let Some(values) = values.as_object_mut() else {
         return;
@@ -6741,24 +6381,9 @@ fn core_regex_match(pattern: CoreValue, value: &CoreValue) -> Result<CoreValue, 
         Some(text) => text,
         None => return Ok(CoreValue::Bool(false)),
     };
-    let matched = match pattern.text().as_str() {
-        "^[A-Za-z_][A-Za-z0-9_]*$" => {
-            let mut chars = text.chars();
-            match chars.next() {
-                Some(first) if first.is_ascii_alphabetic() || first == '_' => {
-                    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-                }
-                _ => false,
-            }
-        }
-        "^[0-9]" => text.chars().next().map_or(false, |c| c.is_ascii_digit()),
-        other => {
-            return Err(AxError::runtime(format!(
-                "unsupported regex pattern in rust core: {other}"
-            )))
-        }
-    };
-    Ok(CoreValue::Bool(matched))
+    let compiled = regex::Regex::new(&pattern.text())
+        .map_err(|err| AxError::runtime(format!("invalid regex pattern: {err}")))?;
+    Ok(CoreValue::Bool(compiled.is_match(text)))
 }
 
 fn core_not(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -7223,6 +6848,187 @@ fn core_string_extract_quoted_suffix(args: &[CoreValue]) -> Result<CoreValue, Ax
     core_set(&out, CoreValue::from("head"), CoreValue::from_string(text))?;
     Ok(out)
 }
+
+fn core_description_append(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let base = core_arg(args, 0);
+    let hint = core_arg(args, 1);
+    let hint_text = hint.text();
+    if hint.is_null() || hint_text.trim().is_empty() {
+        return Ok(base);
+    }
+    let base_text = base.text();
+    if base.is_null() || base_text.trim().is_empty() {
+        return Ok(CoreValue::from_string(hint_text));
+    }
+    let mut text = base_text.trim().to_string();
+    if !text.ends_with('.') {
+        text.push('.');
+    }
+    Ok(CoreValue::from_string(format!("{text} {hint_text}")))
+}
+
+fn core_deep_clone(value: &CoreValue) -> CoreValue {
+    match value {
+        CoreValue::List(items) => CoreValue::list_from(items.borrow().iter().map(core_deep_clone).collect()),
+        CoreValue::Map(map) => {
+            let mut out = CoreMap::default();
+            for (k, v) in &map.borrow().entries {
+                out.set(k, core_deep_clone(v));
+            }
+            CoreValue::Map(Rc::new(RefCell::new(out)))
+        }
+        other => other.clone(),
+    }
+}
+
+fn core_field_item(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let field = core_arg(args, 0);
+    let item_type = core_deep_clone(&core_get(&field, &CoreValue::from("type"), CoreValue::Null));
+    core_set(&item_type, CoreValue::from("is_array"), CoreValue::Bool(false))?;
+    let values = CoreValue::new_map();
+    core_set(&values, CoreValue::from("name"), core_get(&field, &CoreValue::from("name"), CoreValue::Null))?;
+    core_set(&values, CoreValue::from("type"), item_type)?;
+    core_set(&values, CoreValue::from("description"), core_get(&field, &CoreValue::from("description"), CoreValue::Null))?;
+    core_record_new(&[CoreValue::from("Field"), values])
+}
+
+fn core_map_contains(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let values = core_arg(args, 0);
+    let key = core_arg(args, 1).text();
+    Ok(CoreValue::Bool(matches!(&values, CoreValue::Map(m) if m.borrow().contains(&key))))
+}
+
+fn core_map_get(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let values = core_arg(args, 0);
+    let key = core_arg(args, 1);
+    let result = core_get(&values, &key, CoreValue::Null);
+    if result.is_null() && !matches!(&values, CoreValue::Map(m) if m.borrow().contains(&key.text())) {
+        return Err(AxError::runtime(format!("missing key {}", key.text())));
+    }
+    Ok(result)
+}
+
+fn core_map_update(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let target = core_arg(args, 0);
+    let values = core_arg(args, 1);
+    if let (CoreValue::Map(dst), CoreValue::Map(src)) = (&target, &values) {
+        for (k, v) in src.borrow().entries.clone() {
+            dst.borrow_mut().set(&k, v);
+        }
+    }
+    Ok(target)
+}
+
+fn core_media_valid_image(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let v = core_arg(args, 0);
+    Ok(CoreValue::Bool(matches!(&v, CoreValue::Map(m) if m.borrow().contains("mimeType") && m.borrow().contains("data"))))
+}
+
+fn core_media_valid_audio(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let v = core_arg(args, 0);
+    let ok = v.as_str().is_some()
+        || matches!(&v, CoreValue::Map(m) if m.borrow().contains("data") || m.borrow().contains("id"));
+    Ok(CoreValue::Bool(ok))
+}
+
+fn core_media_valid_file(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let v = core_arg(args, 0);
+    let ok = matches!(&v, CoreValue::Map(m) if m.borrow().contains("mimeType")
+        && (m.borrow().contains("data") != m.borrow().contains("fileUri")));
+    Ok(CoreValue::Bool(ok))
+}
+
+fn core_media_valid_url_shape(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let v = core_arg(args, 0);
+    let ok = v.as_str().is_some() || matches!(&v, CoreValue::Map(m) if m.borrow().contains("url"));
+    Ok(CoreValue::Bool(ok))
+}
+
+fn core_url_valid(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let ok = match core_arg(args, 0).as_str() {
+        Some(text) => regex::Regex::new("^[a-zA-Z][a-zA-Z0-9+.-]*://").unwrap().is_match(text),
+        None => false,
+    };
+    Ok(CoreValue::Bool(ok))
+}
+
+
+fn core_field_type_value(ft: &FieldType) -> Result<CoreValue, AxError> {
+    let values = CoreValue::new_map();
+    core_set(&values, CoreValue::from("name"), CoreValue::from(ft.name.as_str()))?;
+    core_set(&values, CoreValue::from("is_array"), CoreValue::Bool(ft.is_array))?;
+    if let Some(options) = &ft.options {
+        core_set(&values, CoreValue::from("options"),
+            CoreValue::list_from(options.iter().map(|o| CoreValue::from(o.as_str())).collect()))?;
+    }
+    if let Some(fields) = &ft.fields {
+        // nested spec values are raw JSON; convert them to Field records the
+        // way the python runtime stores parsed nested fields
+        let nested = CoreValue::new_map();
+        for (name, raw) in fields {
+            let nested_field = field_from_payload(name, raw);
+            core_set(&nested, CoreValue::from(name.as_str()), core_field_value(&nested_field)?)?;
+        }
+        core_set(&values, CoreValue::from("fields"), nested)?;
+    }
+    let record = core_record_new(&[CoreValue::from("FieldType"), values])?;
+    for (key, val) in [
+        ("min_length", ft.min_length),
+        ("max_length", ft.max_length),
+        ("minimum", ft.minimum),
+        ("maximum", ft.maximum),
+    ] {
+        if let Some(number) = val {
+            core_set(&record, CoreValue::from(key), CoreValue::Num(number))?;
+        }
+    }
+    for (key, val) in [
+        ("pattern", ft.pattern.as_deref()),
+        ("pattern_description", ft.pattern_description.as_deref()),
+        ("format", ft.format.as_deref()),
+        ("description", ft.description.as_deref()),
+    ] {
+        if let Some(text) = val {
+            core_set(&record, CoreValue::from(key), CoreValue::from(text))?;
+        }
+    }
+    Ok(record)
+}
+
+fn core_field_value(field: &Field) -> Result<CoreValue, AxError> {
+    let values = CoreValue::new_map();
+    core_set(&values, CoreValue::from("name"), CoreValue::from(field.name.as_str()))?;
+    core_set(&values, CoreValue::from("type"), core_field_type_value(&field.field_type)?)?;
+    if let Some(text) = field.description.as_deref() {
+        core_set(&values, CoreValue::from("description"), CoreValue::from(text))?;
+    }
+    if !field.title.is_empty() {
+        core_set(&values, CoreValue::from("title"), CoreValue::from(field.title.as_str()))?;
+    }
+    core_set(&values, CoreValue::from("is_optional"), CoreValue::Bool(field.is_optional))?;
+    core_set(&values, CoreValue::from("is_internal"), CoreValue::Bool(field.is_internal))?;
+    core_set(&values, CoreValue::from("is_cached"), CoreValue::Bool(field.is_cached))?;
+    core_record_new(&[CoreValue::from("Field"), values])
+}
+
+fn core_fields_value(fields: &[Field]) -> Result<CoreValue, AxError> {
+    let out = CoreValue::new_list();
+    for field in fields {
+        core_append(&out, core_field_value(field)?)?;
+    }
+    Ok(out)
+}
+
+fn validate_fields_native(fields: &[Field], values: &Value) -> AxResult<()> {
+    validate_fields(&[core_fields_value(fields)?, core_value_from_json(values)])?;
+    Ok(())
+}
+
+fn validate_field_value_native(field: &Field, value: &Value) -> AxResult<()> {
+    validate_value(&[core_field_value(field)?, core_value_from_json(value)])?;
+    Ok(())
+}
+
 // ----- END AXIR CORE VALUE RUNTIME -----
 
 // AXIR_CORE_RUST_FUNCTIONS

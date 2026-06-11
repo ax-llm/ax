@@ -13,6 +13,7 @@ import (
 // only calls emitted code.
 var enabledRustModules = map[string]bool{
 	"signature": true,
+	"schema":    true,
 }
 
 // coreIntrinsicRust maps intrinsic names to the Rust helper functions defined
@@ -57,6 +58,16 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.string.extract_quoted_suffix":          "core_string_extract_quoted_suffix",
 	"intrinsic.string.consume_optional_quoted_prefix": "core_string_consume_optional_quoted_prefix",
 	"intrinsic.fields.from_map":                       "core_fields_from_map",
+	"intrinsic.description.append":                    "core_description_append",
+	"intrinsic.field.item":                            "core_field_item",
+	"intrinsic.map.contains":                          "core_map_contains",
+	"intrinsic.map.get":                               "core_map_get",
+	"intrinsic.map.update":                            "core_map_update",
+	"intrinsic.media.valid_image":                     "core_media_valid_image",
+	"intrinsic.media.valid_audio":                     "core_media_valid_audio",
+	"intrinsic.media.valid_file":                      "core_media_valid_file",
+	"intrinsic.media.valid_url_shape":                 "core_media_valid_url_shape",
+	"intrinsic.url.valid":                             "core_url_valid",
 }
 
 // BuildRustCore emits the enabled modules' Core functions into the rust
