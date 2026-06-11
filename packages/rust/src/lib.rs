@@ -1244,6 +1244,7 @@ fn parse_sse_events(body: &str) -> AxResult<Vec<Value>> {
     Ok(events)
 }
 
+#[derive(Clone)]
 pub struct Tool {
     pub name: String,
     pub description: String,
@@ -1253,6 +1254,11 @@ pub struct Tool {
 
 impl Tool {
     pub fn call(&self, args: Value) -> AxResult<Value> {
+        validate_fields(&[
+            core_tool_args_fields(&self.args)?,
+            core_value_from_json(&args),
+            CoreValue::from_string(format!("tool.{}.args", self.name)),
+        ])?;
         (self.handler)(args)
     }
 }
@@ -1306,6 +1312,8 @@ fn validate_tool_args(tool: &Tool, args: &Value) -> AxResult<()> {
 
 pub struct AxGen {
     pub signature: AxSignature,
+    pub options: Value,
+    pub function_call_traces: Vec<Value>,
     pub tools: Vec<Tool>,
     pub assertions: Vec<Value>,
     pub examples: Vec<Value>,
@@ -1325,6 +1333,8 @@ impl AxGen {
     pub fn new(spec: &str) -> AxResult<Self> {
         Ok(Self {
             signature: s(spec)?,
+            options: json!({}),
+            function_call_traces: Vec::new(),
             tools: Vec::new(),
             assertions: Vec::new(),
             examples: Vec::new(),
@@ -1369,172 +1379,18 @@ impl AxGen {
     }
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
-        let mut messages = Vec::new();
-        let examples_prompt = render_examples_prompt(&self.signature, &self.examples, &self.demos);
-        if !examples_prompt.is_empty() {
-            messages.push(json!({
-                "role": "system",
-                "content": examples_prompt
-            }));
-        }
-        messages.push(json!({
-            "role": "user",
-            "content": render_field_values("Input", &self.signature.inputs, &input)
-        }));
-        let mut calls_seen = Vec::new();
-        let mut last_assertion_error: Option<String> = None;
-        for attempt in 0..3 {
-            let request = json!({
-                "chat_prompt": messages,
-                "response_format": {"type": "json_object"},
-                "tools": self.tool_descriptors(),
-                "cache": {
-                    "fields": self.signature.inputs.iter()
-                        .filter(|field| field.is_cached)
-                        .map(|field| field.name.clone())
-                        .collect::<Vec<_>>()
-                }
-            });
-            self.memory
-                .push(json!({"role": "request", "request": request.clone()}));
-            let response = client.chat(request.clone())?;
-            self.memory
-                .push(json!({"role": "assistant", "response": response.clone()}));
-            self.chat_log
-                .push(json!({"name": "generator", "request": request, "response": response}));
-            let result = response
-                .get("results")
-                .and_then(Value::as_array)
-                .and_then(|items| items.first())
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-            let calls = result
-                .get("function_calls")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            if !calls.is_empty() {
-                let mut corrections = Vec::new();
-                for call in calls {
-                    let name = call.get("name").and_then(Value::as_str).unwrap_or_default();
-                    let id = call.get("id").cloned().unwrap_or_else(|| json!(name));
-                    let params = call.get("params").cloned().unwrap_or_else(|| json!({}));
-                    let tool = self.tools.iter().find(|candidate| candidate.name == name);
-                    let Some(tool) = tool else {
-                        corrections.push(format!("unknown tool {name}"));
-                        continue;
-                    };
-                    if let Err(err) = validate_tool_args(tool, &params) {
-                        corrections.push(err.message);
-                        continue;
-                    }
-                    let output = match tool.call(params.clone()) {
-                        Ok(output) => output,
-                        Err(err) => {
-                            self.memory.push(json!({
-                                "role": "function",
-                                "id": id.clone(),
-                                "name": name,
-                                "args": params.clone(),
-                                "error": err.message.clone(),
-                                "status": "error"
-                            }));
-                            calls_seen.push(json!({
-                                "id": id.clone(),
-                                "name": name,
-                                "args": params.clone(),
-                                "error": err.message.clone(),
-                                "status": "error"
-                            }));
-                            corrections.push(err.message);
-                            continue;
-                        }
-                    };
-                    self.memory.push(json!({"role": "function", "id": id.clone(), "name": name, "args": params.clone(), "output": output.clone(), "status": "ok"}));
-                    calls_seen.push(json!({"id": id, "name": name, "args": params.clone(), "output": output, "status": "ok"}));
-                    if self
-                        .stop_functions
-                        .iter()
-                        .any(|candidate| candidate == name)
-                    {
-                        let mut output = calls_seen
-                            .last()
-                            .and_then(|call| call.get("output"))
-                            .cloned()
-                            .unwrap_or_else(|| json!({}));
-                        validate_fields_native(&self.signature.outputs, &output)?;
-                        self.apply_field_processors(&mut output);
-                        strip_internal_fields(&self.signature.outputs, &mut output);
-                        self.traces.push(
-                            json!({"input": input, "output": output, "tool_calls": calls_seen}),
-                        );
-                        return Ok(output);
-                    }
-                    messages.push(json!({
-                        "role": "tool",
-                        "content": stable_stringify(calls_seen.last().unwrap())
-                    }));
-                }
-                if !corrections.is_empty() {
-                    if attempt == 2 {
-                        return Err(AxError::runtime(corrections.join("; ")));
-                    }
-                    messages.push(json!({
-                        "role": "user",
-                        "content": format!("{}\nReturn only corrected JSON.", corrections.join("; "))
-                    }));
-                }
-                continue;
-            }
-            let content = result
-                .get("content")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let output = match parse_model_output(content, &self.signature) {
-                Ok(output) => output,
-                Err(err) => {
-                    if attempt == 2 {
-                        return Err(err);
-                    }
-                    messages.push(json!({
-                        "role": "user",
-                        "content": format!("{}\nReturn only corrected JSON.", err.message)
-                    }));
-                    continue;
-                }
-            };
-            if let Err(err) = validate_fields_native(&self.signature.outputs, &output) {
-                if attempt == 2 {
-                    return Err(err);
-                }
-                messages.push(json!({
-                    "role": "user",
-                    "content": format!("{}\nReturn only corrected JSON.", err.message)
-                }));
-                continue;
-            }
-            if let Some(message) = evaluate_output_assertions(&self.assertions, &output) {
-                last_assertion_error = Some(message.clone());
-                if attempt == 2 {
-                    return Err(AxError::validation(message));
-                }
-                messages.push(json!({
-                    "role": "user",
-                    "content": format!("{message}\nReturn only corrected JSON.")
-                }));
-                continue;
-            }
-            let mut output = output;
-            self.apply_field_processors(&mut output);
-            strip_internal_fields(&self.signature.outputs, &mut output);
-            self.traces
-                .push(json!({"input": input, "output": output, "tool_calls": calls_seen}));
-            return Ok(output);
-        }
-        if let Some(message) = last_assertion_error {
-            return Err(AxError::validation(message));
-        }
-        Err(AxError::runtime("AxGen exhausted retry loop"))
+        let state = core_gen_state(self)?;
+        let mut chat = |request: Value| client.chat(request);
+        let result = with_core_client(&mut chat, || {
+            _forward_impl(&[
+                state.clone(),
+                CoreValue::Null,
+                core_value_from_json(&input),
+                CoreValue::Null,
+            ])
+        });
+        core_gen_writeback(self, &state);
+        Ok(core_value_to_json(&result?))
     }
 
     pub fn get_traces(&self) -> &[Value] {
@@ -5322,6 +5178,13 @@ fn display_template_value(value: &Value) -> String {
 }
 
 fn build_fixture_tools(fixture: &Value) -> AxResult<Vec<Tool>> {
+    Ok(build_fixture_tools_recording(fixture)?.0)
+}
+
+fn build_fixture_tools_recording(
+    fixture: &Value,
+) -> AxResult<(Vec<Tool>, std::sync::Arc<std::sync::Mutex<Vec<Value>>>)> {
+    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let mut out = Vec::new();
     for raw in fixture
         .get("tools")
@@ -5346,7 +5209,13 @@ fn build_fixture_tools(fixture: &Value) -> AxResult<Vec<Tool>> {
                 builder = builder.arg(arg_name, field_from_spec(arg_name, arg_spec).field_type);
             }
         }
-        let tool = builder.handler(move |_args| {
+        let tool_name = name.to_string();
+        let recorder = std::sync::Arc::clone(&calls);
+        let tool = builder.handler(move |args| {
+            recorder
+                .lock()
+                .unwrap()
+                .push(json!({"name": tool_name, "args": args}));
             if let Some(error) = &error {
                 return Err(AxError::runtime(error.clone()));
             }
@@ -5354,7 +5223,7 @@ fn build_fixture_tools(fixture: &Value) -> AxResult<Vec<Tool>> {
         });
         out.push(tool);
     }
-    Ok(out)
+    Ok((out, calls))
 }
 
 struct FixtureClient {
@@ -5392,7 +5261,14 @@ fn normalize_fixture_function_calls(calls: Value) -> Value {
                 "params": function.get("params").or_else(|| function.get("arguments")).cloned().unwrap_or_else(|| json!({}))
             }));
         } else {
-            out.push(call);
+            out.push(json!({
+                "id": call.get("id").cloned().unwrap_or(Value::Null),
+                "type": "function",
+                "function": {
+                    "name": call.get("name").cloned().unwrap_or(Value::Null),
+                    "params": call.get("params").cloned().unwrap_or(Value::Null)
+                }
+            }));
         }
     }
     Value::Array(out)
@@ -5429,9 +5305,12 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         .cloned()
         .unwrap_or_default();
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
+    let (fixture_tools, recorded_calls) = build_fixture_tools_recording(fixture)?;
     let mut program = AxGen {
         signature,
-        tools: build_fixture_tools(fixture)?,
+        options: fixture.get("options").cloned().unwrap_or_else(|| json!({})),
+        function_call_traces: Vec::new(),
+        tools: fixture_tools,
         assertions: fixture
             .get("assertions")
             .and_then(Value::as_array)
@@ -5544,24 +5423,14 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         )?;
     }
     if let Some(expected) = fixture.get("expected_tool_calls").and_then(Value::as_array) {
-        let actual = program
-            .traces
-            .last()
-            .and_then(|trace| trace.get("tool_calls"))
-            .cloned()
-            .unwrap_or_else(|| json!([]));
+        let actual = Value::Array(recorded_calls.lock().unwrap().clone());
         expect_json_list_exact_subsets("tool calls", &actual, expected)?;
     }
     if let Some(expected) = fixture
         .get("expected_function_traces_subset")
         .and_then(Value::as_array)
     {
-        let actual = program
-            .traces
-            .last()
-            .and_then(|trace| trace.get("tool_calls"))
-            .cloned()
-            .unwrap_or_else(|| json!([]));
+        let actual = Value::Array(program.function_call_traces.clone());
         expect_json_list_subset("function traces", &actual, expected)?;
     }
     Ok(())
@@ -8946,9 +8815,16 @@ fn core_tool_invoke(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     } else {
         CoreValue::new_map()
     };
-    match &target {
+    let host = match &target {
+        CoreValue::Host(_) => target.clone(),
+        CoreValue::Map(_) => core_get(&target, &CoreValue::from("__tool_host"), CoreValue::Null),
+        _ => CoreValue::Null,
+    };
+    match host {
         CoreValue::Host(host) => host.call_method("call", &[params]),
-        _ => Err(AxError::runtime("tool is not callable")),
+        _ => Err(AxError::runtime(
+            "intrinsic.tool.invoke target is not a tool",
+        )),
     }
 }
 
@@ -9835,6 +9711,160 @@ fn core_axgen_record_function_call(args: &[CoreValue]) -> Result<CoreValue, AxEr
     Ok(CoreValue::Null)
 }
 // ----- END AXIR CORE GEN ENGINE -----
+
+fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
+    let state = CoreValue::new_map();
+    core_set(
+        &state,
+        CoreValue::from("signature"),
+        core_signature_value(&gen.signature)?,
+    )?;
+    core_set(
+        &state,
+        CoreValue::from("options"),
+        core_value_from_json(&gen.options),
+    )?;
+    let tools = CoreValue::new_list();
+    for tool in &gen.tools {
+        let entry = core_tool_host(tool.clone());
+        let map = CoreValue::new_map();
+        core_set(&map, CoreValue::from("name"), entry_method(&entry, "name"))?;
+        core_set(
+            &map,
+            CoreValue::from("description"),
+            entry_method(&entry, "description"),
+        )?;
+        core_set(
+            &map,
+            CoreValue::from("args"),
+            core_tool_args_fields(&tool.args)?,
+        )?;
+        core_set(&map, CoreValue::from("__tool_host"), entry)?;
+        core_append(&tools, map)?;
+    }
+    core_set(&state, CoreValue::from("tools"), tools.clone())?;
+    core_set(&state, CoreValue::from("functions"), tools.clone())?;
+    core_set(
+        &state,
+        CoreValue::from("prompt_template"),
+        CoreValue::Host(Rc::new(GenPromptHost {
+            signature: core_get(&state, &CoreValue::from("signature"), CoreValue::Null),
+            tools,
+            options: core_value_from_json(&gen.options),
+        })),
+    )?;
+    for (key, items) in [
+        ("assertions", &gen.assertions),
+        ("examples", &gen.examples),
+        ("demos", &gen.demos),
+        ("field_processors", &gen.field_processors),
+    ] {
+        core_set(
+            &state,
+            CoreValue::from(key),
+            core_value_from_json(&Value::Array(items.clone())),
+        )?;
+    }
+    core_set(
+        &state,
+        CoreValue::from("stop_functions"),
+        CoreValue::list_from(
+            gen.stop_functions
+                .iter()
+                .map(|s| CoreValue::from(s.as_str()))
+                .collect(),
+        ),
+    )?;
+    let memory = core_memory_new();
+    if let CoreValue::Host(host) = &memory {
+        for item in &gen.memory {
+            host.call_method("add_raw_item", &[core_value_from_json(item)])?;
+        }
+    }
+    core_set(&state, CoreValue::from("memory"), memory)?;
+    for key in ["chat_log", "traces", "function_call_traces"] {
+        core_set(&state, CoreValue::from(key), CoreValue::new_list())?;
+    }
+    Ok(state)
+}
+
+fn entry_method(host: &CoreValue, name: &str) -> CoreValue {
+    match host {
+        CoreValue::Host(h) => h.call_method(name, &[]).unwrap_or(CoreValue::Null),
+        _ => CoreValue::Null,
+    }
+}
+
+fn core_gen_writeback(gen: &mut AxGen, state: &CoreValue) {
+    for (key, target) in [
+        ("chat_log", &mut gen.chat_log as *mut Vec<Value>),
+        ("traces", &mut gen.traces as *mut Vec<Value>),
+        (
+            "function_call_traces",
+            &mut gen.function_call_traces as *mut Vec<Value>,
+        ),
+    ] {
+        let list = core_get(state, &CoreValue::from(key), CoreValue::Null);
+        if let Value::Array(items) = core_value_to_json(&list) {
+            unsafe { (*target).extend(items) };
+        }
+    }
+    let memory = core_get(state, &CoreValue::from("memory"), CoreValue::Null);
+    if let CoreValue::Host(host) = memory {
+        if let Ok(items) = host.call_method("items", &[]) {
+            if let Value::Array(items) = core_value_to_json(&items) {
+                gen.memory = items;
+            }
+        }
+    }
+}
+
+struct GenPromptHost {
+    signature: CoreValue,
+    tools: CoreValue,
+    options: CoreValue,
+}
+
+impl CoreHost for GenPromptHost {
+    fn host_type(&self) -> &'static str {
+        "AxPromptTemplate"
+    }
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "render" => render_prompt(&[
+                self.signature.clone(),
+                core_arg(args, 0),
+                self.tools.clone(),
+                self.options.clone(),
+            ]),
+            other => Err(AxError::runtime(format!(
+                "AxPromptTemplate has no callable method '{other}'"
+            ))),
+        }
+    }
+}
+
+fn core_tool_args_fields(args: &Map<String, Value>) -> Result<CoreValue, AxError> {
+    let fields = CoreValue::new_list();
+    for (arg_name, payload) in args {
+        let values = CoreValue::new_map();
+        core_set(
+            &values,
+            CoreValue::from("name"),
+            CoreValue::from(arg_name.as_str()),
+        )?;
+        core_set(
+            &values,
+            CoreValue::from("type"),
+            core_field_type_value(&field_type_from_payload(payload))?,
+        )?;
+        core_append(
+            &fields,
+            core_record_new(&[CoreValue::from("Field"), values])?,
+        )?;
+    }
+    Ok(fields)
+}
 
 // ----- END AXIR CORE VALUE RUNTIME -----
 
