@@ -1658,62 +1658,63 @@ impl AxProgram for AxAgent {
 }
 
 pub struct AxFlow {
-    id: String,
-    steps: Vec<(String, AxGen)>,
-    returns: Map<String, Value>,
-    state: Map<String, Value>,
+    state: CoreValue,
 }
 
 pub fn flow(id: &str) -> AxFlow {
-    AxFlow {
-        id: id.to_string(),
-        steps: Vec::new(),
-        returns: Map::new(),
-        state: Map::new(),
-    }
+    let options = CoreValue::new_map();
+    let _ = core_set(&options, CoreValue::from("id"), CoreValue::from(id));
+    let state = _flow_factory(&[options]).unwrap_or_else(|_| CoreValue::new_map());
+    AxFlow { state }
 }
 
 impl AxFlow {
-    pub fn execute(mut self, name: &str, program: AxGen) -> Self {
-        self.steps.push((name.to_string(), program));
+    pub fn execute(self, name: &str, program: AxGen) -> Self {
+        let step = _flow_step(&[
+            CoreValue::from("execute"),
+            CoreValue::from(name),
+            GenHost::new(program),
+            CoreValue::Null,
+        ]);
+        if let Ok(step) = step {
+            let _ = _flow_add_step(&[self.state.clone(), step]);
+        }
         self
     }
 
-    pub fn returns(mut self, mapping: Value) -> Self {
-        self.returns = mapping.as_object().cloned().unwrap_or_default();
+    pub fn returns(self, mapping: Value) -> Self {
+        let _ = _flow_set_returns(&[self.state.clone(), core_value_from_json(&mapping)]);
         self
     }
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
-        self.state = input.as_object().cloned().unwrap_or_default();
-        for (name, program) in &mut self.steps {
-            let output = program.forward(client, Value::Object(self.state.clone()))?;
-            if let Some(obj) = output.as_object() {
-                for (key, value) in obj {
-                    self.state.insert(key.clone(), value.clone());
-                }
-            }
-            self.state.insert(format!("{name}_done"), Value::Bool(true));
-        }
-        let mut out = Map::new();
-        if self.returns.is_empty() {
-            return Ok(Value::Object(self.state.clone()));
-        }
-        for (key, source) in &self.returns {
-            let source_key = source.as_str().unwrap_or(key);
-            out.insert(
-                key.clone(),
-                self.state.get(source_key).cloned().unwrap_or(Value::Null),
-            );
-        }
-        Ok(Value::Object(out))
+        let mut chat = |request: Value| client.chat(request);
+        let result = with_core_client(&mut chat, || {
+            _flow_forward(&[
+                self.state.clone(),
+                CoreValue::Null,
+                core_value_from_json(&input),
+                CoreValue::Null,
+            ])
+        })?;
+        Ok(core_value_to_json(&result))
     }
 
     pub fn get_plan(&self) -> Value {
-        json!({
-            "id": self.id,
-            "steps": self.steps.iter().map(|(name, _)| json!({"name": name})).collect::<Vec<_>>()
-        })
+        let id = core_get(
+            &core_get(&self.state, &CoreValue::from("options"), CoreValue::Null),
+            &CoreValue::from("id"),
+            CoreValue::Null,
+        );
+        let steps = core_get(&self.state, &CoreValue::from("steps"), CoreValue::Null);
+        let mut names = Vec::new();
+        if let Ok(items) = core_iter(&steps) {
+            for step in items {
+                let name = core_get(&step, &CoreValue::from("name"), CoreValue::Null);
+                names.push(json!({"name": core_value_to_json(&name)}));
+            }
+        }
+        json!({"id": core_value_to_json(&id), "steps": names})
     }
 }
 
@@ -5975,6 +5976,13 @@ fn core_get(target: &CoreValue, key: &CoreValue, default: CoreValue) -> CoreValu
         (CoreValue::Map(map), CoreValue::Num(_)) => {
             map.borrow().get(&key.text()).unwrap_or(default)
         }
+        // hosts expose python attribute reads as zero-arg methods
+        (CoreValue::Host(host), CoreValue::Str(name)) => {
+            match host.call_method(name.as_str(), &[]) {
+                Ok(value) => value,
+                Err(_) => default,
+            }
+        }
         (CoreValue::List(items), CoreValue::Num(index)) => {
             let items = items.borrow();
             let index = *index as i64;
@@ -9866,10 +9874,994 @@ fn core_tool_args_fields(args: &Map<String, Value>) -> Result<CoreValue, AxError
     Ok(fields)
 }
 
+struct RawScopedClient(*mut dyn FnMut(Value) -> AxResult<Value>);
+
+impl AxAIClient for RawScopedClient {
+    fn chat(&mut self, request: Value) -> AxResult<Value> {
+        // SAFETY: the pointer was captured from the client stack inside the
+        // enclosing with_core_client scope, which outlives this call.
+        let chat = unsafe { &mut *self.0 };
+        chat(request)
+    }
+}
+
+fn core_scoped_client() -> AxResult<RawScopedClient> {
+    let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
+    match top {
+        Some(ptr) => Ok(RawScopedClient(ptr)),
+        None => Err(AxError::runtime("no AI client in scope")),
+    }
+}
+
+pub(crate) struct GenHost {
+    gen: RefCell<AxGen>,
+}
+
+impl GenHost {
+    pub(crate) fn new(gen: AxGen) -> CoreValue {
+        CoreValue::Host(Rc::new(GenHost {
+            gen: RefCell::new(gen),
+        }))
+    }
+}
+
+impl CoreHost for GenHost {
+    fn host_type(&self) -> &'static str {
+        "AxGen"
+    }
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "forward" => {
+                let values = core_value_to_json(&core_arg(args, 1));
+                let mut client = core_scoped_client()?;
+                let output = self.gen.borrow_mut().forward(&mut client, values)?;
+                Ok(core_value_from_json(&output))
+            }
+            "get_chat_log" => Ok(core_value_from_json(&Value::Array(
+                self.gen.borrow().chat_log.clone(),
+            ))),
+            "get_traces" => Ok(core_value_from_json(&Value::Array(
+                self.gen.borrow().traces.clone(),
+            ))),
+            other => Err(AxError::runtime(format!(
+                "object of type AxGen has no callable method '{other}'"
+            ))),
+        }
+    }
+}
+
+fn core_host_try(
+    value: &CoreValue,
+    method: &str,
+    args: &[CoreValue],
+) -> Option<Result<CoreValue, AxError>> {
+    if let CoreValue::Host(host) = value {
+        match host.call_method(method, args) {
+            Err(err) if err.message.contains("no callable method") => None,
+            other => Some(other),
+        }
+    } else {
+        None
+    }
+}
+
+fn core_agent_stage_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_host_try(&core_arg(args, 0), "get_chat_log", &[]) {
+        Some(result) => result,
+        None => Ok(CoreValue::new_list()),
+    }
+}
+
+fn core_agent_stage_traces(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_host_try(&core_arg(args, 0), "get_traces", &[]) {
+        Some(result) => result,
+        None => Ok(CoreValue::new_list()),
+    }
+}
+
+fn core_agent_stage_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let stage = core_arg(args, 0);
+    if let Some(result) = core_host_try(&stage, "get_usage", &[]) {
+        let usage = result?;
+        if core_truthy(&usage) {
+            return Ok(usage);
+        }
+    }
+    if let Some(result) = core_host_try(&stage, "get_chat_log", &[]) {
+        let items = CoreValue::new_list();
+        for entry in core_iter(&result?)? {
+            let usage = core_get(&entry, &CoreValue::from("usage"), CoreValue::Null);
+            if core_truthy(&usage) {
+                core_append(&items, usage)?;
+            }
+        }
+        return Ok(items);
+    }
+    Ok(CoreValue::new_list())
+}
+
+fn core_agent_stage_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let stage = core_arg(args, 0);
+    let client = core_arg(args, 1);
+    let values = core_arg(args, 2);
+    let values = if values.is_null() {
+        CoreValue::new_map()
+    } else {
+        values
+    };
+    let options = core_arg(args, 3);
+    let options = if options.is_null() {
+        CoreValue::new_map()
+    } else {
+        options
+    };
+    match &stage {
+        CoreValue::Host(host) => host.call_method("forward", &[client, values, options]),
+        _ => Err(AxError::runtime("flow stage is not a runnable program")),
+    }
+}
+
+fn core_json_stable_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let value = core_arg(args, 0);
+    let json = if value.is_null() {
+        json!({})
+    } else {
+        core_value_to_json(&value)
+    };
+    Ok(CoreValue::from_string(stable_stringify(&json)))
+}
+
+fn core_string_split(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let value = core_arg(args, 0).text();
+    let sep = core_arg(args, 1).text();
+    Ok(CoreValue::list_from(
+        value.split(sep.as_str()).map(CoreValue::from).collect(),
+    ))
+}
+
+fn core_program_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_host_try(&core_arg(args, 0), "get_optimizable_components", &[]) {
+        Some(result) => result,
+        None => Ok(CoreValue::new_list()),
+    }
+}
+
+fn core_program_apply_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let program = core_arg(args, 0);
+    let component_map = core_arg(args, 1);
+    let component_map = if component_map.is_null() {
+        CoreValue::new_map()
+    } else {
+        component_map
+    };
+    if let Some(result) = core_host_try(&program, "apply_optimized_components", &[component_map]) {
+        result?;
+    }
+    Ok(CoreValue::new_map())
+}
+
+// ----- AXIR CORE AGENT ENGINE (host boundary) -----
+// Port of the Python reference helpers for the AxAgent module
+// (_core_agent_* family plus the string/regex/json intrinsics the agent IR
+// leans on) onto the AxIR CoreValue runtime. The AxCodeRuntime and
+// AxCodeSession trait objects ride inside CoreValue::Host wrappers;
+// python's hasattr fallback chains are mirrored with core_host_try, where
+// the "no callable method" sentinel stands in for a missing attribute.
+//
+// Conventions:
+// - state/options/request values are CoreValue maps keyed by the python
+//   attribute names (callable_inventory, qualified_name, runtime_state, ...).
+// - callable(x) in the python sense means x is CoreValue::Host; invoking it
+//   dispatches call_method("call", args).
+// - The AxCodeRuntime/AxCodeSession bridge is JSON-typed (the trait methods
+//   take and return serde_json::Value), so CoreValue::Host values do not
+//   survive the crossing; runtime options and snapshots are plain data.
+
+// python: AxAgentClarificationError. core.raise turns the returned
+// CoreValue::Error into Err(AxError) via core_as_error, so the structured
+// payload must ride inside AxError itself: category marks the error as a
+// clarification, message carries str(question or message or clarification)
+// for expected_error_contains style checks, and code carries the stable
+// JSON of {clarification, payload, state} so catch sites can recover the
+// python exception attributes.
+#[allow(dead_code)]
+pub(crate) const CORE_AGENT_CLARIFICATION_CATEGORY: &str = "agent_clarification";
+
+#[allow(dead_code)]
+const CORE_AGENT_INSPECT_UNAVAILABLE: &str =
+    "[runtime state inspection unavailable: runtime session does not implement inspect_globals()]";
+
+// Recovers the python exception attributes from a clarification AxError:
+// Some({"clarification": ..., "payload": ..., "state": ...}) when the error
+// was produced by core_agent_clarification_error, None otherwise.
+#[allow(dead_code)]
+pub(crate) fn core_agent_clarification_detail(error: &AxError) -> Option<Value> {
+    if error.category != CORE_AGENT_CLARIFICATION_CATEGORY {
+        return None;
+    }
+    error
+        .code
+        .as_deref()
+        .and_then(|raw| serde_json::from_str(raw).ok())
+}
+
+// python:
+//   args = _core_get(payload, "args", []) or []
+//   clarification = args[0] if args else payload
+//   AxAgentClarificationError(clarification, state=state.get("runtime_state", {}), payload=payload)
+// where the exception message is str(question or message or clarification)
+// for dict clarifications and str(clarification) otherwise. RETURNS the
+// error value (the IR raises it separately via core.raise).
+#[allow(dead_code)]
+fn core_agent_clarification_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let payload = core_arg(args, 0);
+    let state = core_arg(args, 1);
+    let payload_args = core_get(&payload, &CoreValue::from("args"), CoreValue::Null);
+    let clarification = match &payload_args {
+        CoreValue::List(items) if !items.borrow().is_empty() => items.borrow()[0].clone(),
+        _ => payload.clone(),
+    };
+    let message = match &clarification {
+        CoreValue::Map(_) => {
+            let question = core_get(
+                &clarification,
+                &CoreValue::from("question"),
+                CoreValue::Null,
+            );
+            let fallback = core_get(&clarification, &CoreValue::from("message"), CoreValue::Null);
+            if core_truthy(&question) {
+                question.text()
+            } else if core_truthy(&fallback) {
+                fallback.text()
+            } else {
+                clarification.text()
+            }
+        }
+        other => other.text(),
+    };
+    let runtime_state = core_get(
+        &state,
+        &CoreValue::from("runtime_state"),
+        CoreValue::new_map(),
+    );
+    let detail = json!({
+        "clarification": core_value_to_json(&clarification),
+        "payload": core_value_to_json(&payload),
+        "state": core_value_to_json(&runtime_state),
+    });
+    let mut error = AxError::new(CORE_AGENT_CLARIFICATION_CATEGORY, message);
+    error.error_type = Some("AxAgentClarificationError".to_string());
+    error.code = Some(stable_stringify(&detail));
+    Ok(CoreValue::Error(Rc::new(error)))
+}
+
+// ----- AxCodeRuntime / AxCodeSession hosts -----
+// RuntimeCapabilities plays the role of python's override detection: the
+// reference checks type(session).snapshot_globals is not
+// AxCodeSession.snapshot_globals (and the scripted session consults
+// runtime.capabilities). Rust trait objects cannot observe overrides, so the
+// wiring states the capabilities up front; a disabled capability reproduces
+// the python behaviour for a session that never implemented the method.
+
+#[allow(dead_code)]
+pub(crate) fn core_runtime_capabilities_full() -> RuntimeCapabilities {
+    RuntimeCapabilities {
+        inspect_globals: true,
+        snapshot_globals: true,
+        patch_globals: true,
+    }
+}
+
+#[allow(dead_code)]
+struct CodeRuntimeHost {
+    runtime: Rc<RefCell<Box<dyn AxCodeRuntime>>>,
+    capabilities: RuntimeCapabilities,
+}
+
+#[allow(dead_code)]
+pub(crate) fn core_code_runtime_host(runtime: Box<dyn AxCodeRuntime>) -> CoreValue {
+    core_code_runtime_host_shared(
+        Rc::new(RefCell::new(runtime)),
+        core_runtime_capabilities_full(),
+    )
+}
+
+#[allow(dead_code)]
+pub(crate) fn core_code_runtime_host_with_capabilities(
+    runtime: Box<dyn AxCodeRuntime>,
+    capabilities: RuntimeCapabilities,
+) -> CoreValue {
+    core_code_runtime_host_shared(Rc::new(RefCell::new(runtime)), capabilities)
+}
+
+// Shared form for wiring that needs to keep a handle on the runtime (for
+// example a scripted conformance runtime whose call log is asserted after
+// the forward pass).
+#[allow(dead_code)]
+pub(crate) fn core_code_runtime_host_shared(
+    runtime: Rc<RefCell<Box<dyn AxCodeRuntime>>>,
+    capabilities: RuntimeCapabilities,
+) -> CoreValue {
+    CoreValue::Host(Rc::new(CodeRuntimeHost {
+        runtime,
+        capabilities,
+    }))
+}
+
+impl CoreHost for CodeRuntimeHost {
+    fn host_type(&self) -> &'static str {
+        "AxCodeRuntime"
+    }
+
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "create_session" => {
+                let globals = core_value_to_json(&core_arg(args, 0));
+                let options = core_value_to_json(&core_arg(args, 1));
+                let session = self.runtime.borrow_mut().create_session(globals, options)?;
+                Ok(core_code_session_host_with_capabilities(
+                    session,
+                    self.capabilities.clone(),
+                ))
+            }
+            // python attribute access (runtime.language, runtime.get_usage_instructions())
+            "language" => Ok(CoreValue::from_string(
+                self.runtime.borrow().language().to_string(),
+            )),
+            "usage_instructions" | "get_usage_instructions" | "usageInstructions" => Ok(
+                CoreValue::from_string(self.runtime.borrow().usage_instructions().to_string()),
+            ),
+            other => Err(AxError::runtime(format!(
+                "object of type AxCodeRuntime has no callable method '{other}'"
+            ))),
+        }
+    }
+}
+
+#[allow(dead_code)]
+struct CodeSessionHost {
+    session: Rc<RefCell<Box<dyn AxCodeSession>>>,
+    capabilities: RuntimeCapabilities,
+}
+
+#[allow(dead_code)]
+pub(crate) fn core_code_session_host(session: Box<dyn AxCodeSession>) -> CoreValue {
+    core_code_session_host_with_capabilities(session, core_runtime_capabilities_full())
+}
+
+#[allow(dead_code)]
+pub(crate) fn core_code_session_host_with_capabilities(
+    session: Box<dyn AxCodeSession>,
+    capabilities: RuntimeCapabilities,
+) -> CoreValue {
+    CoreValue::Host(Rc::new(CodeSessionHost {
+        session: Rc::new(RefCell::new(session)),
+        capabilities,
+    }))
+}
+
+impl CoreHost for CodeSessionHost {
+    fn host_type(&self) -> &'static str {
+        "AxCodeSession"
+    }
+
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "execute" => {
+                let code = core_arg(args, 0).text();
+                let options = core_value_to_json(&core_arg(args, 1));
+                let envelope = self.session.borrow_mut().execute(&code, options)?;
+                Ok(core_value_from_json(&envelope.payload))
+            }
+            "inspect_globals" => {
+                // python base AxCodeSession.inspect_globals (and the scripted
+                // session with the inspect capability off) returns the
+                // unavailable notice instead of raising.
+                if !self.capabilities.inspect_globals {
+                    return Ok(CoreValue::from(CORE_AGENT_INSPECT_UNAVAILABLE));
+                }
+                let options = core_value_to_json(&core_arg(args, 0));
+                let result = self.session.borrow_mut().inspect_globals(options)?;
+                Ok(core_value_from_json(&result))
+            }
+            "snapshot_globals" => {
+                if !self.capabilities.snapshot_globals {
+                    return Err(AxError::runtime(
+                        "AxCodeSession.snapshot_globals() is required to export AxAgent state",
+                    ));
+                }
+                let options = core_value_to_json(&core_arg(args, 0));
+                let result = self.session.borrow_mut().snapshot_globals(options)?;
+                Ok(core_value_from_json(&result))
+            }
+            "patch_globals" => {
+                if !self.capabilities.patch_globals {
+                    return Err(AxError::runtime(
+                        "AxCodeSession.patch_globals() is required to restore AxAgent state",
+                    ));
+                }
+                let snapshot = core_value_to_json(&core_arg(args, 0));
+                let options = core_value_to_json(&core_arg(args, 1));
+                let result = self.session.borrow_mut().patch_globals(snapshot, options)?;
+                Ok(core_value_from_json(&result))
+            }
+            "close" => {
+                let result = self.session.borrow_mut().close()?;
+                Ok(core_value_from_json(&result))
+            }
+            other => Err(AxError::runtime(format!(
+                "object of type AxCodeSession has no callable method '{other}'"
+            ))),
+        }
+    }
+}
+
+// ----- shared small helpers -----
+
+// python: value or {}
+#[allow(dead_code)]
+fn core_agent_or_empty_map(value: CoreValue) -> CoreValue {
+    if core_truthy(&value) {
+        value
+    } else {
+        CoreValue::new_map()
+    }
+}
+
+// python: _core_get(state, "options", {}) or {}
+#[allow(dead_code)]
+fn core_agent_state_options(state: &CoreValue) -> CoreValue {
+    core_agent_or_empty_map(core_get(
+        state,
+        &CoreValue::from("options"),
+        CoreValue::Null,
+    ))
+}
+
+// python: options.get(snake) or options.get(camel)
+#[allow(dead_code)]
+fn core_agent_option(options: &CoreValue, snake: &str, camel: &str) -> CoreValue {
+    let value = core_get(options, &CoreValue::from(snake), CoreValue::Null);
+    if core_truthy(&value) {
+        return value;
+    }
+    core_get(options, &CoreValue::from(camel), CoreValue::Null)
+}
+
+// python: list(value or []) (shallow copy; dicts iterate keys, like list())
+#[allow(dead_code)]
+fn core_agent_list_copy(value: &CoreValue) -> Result<CoreValue, AxError> {
+    if !core_truthy(value) {
+        return Ok(CoreValue::new_list());
+    }
+    Ok(CoreValue::list_from(core_iter(value)?))
+}
+
+// python: copy.deepcopy(value) for the plain-data values scripted fixtures
+// hold; implemented as a JSON round trip (Host values do not occur in
+// scripted results).
+#[allow(dead_code)]
+fn core_agent_deep_copy(value: &CoreValue) -> CoreValue {
+    core_value_from_json(&core_value_to_json(value))
+}
+
+#[allow(dead_code)]
+fn core_agent_map(entries: &[(&str, CoreValue)]) -> Result<CoreValue, AxError> {
+    let out = CoreValue::new_map();
+    for (key, value) in entries {
+        core_set(&out, CoreValue::from(key), value.clone())?;
+    }
+    Ok(out)
+}
+
+// ----- runtime lifecycle intrinsics -----
+
+// python: _core_agent_runtime_create_session(runtime, globals_, options)
+#[allow(dead_code)]
+fn core_agent_runtime_create_session(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let runtime = core_arg(args, 0);
+    let globals = core_agent_or_empty_map(core_arg(args, 1));
+    let options = core_agent_or_empty_map(core_arg(args, 2));
+    match core_host_try(&runtime, "create_session", &[globals, options]) {
+        Some(result) => {
+            let session = result?;
+            if session.is_null() {
+                return Err(AxError::runtime("agent runtime returned no session"));
+            }
+            Ok(session)
+        }
+        None => Err(AxError::runtime(
+            "agent runtime does not implement AxCodeRuntime",
+        )),
+    }
+}
+
+// python: _core_agent_runtime_execute(session, code, options)
+#[allow(dead_code)]
+fn core_agent_runtime_execute(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let session = core_arg(args, 0);
+    let code = CoreValue::from_string(core_arg(args, 1).text());
+    let options = core_agent_or_empty_map(core_arg(args, 2));
+    match core_host_try(&session, "execute", &[code, options]) {
+        Some(result) => result,
+        None => Err(AxError::runtime("agent code session is not active")),
+    }
+}
+
+// python: _core_agent_runtime_inspect(session, options) with the
+// inspect_globals -> inspect -> notice fallback chain.
+#[allow(dead_code)]
+fn core_agent_runtime_inspect(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let session = core_arg(args, 0);
+    let options = core_agent_or_empty_map(core_arg(args, 1));
+    if let Some(result) = core_host_try(&session, "inspect_globals", &[options.clone()]) {
+        return result;
+    }
+    if let Some(result) = core_host_try(&session, "inspect", &[options]) {
+        return result;
+    }
+    Ok(CoreValue::from(CORE_AGENT_INSPECT_UNAVAILABLE))
+}
+
+// python: _core_agent_runtime_export_state(session, options) with the
+// snapshot_globals -> export_state -> raise fallback chain.
+#[allow(dead_code)]
+fn core_agent_runtime_export_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let session = core_arg(args, 0);
+    let options = core_agent_or_empty_map(core_arg(args, 1));
+    if let Some(result) = core_host_try(&session, "snapshot_globals", &[options.clone()]) {
+        return result;
+    }
+    if let Some(result) = core_host_try(&session, "export_state", &[options]) {
+        return result;
+    }
+    Err(AxError::runtime(
+        "AxCodeSession.snapshot_globals() is required to export AxAgent state",
+    ))
+}
+
+// python: _core_agent_runtime_restore_state(session, snapshot, options) with
+// the patch_globals -> restore_state -> raise fallback chain.
+#[allow(dead_code)]
+fn core_agent_runtime_restore_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let session = core_arg(args, 0);
+    let snapshot = core_agent_or_empty_map(core_arg(args, 1));
+    let options = core_agent_or_empty_map(core_arg(args, 2));
+    if let Some(result) = core_host_try(
+        &session,
+        "patch_globals",
+        &[snapshot.clone(), options.clone()],
+    ) {
+        return result;
+    }
+    if let Some(result) = core_host_try(&session, "restore_state", &[snapshot, options]) {
+        return result;
+    }
+    Err(AxError::runtime(
+        "AxCodeSession.patch_globals() is required to restore AxAgent state",
+    ))
+}
+
+// python: _core_agent_runtime_close(session); None results normalize to
+// {"closed": True}.
+#[allow(dead_code)]
+fn core_agent_runtime_close(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let session = core_arg(args, 0);
+    let closed = || core_agent_map(&[("closed", CoreValue::Bool(true))]);
+    match core_host_try(&session, "close", &[]) {
+        Some(result) => {
+            let value = result?;
+            if value.is_null() {
+                closed()
+            } else {
+                Ok(value)
+            }
+        }
+        None => closed(),
+    }
+}
+
+// ----- memory / skill search intrinsics -----
+
+// python: _core_agent_memory_search(state, searches, already_loaded).
+// Callback path first (on_memories_search / onMemoriesSearch), then scripted
+// results (memory_search_results / memorySearchResults): exact joined key,
+// then per-search key (first hit wins), then the "*" fallback.
+#[allow(dead_code)]
+fn core_agent_memory_search(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let state = core_arg(args, 0);
+    let searches = core_arg(args, 1);
+    let already_loaded = core_arg(args, 2);
+    let options = core_agent_state_options(&state);
+    let callback = core_agent_option(&options, "on_memories_search", "onMemoriesSearch");
+    if let Some(result) = core_host_try(
+        &callback,
+        "call",
+        &[
+            core_agent_list_copy(&searches)?,
+            core_agent_list_copy(&already_loaded)?,
+        ],
+    ) {
+        let value = result?;
+        return Ok(if core_truthy(&value) {
+            value
+        } else {
+            CoreValue::new_list()
+        });
+    }
+    let scripted = core_agent_or_empty_map(core_agent_option(
+        &options,
+        "memory_search_results",
+        "memorySearchResults",
+    ));
+    match &scripted {
+        CoreValue::Map(map) => {
+            let items = if core_truthy(&searches) {
+                core_iter(&searches)?
+            } else {
+                Vec::new()
+            };
+            let joined = items
+                .iter()
+                .map(|item| item.text())
+                .collect::<Vec<_>>()
+                .join("|");
+            if map.borrow().contains(&joined) {
+                return Ok(core_agent_deep_copy(&core_get(
+                    &scripted,
+                    &CoreValue::from(joined.as_str()),
+                    CoreValue::Null,
+                )));
+            }
+            for item in &items {
+                let key = item.text();
+                if map.borrow().contains(&key) {
+                    return Ok(core_agent_deep_copy(&core_get(
+                        &scripted,
+                        &CoreValue::from(key.as_str()),
+                        CoreValue::Null,
+                    )));
+                }
+            }
+            Ok(core_agent_deep_copy(&core_get(
+                &scripted,
+                &CoreValue::from("*"),
+                CoreValue::new_list(),
+            )))
+        }
+        CoreValue::List(_) => Ok(core_agent_deep_copy(&scripted)),
+        _ => Ok(CoreValue::new_list()),
+    }
+}
+
+// python: _core_agent_skill_search(state, searches). Callback path first
+// (on_skills_search / onSkillsSearch), then scripted results
+// (skill_search_results / skillSearchResults): exact joined key, then the
+// concatenation of every per-search hit, then the "*" fallback.
+#[allow(dead_code)]
+fn core_agent_skill_search(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let state = core_arg(args, 0);
+    let searches = core_arg(args, 1);
+    let options = core_agent_state_options(&state);
+    let callback = core_agent_option(&options, "on_skills_search", "onSkillsSearch");
+    if let Some(result) = core_host_try(&callback, "call", &[core_agent_list_copy(&searches)?]) {
+        let value = result?;
+        return Ok(if core_truthy(&value) {
+            value
+        } else {
+            CoreValue::new_list()
+        });
+    }
+    let scripted = core_agent_or_empty_map(core_agent_option(
+        &options,
+        "skill_search_results",
+        "skillSearchResults",
+    ));
+    match &scripted {
+        CoreValue::Map(map) => {
+            let items = if core_truthy(&searches) {
+                core_iter(&searches)?
+            } else {
+                Vec::new()
+            };
+            let joined = items
+                .iter()
+                .map(|item| item.text())
+                .collect::<Vec<_>>()
+                .join("|");
+            if map.borrow().contains(&joined) {
+                return Ok(core_agent_deep_copy(&core_get(
+                    &scripted,
+                    &CoreValue::from(joined.as_str()),
+                    CoreValue::Null,
+                )));
+            }
+            let out = CoreValue::new_list();
+            for item in &items {
+                let key = item.text();
+                let entry = core_agent_deep_copy(&core_get(
+                    &scripted,
+                    &CoreValue::from(key.as_str()),
+                    CoreValue::new_list(),
+                ));
+                for hit in core_iter(&entry)? {
+                    core_append(&out, hit)?;
+                }
+            }
+            if core_truthy(&out) {
+                return Ok(out);
+            }
+            Ok(core_agent_deep_copy(&core_get(
+                &scripted,
+                &CoreValue::from("*"),
+                CoreValue::new_list(),
+            )))
+        }
+        CoreValue::List(_) => Ok(core_agent_deep_copy(&scripted)),
+        _ => Ok(CoreValue::new_list()),
+    }
+}
+
+// ----- callable invocation intrinsic -----
+
+// python: _core_agent_callable_invoke(state, request, options). Walks
+// state["callable_inventory"] groups for a callable whose qualified_name
+// matches and invokes its handler when callable; otherwise consults
+// scripted callable_results / callableResults (qualified name, plain name,
+// then "*"); otherwise reports the unknown callable. The third argument is
+// accepted and ignored, mirroring the reference.
+#[allow(dead_code)]
+fn core_agent_callable_invoke(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let state = core_arg(args, 0);
+    let request = core_arg(args, 1);
+    let agent_options = core_agent_state_options(&state);
+    let name = core_get(&request, &CoreValue::from("name"), CoreValue::from(""));
+    let qualified = core_get(&request, &CoreValue::from("qualified_name"), name.clone());
+    let call_args = core_get(&request, &CoreValue::from("args"), CoreValue::new_map());
+    let inventory = core_get(
+        &state,
+        &CoreValue::from("callable_inventory"),
+        CoreValue::Null,
+    );
+    for group in core_axgen_iter_or_empty(&inventory)? {
+        let callables = core_get(&group, &CoreValue::from("callables"), CoreValue::Null);
+        for callable_meta in core_axgen_iter_or_empty(&callables)? {
+            let meta_qualified = core_get(
+                &callable_meta,
+                &CoreValue::from("qualified_name"),
+                CoreValue::Null,
+            );
+            if meta_qualified != qualified {
+                continue;
+            }
+            let handler = core_get(&callable_meta, &CoreValue::from("handler"), CoreValue::Null);
+            if let CoreValue::Host(host) = &handler {
+                let value = host.call_method("call", &[call_args.clone()])?;
+                return core_agent_map(&[("status", CoreValue::from("ok")), ("value", value)]);
+            }
+        }
+    }
+    let scripted = core_agent_or_empty_map(core_agent_option(
+        &agent_options,
+        "callable_results",
+        "callableResults",
+    ));
+    if let CoreValue::Map(_) = &scripted {
+        let mut result = core_get(&scripted, &qualified, CoreValue::Null);
+        if result.is_null() {
+            result = core_get(&scripted, &name, CoreValue::Null);
+        }
+        if result.is_null() {
+            result = core_get(&scripted, &CoreValue::from("*"), CoreValue::Null);
+        }
+        if !result.is_null() {
+            let copied = core_agent_deep_copy(&result);
+            if let CoreValue::Map(map) = &copied {
+                let error = core_get(&copied, &CoreValue::from("error"), CoreValue::Null);
+                if core_truthy(&error) {
+                    return core_agent_map(&[
+                        ("status", CoreValue::from("error")),
+                        ("error", error),
+                    ]);
+                }
+                // python: copied.setdefault("status", "ok")
+                if !map.borrow().contains("status") {
+                    core_set(&copied, CoreValue::from("status"), CoreValue::from("ok"))?;
+                }
+                return Ok(copied);
+            }
+            return core_agent_map(&[("status", CoreValue::from("ok")), ("value", copied)]);
+        }
+    }
+    core_agent_map(&[
+        ("status", CoreValue::from("error")),
+        (
+            "error",
+            CoreValue::from_string(format!("unknown callable: {}", qualified.text())),
+        ),
+    ])
+}
+
+// ----- string / regex / json intrinsics -----
+
+// Translates a python re.sub replacement template into the regex crate's
+// replacement syntax: literal dollars are escaped, backreferences become
+// brace-delimited group references (group numbers cap at two digits, like
+// python), the named \g<name> form maps across, doubled backslashes
+// collapse, and the common control escapes are decoded.
+#[allow(dead_code)]
+fn core_regex_python_replacement(repl: &str) -> String {
+    let mut out = String::new();
+    let mut chars = repl.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '$' {
+            out.push_str("$$");
+            continue;
+        }
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.peek().copied() {
+            Some('\\') => {
+                chars.next();
+                out.push('\\');
+            }
+            Some('n') => {
+                chars.next();
+                out.push('\n');
+            }
+            Some('t') => {
+                chars.next();
+                out.push('\t');
+            }
+            Some('r') => {
+                chars.next();
+                out.push('\r');
+            }
+            Some('g') => {
+                chars.next();
+                if chars.peek().copied() == Some('<') {
+                    chars.next();
+                    let mut group = String::new();
+                    let mut closed = false;
+                    for next in chars.by_ref() {
+                        if next == '>' {
+                            closed = true;
+                            break;
+                        }
+                        group.push(next);
+                    }
+                    if closed && !group.is_empty() {
+                        out.push_str("${");
+                        out.push_str(&group);
+                        out.push('}');
+                    } else {
+                        out.push_str("\\g<");
+                        out.push_str(&group);
+                    }
+                } else {
+                    out.push('\\');
+                    out.push('g');
+                }
+            }
+            Some(digit) if digit.is_ascii_digit() => {
+                let mut group = String::new();
+                while group.len() < 2 {
+                    match chars.peek().copied() {
+                        Some(next) if next.is_ascii_digit() => {
+                            group.push(next);
+                            chars.next();
+                        }
+                        _ => break,
+                    }
+                }
+                out.push_str("${");
+                out.push_str(&group);
+                out.push('}');
+            }
+            _ => out.push('\\'),
+        }
+    }
+    out
+}
+
+// python: re.sub(str(pattern), str(repl), str(value))
+#[allow(dead_code)]
+fn core_regex_replace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let pattern = core_arg(args, 0).text();
+    let repl = core_arg(args, 1).text();
+    let value = core_arg(args, 2).text();
+    let compiled = regex::Regex::new(&pattern)
+        .map_err(|err| AxError::runtime(format!("invalid regex pattern: {err}")))?;
+    let replacement = core_regex_python_replacement(&repl);
+    Ok(CoreValue::from_string(
+        compiled
+            .replace_all(&value, replacement.as_str())
+            .into_owned(),
+    ))
+}
+
+// python: json.dumps(value, indent=2)
+#[allow(dead_code)]
+fn core_json_pretty(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let json = core_value_to_json(&core_arg(args, 0));
+    let text = serde_json::to_string_pretty(&json)
+        .map_err(|err| AxError::runtime(format!("json pretty error: {err}")))?;
+    Ok(CoreValue::from_string(text))
+}
+
+// python: word.lower().capitalize() (first char upper, remainder lower)
+#[allow(dead_code)]
+fn core_string_capitalize_lower(word: &str) -> String {
+    let lowered = word.to_lowercase();
+    let mut chars = lowered.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+// python: _core_string_lower_camel(words)
+#[allow(dead_code)]
+fn core_string_lower_camel(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let words = core_arg(args, 0);
+    let mut items: Vec<String> = Vec::new();
+    if core_truthy(&words) {
+        for item in core_iter(&words)? {
+            let text = item.text();
+            if !text.is_empty() {
+                items.push(text);
+            }
+        }
+    }
+    if items.is_empty() {
+        return Ok(CoreValue::from(""));
+    }
+    let mut out = items[0].to_lowercase();
+    for item in &items[1..] {
+        out.push_str(&core_string_capitalize_lower(item));
+    }
+    Ok(CoreValue::from_string(out))
+}
+
+// python: _core_string_title_from_camel(value)
+//   text = re.sub("Code$", " Code", str(value))
+//   text = re.sub("([a-z0-9])([A-Z])", "\\1 \\2", text).strip()
+//   return text[:1].upper() + text[1:]
+#[allow(dead_code)]
+fn core_string_title_from_camel(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let value = core_arg(args, 0).text();
+    let code_suffix = regex::Regex::new("Code$")
+        .map_err(|err| AxError::runtime(format!("invalid regex pattern: {err}")))?;
+    let spaced_code = code_suffix.replace_all(&value, " Code");
+    let boundary = regex::Regex::new("([a-z0-9])([A-Z])")
+        .map_err(|err| AxError::runtime(format!("invalid regex pattern: {err}")))?;
+    let spaced = boundary
+        .replace_all(spaced_code.as_ref(), "${1} ${2}")
+        .trim()
+        .to_string();
+    let mut chars = spaced.chars();
+    Ok(match chars.next() {
+        Some(first) => {
+            CoreValue::from_string(first.to_uppercase().chain(chars).collect::<String>())
+        }
+        None => CoreValue::from(""),
+    })
+}
+
+// ----- END AXIR CORE AGENT ENGINE -----
+
 // ----- END AXIR CORE VALUE RUNTIME -----
 
 // BEGIN AXIR CORE EMITTED FUNCTIONS
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn parse_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_signature = core_arg(args, 0);
     let mut v_parsed = CoreValue::Null;
@@ -9877,14 +10869,26 @@ fn parse_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_parsed.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn validate_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_signature = core_arg(args, 0);
     _signature_validate_impl(&[v_signature.clone()])?;
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _signature_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_signature = core_arg(args, 0);
     let mut v_arrow = CoreValue::Null;
@@ -9958,7 +10962,13 @@ fn _signature_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_parsed.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _signature_parse_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_text = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
@@ -9976,7 +10986,13 @@ fn _signature_parse_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     return Ok(v_fields.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _signature_parse_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
@@ -10176,7 +11192,13 @@ fn _signature_parse_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     return Ok(v_field.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _signature_validate_field_shape_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_field = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
@@ -10349,7 +11371,13 @@ fn _signature_validate_field_shape_impl(args: &[CoreValue]) -> Result<CoreValue,
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _signature_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_signature = core_arg(args, 0);
     let mut v_collision = CoreValue::Null;
@@ -10440,7 +11468,13 @@ fn _signature_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn validate_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fields = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
@@ -10449,7 +11483,13 @@ fn validate_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn to_json_schema(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fields = core_arg(args, 0);
     let mut v_schema_title = core_arg(args, 1);
@@ -10463,7 +11503,13 @@ fn to_json_schema(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_schema.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn validate_output(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fields = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
@@ -10472,7 +11518,13 @@ fn validate_output(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_validated.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _schema_required_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_field = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
@@ -10503,7 +11555,13 @@ fn _schema_required_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_required.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn validate_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_field = core_arg(args, 0);
     let mut v_value = core_arg(args, 1);
@@ -10512,7 +11570,13 @@ fn validate_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn strip_internal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fields = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
@@ -10521,7 +11585,13 @@ fn strip_internal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_public_values.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _schema_flexible_json_as_string_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_typ = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
@@ -10560,7 +11630,13 @@ fn _schema_flexible_json_as_string_impl(args: &[CoreValue]) -> Result<CoreValue,
     return Ok(v_as_string.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _validate_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fields = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
@@ -10624,7 +11700,13 @@ fn _validate_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _schema_json_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_type_name = core_arg(args, 0);
     let mut v_flexible_names = CoreValue::Null;
@@ -10674,7 +11756,13 @@ fn _schema_json_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(CoreValue::from("string"));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _validate_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fields = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
@@ -10709,7 +11797,13 @@ fn _validate_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_normalized.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _validate_string_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_value = core_arg(args, 0);
     let mut v_field = core_arg(args, 1);
@@ -10823,7 +11917,13 @@ fn _validate_string_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _schema_enhance_description_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_base = core_arg(args, 0);
     let mut v_typ = core_arg(args, 1);
@@ -11005,7 +12105,13 @@ fn _schema_enhance_description_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     return Ok(v_base.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _validate_number_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_value = core_arg(args, 0);
     let mut v_field = core_arg(args, 1);
@@ -11052,7 +12158,13 @@ fn _validate_number_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_field = core_arg(args, 0);
     let mut v_value = core_arg(args, 1);
@@ -11303,7 +12415,13 @@ fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _schema_apply_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_schema = core_arg(args, 0);
     let mut v_typ = core_arg(args, 1);
@@ -11411,7 +12529,13 @@ fn _schema_apply_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, AxErr
     return Ok(v_schema.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _schema_nullable_optional_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_schema = core_arg(args, 0);
     let mut v_field = core_arg(args, 1);
@@ -11477,7 +12601,13 @@ fn _schema_nullable_optional_impl(args: &[CoreValue]) -> Result<CoreValue, AxErr
     return Ok(v_schema.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _schema_object_from_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fields_map = core_arg(args, 0);
     let mut v_is_nested = core_arg(args, 1);
@@ -11537,7 +12667,13 @@ fn _schema_object_from_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(v_schema.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _schema_field_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_field = core_arg(args, 0);
     let mut v_is_nested = core_arg(args, 1);
@@ -11776,7 +12912,13 @@ fn _schema_field_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_nullable.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _strip_internal_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fields = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
@@ -11812,7 +12954,13 @@ fn _strip_internal_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     return Ok(v_public_values.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _schema_to_json_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fields = core_arg(args, 0);
     let mut v_schema_title = core_arg(args, 1);
@@ -11871,7 +13019,13 @@ fn _schema_to_json_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     return Ok(v_schema.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn render_template_content(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_template = core_arg(args, 0);
     let mut v_vars = core_arg(args, 1);
@@ -11888,7 +13042,13 @@ fn render_template_content(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_rendered.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn collect_template_variable_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_source = core_arg(args, 0);
     let mut v_context = core_arg(args, 1);
@@ -11899,7 +13059,13 @@ fn collect_template_variable_names(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(v_names.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn validate_prompt_template_syntax(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_source = core_arg(args, 0);
     let mut v_context = core_arg(args, 1);
@@ -11913,7 +13079,13 @@ fn validate_prompt_template_syntax(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(v_result.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _template_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_template = core_arg(args, 0);
     let mut v_context = core_arg(args, 1);
@@ -11922,7 +13094,13 @@ fn _template_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_nodes.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _template_render_tree_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_nodes = core_arg(args, 0);
     let mut v_vars = core_arg(args, 1);
@@ -11938,7 +13116,13 @@ fn _template_render_tree_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     return Ok(v_rendered.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _template_collect_vars_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_nodes = core_arg(args, 0);
     let mut v_names = CoreValue::Null;
@@ -11946,7 +13130,13 @@ fn _template_collect_vars_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     return Ok(v_names.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _template_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_source = core_arg(args, 0);
     let mut v_context = core_arg(args, 1);
@@ -11960,7 +13150,13 @@ fn _template_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_result.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn render_prompt(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_signature = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
@@ -11991,7 +13187,13 @@ fn render_prompt(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _prompt_structured_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_signature = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
@@ -12007,7 +13209,13 @@ fn _prompt_structured_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_content.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _prompt_user_content_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_signature = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
@@ -12016,7 +13224,13 @@ fn _prompt_user_content_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_content.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _prompt_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_system = core_arg(args, 0);
     let mut v_user = core_arg(args, 1);
@@ -12052,7 +13266,13 @@ fn _prompt_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_messages.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_chat_prompt = CoreValue::Null;
@@ -12188,7 +13408,13 @@ fn openai_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn merge_model_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_base = core_arg(args, 0);
     let mut v_override = core_arg(args, 1);
@@ -12218,7 +13444,13 @@ fn merge_model_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_bad_assistant = CoreValue::Null;
@@ -12306,7 +13538,13 @@ fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
@@ -12409,7 +13647,13 @@ fn _openai_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_service = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -12420,7 +13664,13 @@ fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_response = CoreValue::Null;
@@ -12428,7 +13678,13 @@ fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_response.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
@@ -12437,7 +13693,13 @@ fn normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_response.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
@@ -12453,7 +13715,13 @@ fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_service = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -12463,7 +13731,13 @@ fn build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_response = CoreValue::Null;
@@ -12471,7 +13745,13 @@ fn normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_response.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_message = core_arg(args, 0);
     let mut v_assistant_content = CoreValue::Null;
@@ -12600,7 +13880,13 @@ fn _openai_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Err(core_as_error(&v_error));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn normalize_token_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_usage = core_arg(args, 0);
     let mut v_cache_creation_tokens = CoreValue::Null;
@@ -12736,7 +14022,13 @@ fn normalize_token_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_ai_name = core_arg(args, 0);
     let mut v_model = core_arg(args, 1);
@@ -12760,7 +14052,13 @@ fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_response = core_arg(args, 0);
     let mut v_call = CoreValue::Null;
@@ -12825,7 +14123,13 @@ fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError>
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_part = core_arg(args, 0);
     let mut v_details = CoreValue::Null;
@@ -12898,7 +14202,13 @@ fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Err(core_as_error(&v_error));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_tool_call_to_provider_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_call = core_arg(args, 0);
     let mut v_fn = CoreValue::Null;
@@ -12929,7 +14239,13 @@ fn _openai_tool_call_to_provider_impl(args: &[CoreValue]) -> Result<CoreValue, A
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fn = core_arg(args, 0);
     let mut v_description = CoreValue::Null;
@@ -12962,7 +14278,13 @@ fn _openai_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_dimensions = CoreValue::Null;
@@ -12995,7 +14317,13 @@ fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_ai_name = core_arg(args, 1);
@@ -13071,7 +14399,13 @@ fn openai_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxErr
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_normalize_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_choice = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
@@ -13143,7 +14477,13 @@ fn _openai_normalize_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_calls = core_arg(args, 0);
     let mut v_call = CoreValue::Null;
@@ -13201,7 +14541,13 @@ fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_value = core_arg(args, 0);
     let mut v_is_call = CoreValue::Null;
@@ -13233,7 +14579,13 @@ fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     return Ok(v_none.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_ai_name = core_arg(args, 1);
@@ -13274,7 +14626,13 @@ fn openai_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
@@ -13372,7 +14730,13 @@ fn openai_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxErro
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_stream_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_choice = core_arg(args, 0);
     let mut v_index_ids = core_arg(args, 1);
@@ -13461,7 +14825,13 @@ fn _openai_stream_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_status = core_arg(args, 0);
     let mut v_body = core_arg(args, 1);
@@ -13556,7 +14926,13 @@ fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_error.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_normalize_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_aliases = CoreValue::Null;
@@ -13572,14 +14948,26 @@ fn provider_normalize_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     return Ok(v_provider_id.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_profile_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_registry = CoreValue::Null;
     v_registry = core_json_parse(&[CoreValue::from("{\"deferredCatalogProviderIds\":[],\"profiles\":{\"anthropic\":{\"aliases\":[\"anthropic\",\"claude\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"AnthropicClient\",\"id\":\"anthropic\"},\"azure-openai\":{\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"AzureOpenAIClient\",\"id\":\"azure-openai\"},\"cohere\":{\"aliases\":[\"cohere\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"CohereClient\",\"id\":\"cohere\"},\"deepseek\":{\"aliases\":[\"deepseek\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"DeepSeekClient\",\"id\":\"deepseek\"},\"google-gemini\":{\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"GoogleGeminiClient\",\"id\":\"google-gemini\"},\"grok\":{\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"GrokClient\",\"id\":\"grok\"},\"mistral\":{\"aliases\":[\"mistral\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"MistralClient\",\"id\":\"mistral\"},\"openai-compatible\":{\"aliases\":[\"openai-compatible\",\"openai\",\"compatible\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"openai-compatible\"},\"openai-responses\":{\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAIResponsesClient\",\"id\":\"openai-responses\"},\"reka\":{\"aliases\":[\"reka\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"RekaClient\",\"id\":\"reka\"}},\"registryVersion\":\"provider-profile-registry-v1\",\"supportedProfileIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\",\"azure-openai\",\"deepseek\",\"mistral\",\"reka\",\"cohere\",\"grok\"]}")])?;
     return Ok(v_registry.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_resolve_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_aliases = CoreValue::Null;
@@ -13598,21 +14986,39 @@ fn provider_resolve_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_resolved.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_model_catalog_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_summary = CoreValue::Null;
     v_summary = core_json_parse(&[CoreValue::from("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\",\"azure-openai\",\"deepseek\",\"mistral\",\"reka\",\"cohere\",\"grok\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":10,\"providerNames\":[\"google-gemini\",\"openai\",\"cohere\",\"mistral\",\"deepseek\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"azure-openai\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}")])?;
     return Ok(v_summary.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _provider_model_catalog_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_catalog = CoreValue::Null;
     v_catalog = core_json_parse(&[CoreValue::from("{\"all\":[{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.134,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-pro-image-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-image-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-mini\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-whisper\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-translate\",\"provider\":\"openai\",\"type\":\"audio\"}],\"name\":\"openai\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-light\",\"promptTokenCostPer1M\":0.3,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-r\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"command-r-plus\",\"promptTokenCostPer1M\":3,\"provider\":\"cohere\",\"type\":\"text\"}],\"name\":\"cohere\"},{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-nemo-latest\",\"promptTokenCostPer1M\":0.15,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-7b\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.3,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-nemo-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"mistral-small-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.7,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mixtral-8x7b\",\"promptTokenCostPer1M\":0.7,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-large-latest\",\"promptTokenCostPer1M\":2,\"provider\":\"mistral\",\"type\":\"text\"}],\"name\":\"mistral\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":80,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o3-pro\",\"promptTokenCostPer1M\":20,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":600,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o1-pro\",\"promptTokenCostPer1M\":150,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai-responses\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-non-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini\",\"promptTokenCostPer1M\":0.3,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-multi-agent\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-non-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.3\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini-fast\",\"promptTokenCostPer1M\":0.6,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"grok-3\",\"promptTokenCostPer1M\":3,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-fast\",\"promptTokenCostPer1M\":5,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-think-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"}],\"name\":\"grok\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-edge\",\"promptTokenCostPer1M\":0.4,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-flash\",\"promptTokenCostPer1M\":0.8,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"reka-core\",\"promptTokenCostPer1M\":3,\"provider\":\"reka\",\"type\":\"text\"}],\"name\":\"reka\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku-20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku@20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.24,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-instant-1.2\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.08,\"cacheWriteTokenCostPer1M\":1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku-latest\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku@20241022\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5@20251001\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-v2@20241022\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet@20240620\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet@20250219\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-sonnet-20240229\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5-20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5@20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4@20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5-20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5@20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-2.1\",\"promptTokenCostPer1M\":8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus-latest\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus@20240229\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1-20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1@20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4@20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"anthropic\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"}],\"audio\":[{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-mini\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-whisper\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-translate\",\"provider\":\"openai\",\"type\":\"audio\"}],\"name\":\"openai\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-think-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"}],\"name\":\"grok\"}],\"code\":[{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"}],\"name\":\"mistral\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"}],\"name\":\"openai\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"}],\"name\":\"openai-responses\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[],\"name\":\"google-gemini\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"}],\"embeddings\":[{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"}],\"name\":\"openai\"},{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"}],\"name\":\"google-gemini\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"}],\"name\":\"cohere\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"}],\"text\":[{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.134,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-pro-image-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-image-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"google-gemini\"},{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-nemo-latest\",\"promptTokenCostPer1M\":0.15,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-7b\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.3,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-nemo-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"mistral-small-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.7,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mixtral-8x7b\",\"promptTokenCostPer1M\":0.7,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-large-latest\",\"promptTokenCostPer1M\":2,\"provider\":\"mistral\",\"type\":\"text\"}],\"name\":\"mistral\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":80,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o3-pro\",\"promptTokenCostPer1M\":20,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":600,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o1-pro\",\"promptTokenCostPer1M\":150,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai-responses\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-non-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini\",\"promptTokenCostPer1M\":0.3,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-multi-agent\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-non-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.3\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini-fast\",\"promptTokenCostPer1M\":0.6,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"grok-3\",\"promptTokenCostPer1M\":3,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-fast\",\"promptTokenCostPer1M\":5,\"provider\":\"grok\",\"type\":\"text\"}],\"name\":\"grok\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-light\",\"promptTokenCostPer1M\":0.3,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-r\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"command-r-plus\",\"promptTokenCostPer1M\":3,\"provider\":\"cohere\",\"type\":\"text\"}],\"name\":\"cohere\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-edge\",\"promptTokenCostPer1M\":0.4,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-flash\",\"promptTokenCostPer1M\":0.8,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"reka-core\",\"promptTokenCostPer1M\":3,\"provider\":\"reka\",\"type\":\"text\"}],\"name\":\"reka\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku-20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku@20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.24,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-instant-1.2\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.08,\"cacheWriteTokenCostPer1M\":1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku-latest\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku@20241022\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5@20251001\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-v2@20241022\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet@20240620\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet@20250219\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-sonnet-20240229\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5-20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5@20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4@20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5-20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5@20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-2.1\",\"promptTokenCostPer1M\":8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus-latest\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus@20240229\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1-20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1@20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4@20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"anthropic\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"}]}")])?;
     return Ok(v_catalog.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_model_catalog(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_options = core_arg(args, 0);
     let mut v_candidate = CoreValue::Null;
@@ -13659,7 +15065,13 @@ fn provider_model_catalog(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_selected.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_route_request_requirements(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_audio_config = CoreValue::Null;
@@ -13988,7 +15400,13 @@ fn provider_route_request_requirements(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(v_requirements.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _provider_features_support(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_features = core_arg(args, 0);
     let mut v_path = core_arg(args, 1);
@@ -14084,7 +15502,13 @@ fn _provider_features_support(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     return Ok(CoreValue::Bool(false));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _provider_route_score(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_provider = core_arg(args, 0);
     let mut v_requirements = core_arg(args, 1);
@@ -14257,7 +15681,13 @@ fn _provider_route_score(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_route_recommendation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_providers = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -14514,7 +15944,13 @@ fn provider_route_recommendation(args: &[CoreValue]) -> Result<CoreValue, AxErro
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _provider_route_any_supports(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_providers = core_arg(args, 0);
     let mut v_path = core_arg(args, 1);
@@ -14534,7 +15970,13 @@ fn _provider_route_any_supports(args: &[CoreValue]) -> Result<CoreValue, AxError
     return Ok(v_ok.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_route_validation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_providers = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -14684,7 +16126,13 @@ fn provider_route_validation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_result.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_balancer_retry_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_options = core_arg(args, 0);
     let mut v_debug = CoreValue::Null;
@@ -14754,7 +16202,13 @@ fn provider_balancer_retry_policy(args: &[CoreValue]) -> Result<CoreValue, AxErr
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_balancer_metric_score(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_metrics = core_arg(args, 0);
     let mut v_chat = CoreValue::Null;
@@ -14766,7 +16220,13 @@ fn provider_balancer_metric_score(args: &[CoreValue]) -> Result<CoreValue, AxErr
     return Ok(v_mean.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_balancer_candidate_allowed(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_features = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -14882,7 +16342,13 @@ fn provider_balancer_candidate_allowed(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(CoreValue::Bool(true));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_routing_stats(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_providers = core_arg(args, 0);
     let mut v_audio = CoreValue::Null;
@@ -15018,7 +16484,13 @@ fn provider_routing_stats(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_anthropic_caching = CoreValue::Null;
@@ -15644,7 +17116,13 @@ fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_descriptor.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_operation_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_operation = core_arg(args, 1);
@@ -15673,7 +17151,13 @@ fn provider_operation_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxErro
     return Ok(v_operation_desc.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _provider_realtime_audio_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_descriptor = CoreValue::Null;
@@ -15682,7 +17166,13 @@ fn _provider_realtime_audio_descriptor(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(v_descriptor.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_build_realtime_audio_setup(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -15707,7 +17197,13 @@ fn provider_build_realtime_audio_setup(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(v_openai_setup.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_build_realtime_audio_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -15732,7 +17228,13 @@ fn provider_build_realtime_audio_input(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(v_openai_input.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_realtime_compatible_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_descriptor = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -15916,7 +17418,13 @@ fn _openai_realtime_compatible_build_setup(args: &[CoreValue]) -> Result<CoreVal
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_realtime_compatible_build_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_descriptor = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -15971,7 +17479,13 @@ fn _openai_realtime_compatible_build_input(args: &[CoreValue]) -> Result<CoreVal
     return Ok(v_events.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_live_bidi_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_descriptor = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -16128,7 +17642,13 @@ fn _gemini_live_bidi_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxErro
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_live_bidi_build_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_descriptor = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -16286,7 +17806,13 @@ fn _gemini_live_bidi_build_input(args: &[CoreValue]) -> Result<CoreValue, AxErro
     return Ok(v_events.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _realtime_request_system_instruction_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_content = CoreValue::Null;
@@ -16328,7 +17854,13 @@ fn _realtime_request_system_instruction_impl(args: &[CoreValue]) -> Result<CoreV
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _realtime_request_user_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_count = CoreValue::Null;
@@ -16372,7 +17904,13 @@ fn _realtime_request_user_messages_impl(args: &[CoreValue]) -> Result<CoreValue,
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_realtime_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_content = core_arg(args, 0);
     let mut v_audio_part = CoreValue::Null;
@@ -16440,7 +17978,13 @@ fn _openai_realtime_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(v_parts.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -16485,7 +18029,13 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _provider_apply_openai_compatible_profile_quirks(
     args: &[CoreValue],
 ) -> Result<CoreValue, AxError> {
@@ -16523,7 +18073,13 @@ fn _provider_apply_openai_compatible_profile_quirks(
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _provider_apply_deepseek_chat_quirks(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
@@ -16640,7 +18196,13 @@ fn _provider_apply_deepseek_chat_quirks(args: &[CoreValue]) -> Result<CoreValue,
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _provider_apply_mistral_chat_quirks(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_payload = core_arg(args, 0);
     let mut v_content = CoreValue::Null;
@@ -16704,7 +18266,13 @@ fn _provider_apply_mistral_chat_quirks(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _provider_apply_grok_chat_quirks(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_payload = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -17032,7 +18600,13 @@ fn _provider_apply_grok_chat_quirks(args: &[CoreValue]) -> Result<CoreValue, AxE
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -17064,7 +18638,13 @@ fn provider_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
@@ -17120,7 +18700,13 @@ fn provider_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     return Ok(v_response.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
@@ -17180,7 +18766,13 @@ fn provider_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(v_response.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
@@ -17206,7 +18798,13 @@ fn provider_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, Ax
     return Ok(v_response.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -17238,7 +18836,13 @@ fn provider_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, Ax
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -17270,7 +18874,13 @@ fn provider_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_normalize_transcribe_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
@@ -17305,7 +18915,13 @@ fn provider_normalize_transcribe_response(args: &[CoreValue]) -> Result<CoreValu
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
@@ -17334,7 +18950,13 @@ fn provider_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, Ax
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn provider_normalize_realtime_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_profile = core_arg(args, 0);
     let mut v_event = core_arg(args, 1);
@@ -17373,7 +18995,13 @@ fn provider_normalize_realtime_event(args: &[CoreValue]) -> Result<CoreValue, Ax
     return Ok(v_response.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_responses_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_empty_functions = CoreValue::Null;
@@ -17558,7 +19186,13 @@ fn openai_responses_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_responses_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
@@ -17619,7 +19253,13 @@ fn _openai_responses_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreV
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_responses_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fn = core_arg(args, 0);
     let mut v_description = CoreValue::Null;
@@ -17651,7 +19291,13 @@ fn _openai_responses_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     return Ok(v_tool.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_responses_input_item_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_message = core_arg(args, 0);
     let mut v_call_id = CoreValue::Null;
@@ -17696,7 +19342,13 @@ fn _openai_responses_input_item_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_responses_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_content = core_arg(args, 0);
     let mut v_role = core_arg(args, 1);
@@ -17728,7 +19380,13 @@ fn _openai_responses_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue,
     return Ok(v_parts.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_responses_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_part = core_arg(args, 0);
     let mut v_role = core_arg(args, 1);
@@ -17827,7 +19485,13 @@ fn _openai_responses_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, 
     return Err(core_as_error(&v_error));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_responses_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_ai_name = core_arg(args, 1);
@@ -17882,7 +19546,13 @@ fn openai_responses_normalize_chat_response(args: &[CoreValue]) -> Result<CoreVa
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_responses_merge_output_item_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_result = core_arg(args, 0);
     let mut v_item = core_arg(args, 1);
@@ -17935,7 +19605,13 @@ fn _openai_responses_merge_output_item_impl(args: &[CoreValue]) -> Result<CoreVa
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_responses_content_to_text_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_content = core_arg(args, 0);
     let mut v_is_refusal = CoreValue::Null;
@@ -17964,7 +19640,13 @@ fn _openai_responses_content_to_text_impl(args: &[CoreValue]) -> Result<CoreValu
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_responses_extract_citations_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_content = core_arg(args, 0);
     let mut v_annotation = CoreValue::Null;
@@ -18005,7 +19687,13 @@ fn _openai_responses_extract_citations_impl(args: &[CoreValue]) -> Result<CoreVa
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_responses_function_call_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_item = core_arg(args, 0);
     let mut v_args = CoreValue::Null;
@@ -18054,7 +19742,13 @@ fn _openai_responses_function_call_impl(args: &[CoreValue]) -> Result<CoreValue,
     return Ok(v_call.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_event = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
@@ -18227,7 +19921,13 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_responses_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_audio_file = CoreValue::Null;
@@ -18273,7 +19973,13 @@ fn openai_responses_build_transcribe_request(args: &[CoreValue]) -> Result<CoreV
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_responses_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_payload = CoreValue::Null;
@@ -18315,7 +20021,13 @@ fn openai_responses_build_speak_request(args: &[CoreValue]) -> Result<CoreValue,
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _grok_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_audio_file = CoreValue::Null;
@@ -18347,7 +20059,13 @@ fn _grok_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, AxErr
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _grok_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_codec = CoreValue::Null;
@@ -18428,7 +20146,13 @@ fn _grok_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_audio = CoreValue::Null;
@@ -18496,7 +20220,13 @@ fn _gemini_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, AxE
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_contents = CoreValue::Null;
@@ -18575,7 +20305,13 @@ fn _gemini_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_normalize_transcribe_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_candidate = CoreValue::Null;
@@ -18616,7 +20352,13 @@ fn _gemini_normalize_transcribe_response(args: &[CoreValue]) -> Result<CoreValue
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -18672,7 +20414,13 @@ fn _gemini_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_responses_normalize_realtime_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_event = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
@@ -18862,7 +20610,13 @@ fn openai_responses_normalize_realtime_event(args: &[CoreValue]) -> Result<CoreV
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_live_bidi_normalize_realtime_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_event = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
@@ -19102,7 +20856,13 @@ fn _gemini_live_bidi_normalize_realtime_event(args: &[CoreValue]) -> Result<Core
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_contents = CoreValue::Null;
@@ -19322,7 +21082,13 @@ fn _gemini_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
@@ -19401,7 +21167,13 @@ fn _gemini_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_message = core_arg(args, 0);
     let mut v_args = CoreValue::Null;
@@ -19551,7 +21323,13 @@ fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_none.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_content = core_arg(args, 0);
     let mut v_is_list = CoreValue::Null;
@@ -19574,7 +21352,13 @@ fn _gemini_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     return Ok(v_parts.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_part = core_arg(args, 0);
     let mut v_audio_alt = CoreValue::Null;
@@ -19673,7 +21457,13 @@ fn _gemini_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Err(core_as_error(&v_error));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_function_declaration_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fn = core_arg(args, 0);
     let mut v_decl = CoreValue::Null;
@@ -19700,7 +21490,13 @@ fn _gemini_function_declaration_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     return Ok(v_decl.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_tool_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_allowed = CoreValue::Null;
@@ -19776,7 +21572,13 @@ fn _gemini_tool_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_config.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_content = CoreValue::Null;
@@ -19817,7 +21619,13 @@ fn _gemini_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_ai_name = core_arg(args, 1);
@@ -20010,7 +21818,13 @@ fn _gemini_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_merge_response_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_result = core_arg(args, 0);
     let mut v_text_parts = core_arg(args, 1);
@@ -20062,7 +21876,13 @@ fn _gemini_merge_response_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_extract_citations_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_candidate = core_arg(args, 0);
     let mut v_chunk = CoreValue::Null;
@@ -20186,7 +22006,13 @@ fn _gemini_extract_citations_impl(args: &[CoreValue]) -> Result<CoreValue, AxErr
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_usage = core_arg(args, 0);
     let mut v_cached = CoreValue::Null;
@@ -20261,7 +22087,13 @@ fn _gemini_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _gemini_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_ai_name = core_arg(args, 1);
@@ -20317,7 +22149,13 @@ fn _gemini_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_cache = CoreValue::Null;
@@ -20513,7 +22351,13 @@ fn _anthropic_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxErro
     return Ok(v_payload.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
@@ -20673,7 +22517,13 @@ fn _anthropic_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, A
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_thinking_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_model = core_arg(args, 0);
     let mut v_level = core_arg(args, 1);
@@ -20785,7 +22635,13 @@ fn _anthropic_thinking_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_message = core_arg(args, 0);
     let mut v_block = CoreValue::Null;
@@ -21026,7 +22882,13 @@ fn _anthropic_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_content = core_arg(args, 0);
     let mut v_is_list = CoreValue::Null;
@@ -21050,7 +22912,13 @@ fn _anthropic_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     return Ok(v_parts.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_part = core_arg(args, 0);
     let mut v_cache = CoreValue::Null;
@@ -21123,7 +22991,13 @@ fn _anthropic_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     return Err(core_as_error(&v_error));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fn = core_arg(args, 0);
     let mut v_cache = CoreValue::Null;
@@ -21165,7 +23039,13 @@ fn _anthropic_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_tool.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_tool_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 0);
     let mut v_choice = CoreValue::Null;
@@ -21215,7 +23095,13 @@ fn _anthropic_tool_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     return Ok(v_none.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_ai_name = core_arg(args, 1);
@@ -21353,7 +23239,13 @@ fn _anthropic_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, A
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_merge_response_block_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_text_parts = core_arg(args, 0);
     let mut v_function_calls = core_arg(args, 1);
@@ -21459,7 +23351,13 @@ fn _anthropic_merge_response_block_impl(args: &[CoreValue]) -> Result<CoreValue,
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_append_citations_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_out = core_arg(args, 0);
     let mut v_block = core_arg(args, 1);
@@ -21498,7 +23396,13 @@ fn _anthropic_append_citations_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_reason = core_arg(args, 0);
     let mut v_is_context = CoreValue::Null;
@@ -21533,7 +23437,13 @@ fn _anthropic_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     return Ok(CoreValue::from("stop"));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_usage = core_arg(args, 0);
     let mut v_cache_creation = CoreValue::Null;
@@ -21611,7 +23521,13 @@ fn _anthropic_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_event = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
@@ -21989,7 +23905,13 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_gen = core_arg(args, 0);
     let mut v_messages = core_arg(args, 1);
@@ -22151,7 +24073,13 @@ fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_request.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn fold_stream(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_events = core_arg(args, 0);
     let mut v_chunks = CoreValue::Null;
@@ -22172,7 +24100,13 @@ fn fold_stream(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_folded.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _execute_tool_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_functions = core_arg(args, 0);
     let mut v_call = core_arg(args, 1);
@@ -22231,7 +24165,13 @@ fn _execute_tool_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Err(core_as_error(&v_error));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_event_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_event = core_arg(args, 0);
     let mut v_parts = CoreValue::Null;
@@ -22239,7 +24179,13 @@ fn _stream_event_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     return Ok(v_parts.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _validate_optimization_component_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_component = core_arg(args, 0);
     let mut v_value = core_arg(args, 1);
@@ -22368,7 +24314,13 @@ fn _validate_optimization_component_value(args: &[CoreValue]) -> Result<CoreValu
     return Ok(CoreValue::Bool(true));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _validate_optimization_component_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_components = core_arg(args, 0);
     let mut v_component_map = core_arg(args, 1);
@@ -22410,7 +24362,13 @@ fn _validate_optimization_component_map(args: &[CoreValue]) -> Result<CoreValue,
     return Ok(CoreValue::Bool(true));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _validate_optimized_artifact_provenance(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_artifact = core_arg(args, 0);
     let mut v_components = core_arg(args, 1);
@@ -22470,7 +24428,13 @@ fn _validate_optimized_artifact_provenance(args: &[CoreValue]) -> Result<CoreVal
     return Ok(CoreValue::Bool(true));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _validate_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_artifact = core_arg(args, 0);
     let mut v_components = core_arg(args, 1);
@@ -22610,7 +24574,13 @@ fn _validate_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError
     return Ok(v_artifact.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _serialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_artifact = core_arg(args, 0);
     let mut v_text = CoreValue::Null;
@@ -22618,7 +24588,13 @@ fn _serialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxErro
     return Ok(v_text.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _deserialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_text = core_arg(args, 0);
     let mut v_components = core_arg(args, 1);
@@ -22629,7 +24605,13 @@ fn _deserialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(v_validated.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_gen = core_arg(args, 0);
     let mut v_client = core_arg(args, 1);
@@ -22893,7 +24875,13 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Err(AxError::runtime("unreachable AxGen forward loop exit"));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _optimization_changed_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_components = core_arg(args, 0);
     let mut v_component_map = core_arg(args, 1);
@@ -22924,7 +24912,13 @@ fn _optimization_changed_components(args: &[CoreValue]) -> Result<CoreValue, AxE
     return Ok(v_changes.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _optimization_component_current_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_components = core_arg(args, 0);
     let mut v_component = CoreValue::Null;
@@ -22941,7 +24935,13 @@ fn _optimization_component_current_map(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _normalize_optimization_dataset(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_dataset = core_arg(args, 0);
     let mut v_empty_list = CoreValue::Null;
@@ -22978,7 +24978,13 @@ fn _normalize_optimization_dataset(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(v_out_list.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _normalize_optimization_metric_scores(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw = core_arg(args, 0);
     let mut v_is_number = CoreValue::Null;
@@ -23000,7 +25006,13 @@ fn _normalize_optimization_metric_scores(args: &[CoreValue]) -> Result<CoreValue
     return Ok(v_out_zero.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _scalarize_optimization_scores(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_scores = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
@@ -23043,7 +25055,13 @@ fn _scalarize_optimization_scores(args: &[CoreValue]) -> Result<CoreValue, AxErr
     return Ok(v_avg.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _optimization_action_name_matches(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_expected = core_arg(args, 0);
     let mut v_call = core_arg(args, 1);
@@ -23070,7 +25088,13 @@ fn _optimization_action_name_matches(args: &[CoreValue]) -> Result<CoreValue, Ax
     return Ok(v_any_match.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _adjust_optimization_score_for_actions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_score = core_arg(args, 0);
     let mut v_task = core_arg(args, 1);
@@ -23158,7 +25182,13 @@ fn _adjust_optimization_score_for_actions(args: &[CoreValue]) -> Result<CoreValu
     return Ok(v_adjusted.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _build_optimization_eval_row(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_task = core_arg(args, 0);
     let mut v_prediction = core_arg(args, 1);
@@ -23181,7 +25211,13 @@ fn _build_optimization_eval_row(args: &[CoreValue]) -> Result<CoreValue, AxError
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _build_optimization_eval_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_rows = core_arg(args, 0);
     let mut v_candidate_map = core_arg(args, 1);
@@ -23226,7 +25262,13 @@ fn _build_optimization_eval_result(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _filter_optimization_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_components = core_arg(args, 0);
     let mut v_target = core_arg(args, 1);
@@ -23321,7 +25363,13 @@ fn _filter_optimization_components(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _build_optimizer_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_program_kind = core_arg(args, 0);
     let mut v_components = core_arg(args, 1);
@@ -23369,7 +25417,13 @@ fn _build_optimizer_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _set_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_gen = core_arg(args, 0);
     let mut v_examples = core_arg(args, 1);
@@ -23377,7 +25431,13 @@ fn _set_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_gen.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _prepare_optimizer_run(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_program_kind = core_arg(args, 0);
     let mut v_components = core_arg(args, 1);
@@ -23444,7 +25504,13 @@ fn _prepare_optimizer_run(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _set_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_gen = core_arg(args, 0);
     let mut v_demos = core_arg(args, 1);
@@ -23452,7 +25518,13 @@ fn _set_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_gen.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _render_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_gen = core_arg(args, 0);
     let mut v_messages = CoreValue::Null;
@@ -23460,7 +25532,13 @@ fn _render_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_messages.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _normalize_optimizer_engine_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_response = core_arg(args, 0);
     let mut v_engine_name = core_arg(args, 1);
@@ -23638,7 +25716,13 @@ fn _normalize_optimizer_engine_response(args: &[CoreValue]) -> Result<CoreValue,
     return Ok(v_validated.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _render_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_gen = core_arg(args, 0);
     let mut v_messages = CoreValue::Null;
@@ -23646,7 +25730,13 @@ fn _render_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_messages.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_gen = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
@@ -23655,7 +25745,13 @@ fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_processed.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _run_assertions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_gen = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
@@ -23663,7 +25759,13 @@ fn _run_assertions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _append_assertion_retry_messages(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_messages = core_arg(args, 0);
     let mut v_response = core_arg(args, 1);
@@ -23676,7 +25778,13 @@ fn _append_assertion_retry_messages(args: &[CoreValue]) -> Result<CoreValue, AxE
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _record_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_gen = core_arg(args, 0);
     let mut v_input = core_arg(args, 1);
@@ -23691,7 +25799,13 @@ fn _record_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _build_optimizer_evidence_batch(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_eval_result = core_arg(args, 0);
     let mut v_components = core_arg(args, 1);
@@ -23849,7 +25963,13 @@ fn _build_optimizer_evidence_batch(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _should_continue_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_gen = core_arg(args, 0);
     let mut v_calls = core_arg(args, 1);
@@ -23858,7 +25978,13 @@ fn _should_continue_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_should_continue.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _complete_with_retries_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_client = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
@@ -23899,7 +26025,13 @@ fn _complete_with_retries_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     return Err(core_as_error(&v_last_error));
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_content = core_arg(args, 0);
     let mut v_output = CoreValue::Null;
@@ -23909,7 +26041,13 @@ fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_output.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fn = core_arg(args, 0);
     let mut v_description = CoreValue::Null;
@@ -23930,7 +26068,13 @@ fn _tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_spec.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _function_call_mode_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_mode = core_arg(args, 0);
     let mut v_is_auto = CoreValue::Null;
@@ -23955,7 +26099,13 @@ fn _function_call_mode_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_mode.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _response_function_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_response = core_arg(args, 0);
     let mut v_calls = CoreValue::Null;
@@ -23969,7 +26119,13 @@ fn _response_function_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     return Ok(v_calls.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _append_tool_call_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_messages = core_arg(args, 0);
     let mut v_response = core_arg(args, 1);
@@ -24006,7 +26162,13 @@ fn _append_tool_call_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     return Ok(CoreValue::Null);
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _completion_call_to_chat_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_call = core_arg(args, 0);
     let mut v_function = CoreValue::Null;
@@ -24027,7 +26189,13 @@ fn _completion_call_to_chat_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     return Ok(v_out.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_call = core_arg(args, 0);
     let mut v_result = core_arg(args, 1);
@@ -24047,7 +26215,13 @@ fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_message.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _tool_error_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_call = core_arg(args, 0);
     let mut v_error = core_arg(args, 1);
@@ -24081,7 +26255,13 @@ fn _tool_error_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_message.clone());
 }
 
-#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _append_validation_retry_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_messages = core_arg(args, 0);
     let mut v_response = core_arg(args, 1);
@@ -24133,4 +26313,14364 @@ fn _append_validation_retry_messages_impl(args: &[CoreValue]) -> Result<CoreValu
     return Ok(CoreValue::Null);
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (199 of 353 core functions; remaining modules are hand-written pending migration)
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_signature = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_action_log = CoreValue::Null;
+    let mut v_actor_model_state = CoreValue::Null;
+    let mut v_actor_prompt_policy = CoreValue::Null;
+    let mut v_callable_inventory = CoreValue::Null;
+    let mut v_callable_split = CoreValue::Null;
+    let mut v_chat_log = CoreValue::Null;
+    let mut v_code_field_name = CoreValue::Null;
+    let mut v_context_camel = CoreValue::Null;
+    let mut v_context_events = CoreValue::Null;
+    let mut v_context_fields = CoreValue::Null;
+    let mut v_context_policy = CoreValue::Null;
+    let mut v_ctx = CoreValue::Null;
+    let mut v_discovered_tool_docs = CoreValue::Null;
+    let mut v_discovery_catalog = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_executor_exclude = CoreValue::Null;
+    let mut v_executor_exclude_camel = CoreValue::Null;
+    let mut v_executor_model_policy = CoreValue::Null;
+    let mut v_executor_options = CoreValue::Null;
+    let mut v_executor_options_camel = CoreValue::Null;
+    let mut v_executor_signature = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_function_call_traces = CoreValue::Null;
+    let mut v_guidance_log = CoreValue::Null;
+    let mut v_has_any_runtime_config = CoreValue::Null;
+    let mut v_has_runtime_config = CoreValue::Null;
+    let mut v_has_runtime_config_snake = CoreValue::Null;
+    let mut v_has_runtime_direct = CoreValue::Null;
+    let mut v_input_fields = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_loaded_memories = CoreValue::Null;
+    let mut v_loaded_skill_docs = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_optimizer_metadata = CoreValue::Null;
+    let mut v_parsed_sig = CoreValue::Null;
+    let mut v_policy = CoreValue::Null;
+    let mut v_policy_flags = CoreValue::Null;
+    let mut v_policy_registry = CoreValue::Null;
+    let mut v_policy_trace = CoreValue::Null;
+    let mut v_responder_exclude = CoreValue::Null;
+    let mut v_responder_exclude_camel = CoreValue::Null;
+    let mut v_responder_options = CoreValue::Null;
+    let mut v_responder_options_camel = CoreValue::Null;
+    let mut v_runtime_contract = CoreValue::Null;
+    let mut v_runtime_enabled = CoreValue::Null;
+    let mut v_runtime_executor_signature = CoreValue::Null;
+    let mut v_sig = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_state_alpha = CoreValue::Null;
+    let mut v_status_log = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_trace_events = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    let mut v_used_memories = CoreValue::Null;
+    let mut v_used_skills = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_empty_map = CoreValue::new_map();
+    v_sig = v_signature.clone();
+    v_is_string = core_type_is(&v_signature, CoreValue::from("string"));
+    if core_truthy(&v_is_string) {
+        v_parsed_sig = parse_signature(&[v_signature.clone()])?;
+        v_sig = v_parsed_sig.clone();
+    } else {
+        v_sig = v_signature.clone();
+    }
+    v_context_camel = core_get(
+        &v_options,
+        &CoreValue::from("contextFields"),
+        v_empty_list.clone(),
+    );
+    v_context_fields = core_get(
+        &v_options,
+        &CoreValue::from("context_fields"),
+        v_context_camel.clone(),
+    );
+    v_executor_options = core_get(
+        &v_options,
+        &CoreValue::from("executor_options"),
+        v_empty_map.clone(),
+    );
+    v_executor_options_camel = core_get(
+        &v_options,
+        &CoreValue::from("executorOptions"),
+        v_executor_options.clone(),
+    );
+    v_responder_options = core_get(
+        &v_options,
+        &CoreValue::from("responder_options"),
+        v_empty_map.clone(),
+    );
+    v_responder_options_camel = core_get(
+        &v_options,
+        &CoreValue::from("responderOptions"),
+        v_responder_options.clone(),
+    );
+    v_executor_exclude_camel = core_get(
+        &v_executor_options_camel,
+        &CoreValue::from("excludeFields"),
+        v_empty_list.clone(),
+    );
+    v_executor_exclude = core_get(
+        &v_executor_options_camel,
+        &CoreValue::from("exclude_fields"),
+        v_executor_exclude_camel.clone(),
+    );
+    v_responder_exclude_camel = core_get(
+        &v_responder_options_camel,
+        &CoreValue::from("excludeFields"),
+        v_empty_list.clone(),
+    );
+    v_responder_exclude = core_get(
+        &v_responder_options_camel,
+        &CoreValue::from("exclude_fields"),
+        v_responder_exclude_camel.clone(),
+    );
+    v_input_fields = core_get(
+        &v_sig,
+        &CoreValue::from("input_fields"),
+        v_empty_list.clone(),
+    );
+    for v_ctx in core_iter(&v_context_fields)? {
+        let mut v_ctx = v_ctx;
+        v_found = CoreValue::Bool(false);
+        for v_field in core_iter(&v_input_fields)? {
+            let mut v_field = v_field;
+            v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+            v_matches = core_eq(&[v_field_name.clone(), v_ctx.clone()])?;
+            if core_truthy(&v_matches) {
+                v_found = CoreValue::Bool(true);
+            }
+        }
+        v_missing = core_not(&[v_found.clone()])?;
+        if core_truthy(&v_missing) {
+            v_message = core_string_format(&[
+                CoreValue::from("context field not found: {}"),
+                v_ctx.clone(),
+            ])?;
+            v_error = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    v_chat_log = CoreValue::new_list();
+    v_usage = CoreValue::new_map();
+    v_state_alpha = CoreValue::new_map();
+    v_action_log = CoreValue::new_list();
+    v_status_log = CoreValue::new_list();
+    v_state = CoreValue::new_map();
+    v_runtime_contract = _normalize_agent_runtime(&[v_options.clone()])?;
+    v_has_runtime_direct = core_map_contains(&[v_options.clone(), CoreValue::from("runtime")])?;
+    v_has_runtime_config =
+        core_map_contains(&[v_options.clone(), CoreValue::from("runtimeConfig")])?;
+    v_has_runtime_config_snake =
+        core_map_contains(&[v_options.clone(), CoreValue::from("runtime_config")])?;
+    v_has_any_runtime_config = core_or(&[
+        v_has_runtime_config.clone(),
+        v_has_runtime_config_snake.clone(),
+    ])?;
+    v_runtime_enabled = core_or(&[
+        v_has_runtime_direct.clone(),
+        v_has_any_runtime_config.clone(),
+    ])?;
+    v_policy = _normalize_agent_policy(&[v_options.clone()])?;
+    v_policy_flags = _agent_policy_flags(&[v_options.clone()])?;
+    v_policy_registry = _agent_policy_registry(&[v_policy.clone(), v_policy_flags.clone()])?;
+    v_context_policy = _resolve_agent_context_policy(&[v_options.clone()])?;
+    v_executor_model_policy = _resolve_agent_executor_model_policy(&[v_options.clone()])?;
+    v_callable_inventory = _normalize_agent_callable_inventory(&[v_options.clone()])?;
+    v_callable_split = _split_agent_callable_inventory(&[v_callable_inventory.clone()])?;
+    v_discovery_catalog = _render_agent_discovery_catalog(&[v_callable_split.clone()])?;
+    v_discovered_tool_docs = CoreValue::new_list();
+    v_loaded_skill_docs = CoreValue::new_list();
+    v_loaded_memories = CoreValue::new_list();
+    v_used_memories = CoreValue::new_list();
+    v_used_skills = CoreValue::new_list();
+    v_guidance_log = CoreValue::new_list();
+    v_function_call_traces = CoreValue::new_list();
+    v_policy_trace = CoreValue::new_list();
+    v_context_events = CoreValue::new_list();
+    v_actor_model_state = CoreValue::new_map();
+    v_trace_events = CoreValue::new_list();
+    v_trace = CoreValue::new_map();
+    core_set(
+        &v_trace,
+        CoreValue::from("schema_version"),
+        CoreValue::from("axir-agent-trace-v1"),
+    )?;
+    core_set(
+        &v_trace,
+        CoreValue::from("kind"),
+        CoreValue::from("agent_run"),
+    )?;
+    core_set(&v_trace, CoreValue::from("status"), CoreValue::from("idle"))?;
+    core_set(&v_trace, CoreValue::from("events"), v_trace_events.clone())?;
+    core_set(&v_state, CoreValue::from("signature"), v_sig.clone())?;
+    core_set(&v_state, CoreValue::from("options"), v_options.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("context_fields"),
+        v_context_fields.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("executor_exclude_fields"),
+        v_executor_exclude.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("responder_exclude_fields"),
+        v_responder_exclude.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("distiller_signature"),
+        CoreValue::from("input:json, context:json -> completion:json"),
+    )?;
+    v_code_field_name = core_get(
+        &v_runtime_contract,
+        &CoreValue::from("code_field_name"),
+        CoreValue::from("javascriptCode"),
+    );
+    v_runtime_executor_signature = core_string_format(&[CoreValue::from("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), v_code_field_name.clone()])?;
+    v_executor_signature = CoreValue::from(
+        "input:json, executorRequest:string, distilledContext:json -> completion:json",
+    );
+    if core_truthy(&v_runtime_enabled) {
+        v_executor_signature = v_runtime_executor_signature.clone();
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("executor_signature"),
+        v_executor_signature.clone(),
+    )?;
+    core_set(&v_state, CoreValue::from("chat_log"), v_chat_log.clone())?;
+    core_set(&v_state, CoreValue::from("usage"), v_usage.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_state"),
+        v_state_alpha.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("action_log"),
+        v_action_log.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("status_log"),
+        v_status_log.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_contract"),
+        v_runtime_contract.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_enabled"),
+        v_runtime_enabled.clone(),
+    )?;
+    core_set(&v_state, CoreValue::from("policy"), v_policy.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("policy_flags"),
+        v_policy_flags.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("policy_registry"),
+        v_policy_registry.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("context_policy"),
+        v_context_policy.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("executor_model_policy"),
+        v_executor_model_policy.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("context_events"),
+        v_context_events.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("actor_model_state"),
+        v_actor_model_state.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("callable_inventory"),
+        v_callable_inventory.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("callable_split"),
+        v_callable_split.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("discovery_catalog"),
+        v_discovery_catalog.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("discovered_tool_docs"),
+        v_discovered_tool_docs.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("loaded_skill_docs"),
+        v_loaded_skill_docs.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("loaded_memories"),
+        v_loaded_memories.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("used_memories"),
+        v_used_memories.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("used_skills"),
+        v_used_skills.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("guidance_log"),
+        v_guidance_log.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("function_call_traces"),
+        v_function_call_traces.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("policy_trace"),
+        v_policy_trace.clone(),
+    )?;
+    core_set(&v_state, CoreValue::from("trace"), v_trace.clone())?;
+    v_optimizer_metadata = _agent_optimizer_metadata(&[v_state.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("optimizer_metadata"),
+        v_optimizer_metadata.clone(),
+    )?;
+    v_actor_prompt_policy = _build_agent_actor_prompt_policy(&[v_state.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("actor_prompt_policy"),
+        v_actor_prompt_policy.clone(),
+    )?;
+    return Ok(v_state.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _optimization_component(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_id = core_arg(args, 0);
+    let mut v_owner = core_arg(args, 1);
+    let mut v_kind = core_arg(args, 2);
+    let mut v_current = core_arg(args, 3);
+    let mut v_description = core_arg(args, 4);
+    let mut v_constraints = core_arg(args, 5);
+    let mut v_depends_on = core_arg(args, 6);
+    let mut v_preserve = core_arg(args, 7);
+    let mut v_format = core_arg(args, 8);
+    let mut v_validation = core_arg(args, 9);
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_out, CoreValue::from("owner"), v_owner.clone())?;
+    core_set(&v_out, CoreValue::from("kind"), v_kind.clone())?;
+    core_set(&v_out, CoreValue::from("current"), v_current.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("description"),
+        v_description.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("constraints"),
+        v_constraints.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("dependsOn"), v_depends_on.clone())?;
+    core_set(&v_out, CoreValue::from("preserve"), v_preserve.clone())?;
+    core_set(&v_out, CoreValue::from("format"), v_format.clone())?;
+    core_set(&v_out, CoreValue::from("validation"), v_validation.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_optimizer_name = core_arg(args, 0);
+    let mut v_optimizer_version = core_arg(args, 1);
+    let mut v_component_map = core_arg(args, 2);
+    let mut v_metadata = core_arg(args, 3);
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_evidence = CoreValue::Null;
+    let mut v_meta = CoreValue::Null;
+    let mut v_meta_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_provenance = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("artifactVersion"),
+        CoreValue::from("axir-optimized-artifact-v1"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("optimizerName"),
+        v_optimizer_name.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("optimizerVersion"),
+        v_optimizer_version.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("componentMap"),
+        v_component_map.clone(),
+    )?;
+    v_meta = v_metadata.clone();
+    v_meta_missing = core_is_none(&[v_metadata.clone()])?;
+    if core_truthy(&v_meta_missing) {
+        v_meta = v_empty_map.clone();
+    }
+    core_set(&v_out, CoreValue::from("metadata"), v_meta.clone())?;
+    v_provenance = core_get(&v_meta, &CoreValue::from("provenance"), v_empty_map.clone());
+    v_evidence = core_get(&v_meta, &CoreValue::from("evidence"), v_empty_map.clone());
+    core_set(&v_out, CoreValue::from("provenance"), v_provenance.clone())?;
+    core_set(&v_out, CoreValue::from("evidence"), v_evidence.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_reserved_runtime_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_names = CoreValue::Null;
+    let mut v_names_is_list = CoreValue::Null;
+    let mut v_registry = CoreValue::Null;
+    v_registry = _agent_policy_vocabulary_registry(&[])?;
+    v_names = core_get(
+        &v_registry,
+        &CoreValue::from("reserved_runtime_names"),
+        CoreValue::Null,
+    );
+    v_names_is_list = core_type_is(&v_names, CoreValue::from("list"));
+    if core_truthy(&v_names_is_list) {
+    } else {
+        v_names = CoreValue::new_list();
+    }
+    return Ok(v_names.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_language_tokens(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_language = core_arg(args, 0);
+    let mut v_plus_spaced = CoreValue::Null;
+    let mut v_sharp_spaced = CoreValue::Null;
+    let mut v_tokens = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_word_spaced = CoreValue::Null;
+    v_trimmed = core_string_trim(&v_language);
+    v_sharp_spaced = core_regex_replace(&[
+        CoreValue::from("#"),
+        CoreValue::from(" Sharp "),
+        v_trimmed.clone(),
+    ])?;
+    v_plus_spaced = core_regex_replace(&[
+        CoreValue::from("\\+"),
+        CoreValue::from(" Plus "),
+        v_sharp_spaced.clone(),
+    ])?;
+    v_word_spaced = core_regex_replace(&[
+        CoreValue::from("[^A-Za-z0-9]+"),
+        CoreValue::from(" "),
+        v_plus_spaced.clone(),
+    ])?;
+    v_tokens = core_string_words(&[v_word_spaced.clone()])?;
+    return Ok(v_tokens.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_language_alias_key(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_tokens = core_arg(args, 0);
+    let mut v_alias_key = CoreValue::Null;
+    let mut v_joined = CoreValue::Null;
+    v_joined = core_string_join_intrinsic(&[CoreValue::from(""), v_tokens.clone()])?;
+    v_alias_key = core_string_lower(&[v_joined.clone()])?;
+    return Ok(v_alias_key.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_is_javascript_alias(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_alias_key = core_arg(args, 0);
+    let mut v_is_ecmascript = CoreValue::Null;
+    let mut v_is_javascript = CoreValue::Null;
+    let mut v_is_js = CoreValue::Null;
+    let mut v_is_js_or_javascript = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_is_javascript = core_eq(&[v_alias_key.clone(), CoreValue::from("javascript")])?;
+    v_is_js = core_eq(&[v_alias_key.clone(), CoreValue::from("js")])?;
+    v_is_ecmascript = core_eq(&[v_alias_key.clone(), CoreValue::from("ecmascript")])?;
+    v_is_js_or_javascript = core_or(&[v_is_javascript.clone(), v_is_js.clone()])?;
+    v_out = core_or(&[v_is_js_or_javascript.clone(), v_is_ecmascript.clone()])?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_code_field_name(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_tokens = core_arg(args, 0);
+    let mut v_is_javascript = core_arg(args, 1);
+    let mut v_count = CoreValue::Null;
+    let mut v_has_tokens = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
+    v_out = CoreValue::from("javascriptCode");
+    if core_truthy(&v_is_javascript) {
+        v_out = CoreValue::from("javascriptCode");
+    } else {
+        v_count = core_len(&[v_tokens.clone()])?;
+        v_has_tokens = core_gt(&[v_count.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_has_tokens) {
+            v_prefix = core_string_lower_camel(&[v_tokens.clone()])?;
+            v_out = core_string_format(&[CoreValue::from("{}Code"), v_prefix.clone()])?;
+        } else {
+            v_out = CoreValue::from("runtimeCode");
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_code_fence_language(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_tokens = core_arg(args, 0);
+    let mut v_alias_key = core_arg(args, 1);
+    let mut v_is_javascript = core_arg(args, 2);
+    let mut v_count = CoreValue::Null;
+    let mut v_has_tokens = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::from("js");
+    if core_truthy(&v_is_javascript) {
+        v_out = CoreValue::from("js");
+    } else {
+        v_count = core_len(&[v_tokens.clone()])?;
+        v_has_tokens = core_gt(&[v_count.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_has_tokens) {
+            v_out = v_alias_key.clone();
+        } else {
+            v_out = CoreValue::from("text");
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_runtime(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_options = core_arg(args, 0);
+    let mut v_alias_key = CoreValue::Null;
+    let mut v_code_fence_camel = CoreValue::Null;
+    let mut v_code_fence_language = CoreValue::Null;
+    let mut v_code_field_camel = CoreValue::Null;
+    let mut v_code_field_name = CoreValue::Null;
+    let mut v_code_field_title = CoreValue::Null;
+    let mut v_code_title_camel = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_is_js = CoreValue::Null;
+    let mut v_language = CoreValue::Null;
+    let mut v_language_missing = CoreValue::Null;
+    let mut v_language_tokens = CoreValue::Null;
+    let mut v_missing_code_field = CoreValue::Null;
+    let mut v_missing_fence = CoreValue::Null;
+    let mut v_missing_title = CoreValue::Null;
+    let mut v_missing_usage = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_primitives = CoreValue::Null;
+    let mut v_raw_language = CoreValue::Null;
+    let mut v_runtime = CoreValue::Null;
+    let mut v_runtime_camel = CoreValue::Null;
+    let mut v_state_hooks = CoreValue::Null;
+    let mut v_trimmed_language = CoreValue::Null;
+    let mut v_usage_camel = CoreValue::Null;
+    let mut v_usage_instructions = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_runtime_camel = core_get(
+        &v_options,
+        &CoreValue::from("runtimeConfig"),
+        v_empty_map.clone(),
+    );
+    v_runtime = core_get(
+        &v_options,
+        &CoreValue::from("runtime"),
+        v_runtime_camel.clone(),
+    );
+    v_raw_language = core_get(
+        &v_runtime,
+        &CoreValue::from("language"),
+        CoreValue::from("JavaScript"),
+    );
+    v_trimmed_language = core_string_trim(&v_raw_language);
+    v_language_missing = core_eq(&[v_trimmed_language.clone(), CoreValue::from("")])?;
+    v_language = v_trimmed_language.clone();
+    if core_truthy(&v_language_missing) {
+        v_language = CoreValue::from("JavaScript");
+    }
+    v_language_tokens = _agent_runtime_language_tokens(&[v_language.clone()])?;
+    v_alias_key = _agent_runtime_language_alias_key(&[v_language_tokens.clone()])?;
+    v_is_js = _agent_runtime_is_javascript_alias(&[v_alias_key.clone()])?;
+    v_code_field_camel = core_get(
+        &v_runtime,
+        &CoreValue::from("codeFieldName"),
+        CoreValue::from(""),
+    );
+    v_code_field_name = core_get(
+        &v_runtime,
+        &CoreValue::from("code_field_name"),
+        v_code_field_camel.clone(),
+    );
+    v_missing_code_field = core_eq(&[v_code_field_name.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing_code_field) {
+        v_code_field_name =
+            _agent_runtime_code_field_name(&[v_language_tokens.clone(), v_is_js.clone()])?;
+    }
+    v_code_title_camel = core_get(
+        &v_runtime,
+        &CoreValue::from("codeFieldTitle"),
+        CoreValue::from(""),
+    );
+    v_code_field_title = core_get(
+        &v_runtime,
+        &CoreValue::from("code_field_title"),
+        v_code_title_camel.clone(),
+    );
+    v_missing_title = core_eq(&[v_code_field_title.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing_title) {
+        v_code_field_title = core_string_title_from_camel(&[v_code_field_name.clone()])?;
+    }
+    v_code_fence_camel = core_get(
+        &v_runtime,
+        &CoreValue::from("codeFenceLanguage"),
+        CoreValue::from(""),
+    );
+    v_code_fence_language = core_get(
+        &v_runtime,
+        &CoreValue::from("code_fence_language"),
+        v_code_fence_camel.clone(),
+    );
+    v_missing_fence = core_eq(&[v_code_fence_language.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing_fence) {
+        v_code_fence_language = _agent_runtime_code_fence_language(&[
+            v_language_tokens.clone(),
+            v_alias_key.clone(),
+            v_is_js.clone(),
+        ])?;
+    }
+    v_usage_camel = core_get(
+        &v_runtime,
+        &CoreValue::from("usageInstructions"),
+        CoreValue::from(""),
+    );
+    v_usage_instructions = core_get(
+        &v_runtime,
+        &CoreValue::from("usage_instructions"),
+        v_usage_camel.clone(),
+    );
+    v_missing_usage = core_eq(&[v_usage_instructions.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing_usage) {
+        v_usage_instructions = CoreValue::from("Use the active runtime language. Read inputs, call namespaced tools or child agents, use discover(...) before unknown callables, final(...) when complete, and askClarification(...) when blocked.");
+    }
+    v_primitives = _agent_reserved_runtime_names(&[])?;
+    v_state_hooks = CoreValue::new_list();
+    core_append(&v_state_hooks, CoreValue::from("create_session"))?;
+    core_append(&v_state_hooks, CoreValue::from("execute_code"))?;
+    core_append(&v_state_hooks, CoreValue::from("inspect_globals"))?;
+    core_append(&v_state_hooks, CoreValue::from("export_state"))?;
+    core_append(&v_state_hooks, CoreValue::from("restore_state"))?;
+    core_append(&v_state_hooks, CoreValue::from("close_session"))?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("language"), v_language.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("code_field_name"),
+        v_code_field_name.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("code_field_title"),
+        v_code_field_title.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("code_fence_language"),
+        v_code_fence_language.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("is_javascript"), v_is_js.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("usage_instructions"),
+        v_usage_instructions.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("callable_format"),
+        CoreValue::from("namespaced_runtime_call"),
+    )?;
+    core_set(&v_out, CoreValue::from("primitives"), v_primitives.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("state_hooks"),
+        v_state_hooks.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_options = core_arg(args, 0);
+    let mut v_delegation_default = CoreValue::Null;
+    let mut v_discovery_default = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_policy_camel = CoreValue::Null;
+    let mut v_policy_in = CoreValue::Null;
+    let mut v_prompt_placement = CoreValue::Null;
+    let mut v_skills_default = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_policy_camel = core_get(
+        &v_options,
+        &CoreValue::from("agentPolicy"),
+        v_empty_map.clone(),
+    );
+    v_policy_in = core_get(
+        &v_options,
+        &CoreValue::from("agent_policy"),
+        v_policy_camel.clone(),
+    );
+    v_discovery_default = core_get(
+        &v_policy_in,
+        &CoreValue::from("discovery_default"),
+        CoreValue::from("compact_catalog_prompt_full_docs_runtime_discover"),
+    );
+    v_delegation_default = core_get(
+        &v_policy_in,
+        &CoreValue::from("delegation_default"),
+        CoreValue::from("child_agents_as_namespaced_tools"),
+    );
+    v_skills_default = core_get(
+        &v_policy_in,
+        &CoreValue::from("skills_default"),
+        CoreValue::from("host_callback_loads_skill_docs_next_executor_prompt"),
+    );
+    v_prompt_placement = core_get(
+        &v_policy_in,
+        &CoreValue::from("prompt_placement"),
+        CoreValue::from("runtime_usage_catalog_in_actor_prompt_loaded_docs_next_turn"),
+    );
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("policy_version"),
+        CoreValue::from("agent-runtime-decision-v1"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("policy_schema_version"),
+        CoreValue::from("axir-agent-policy-v1"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("discovery_default"),
+        v_discovery_default.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("delegation_default"),
+        v_delegation_default.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("skills_default"),
+        v_skills_default.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("prompt_placement"),
+        v_prompt_placement.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("discover_returns"),
+        CoreValue::from("void"),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_policy_flags(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_options = core_arg(args, 0);
+    let mut v_context_config = CoreValue::Null;
+    let mut v_function_discovery = CoreValue::Null;
+    let mut v_function_discovery_camel = CoreValue::Null;
+    let mut v_has_context_config = CoreValue::Null;
+    let mut v_has_memories_callback = CoreValue::Null;
+    let mut v_has_skills_callback = CoreValue::Null;
+    let mut v_has_status_callback = CoreValue::Null;
+    let mut v_inspect_camel = CoreValue::Null;
+    let mut v_inspect_direct = CoreValue::Null;
+    let mut v_inspect_mode = CoreValue::Null;
+    let mut v_memories_camel = CoreValue::Null;
+    let mut v_memories_direct = CoreValue::Null;
+    let mut v_memories_mode = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_skills_camel = CoreValue::Null;
+    let mut v_skills_direct = CoreValue::Null;
+    let mut v_skills_mode = CoreValue::Null;
+    let mut v_status_camel = CoreValue::Null;
+    let mut v_status_direct = CoreValue::Null;
+    let mut v_status_mode = CoreValue::Null;
+    let mut v_usage_camel = CoreValue::Null;
+    let mut v_usage_enabled = CoreValue::Null;
+    v_function_discovery_camel = core_get(
+        &v_options,
+        &CoreValue::from("functionDiscovery"),
+        CoreValue::Bool(false),
+    );
+    v_function_discovery = core_get(
+        &v_options,
+        &CoreValue::from("function_discovery"),
+        v_function_discovery_camel.clone(),
+    );
+    v_skills_camel = core_get(
+        &v_options,
+        &CoreValue::from("skillsMode"),
+        CoreValue::Bool(false),
+    );
+    v_skills_direct = core_get(
+        &v_options,
+        &CoreValue::from("skills_mode"),
+        v_skills_camel.clone(),
+    );
+    v_has_skills_callback =
+        core_map_contains(&[v_options.clone(), CoreValue::from("onSkillsSearch")])?;
+    v_skills_mode = core_or(&[v_skills_direct.clone(), v_has_skills_callback.clone()])?;
+    v_memories_camel = core_get(
+        &v_options,
+        &CoreValue::from("memoriesMode"),
+        CoreValue::Bool(false),
+    );
+    v_memories_direct = core_get(
+        &v_options,
+        &CoreValue::from("memories_mode"),
+        v_memories_camel.clone(),
+    );
+    v_has_memories_callback =
+        core_map_contains(&[v_options.clone(), CoreValue::from("onMemoriesSearch")])?;
+    v_memories_mode = core_or(&[v_memories_direct.clone(), v_has_memories_callback.clone()])?;
+    v_usage_camel = core_get(
+        &v_options,
+        &CoreValue::from("usageTrackingMode"),
+        CoreValue::Bool(false),
+    );
+    v_usage_enabled = core_get(
+        &v_options,
+        &CoreValue::from("usage_tracking_mode"),
+        v_usage_camel.clone(),
+    );
+    v_status_camel = core_get(
+        &v_options,
+        &CoreValue::from("hasAgentStatusCallback"),
+        CoreValue::Bool(false),
+    );
+    v_status_direct = core_get(
+        &v_options,
+        &CoreValue::from("has_agent_status_callback"),
+        v_status_camel.clone(),
+    );
+    v_has_status_callback =
+        core_map_contains(&[v_options.clone(), CoreValue::from("agentStatusCallback")])?;
+    v_status_mode = core_or(&[v_status_direct.clone(), v_has_status_callback.clone()])?;
+    v_inspect_camel = core_get(
+        &v_options,
+        &CoreValue::from("hasInspectRuntime"),
+        CoreValue::Bool(false),
+    );
+    v_inspect_direct = core_get(
+        &v_options,
+        &CoreValue::from("has_inspect_runtime"),
+        v_inspect_camel.clone(),
+    );
+    v_context_config = core_get(&v_options, &CoreValue::from("context"), CoreValue::Null);
+    v_has_context_config = core_type_is(&v_context_config, CoreValue::from("object"));
+    v_inspect_mode = core_or(&[v_inspect_direct.clone(), v_has_context_config.clone()])?;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("discoveryMode"),
+        v_function_discovery.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("skillsMode"), v_skills_mode.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("memoriesMode"),
+        v_memories_mode.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("usageTrackingMode"),
+        v_usage_enabled.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("hasAgentStatusCallback"),
+        v_status_mode.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("hasInspectRuntime"),
+        v_inspect_mode.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_policy_action(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_id = core_arg(args, 0);
+    let mut v_category = core_arg(args, 1);
+    let mut v_kind = core_arg(args, 2);
+    let mut v_stages = core_arg(args, 3);
+    let mut v_availability = core_arg(args, 4);
+    let mut v_effect = core_arg(args, 5);
+    let mut v_host_boundary = core_arg(args, 6);
+    let mut v_actor_visible = core_arg(args, 7);
+    let mut v_entry = CoreValue::Null;
+    v_entry = CoreValue::new_map();
+    core_set(&v_entry, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_entry, CoreValue::from("public_name"), v_id.clone())?;
+    core_set(&v_entry, CoreValue::from("category"), v_category.clone())?;
+    core_set(&v_entry, CoreValue::from("kind"), v_kind.clone())?;
+    core_set(&v_entry, CoreValue::from("stages"), v_stages.clone())?;
+    core_set(
+        &v_entry,
+        CoreValue::from("availability_condition"),
+        v_availability.clone(),
+    )?;
+    core_set(&v_entry, CoreValue::from("effect"), v_effect.clone())?;
+    core_set(
+        &v_entry,
+        CoreValue::from("host_boundary"),
+        v_host_boundary.clone(),
+    )?;
+    core_set(
+        &v_entry,
+        CoreValue::from("actor_visible"),
+        v_actor_visible.clone(),
+    )?;
+    core_set(&v_entry, CoreValue::from("trace_event"), v_id.clone())?;
+    return Ok(v_entry.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_policy_vocabulary_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_adaptive_recent = CoreValue::Null;
+    let mut v_allowed_keys = CoreValue::Null;
+    let mut v_budget_balanced = CoreValue::Null;
+    let mut v_budget_compact = CoreValue::Null;
+    let mut v_budget_expanded = CoreValue::Null;
+    let mut v_budget_math = CoreValue::Null;
+    let mut v_budgets = CoreValue::Null;
+    let mut v_checkpointed_recent = CoreValue::Null;
+    let mut v_context = CoreValue::Null;
+    let mut v_effect_only = CoreValue::Null;
+    let mut v_event_names = CoreValue::Null;
+    let mut v_event_reasons = CoreValue::Null;
+    let mut v_executor_model = CoreValue::Null;
+    let mut v_hygiene_modes = CoreValue::Null;
+    let mut v_lean_recent = CoreValue::Null;
+    let mut v_legacy_keys = CoreValue::Null;
+    let mut v_migration_errors = CoreValue::Null;
+    let mut v_none_value = CoreValue::Null;
+    let mut v_option_keys = CoreValue::Null;
+    let mut v_preset_adaptive = CoreValue::Null;
+    let mut v_preset_checkpointed = CoreValue::Null;
+    let mut v_preset_full = CoreValue::Null;
+    let mut v_preset_lean = CoreValue::Null;
+    let mut v_presets = CoreValue::Null;
+    let mut v_pressure_critical = CoreValue::Null;
+    let mut v_pressure_levels = CoreValue::Null;
+    let mut v_pressure_ok = CoreValue::Null;
+    let mut v_pressure_watch = CoreValue::Null;
+    let mut v_primitive_names = CoreValue::Null;
+    let mut v_registry = CoreValue::Null;
+    let mut v_reserved = CoreValue::Null;
+    let mut v_runtime_output_budget = CoreValue::Null;
+    let mut v_smart_stringify = CoreValue::Null;
+    v_registry = CoreValue::new_map();
+    v_none_value = core_none(&[])?;
+    core_set(
+        &v_registry,
+        CoreValue::from("policy_schema_version"),
+        CoreValue::from("axir-agent-policy-vocabulary-v1"),
+    )?;
+    core_set(
+        &v_registry,
+        CoreValue::from("policy_version"),
+        CoreValue::from("agent-runtime-decision-v1"),
+    )?;
+    v_primitive_names = CoreValue::new_map();
+    core_set(
+        &v_primitive_names,
+        CoreValue::from("llm_query"),
+        CoreValue::from("llmQuery"),
+    )?;
+    core_set(
+        &v_primitive_names,
+        CoreValue::from("final"),
+        CoreValue::from("final"),
+    )?;
+    core_set(
+        &v_primitive_names,
+        CoreValue::from("ask_clarification"),
+        CoreValue::from("askClarification"),
+    )?;
+    core_set(
+        &v_primitive_names,
+        CoreValue::from("report_success"),
+        CoreValue::from("reportSuccess"),
+    )?;
+    core_set(
+        &v_primitive_names,
+        CoreValue::from("report_failure"),
+        CoreValue::from("reportFailure"),
+    )?;
+    core_set(
+        &v_primitive_names,
+        CoreValue::from("inspect_runtime"),
+        CoreValue::from("inspectRuntime"),
+    )?;
+    core_set(
+        &v_primitive_names,
+        CoreValue::from("discover"),
+        CoreValue::from("discover"),
+    )?;
+    core_set(
+        &v_primitive_names,
+        CoreValue::from("recall"),
+        CoreValue::from("recall"),
+    )?;
+    core_set(
+        &v_primitive_names,
+        CoreValue::from("used"),
+        CoreValue::from("used"),
+    )?;
+    core_set(
+        &v_primitive_names,
+        CoreValue::from("guide_agent"),
+        CoreValue::from("guideAgent"),
+    )?;
+    core_set(
+        &v_primitive_names,
+        CoreValue::from("inputs"),
+        CoreValue::from("inputs"),
+    )?;
+    core_set(
+        &v_registry,
+        CoreValue::from("actor_primitive_names"),
+        v_primitive_names.clone(),
+    )?;
+    v_reserved = CoreValue::new_list();
+    core_append(&v_reserved, CoreValue::from("inputs"))?;
+    core_append(&v_reserved, CoreValue::from("final"))?;
+    core_append(&v_reserved, CoreValue::from("askClarification"))?;
+    core_append(&v_reserved, CoreValue::from("discover"))?;
+    core_append(&v_reserved, CoreValue::from("recall"))?;
+    core_append(&v_reserved, CoreValue::from("llmQuery"))?;
+    core_append(&v_reserved, CoreValue::from("inspectRuntime"))?;
+    core_append(&v_reserved, CoreValue::from("reportSuccess"))?;
+    core_append(&v_reserved, CoreValue::from("reportFailure"))?;
+    core_set(
+        &v_registry,
+        CoreValue::from("reserved_runtime_names"),
+        v_reserved.clone(),
+    )?;
+    v_effect_only = CoreValue::new_list();
+    core_append(&v_effect_only, CoreValue::from("discover"))?;
+    core_append(&v_effect_only, CoreValue::from("recall"))?;
+    core_append(&v_effect_only, CoreValue::from("used"))?;
+    core_set(
+        &v_registry,
+        CoreValue::from("effect_only_actions"),
+        v_effect_only.clone(),
+    )?;
+    v_context = CoreValue::new_map();
+    core_set(
+        &v_context,
+        CoreValue::from("default_preset"),
+        CoreValue::from("checkpointed"),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("default_budget"),
+        CoreValue::from("balanced"),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("full_preset"),
+        CoreValue::from("full"),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("default_max_runtime_chars"),
+        CoreValue::Num(3000f64),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("state_summary_max_chars"),
+        CoreValue::Num(1200f64),
+    )?;
+    v_option_keys = CoreValue::new_map();
+    core_set(
+        &v_option_keys,
+        CoreValue::from("camel"),
+        CoreValue::from("contextPolicy"),
+    )?;
+    core_set(
+        &v_option_keys,
+        CoreValue::from("snake"),
+        CoreValue::from("context_policy"),
+    )?;
+    core_set(
+        &v_option_keys,
+        CoreValue::from("preset"),
+        CoreValue::from("preset"),
+    )?;
+    core_set(
+        &v_option_keys,
+        CoreValue::from("budget"),
+        CoreValue::from("budget"),
+    )?;
+    core_set(
+        &v_option_keys,
+        CoreValue::from("summarizer_camel"),
+        CoreValue::from("summarizerOptions"),
+    )?;
+    core_set(
+        &v_option_keys,
+        CoreValue::from("summarizer_snake"),
+        CoreValue::from("summarizer_options"),
+    )?;
+    core_set(
+        &v_option_keys,
+        CoreValue::from("max_runtime_camel"),
+        CoreValue::from("maxRuntimeChars"),
+    )?;
+    core_set(
+        &v_option_keys,
+        CoreValue::from("max_runtime_snake"),
+        CoreValue::from("max_runtime_chars"),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("option_keys"),
+        v_option_keys.clone(),
+    )?;
+    v_allowed_keys = CoreValue::new_list();
+    core_append(&v_allowed_keys, CoreValue::from("preset"))?;
+    core_append(&v_allowed_keys, CoreValue::from("budget"))?;
+    core_set(
+        &v_context,
+        CoreValue::from("allowed_keys"),
+        v_allowed_keys.clone(),
+    )?;
+    v_migration_errors = CoreValue::new_map();
+    core_set(
+        &v_migration_errors,
+        CoreValue::from("state"),
+        CoreValue::from(
+            "contextPolicy.state.* has been removed. Use contextPolicy.budget instead.",
+        ),
+    )?;
+    core_set(
+        &v_migration_errors,
+        CoreValue::from("checkpoints"),
+        CoreValue::from(
+            "contextPolicy.checkpoints.* has been removed. Use contextPolicy.budget instead.",
+        ),
+    )?;
+    core_set(
+        &v_migration_errors,
+        CoreValue::from("summarizerOptions"),
+        CoreValue::from(
+            "contextPolicy.summarizerOptions has moved to top-level summarizerOptions.",
+        ),
+    )?;
+    core_set(&v_migration_errors, CoreValue::from("default"), CoreValue::from("contextPolicy now only supports { preset?, budget? }. Use contextPolicy.budget instead of contextPolicy.state.*, contextPolicy.checkpoints.*, or other manual cutoff options."))?;
+    core_set(
+        &v_context,
+        CoreValue::from("migration_errors"),
+        v_migration_errors.clone(),
+    )?;
+    v_budgets = CoreValue::new_map();
+    v_budget_compact = CoreValue::new_map();
+    core_set(
+        &v_budget_compact,
+        CoreValue::from("id"),
+        CoreValue::from("compact"),
+    )?;
+    core_set(
+        &v_budget_compact,
+        CoreValue::from("targetPromptChars"),
+        CoreValue::Num(12000f64),
+    )?;
+    core_set(
+        &v_budget_compact,
+        CoreValue::from("inspectThreshold"),
+        CoreValue::Num(10200f64),
+    )?;
+    core_set(
+        &v_budgets,
+        CoreValue::from("compact"),
+        v_budget_compact.clone(),
+    )?;
+    v_budget_balanced = CoreValue::new_map();
+    core_set(
+        &v_budget_balanced,
+        CoreValue::from("id"),
+        CoreValue::from("balanced"),
+    )?;
+    core_set(
+        &v_budget_balanced,
+        CoreValue::from("targetPromptChars"),
+        CoreValue::Num(16000f64),
+    )?;
+    core_set(
+        &v_budget_balanced,
+        CoreValue::from("inspectThreshold"),
+        CoreValue::Num(13600f64),
+    )?;
+    core_set(
+        &v_budgets,
+        CoreValue::from("balanced"),
+        v_budget_balanced.clone(),
+    )?;
+    v_budget_expanded = CoreValue::new_map();
+    core_set(
+        &v_budget_expanded,
+        CoreValue::from("id"),
+        CoreValue::from("expanded"),
+    )?;
+    core_set(
+        &v_budget_expanded,
+        CoreValue::from("targetPromptChars"),
+        CoreValue::Num(20000f64),
+    )?;
+    core_set(
+        &v_budget_expanded,
+        CoreValue::from("inspectThreshold"),
+        CoreValue::Num(17000f64),
+    )?;
+    core_set(
+        &v_budgets,
+        CoreValue::from("expanded"),
+        v_budget_expanded.clone(),
+    )?;
+    core_set(&v_context, CoreValue::from("budgets"), v_budgets.clone())?;
+    v_presets = CoreValue::new_map();
+    v_preset_full = CoreValue::new_map();
+    core_set(
+        &v_preset_full,
+        CoreValue::from("id"),
+        CoreValue::from("full"),
+    )?;
+    core_set(
+        &v_preset_full,
+        CoreValue::from("actionReplay"),
+        CoreValue::from("full"),
+    )?;
+    core_set(
+        &v_preset_full,
+        CoreValue::from("recentFullActions"),
+        CoreValue::Num(1f64),
+    )?;
+    core_set(
+        &v_preset_full,
+        CoreValue::from("errorPruning"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_preset_full,
+        CoreValue::from("hindsight"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_preset_full,
+        CoreValue::from("pruneRank"),
+        CoreValue::Num(2f64),
+    )?;
+    core_set(
+        &v_preset_full,
+        CoreValue::from("stateSummary"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_preset_full,
+        CoreValue::from("inspect"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_preset_full,
+        CoreValue::from("maxEntries"),
+        v_none_value.clone(),
+    )?;
+    core_set(
+        &v_preset_full,
+        CoreValue::from("defaultHygieneMode"),
+        CoreValue::from("none"),
+    )?;
+    core_set(
+        &v_preset_full,
+        CoreValue::from("pressureHygieneMode"),
+        v_none_value.clone(),
+    )?;
+    core_set(
+        &v_preset_full,
+        CoreValue::from("checkpointsEnabled"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_preset_full,
+        CoreValue::from("checkpointTriggerRatio"),
+        v_none_value.clone(),
+    )?;
+    core_set(&v_presets, CoreValue::from("full"), v_preset_full.clone())?;
+    v_preset_adaptive = CoreValue::new_map();
+    v_adaptive_recent = CoreValue::new_map();
+    core_set(
+        &v_adaptive_recent,
+        CoreValue::from("compact"),
+        CoreValue::Num(1f64),
+    )?;
+    core_set(
+        &v_adaptive_recent,
+        CoreValue::from("balanced"),
+        CoreValue::Num(2f64),
+    )?;
+    core_set(
+        &v_adaptive_recent,
+        CoreValue::from("expanded"),
+        CoreValue::Num(3f64),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("id"),
+        CoreValue::from("adaptive"),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("actionReplay"),
+        CoreValue::from("adaptive"),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("recentFullActionsByBudget"),
+        v_adaptive_recent.clone(),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("recentFullActions"),
+        CoreValue::Num(1f64),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("errorPruning"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("hindsight"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("pruneRank"),
+        CoreValue::Num(2f64),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("stateSummary"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("inspect"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("maxEntries"),
+        CoreValue::Num(8f64),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("defaultHygieneMode"),
+        CoreValue::from("proactive"),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("pressureHygieneMode"),
+        CoreValue::from("proactive"),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("checkpointsEnabled"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(
+        &v_preset_adaptive,
+        CoreValue::from("checkpointTriggerRatio"),
+        CoreValue::Num(0.75f64),
+    )?;
+    core_set(
+        &v_presets,
+        CoreValue::from("adaptive"),
+        v_preset_adaptive.clone(),
+    )?;
+    v_preset_lean = CoreValue::new_map();
+    v_lean_recent = CoreValue::new_map();
+    core_set(
+        &v_lean_recent,
+        CoreValue::from("compact"),
+        CoreValue::Num(1f64),
+    )?;
+    core_set(
+        &v_lean_recent,
+        CoreValue::from("balanced"),
+        CoreValue::Num(1f64),
+    )?;
+    core_set(
+        &v_lean_recent,
+        CoreValue::from("expanded"),
+        CoreValue::Num(2f64),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("id"),
+        CoreValue::from("lean"),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("actionReplay"),
+        CoreValue::from("minimal"),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("recentFullActionsByBudget"),
+        v_lean_recent.clone(),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("recentFullActions"),
+        CoreValue::Num(1f64),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("errorPruning"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("hindsight"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("pruneRank"),
+        CoreValue::Num(2f64),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("stateSummary"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("inspect"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("maxEntries"),
+        CoreValue::Num(4f64),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("defaultHygieneMode"),
+        CoreValue::from("aggressive"),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("pressureHygieneMode"),
+        CoreValue::from("aggressive"),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("checkpointsEnabled"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(
+        &v_preset_lean,
+        CoreValue::from("checkpointTriggerRatio"),
+        CoreValue::Num(0.6f64),
+    )?;
+    core_set(&v_presets, CoreValue::from("lean"), v_preset_lean.clone())?;
+    v_preset_checkpointed = CoreValue::new_map();
+    v_checkpointed_recent = CoreValue::new_map();
+    core_set(
+        &v_checkpointed_recent,
+        CoreValue::from("compact"),
+        CoreValue::Num(2f64),
+    )?;
+    core_set(
+        &v_checkpointed_recent,
+        CoreValue::from("balanced"),
+        CoreValue::Num(3f64),
+    )?;
+    core_set(
+        &v_checkpointed_recent,
+        CoreValue::from("expanded"),
+        CoreValue::Num(4f64),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("id"),
+        CoreValue::from("checkpointed"),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("actionReplay"),
+        CoreValue::from("checkpointed"),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("recentFullActionsByBudget"),
+        v_checkpointed_recent.clone(),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("recentFullActions"),
+        CoreValue::Num(2f64),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("errorPruning"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("hindsight"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("pruneRank"),
+        CoreValue::Num(2f64),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("stateSummary"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("inspect"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("maxEntries"),
+        CoreValue::Num(8f64),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("defaultHygieneMode"),
+        CoreValue::from("none"),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("pressureHygieneMode"),
+        CoreValue::from("pressure"),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("checkpointsEnabled"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(
+        &v_preset_checkpointed,
+        CoreValue::from("checkpointTriggerRatio"),
+        CoreValue::Num(1f64),
+    )?;
+    core_set(
+        &v_presets,
+        CoreValue::from("checkpointed"),
+        v_preset_checkpointed.clone(),
+    )?;
+    core_set(&v_context, CoreValue::from("presets"), v_presets.clone())?;
+    v_budget_math = CoreValue::new_map();
+    core_set(
+        &v_budget_math,
+        CoreValue::from("maxSystemPromptChars"),
+        CoreValue::Num(30000f64),
+    )?;
+    core_set(
+        &v_budget_math,
+        CoreValue::from("minEffectiveBudgetRatio"),
+        CoreValue::Num(0.25f64),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("budget_math"),
+        v_budget_math.clone(),
+    )?;
+    v_runtime_output_budget = CoreValue::new_map();
+    core_set(
+        &v_runtime_output_budget,
+        CoreValue::from("floorRatio"),
+        CoreValue::Num(0.15f64),
+    )?;
+    core_set(
+        &v_runtime_output_budget,
+        CoreValue::from("minRuntimeChars"),
+        CoreValue::Num(400f64),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("runtime_output_budget"),
+        v_runtime_output_budget.clone(),
+    )?;
+    v_smart_stringify = CoreValue::new_map();
+    core_set(
+        &v_smart_stringify,
+        CoreValue::from("arrayThreshold"),
+        CoreValue::Num(10f64),
+    )?;
+    core_set(
+        &v_smart_stringify,
+        CoreValue::from("arrayHeadItems"),
+        CoreValue::Num(3f64),
+    )?;
+    core_set(
+        &v_smart_stringify,
+        CoreValue::from("arrayTailItems"),
+        CoreValue::Num(2f64),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("smart_stringify"),
+        v_smart_stringify.clone(),
+    )?;
+    v_pressure_levels = CoreValue::new_map();
+    v_pressure_ok = CoreValue::new_map();
+    core_set(&v_pressure_ok, CoreValue::from("id"), CoreValue::from("ok"))?;
+    core_set(
+        &v_pressure_ok,
+        CoreValue::from("threshold"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(
+        &v_pressure_ok,
+        CoreValue::from("text"),
+        CoreValue::from("ok - normal context pressure; continue with focused, useful inspections."),
+    )?;
+    core_set(
+        &v_pressure_levels,
+        CoreValue::from("ok"),
+        v_pressure_ok.clone(),
+    )?;
+    v_pressure_watch = CoreValue::new_map();
+    core_set(
+        &v_pressure_watch,
+        CoreValue::from("id"),
+        CoreValue::from("watch"),
+    )?;
+    core_set(
+        &v_pressure_watch,
+        CoreValue::from("threshold"),
+        CoreValue::Num(0.7f64),
+    )?;
+    core_set(
+        &v_pressure_watch,
+        CoreValue::from("text"),
+        CoreValue::from("watch - keep inspections compact and avoid logging large raw values."),
+    )?;
+    core_set(
+        &v_pressure_levels,
+        CoreValue::from("watch"),
+        v_pressure_watch.clone(),
+    )?;
+    v_pressure_critical = CoreValue::new_map();
+    core_set(
+        &v_pressure_critical,
+        CoreValue::from("id"),
+        CoreValue::from("critical"),
+    )?;
+    core_set(
+        &v_pressure_critical,
+        CoreValue::from("threshold"),
+        CoreValue::Num(0.9f64),
+    )?;
+    core_set(&v_pressure_critical, CoreValue::from("text"), CoreValue::from("critical - prefer compact inspections, avoid large logs, and rely on liveRuntimeState/checkpoints for older work."))?;
+    core_set(
+        &v_pressure_levels,
+        CoreValue::from("critical"),
+        v_pressure_critical.clone(),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("pressure_levels"),
+        v_pressure_levels.clone(),
+    )?;
+    v_event_names = CoreValue::new_map();
+    core_set(
+        &v_event_names,
+        CoreValue::from("budget_check"),
+        CoreValue::from("budget_check"),
+    )?;
+    core_set(
+        &v_event_names,
+        CoreValue::from("action_compacted"),
+        CoreValue::from("action_compacted"),
+    )?;
+    core_set(
+        &v_event_names,
+        CoreValue::from("checkpoint_created"),
+        CoreValue::from("checkpoint_created"),
+    )?;
+    core_set(
+        &v_event_names,
+        CoreValue::from("checkpoint_cleared"),
+        CoreValue::from("checkpoint_cleared"),
+    )?;
+    core_set(
+        &v_event_names,
+        CoreValue::from("tombstone_created"),
+        CoreValue::from("tombstone_created"),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("event_names"),
+        v_event_names.clone(),
+    )?;
+    v_event_reasons = CoreValue::new_map();
+    core_set(
+        &v_event_reasons,
+        CoreValue::from("over_budget"),
+        CoreValue::from("over_budget"),
+    )?;
+    core_set(
+        &v_event_reasons,
+        CoreValue::from("under_budget"),
+        CoreValue::from("under_budget"),
+    )?;
+    core_set(
+        &v_event_reasons,
+        CoreValue::from("disabled"),
+        CoreValue::from("disabled"),
+    )?;
+    core_set(
+        &v_event_reasons,
+        CoreValue::from("pressure"),
+        CoreValue::from("pressure"),
+    )?;
+    core_set(
+        &v_event_reasons,
+        CoreValue::from("proactive"),
+        CoreValue::from("proactive"),
+    )?;
+    core_set(
+        &v_event_reasons,
+        CoreValue::from("lean"),
+        CoreValue::from("lean"),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("event_reasons"),
+        v_event_reasons.clone(),
+    )?;
+    v_hygiene_modes = CoreValue::new_map();
+    core_set(
+        &v_hygiene_modes,
+        CoreValue::from("none"),
+        CoreValue::from("none"),
+    )?;
+    core_set(
+        &v_hygiene_modes,
+        CoreValue::from("proactive"),
+        CoreValue::from("proactive"),
+    )?;
+    core_set(
+        &v_hygiene_modes,
+        CoreValue::from("pressure"),
+        CoreValue::from("pressure"),
+    )?;
+    core_set(
+        &v_hygiene_modes,
+        CoreValue::from("aggressive"),
+        CoreValue::from("aggressive"),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("hygiene_modes"),
+        v_hygiene_modes.clone(),
+    )?;
+    v_executor_model = CoreValue::new_map();
+    core_set(&v_executor_model, CoreValue::from("migration_error"), CoreValue::from("executorModelPolicy now expects an ordered array of { model, namespaces?, aboveErrorTurns? } entries. Manage prompt pressure with contextPolicy.budget instead of abovePromptChars."))?;
+    v_legacy_keys = CoreValue::new_list();
+    core_append(&v_legacy_keys, CoreValue::from("escalatedModel"))?;
+    core_append(&v_legacy_keys, CoreValue::from("baseModel"))?;
+    core_append(&v_legacy_keys, CoreValue::from("abovePromptChars"))?;
+    core_append(&v_legacy_keys, CoreValue::from("escalateAtPromptChars"))?;
+    core_append(
+        &v_legacy_keys,
+        CoreValue::from("escalateAtPromptCharsWhenCheckpointed"),
+    )?;
+    core_append(&v_legacy_keys, CoreValue::from("recentErrorWindowTurns"))?;
+    core_append(&v_legacy_keys, CoreValue::from("recentErrorThreshold"))?;
+    core_append(&v_legacy_keys, CoreValue::from("discoveryStallTurns"))?;
+    core_append(
+        &v_legacy_keys,
+        CoreValue::from("deescalateBelowPromptChars"),
+    )?;
+    core_append(
+        &v_legacy_keys,
+        CoreValue::from("stableTurnsBeforeDeescalate"),
+    )?;
+    core_append(&v_legacy_keys, CoreValue::from("minEscalatedTurns"))?;
+    core_set(
+        &v_executor_model,
+        CoreValue::from("legacy_keys"),
+        v_legacy_keys.clone(),
+    )?;
+    core_set(
+        &v_context,
+        CoreValue::from("executor_model_policy"),
+        v_executor_model.clone(),
+    )?;
+    core_set(
+        &v_registry,
+        CoreValue::from("context_policy"),
+        v_context.clone(),
+    )?;
+    return Ok(v_registry.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _map_optimization_judge_quality_to_score(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_quality = core_arg(args, 0);
+    let mut v_is_acceptable = CoreValue::Null;
+    let mut v_is_excellent = CoreValue::Null;
+    let mut v_is_good = CoreValue::Null;
+    let mut v_is_poor = CoreValue::Null;
+    let mut v_is_unacceptable = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    v_normalized = core_string_lower(&[v_quality.clone()])?;
+    v_is_excellent = core_eq(&[v_normalized.clone(), CoreValue::from("excellent")])?;
+    if core_truthy(&v_is_excellent) {
+        return Ok(CoreValue::Num(1f64));
+    }
+    v_is_good = core_eq(&[v_normalized.clone(), CoreValue::from("good")])?;
+    if core_truthy(&v_is_good) {
+        return Ok(CoreValue::Num(0.8f64));
+    }
+    v_is_acceptable = core_eq(&[v_normalized.clone(), CoreValue::from("acceptable")])?;
+    if core_truthy(&v_is_acceptable) {
+        return Ok(CoreValue::Num(0.5f64));
+    }
+    v_is_poor = core_eq(&[v_normalized.clone(), CoreValue::from("poor")])?;
+    if core_truthy(&v_is_poor) {
+        return Ok(CoreValue::Num(0.2f64));
+    }
+    v_is_unacceptable = core_eq(&[v_normalized.clone(), CoreValue::from("unacceptable")])?;
+    if core_truthy(&v_is_unacceptable) {
+        return Ok(CoreValue::Num(0f64));
+    }
+    return Ok(CoreValue::Num(0.5f64));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _build_optimization_judge_payload(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_task = core_arg(args, 0);
+    let mut v_prediction = core_arg(args, 1);
+    let mut v_criteria = core_arg(args, 2);
+    let mut v_action_log = CoreValue::Null;
+    let mut v_clarification = CoreValue::Null;
+    let mut v_completion_type = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_expected_actions = CoreValue::Null;
+    let mut v_expected_output = CoreValue::Null;
+    let mut v_final_output = CoreValue::Null;
+    let mut v_forbidden_actions = CoreValue::Null;
+    let mut v_function_calls = CoreValue::Null;
+    let mut v_guidance_log = CoreValue::Null;
+    let mut v_metadata = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_task_criteria = CoreValue::Null;
+    let mut v_task_input = CoreValue::Null;
+    let mut v_tool_errors = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_turn_count = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_out = CoreValue::new_map();
+    v_task_input = core_get(&v_task, &CoreValue::from("input"), v_task.clone());
+    core_set(&v_out, CoreValue::from("taskInput"), v_task_input.clone())?;
+    v_task_criteria = core_get(&v_task, &CoreValue::from("criteria"), v_criteria.clone());
+    core_set(&v_out, CoreValue::from("criteria"), v_task_criteria.clone())?;
+    v_expected_output = core_get(&v_task, &CoreValue::from("expectedOutput"), CoreValue::Null);
+    core_set(
+        &v_out,
+        CoreValue::from("expectedOutput"),
+        v_expected_output.clone(),
+    )?;
+    v_expected_actions = core_get(
+        &v_task,
+        &CoreValue::from("expectedActions"),
+        v_empty_list.clone(),
+    );
+    core_set(
+        &v_out,
+        CoreValue::from("expectedActions"),
+        v_expected_actions.clone(),
+    )?;
+    v_forbidden_actions = core_get(
+        &v_task,
+        &CoreValue::from("forbiddenActions"),
+        v_empty_list.clone(),
+    );
+    core_set(
+        &v_out,
+        CoreValue::from("forbiddenActions"),
+        v_forbidden_actions.clone(),
+    )?;
+    v_metadata = core_get(&v_task, &CoreValue::from("metadata"), CoreValue::Null);
+    core_set(&v_out, CoreValue::from("metadata"), v_metadata.clone())?;
+    v_completion_type = core_get(
+        &v_prediction,
+        &CoreValue::from("completionType"),
+        CoreValue::from("error"),
+    );
+    core_set(
+        &v_out,
+        CoreValue::from("completionType"),
+        v_completion_type.clone(),
+    )?;
+    v_clarification = core_get(
+        &v_prediction,
+        &CoreValue::from("clarification"),
+        CoreValue::Null,
+    );
+    core_set(
+        &v_out,
+        CoreValue::from("clarification"),
+        v_clarification.clone(),
+    )?;
+    v_final_output = core_get(
+        &v_prediction,
+        &CoreValue::from("output"),
+        v_prediction.clone(),
+    );
+    core_set(
+        &v_out,
+        CoreValue::from("finalOutput"),
+        v_final_output.clone(),
+    )?;
+    v_guidance_log = core_get(
+        &v_prediction,
+        &CoreValue::from("guidanceLog"),
+        CoreValue::from(""),
+    );
+    core_set(
+        &v_out,
+        CoreValue::from("guidanceLog"),
+        v_guidance_log.clone(),
+    )?;
+    v_action_log = core_get(
+        &v_prediction,
+        &CoreValue::from("actionLog"),
+        v_empty_list.clone(),
+    );
+    core_set(&v_out, CoreValue::from("actionLog"), v_action_log.clone())?;
+    v_function_calls = core_get(
+        &v_prediction,
+        &CoreValue::from("functionCalls"),
+        v_empty_list.clone(),
+    );
+    core_set(
+        &v_out,
+        CoreValue::from("functionCalls"),
+        v_function_calls.clone(),
+    )?;
+    v_tool_errors = core_get(
+        &v_prediction,
+        &CoreValue::from("toolErrors"),
+        v_empty_list.clone(),
+    );
+    core_set(&v_out, CoreValue::from("toolErrors"), v_tool_errors.clone())?;
+    v_turn_count = core_get(
+        &v_prediction,
+        &CoreValue::from("turnCount"),
+        CoreValue::Num(0f64),
+    );
+    core_set(&v_out, CoreValue::from("turnCount"), v_turn_count.clone())?;
+    v_usage = core_get(
+        &v_prediction,
+        &CoreValue::from("usage"),
+        v_empty_list.clone(),
+    );
+    core_set(&v_out, CoreValue::from("usage"), v_usage.clone())?;
+    v_trace = core_get(&v_prediction, &CoreValue::from("trace"), CoreValue::Null);
+    core_set(&v_out, CoreValue::from("trace"), v_trace.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_context_policy_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_context = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_registry = CoreValue::Null;
+    v_registry = _agent_policy_vocabulary_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_context = core_get(
+        &v_registry,
+        &CoreValue::from("context_policy"),
+        v_empty_map.clone(),
+    );
+    return Ok(v_context.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_context_policy_migration_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_key = core_arg(args, 0);
+    let mut v_context = CoreValue::Null;
+    let mut v_default_message = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_errors = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    v_context = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_errors = core_get(
+        &v_context,
+        &CoreValue::from("migration_errors"),
+        v_empty_map.clone(),
+    );
+    v_default_message = core_get(
+        &v_errors,
+        &CoreValue::from("default"),
+        CoreValue::from("contextPolicy now only supports { preset?, budget? }."),
+    );
+    v_message = core_get(&v_errors, &v_key.clone(), v_default_message.clone());
+    return Ok(v_message.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_context_budget_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_budget = core_arg(args, 0);
+    let mut v_budgets = CoreValue::Null;
+    let mut v_context = CoreValue::Null;
+    let mut v_default_budget = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_fallback = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_profile = CoreValue::Null;
+    v_context = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_budgets = core_get(&v_context, &CoreValue::from("budgets"), v_empty_map.clone());
+    v_default_budget = core_get(
+        &v_context,
+        &CoreValue::from("default_budget"),
+        CoreValue::from("balanced"),
+    );
+    v_fallback = core_get(&v_budgets, &v_default_budget.clone(), v_empty_map.clone());
+    v_profile = core_get(&v_budgets, &v_budget.clone(), v_fallback.clone());
+    v_is_map = core_type_is(&v_profile, CoreValue::from("object"));
+    if core_truthy(&v_is_map) {
+    } else {
+        v_profile = v_fallback.clone();
+    }
+    return Ok(v_profile.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_context_preset_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_preset = core_arg(args, 0);
+    let mut v_context = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_fallback = CoreValue::Null;
+    let mut v_full_preset = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_presets = CoreValue::Null;
+    let mut v_profile = CoreValue::Null;
+    v_context = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_presets = core_get(&v_context, &CoreValue::from("presets"), v_empty_map.clone());
+    v_full_preset = core_get(
+        &v_context,
+        &CoreValue::from("full_preset"),
+        CoreValue::from("full"),
+    );
+    v_fallback = core_get(&v_presets, &v_full_preset.clone(), v_empty_map.clone());
+    v_profile = core_get(&v_presets, &v_preset.clone(), v_fallback.clone());
+    v_is_map = core_type_is(&v_profile, CoreValue::from("object"));
+    if core_truthy(&v_is_map) {
+    } else {
+        v_profile = v_fallback.clone();
+    }
+    return Ok(v_profile.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_context_event_name(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_stable_id = core_arg(args, 0);
+    let mut v_context = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    v_context = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_names = core_get(
+        &v_context,
+        &CoreValue::from("event_names"),
+        v_empty_map.clone(),
+    );
+    v_name = core_get(&v_names, &v_stable_id.clone(), v_stable_id.clone());
+    return Ok(v_name.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_context_event_reason(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_stable_id = core_arg(args, 0);
+    let mut v_context = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    v_context = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_names = core_get(
+        &v_context,
+        &CoreValue::from("event_reasons"),
+        v_empty_map.clone(),
+    );
+    v_name = core_get(&v_names, &v_stable_id.clone(), v_stable_id.clone());
+    return Ok(v_name.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_policy_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_policy = core_arg(args, 0);
+    let mut v_flags = core_arg(args, 1);
+    let mut v_actor_primitives = CoreValue::Null;
+    let mut v_all_actor = CoreValue::Null;
+    let mut v_ask_clarification_name = CoreValue::Null;
+    let mut v_bootstrap = CoreValue::Null;
+    let mut v_callables = CoreValue::Null;
+    let mut v_child_boundary = CoreValue::Null;
+    let mut v_clarify = CoreValue::Null;
+    let mut v_discover = CoreValue::Null;
+    let mut v_discover_name = CoreValue::Null;
+    let mut v_distiller_executor = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_executor_only = CoreValue::Null;
+    let mut v_failure = CoreValue::Null;
+    let mut v_final_action = CoreValue::Null;
+    let mut v_final_name = CoreValue::Null;
+    let mut v_guide = CoreValue::Null;
+    let mut v_guide_agent_name = CoreValue::Null;
+    let mut v_host_boundaries = CoreValue::Null;
+    let mut v_inputs = CoreValue::Null;
+    let mut v_inputs_name = CoreValue::Null;
+    let mut v_inspect = CoreValue::Null;
+    let mut v_inspect_boundary = CoreValue::Null;
+    let mut v_inspect_runtime_name = CoreValue::Null;
+    let mut v_llm = CoreValue::Null;
+    let mut v_llm_query_name = CoreValue::Null;
+    let mut v_memory_boundary = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_policy_version = CoreValue::Null;
+    let mut v_primitive_names = CoreValue::Null;
+    let mut v_protocol_actions = CoreValue::Null;
+    let mut v_protocol_clarify = CoreValue::Null;
+    let mut v_protocol_failed = CoreValue::Null;
+    let mut v_protocol_final_action = CoreValue::Null;
+    let mut v_protocol_success = CoreValue::Null;
+    let mut v_recall = CoreValue::Null;
+    let mut v_recall_name = CoreValue::Null;
+    let mut v_report_failure_name = CoreValue::Null;
+    let mut v_report_success_name = CoreValue::Null;
+    let mut v_runtime_boundary = CoreValue::Null;
+    let mut v_runtime_globals = CoreValue::Null;
+    let mut v_schema_version = CoreValue::Null;
+    let mut v_skill_boundary = CoreValue::Null;
+    let mut v_status_boundary = CoreValue::Null;
+    let mut v_subquery_boundary = CoreValue::Null;
+    let mut v_success = CoreValue::Null;
+    let mut v_tool_boundary = CoreValue::Null;
+    let mut v_used = CoreValue::Null;
+    let mut v_used_name = CoreValue::Null;
+    let mut v_vocabulary = CoreValue::Null;
+    v_vocabulary = _agent_policy_vocabulary_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_primitive_names = core_get(
+        &v_vocabulary,
+        &CoreValue::from("actor_primitive_names"),
+        v_empty_map.clone(),
+    );
+    v_llm_query_name = core_get(
+        &v_primitive_names,
+        &CoreValue::from("llm_query"),
+        CoreValue::from("llmQuery"),
+    );
+    v_final_name = core_get(
+        &v_primitive_names,
+        &CoreValue::from("final"),
+        CoreValue::from("final"),
+    );
+    v_ask_clarification_name = core_get(
+        &v_primitive_names,
+        &CoreValue::from("ask_clarification"),
+        CoreValue::from("askClarification"),
+    );
+    v_report_success_name = core_get(
+        &v_primitive_names,
+        &CoreValue::from("report_success"),
+        CoreValue::from("reportSuccess"),
+    );
+    v_report_failure_name = core_get(
+        &v_primitive_names,
+        &CoreValue::from("report_failure"),
+        CoreValue::from("reportFailure"),
+    );
+    v_inspect_runtime_name = core_get(
+        &v_primitive_names,
+        &CoreValue::from("inspect_runtime"),
+        CoreValue::from("inspectRuntime"),
+    );
+    v_discover_name = core_get(
+        &v_primitive_names,
+        &CoreValue::from("discover"),
+        CoreValue::from("discover"),
+    );
+    v_recall_name = core_get(
+        &v_primitive_names,
+        &CoreValue::from("recall"),
+        CoreValue::from("recall"),
+    );
+    v_used_name = core_get(
+        &v_primitive_names,
+        &CoreValue::from("used"),
+        CoreValue::from("used"),
+    );
+    v_guide_agent_name = core_get(
+        &v_primitive_names,
+        &CoreValue::from("guide_agent"),
+        CoreValue::from("guideAgent"),
+    );
+    v_inputs_name = core_get(
+        &v_primitive_names,
+        &CoreValue::from("inputs"),
+        CoreValue::from("inputs"),
+    );
+    v_distiller_executor = CoreValue::new_list();
+    core_append(&v_distiller_executor, CoreValue::from("distiller"))?;
+    core_append(&v_distiller_executor, CoreValue::from("executor"))?;
+    v_executor_only = CoreValue::new_list();
+    core_append(&v_executor_only, CoreValue::from("executor"))?;
+    v_all_actor = CoreValue::new_list();
+    core_append(&v_all_actor, CoreValue::from("distiller"))?;
+    core_append(&v_all_actor, CoreValue::from("executor"))?;
+    v_actor_primitives = CoreValue::new_list();
+    v_llm = _agent_policy_action(&[
+        v_llm_query_name.clone(),
+        CoreValue::from("actor_primitive"),
+        CoreValue::from("sub_agent_query"),
+        v_distiller_executor.clone(),
+        CoreValue::from("always"),
+        CoreValue::from("returns string or string[]"),
+        CoreValue::from("sub_agent_llm_query"),
+        CoreValue::Bool(true),
+    ])?;
+    core_append(&v_actor_primitives, v_llm.clone())?;
+    v_final_action = _agent_policy_action(&[
+        v_final_name.clone(),
+        CoreValue::from("actor_primitive"),
+        CoreValue::from("completion"),
+        v_distiller_executor.clone(),
+        CoreValue::from("always"),
+        CoreValue::from("ends actor turn with final payload"),
+        CoreValue::from("runtime_completion_signal"),
+        CoreValue::Bool(true),
+    ])?;
+    core_append(&v_actor_primitives, v_final_action.clone())?;
+    v_clarify = _agent_policy_action(&[
+        v_ask_clarification_name.clone(),
+        CoreValue::from("actor_primitive"),
+        CoreValue::from("completion"),
+        v_distiller_executor.clone(),
+        CoreValue::from("always"),
+        CoreValue::from("throws clarification payload"),
+        CoreValue::from("runtime_completion_signal"),
+        CoreValue::Bool(true),
+    ])?;
+    core_append(&v_actor_primitives, v_clarify.clone())?;
+    v_success = _agent_policy_action(&[
+        v_report_success_name.clone(),
+        CoreValue::from("actor_primitive"),
+        CoreValue::from("status"),
+        v_executor_only.clone(),
+        CoreValue::from("hasAgentStatusCallback"),
+        CoreValue::from("records successful progress status"),
+        CoreValue::from("status_callback"),
+        CoreValue::Bool(true),
+    ])?;
+    core_append(&v_actor_primitives, v_success.clone())?;
+    v_failure = _agent_policy_action(&[
+        v_report_failure_name.clone(),
+        CoreValue::from("actor_primitive"),
+        CoreValue::from("status"),
+        v_executor_only.clone(),
+        CoreValue::from("hasAgentStatusCallback"),
+        CoreValue::from("records failed progress status"),
+        CoreValue::from("status_callback"),
+        CoreValue::Bool(true),
+    ])?;
+    core_append(&v_actor_primitives, v_failure.clone())?;
+    v_inspect = _agent_policy_action(&[
+        v_inspect_runtime_name.clone(),
+        CoreValue::from("actor_primitive"),
+        CoreValue::from("runtime_inspection"),
+        v_distiller_executor.clone(),
+        CoreValue::from("hasInspectRuntime"),
+        CoreValue::from("returns compact runtime state"),
+        CoreValue::from("runtime_inspection"),
+        CoreValue::Bool(true),
+    ])?;
+    core_append(&v_actor_primitives, v_inspect.clone())?;
+    v_discover = _agent_policy_action(&[
+        v_discover_name.clone(),
+        CoreValue::from("actor_primitive"),
+        CoreValue::from("discovery"),
+        v_executor_only.clone(),
+        CoreValue::from("discoveryMode|skillsMode"),
+        CoreValue::from("loads tool docs or skill guides for next turn"),
+        CoreValue::from("tool_or_skill_discovery"),
+        CoreValue::Bool(true),
+    ])?;
+    core_append(&v_actor_primitives, v_discover.clone())?;
+    v_recall = _agent_policy_action(&[
+        v_recall_name.clone(),
+        CoreValue::from("actor_primitive"),
+        CoreValue::from("memory"),
+        v_distiller_executor.clone(),
+        CoreValue::from("memoriesMode"),
+        CoreValue::from("loads memories for next turn"),
+        CoreValue::from("memory_search"),
+        CoreValue::Bool(true),
+    ])?;
+    core_append(&v_actor_primitives, v_recall.clone())?;
+    v_used = _agent_policy_action(&[
+        v_used_name.clone(),
+        CoreValue::from("actor_primitive"),
+        CoreValue::from("usage_tracking"),
+        v_distiller_executor.clone(),
+        CoreValue::from("usageTrackingMode"),
+        CoreValue::from("records loaded memory or skill usage"),
+        CoreValue::from("usage_tracking_callback"),
+        CoreValue::Bool(true),
+    ])?;
+    core_append(&v_actor_primitives, v_used.clone())?;
+    v_protocol_actions = CoreValue::new_list();
+    v_protocol_final_action = _agent_policy_action(&[
+        v_final_name.clone(),
+        CoreValue::from("protocol_action"),
+        CoreValue::from("completion"),
+        v_all_actor.clone(),
+        CoreValue::from("always"),
+        CoreValue::from("normalizes final protocol payload"),
+        CoreValue::from("completion_protocol"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_protocol_actions, v_protocol_final_action.clone())?;
+    v_protocol_clarify = _agent_policy_action(&[
+        v_ask_clarification_name.clone(),
+        CoreValue::from("protocol_action"),
+        CoreValue::from("completion"),
+        v_all_actor.clone(),
+        CoreValue::from("always"),
+        CoreValue::from("normalizes clarification protocol payload"),
+        CoreValue::from("completion_protocol"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_protocol_actions, v_protocol_clarify.clone())?;
+    v_guide = _agent_policy_action(&[
+        v_guide_agent_name.clone(),
+        CoreValue::from("protocol_action"),
+        CoreValue::from("guidance"),
+        v_executor_only.clone(),
+        CoreValue::from("host_protocol_only"),
+        CoreValue::from("adds trusted guidance and continues actor loop"),
+        CoreValue::from("host_function_protocol"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_protocol_actions, v_guide.clone())?;
+    v_protocol_success = _agent_policy_action(&[
+        CoreValue::from("success"),
+        CoreValue::from("protocol_action"),
+        CoreValue::from("status"),
+        v_executor_only.clone(),
+        CoreValue::from("hasAgentStatusCallback"),
+        CoreValue::from("reports successful status"),
+        CoreValue::from("status_callback"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_protocol_actions, v_protocol_success.clone())?;
+    v_protocol_failed = _agent_policy_action(&[
+        CoreValue::from("failed"),
+        CoreValue::from("protocol_action"),
+        CoreValue::from("status"),
+        v_executor_only.clone(),
+        CoreValue::from("hasAgentStatusCallback"),
+        CoreValue::from("reports failed status"),
+        CoreValue::from("status_callback"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_protocol_actions, v_protocol_failed.clone())?;
+    v_runtime_globals = CoreValue::new_list();
+    v_inputs = _agent_policy_action(&[
+        v_inputs_name.clone(),
+        CoreValue::from("runtime_global"),
+        CoreValue::from("data"),
+        v_all_actor.clone(),
+        CoreValue::from("always"),
+        CoreValue::from("contains current actor inputs"),
+        CoreValue::from("runtime_global"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_runtime_globals, v_inputs.clone())?;
+    v_callables = _agent_policy_action(&[
+        CoreValue::from("callable_namespaces"),
+        CoreValue::from("runtime_global"),
+        CoreValue::from("callable_namespace"),
+        v_executor_only.clone(),
+        CoreValue::from("has_callables"),
+        CoreValue::from("namespaced tools and child agents"),
+        CoreValue::from("tool_or_child_agent_handler"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_runtime_globals, v_callables.clone())?;
+    v_bootstrap = _agent_policy_action(&[
+        CoreValue::from("safe_bootstrap_globals"),
+        CoreValue::from("runtime_global"),
+        CoreValue::from("bootstrap"),
+        v_all_actor.clone(),
+        CoreValue::from("has_bootstrap_context"),
+        CoreValue::from("safe context aliases only"),
+        CoreValue::from("runtime_session_bootstrap"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_runtime_globals, v_bootstrap.clone())?;
+    v_host_boundaries = CoreValue::new_list();
+    v_tool_boundary = _agent_policy_action(&[
+        CoreValue::from("tool_handler"),
+        CoreValue::from("host_boundary"),
+        CoreValue::from("callback"),
+        v_executor_only.clone(),
+        CoreValue::from("has_callables"),
+        CoreValue::from("invokes target-native tool handler"),
+        CoreValue::from("tool_handler"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_host_boundaries, v_tool_boundary.clone())?;
+    v_child_boundary = _agent_policy_action(&[
+        CoreValue::from("child_agent"),
+        CoreValue::from("host_boundary"),
+        CoreValue::from("callback"),
+        v_executor_only.clone(),
+        CoreValue::from("has_child_agents"),
+        CoreValue::from("invokes child agent as callable"),
+        CoreValue::from("child_agent_forward"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_host_boundaries, v_child_boundary.clone())?;
+    v_memory_boundary = _agent_policy_action(&[
+        CoreValue::from("memory_search"),
+        CoreValue::from("host_boundary"),
+        CoreValue::from("callback"),
+        v_distiller_executor.clone(),
+        CoreValue::from("memoriesMode"),
+        CoreValue::from("loads host memory results"),
+        CoreValue::from("memory_search_callback"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_host_boundaries, v_memory_boundary.clone())?;
+    v_skill_boundary = _agent_policy_action(&[
+        CoreValue::from("skill_search"),
+        CoreValue::from("host_boundary"),
+        CoreValue::from("callback"),
+        v_executor_only.clone(),
+        CoreValue::from("skillsMode"),
+        CoreValue::from("loads host skill docs"),
+        CoreValue::from("skill_search_callback"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_host_boundaries, v_skill_boundary.clone())?;
+    v_status_boundary = _agent_policy_action(&[
+        CoreValue::from("status_callback"),
+        CoreValue::from("host_boundary"),
+        CoreValue::from("callback"),
+        v_executor_only.clone(),
+        CoreValue::from("hasAgentStatusCallback"),
+        CoreValue::from("reports progress status"),
+        CoreValue::from("status_callback"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_host_boundaries, v_status_boundary.clone())?;
+    v_runtime_boundary = _agent_policy_action(&[
+        CoreValue::from("runtime_execution"),
+        CoreValue::from("host_boundary"),
+        CoreValue::from("runtime"),
+        v_all_actor.clone(),
+        CoreValue::from("has_runtime"),
+        CoreValue::from("executes opaque runtime code"),
+        CoreValue::from("code_runtime_session"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_host_boundaries, v_runtime_boundary.clone())?;
+    v_inspect_boundary = _agent_policy_action(&[
+        CoreValue::from("runtime_inspection"),
+        CoreValue::from("host_boundary"),
+        CoreValue::from("runtime"),
+        v_all_actor.clone(),
+        CoreValue::from("hasInspectRuntime"),
+        CoreValue::from("inspects runtime state"),
+        CoreValue::from("code_runtime_inspection"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_host_boundaries, v_inspect_boundary.clone())?;
+    v_subquery_boundary = _agent_policy_action(&[
+        CoreValue::from("sub_agent_llm_query"),
+        CoreValue::from("host_boundary"),
+        CoreValue::from("ai"),
+        v_distiller_executor.clone(),
+        CoreValue::from("always"),
+        CoreValue::from("runs focused AxGen sub-query"),
+        CoreValue::from("axgen_sub_agent"),
+        CoreValue::Bool(false),
+    ])?;
+    core_append(&v_host_boundaries, v_subquery_boundary.clone())?;
+    v_out = CoreValue::new_map();
+    v_policy_version = core_get(
+        &v_policy,
+        &CoreValue::from("policy_version"),
+        CoreValue::from("agent-runtime-decision-v1"),
+    );
+    v_schema_version = core_get(
+        &v_policy,
+        &CoreValue::from("policy_schema_version"),
+        CoreValue::from("axir-agent-policy-v1"),
+    );
+    core_set(
+        &v_out,
+        CoreValue::from("policy_version"),
+        v_policy_version.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("policy_schema_version"),
+        v_schema_version.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("flags"), v_flags.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("actor_primitives"),
+        v_actor_primitives.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("protocol_actions"),
+        v_protocol_actions.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("runtime_globals"),
+        v_runtime_globals.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("host_boundaries"),
+        v_host_boundaries.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("vocabulary"), v_vocabulary.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _policy_flag_enabled(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flags = core_arg(args, 0);
+    let mut v_condition = core_arg(args, 1);
+    let mut v_always = CoreValue::Null;
+    let mut v_discovery = CoreValue::Null;
+    let mut v_discovery_or_skills = CoreValue::Null;
+    let mut v_host_only = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_skills = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_out = CoreValue::Bool(false);
+    v_always = core_eq(&[v_condition.clone(), CoreValue::from("always")])?;
+    if core_truthy(&v_always) {
+        v_out = CoreValue::Bool(true);
+    } else {
+        v_discovery_or_skills = core_eq(&[
+            v_condition.clone(),
+            CoreValue::from("discoveryMode|skillsMode"),
+        ])?;
+        if core_truthy(&v_discovery_or_skills) {
+            v_discovery = core_get(
+                &v_flags,
+                &CoreValue::from("discoveryMode"),
+                CoreValue::Bool(false),
+            );
+            v_skills = core_get(
+                &v_flags,
+                &CoreValue::from("skillsMode"),
+                CoreValue::Bool(false),
+            );
+            v_out = core_or(&[v_discovery.clone(), v_skills.clone()])?;
+        } else {
+            v_host_only = core_eq(&[v_condition.clone(), CoreValue::from("host_protocol_only")])?;
+            if core_truthy(&v_host_only) {
+                v_out = CoreValue::Bool(true);
+            } else {
+                v_value = core_get(&v_flags, &v_condition.clone(), CoreValue::Bool(false));
+                v_out = v_value.clone();
+            }
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _select_actor_primitives(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_registry = core_arg(args, 0);
+    let mut v_stage = core_arg(args, 1);
+    let mut v_condition = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_flags = CoreValue::Null;
+    let mut v_in_stage = CoreValue::Null;
+    let mut v_include = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_primitive = CoreValue::Null;
+    let mut v_primitives = CoreValue::Null;
+    let mut v_stages = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_out = CoreValue::new_list();
+    v_flags = core_get(&v_registry, &CoreValue::from("flags"), v_empty_list.clone());
+    v_primitives = core_get(
+        &v_registry,
+        &CoreValue::from("actor_primitives"),
+        v_empty_list.clone(),
+    );
+    for v_primitive in core_iter(&v_primitives)? {
+        let mut v_primitive = v_primitive;
+        v_stages = core_get(
+            &v_primitive,
+            &CoreValue::from("stages"),
+            v_empty_list.clone(),
+        );
+        v_in_stage = core_contains(&[v_stages.clone(), v_stage.clone()])?;
+        v_condition = core_get(
+            &v_primitive,
+            &CoreValue::from("availability_condition"),
+            CoreValue::from("always"),
+        );
+        v_enabled = _policy_flag_enabled(&[v_flags.clone(), v_condition.clone()])?;
+        v_include = core_and(&[v_in_stage.clone(), v_enabled.clone()])?;
+        if core_truthy(&v_include) {
+            core_append(&v_out, v_primitive.clone())?;
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _select_protocol_actions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_registry = core_arg(args, 0);
+    let mut v_actions = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_actions = core_get(
+        &v_registry,
+        &CoreValue::from("protocol_actions"),
+        v_empty_list.clone(),
+    );
+    return Ok(v_actions.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _select_runtime_globals(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_registry = core_arg(args, 0);
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_globals = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_globals = core_get(
+        &v_registry,
+        &CoreValue::from("runtime_globals"),
+        v_empty_list.clone(),
+    );
+    return Ok(v_globals.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _validate_policy_reserved_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_registry = core_arg(args, 0);
+    let mut v_name = core_arg(args, 1);
+    let mut v_conflicts = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_reserved = CoreValue::Null;
+    v_reserved = _agent_reserved_runtime_names(&[])?;
+    v_conflicts = core_contains(&[v_reserved.clone(), v_name.clone()])?;
+    if core_truthy(&v_conflicts) {
+        v_message = core_string_format(&[
+            CoreValue::from("agent callable namespace conflicts with reserved runtime name: {}"),
+            v_name.clone(),
+        ])?;
+        v_error = core_runtime_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_none = core_none(&[])?;
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _render_actor_primitive_guidance(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_registry = core_arg(args, 0);
+    let mut v_stage = core_arg(args, 1);
+    let mut v_effect = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_primitive = CoreValue::Null;
+    let mut v_primitives = CoreValue::Null;
+    v_primitives = _select_actor_primitives(&[v_registry.clone(), v_stage.clone()])?;
+    v_lines = CoreValue::new_list();
+    for v_primitive in core_iter(&v_primitives)? {
+        let mut v_primitive = v_primitive;
+        v_id = core_get(&v_primitive, &CoreValue::from("id"), CoreValue::Null);
+        v_effect = core_get(
+            &v_primitive,
+            &CoreValue::from("effect"),
+            CoreValue::from(""),
+        );
+        v_line =
+            core_string_format(&[CoreValue::from("- {}: {}"), v_id.clone(), v_effect.clone()])?;
+        core_append(&v_lines, v_line.clone())?;
+    }
+    v_out = core_string_join_intrinsic(&[CoreValue::from("\n"), v_lines.clone()])?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _build_agent_eval_prediction(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_output = core_arg(args, 0);
+    let mut v_action_log = core_arg(args, 1);
+    let mut v_usage = core_arg(args, 2);
+    let mut v_trace = core_arg(args, 3);
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("completionType"),
+        CoreValue::from("final"),
+    )?;
+    core_set(&v_out, CoreValue::from("output"), v_output.clone())?;
+    core_set(&v_out, CoreValue::from("finalOutput"), v_output.clone())?;
+    core_set(&v_out, CoreValue::from("actionLog"), v_action_log.clone())?;
+    core_set(&v_out, CoreValue::from("usage"), v_usage.clone())?;
+    core_set(&v_out, CoreValue::from("trace"), v_trace.clone())?;
+    v_empty_list = CoreValue::new_list();
+    core_set(
+        &v_out,
+        CoreValue::from("functionCalls"),
+        v_empty_list.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("toolErrors"), v_empty_list.clone())?;
+    core_set(&v_out, CoreValue::from("turnCount"), CoreValue::Num(0f64))?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _record_policy_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_action = core_arg(args, 1);
+    let mut v_payload = core_arg(args, 2);
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_trace = core_get(
+        &v_state,
+        &CoreValue::from("policy_trace"),
+        v_empty_list.clone(),
+    );
+    v_event = CoreValue::new_map();
+    core_set(
+        &v_event,
+        CoreValue::from("type"),
+        CoreValue::from("policy_event"),
+    )?;
+    core_set(&v_event, CoreValue::from("action"), v_action.clone())?;
+    core_set(&v_event, CoreValue::from("payload"), v_payload.clone())?;
+    core_append(&v_trace, v_event.clone())?;
+    core_set(&v_state, CoreValue::from("policy_trace"), v_trace.clone())?;
+    v_none = core_none(&[])?;
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_policy_action_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_action = core_arg(args, 0);
+    let mut v_payload = core_arg(args, 1);
+    let mut v_effect_only_actions = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_is_effect = CoreValue::Null;
+    let mut v_null_value = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_vocabulary = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_null_value = core_none(&[])?;
+    v_vocabulary = _agent_policy_vocabulary_registry(&[])?;
+    v_empty_list = CoreValue::new_list();
+    v_effect_only_actions = core_get(
+        &v_vocabulary,
+        &CoreValue::from("effect_only_actions"),
+        v_empty_list.clone(),
+    );
+    core_set(&v_out, CoreValue::from("action"), v_action.clone())?;
+    core_set(&v_out, CoreValue::from("payload"), v_payload.clone())?;
+    v_is_effect = core_contains(&[v_effect_only_actions.clone(), v_action.clone()])?;
+    if core_truthy(&v_is_effect) {
+        core_set(&v_out, CoreValue::from("returns"), v_null_value.clone())?;
+        core_set(
+            &v_out,
+            CoreValue::from("effect_only"),
+            CoreValue::Bool(true),
+        )?;
+    } else {
+        core_set(&v_out, CoreValue::from("returns"), v_payload.clone())?;
+        core_set(
+            &v_out,
+            CoreValue::from("effect_only"),
+            CoreValue::Bool(false),
+        )?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _build_agent_actor_prompt_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_code_fence_language = CoreValue::Null;
+    let mut v_code_field_name = CoreValue::Null;
+    let mut v_code_field_title = CoreValue::Null;
+    let mut v_dynamic = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_runtime_contract = CoreValue::Null;
+    let mut v_stable = CoreValue::Null;
+    v_runtime_contract = core_get(
+        &v_state,
+        &CoreValue::from("runtime_contract"),
+        CoreValue::Null,
+    );
+    v_code_field_name = core_get(
+        &v_runtime_contract,
+        &CoreValue::from("code_field_name"),
+        CoreValue::from("javascriptCode"),
+    );
+    v_code_field_title = core_get(
+        &v_runtime_contract,
+        &CoreValue::from("code_field_title"),
+        CoreValue::from("Javascript Code"),
+    );
+    v_code_fence_language = core_get(
+        &v_runtime_contract,
+        &CoreValue::from("code_fence_language"),
+        CoreValue::from("js"),
+    );
+    v_stable = CoreValue::new_list();
+    core_append(&v_stable, CoreValue::from("input"))?;
+    core_append(&v_stable, CoreValue::from("executorRequest"))?;
+    core_append(&v_stable, CoreValue::from("distilledContext"))?;
+    core_append(&v_stable, CoreValue::from("contextMetadata"))?;
+    core_append(&v_stable, CoreValue::from("contextMap"))?;
+    core_append(&v_stable, CoreValue::from("memories"))?;
+    core_append(&v_stable, CoreValue::from("discoveredToolDocs"))?;
+    core_append(&v_stable, CoreValue::from("loadedSkills"))?;
+    core_append(&v_stable, CoreValue::from("summarizedActorLog"))?;
+    v_dynamic = CoreValue::new_list();
+    core_append(&v_dynamic, CoreValue::from("guidanceLog"))?;
+    core_append(&v_dynamic, CoreValue::from("actionLog"))?;
+    core_append(&v_dynamic, CoreValue::from("liveRuntimeState"))?;
+    core_append(&v_dynamic, CoreValue::from("contextPressure"))?;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("stable_cached_fields"),
+        v_stable.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("dynamic_uncached_fields"),
+        v_dynamic.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("code_field_name"),
+        v_code_field_name.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("code_field_title"),
+        v_code_field_title.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("code_fence_language"),
+        v_code_fence_language.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("cache_order"),
+        CoreValue::from("stable_before_dynamic"),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _resolve_agent_context_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_options = core_arg(args, 0);
+    let mut v_action_replay = CoreValue::Null;
+    let mut v_allowed = CoreValue::Null;
+    let mut v_allowed_is_list = CoreValue::Null;
+    let mut v_allowed_keys = CoreValue::Null;
+    let mut v_budget = CoreValue::Null;
+    let mut v_budget_key = CoreValue::Null;
+    let mut v_budget_profile = CoreValue::Null;
+    let mut v_checkpoint_ratio = CoreValue::Null;
+    let mut v_checkpoint_trigger = CoreValue::Null;
+    let mut v_checkpoints = CoreValue::Null;
+    let mut v_checkpoints_enabled = CoreValue::Null;
+    let mut v_context_hygiene = CoreValue::Null;
+    let mut v_context_registry = CoreValue::Null;
+    let mut v_default_budget = CoreValue::Null;
+    let mut v_default_preset = CoreValue::Null;
+    let mut v_disallowed = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_error_message = CoreValue::Null;
+    let mut v_error_policy = CoreValue::Null;
+    let mut v_error_pruning = CoreValue::Null;
+    let mut v_has_checkpoint_ratio = CoreValue::Null;
+    let mut v_has_max_runtime = CoreValue::Null;
+    let mut v_has_pressure = CoreValue::Null;
+    let mut v_hindsight = CoreValue::Null;
+    let mut v_hygiene_default = CoreValue::Null;
+    let mut v_hygiene_pressure = CoreValue::Null;
+    let mut v_inspect_enabled = CoreValue::Null;
+    let mut v_inspect_threshold = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_max_entries = CoreValue::Null;
+    let mut v_max_runtime_camel_key = CoreValue::Null;
+    let mut v_max_runtime_chars = CoreValue::Null;
+    let mut v_max_runtime_snake = CoreValue::Null;
+    let mut v_max_runtime_snake_key = CoreValue::Null;
+    let mut v_none_value = CoreValue::Null;
+    let mut v_option_keys = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_policy = CoreValue::Null;
+    let mut v_policy_camel = CoreValue::Null;
+    let mut v_policy_camel_key = CoreValue::Null;
+    let mut v_policy_is_map = CoreValue::Null;
+    let mut v_policy_snake_key = CoreValue::Null;
+    let mut v_preset = CoreValue::Null;
+    let mut v_preset_key = CoreValue::Null;
+    let mut v_preset_profile = CoreValue::Null;
+    let mut v_prune_rank = CoreValue::Null;
+    let mut v_recent_by_budget = CoreValue::Null;
+    let mut v_recent_default = CoreValue::Null;
+    let mut v_recent_full_actions = CoreValue::Null;
+    let mut v_state_inspection = CoreValue::Null;
+    let mut v_state_summary = CoreValue::Null;
+    let mut v_state_summary_enabled = CoreValue::Null;
+    let mut v_state_summary_max_chars = CoreValue::Null;
+    let mut v_summarizer_camel = CoreValue::Null;
+    let mut v_summarizer_camel_key = CoreValue::Null;
+    let mut v_summarizer_options = CoreValue::Null;
+    let mut v_summarizer_snake_key = CoreValue::Null;
+    let mut v_target_prompt_chars = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_context_registry = _agent_context_policy_registry(&[])?;
+    v_option_keys = core_get(
+        &v_context_registry,
+        &CoreValue::from("option_keys"),
+        v_empty_map.clone(),
+    );
+    v_policy_camel_key = core_get(
+        &v_option_keys,
+        &CoreValue::from("camel"),
+        CoreValue::from("contextPolicy"),
+    );
+    v_policy_snake_key = core_get(
+        &v_option_keys,
+        &CoreValue::from("snake"),
+        CoreValue::from("context_policy"),
+    );
+    v_preset_key = core_get(
+        &v_option_keys,
+        &CoreValue::from("preset"),
+        CoreValue::from("preset"),
+    );
+    v_budget_key = core_get(
+        &v_option_keys,
+        &CoreValue::from("budget"),
+        CoreValue::from("budget"),
+    );
+    v_summarizer_camel_key = core_get(
+        &v_option_keys,
+        &CoreValue::from("summarizer_camel"),
+        CoreValue::from("summarizerOptions"),
+    );
+    v_summarizer_snake_key = core_get(
+        &v_option_keys,
+        &CoreValue::from("summarizer_snake"),
+        CoreValue::from("summarizer_options"),
+    );
+    v_max_runtime_camel_key = core_get(
+        &v_option_keys,
+        &CoreValue::from("max_runtime_camel"),
+        CoreValue::from("maxRuntimeChars"),
+    );
+    v_max_runtime_snake_key = core_get(
+        &v_option_keys,
+        &CoreValue::from("max_runtime_snake"),
+        CoreValue::from("max_runtime_chars"),
+    );
+    v_policy_camel = core_get(&v_options, &v_policy_camel_key.clone(), v_empty_map.clone());
+    v_policy = core_get(
+        &v_options,
+        &v_policy_snake_key.clone(),
+        v_policy_camel.clone(),
+    );
+    v_policy_is_map = core_type_is(&v_policy, CoreValue::from("object"));
+    if core_truthy(&v_policy_is_map) {
+    } else {
+        v_policy = v_empty_map.clone();
+    }
+    v_allowed_keys = core_get(
+        &v_context_registry,
+        &CoreValue::from("allowed_keys"),
+        CoreValue::Null,
+    );
+    v_allowed_is_list = core_type_is(&v_allowed_keys, CoreValue::from("list"));
+    if core_truthy(&v_allowed_is_list) {
+    } else {
+        v_allowed_keys = CoreValue::new_list();
+    }
+    for v_key in core_iter(&v_policy)? {
+        let mut v_key = v_key;
+        v_allowed = core_contains(&[v_allowed_keys.clone(), v_key.clone()])?;
+        v_disallowed = core_not(&[v_allowed.clone()])?;
+        if core_truthy(&v_disallowed) {
+            v_error_message = _agent_context_policy_migration_error(&[v_key.clone()])?;
+            v_error_policy = core_runtime_error(&[v_error_message.clone()])?;
+            return Err(core_as_error(&v_error_policy));
+        }
+    }
+    v_default_preset = core_get(
+        &v_context_registry,
+        &CoreValue::from("default_preset"),
+        CoreValue::from("checkpointed"),
+    );
+    v_default_budget = core_get(
+        &v_context_registry,
+        &CoreValue::from("default_budget"),
+        CoreValue::from("balanced"),
+    );
+    v_preset = core_get(&v_policy, &v_preset_key.clone(), v_default_preset.clone());
+    v_budget = core_get(&v_policy, &v_budget_key.clone(), v_default_budget.clone());
+    v_budget_profile = _agent_context_budget_profile(&[v_budget.clone()])?;
+    v_preset_profile = _agent_context_preset_profile(&[v_preset.clone()])?;
+    v_target_prompt_chars = core_get(
+        &v_budget_profile,
+        &CoreValue::from("targetPromptChars"),
+        CoreValue::Num(16000f64),
+    );
+    v_inspect_threshold = core_get(
+        &v_budget_profile,
+        &CoreValue::from("inspectThreshold"),
+        CoreValue::Num(13600f64),
+    );
+    v_action_replay = core_get(
+        &v_preset_profile,
+        &CoreValue::from("actionReplay"),
+        CoreValue::from("full"),
+    );
+    v_recent_by_budget = core_get(
+        &v_preset_profile,
+        &CoreValue::from("recentFullActionsByBudget"),
+        v_empty_map.clone(),
+    );
+    v_recent_default = core_get(
+        &v_preset_profile,
+        &CoreValue::from("recentFullActions"),
+        CoreValue::Num(1f64),
+    );
+    v_recent_full_actions = core_get(
+        &v_recent_by_budget,
+        &v_budget.clone(),
+        v_recent_default.clone(),
+    );
+    v_error_pruning = core_get(
+        &v_preset_profile,
+        &CoreValue::from("errorPruning"),
+        CoreValue::Bool(false),
+    );
+    v_hindsight = core_get(
+        &v_preset_profile,
+        &CoreValue::from("hindsight"),
+        CoreValue::Bool(false),
+    );
+    v_prune_rank = core_get(
+        &v_preset_profile,
+        &CoreValue::from("pruneRank"),
+        CoreValue::Num(2f64),
+    );
+    v_state_summary_enabled = core_get(
+        &v_preset_profile,
+        &CoreValue::from("stateSummary"),
+        CoreValue::Bool(false),
+    );
+    v_inspect_enabled = core_get(
+        &v_preset_profile,
+        &CoreValue::from("inspect"),
+        CoreValue::Bool(false),
+    );
+    v_max_entries = core_get(
+        &v_preset_profile,
+        &CoreValue::from("maxEntries"),
+        CoreValue::Null,
+    );
+    v_hygiene_default = core_get(
+        &v_preset_profile,
+        &CoreValue::from("defaultHygieneMode"),
+        CoreValue::from("none"),
+    );
+    v_hygiene_pressure = core_get(
+        &v_preset_profile,
+        &CoreValue::from("pressureHygieneMode"),
+        CoreValue::Null,
+    );
+    v_checkpoints_enabled = core_get(
+        &v_preset_profile,
+        &CoreValue::from("checkpointsEnabled"),
+        CoreValue::Bool(false),
+    );
+    v_checkpoint_trigger = core_none(&[])?;
+    if core_truthy(&v_checkpoints_enabled) {
+        v_checkpoint_ratio = core_get(
+            &v_preset_profile,
+            &CoreValue::from("checkpointTriggerRatio"),
+            CoreValue::Null,
+        );
+        v_has_checkpoint_ratio = core_is_not_none(&[v_checkpoint_ratio.clone()])?;
+        if core_truthy(&v_has_checkpoint_ratio) {
+            v_checkpoint_trigger =
+                core_mul(&[v_target_prompt_chars.clone(), v_checkpoint_ratio.clone()])?;
+        }
+    }
+    v_summarizer_camel = core_get(
+        &v_options,
+        &v_summarizer_camel_key.clone(),
+        v_empty_map.clone(),
+    );
+    v_summarizer_options = core_get(
+        &v_options,
+        &v_summarizer_snake_key.clone(),
+        v_summarizer_camel.clone(),
+    );
+    v_max_runtime_snake = core_get(
+        &v_options,
+        &v_max_runtime_snake_key.clone(),
+        CoreValue::Null,
+    );
+    v_max_runtime_chars = core_get(
+        &v_options,
+        &v_max_runtime_camel_key.clone(),
+        v_max_runtime_snake.clone(),
+    );
+    v_has_max_runtime = core_is_not_none(&[v_max_runtime_chars.clone()])?;
+    if core_truthy(&v_has_max_runtime) {
+    } else {
+        v_max_runtime_chars = core_get(
+            &v_context_registry,
+            &CoreValue::from("default_max_runtime_chars"),
+            CoreValue::Num(3000f64),
+        );
+    }
+    v_context_hygiene = CoreValue::new_map();
+    core_set(
+        &v_context_hygiene,
+        CoreValue::from("defaultMode"),
+        v_hygiene_default.clone(),
+    )?;
+    v_has_pressure = core_is_not_none(&[v_hygiene_pressure.clone()])?;
+    if core_truthy(&v_has_pressure) {
+        core_set(
+            &v_context_hygiene,
+            CoreValue::from("pressureMode"),
+            v_hygiene_pressure.clone(),
+        )?;
+    }
+    v_state_summary = CoreValue::new_map();
+    core_set(
+        &v_state_summary,
+        CoreValue::from("enabled"),
+        v_state_summary_enabled.clone(),
+    )?;
+    core_set(
+        &v_state_summary,
+        CoreValue::from("maxEntries"),
+        v_max_entries.clone(),
+    )?;
+    v_state_summary_max_chars = core_get(
+        &v_context_registry,
+        &CoreValue::from("state_summary_max_chars"),
+        CoreValue::Num(1200f64),
+    );
+    core_set(
+        &v_state_summary,
+        CoreValue::from("maxChars"),
+        v_state_summary_max_chars.clone(),
+    )?;
+    v_state_inspection = CoreValue::new_map();
+    core_set(
+        &v_state_inspection,
+        CoreValue::from("enabled"),
+        v_inspect_enabled.clone(),
+    )?;
+    core_set(
+        &v_state_inspection,
+        CoreValue::from("contextThreshold"),
+        v_inspect_threshold.clone(),
+    )?;
+    v_checkpoints = CoreValue::new_map();
+    core_set(
+        &v_checkpoints,
+        CoreValue::from("enabled"),
+        v_checkpoints_enabled.clone(),
+    )?;
+    core_set(
+        &v_checkpoints,
+        CoreValue::from("triggerChars"),
+        v_checkpoint_trigger.clone(),
+    )?;
+    v_out = CoreValue::new_map();
+    v_none_value = core_none(&[])?;
+    core_set(&v_out, CoreValue::from("preset"), v_preset.clone())?;
+    core_set(&v_out, CoreValue::from("budget"), v_budget.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("summarizerOptions"),
+        v_summarizer_options.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("actionReplay"),
+        v_action_replay.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("recentFullActions"),
+        v_recent_full_actions.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("contextHygiene"),
+        v_context_hygiene.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("errorPruning"),
+        v_error_pruning.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("hindsightEvaluation"),
+        v_hindsight.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("pruneRank"), v_prune_rank.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("rankPruneGraceTurns"),
+        CoreValue::Num(2f64),
+    )?;
+    core_set(&v_out, CoreValue::from("tombstoning"), v_none_value.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("stateSummary"),
+        v_state_summary.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("stateInspection"),
+        v_state_inspection.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("checkpoints"),
+        v_checkpoints.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("targetPromptChars"),
+        v_target_prompt_chars.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("maxRuntimeChars"),
+        v_max_runtime_chars.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _resolve_agent_executor_model_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_options = core_arg(args, 0);
+    let mut v_above = CoreValue::Null;
+    let mut v_above_invalid = CoreValue::Null;
+    let mut v_above_is_number = CoreValue::Null;
+    let mut v_above_negative = CoreValue::Null;
+    let mut v_context_registry = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_is_map = CoreValue::Null;
+    let mut v_error_above = CoreValue::Null;
+    let mut v_error_empty = CoreValue::Null;
+    let mut v_error_entry = CoreValue::Null;
+    let mut v_error_legacy = CoreValue::Null;
+    let mut v_error_model = CoreValue::Null;
+    let mut v_error_namespaces = CoreValue::Null;
+    let mut v_error_shape = CoreValue::Null;
+    let mut v_error_trigger = CoreValue::Null;
+    let mut v_executor_registry = CoreValue::Null;
+    let mut v_has_above = CoreValue::Null;
+    let mut v_has_legacy_key = CoreValue::Null;
+    let mut v_has_namespaces = CoreValue::Null;
+    let mut v_has_trigger = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_legacy_any = CoreValue::Null;
+    let mut v_legacy_key = CoreValue::Null;
+    let mut v_legacy_keys = CoreValue::Null;
+    let mut v_message_above = CoreValue::Null;
+    let mut v_message_entry = CoreValue::Null;
+    let mut v_message_model = CoreValue::Null;
+    let mut v_message_namespaces = CoreValue::Null;
+    let mut v_message_trigger = CoreValue::Null;
+    let mut v_migration_error = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_model_missing = CoreValue::Null;
+    let mut v_namespace = CoreValue::Null;
+    let mut v_namespace_is_string = CoreValue::Null;
+    let mut v_namespace_nonempty = CoreValue::Null;
+    let mut v_namespaces = CoreValue::Null;
+    let mut v_no_valid_namespaces = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_policy = CoreValue::Null;
+    let mut v_policy_snake = CoreValue::Null;
+    let mut v_trimmed_namespace = CoreValue::Null;
+    let mut v_valid_namespace_count = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_context_registry = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_executor_registry = core_get(
+        &v_context_registry,
+        &CoreValue::from("executor_model_policy"),
+        v_empty_map.clone(),
+    );
+    v_migration_error = core_get(&v_executor_registry, &CoreValue::from("migration_error"), CoreValue::from("executorModelPolicy now expects an ordered array of { model, namespaces?, aboveErrorTurns? } entries. Manage prompt pressure with contextPolicy.budget instead of abovePromptChars."));
+    v_legacy_keys = core_get(
+        &v_executor_registry,
+        &CoreValue::from("legacy_keys"),
+        v_empty_list.clone(),
+    );
+    v_policy_snake = core_get(
+        &v_options,
+        &CoreValue::from("executor_model_policy"),
+        CoreValue::Null,
+    );
+    v_policy = core_get(
+        &v_options,
+        &CoreValue::from("executorModelPolicy"),
+        v_policy_snake.clone(),
+    );
+    v_missing = core_is_none(&[v_policy.clone()])?;
+    if core_truthy(&v_missing) {
+        v_none = core_none(&[])?;
+        return Ok(v_none.clone());
+    }
+    v_is_list = core_type_is(&v_policy, CoreValue::from("list"));
+    if core_truthy(&v_is_list) {
+    } else {
+        v_error_shape = core_runtime_error(&[v_migration_error.clone()])?;
+        return Err(core_as_error(&v_error_shape));
+    }
+    v_out = CoreValue::new_list();
+    v_index = CoreValue::Num(0f64);
+    for v_entry in core_iter(&v_policy)? {
+        let mut v_entry = v_entry;
+        v_entry_is_map = core_type_is(&v_entry, CoreValue::from("object"));
+        if core_truthy(&v_entry_is_map) {
+        } else {
+            v_message_entry = core_string_format(&[
+                CoreValue::from("executorModelPolicy[{}] must be an object"),
+                v_index.clone(),
+            ])?;
+            v_error_entry = core_runtime_error(&[v_message_entry.clone()])?;
+            return Err(core_as_error(&v_error_entry));
+        }
+        v_legacy_any = CoreValue::Bool(false);
+        for v_legacy_key in core_iter(&v_legacy_keys)? {
+            let mut v_legacy_key = v_legacy_key;
+            v_has_legacy_key = core_map_contains(&[v_entry.clone(), v_legacy_key.clone()])?;
+            if core_truthy(&v_has_legacy_key) {
+                v_legacy_any = CoreValue::Bool(true);
+            }
+        }
+        if core_truthy(&v_legacy_any) {
+            v_error_legacy = core_runtime_error(&[v_migration_error.clone()])?;
+            return Err(core_as_error(&v_error_legacy));
+        }
+        v_model = core_get(&v_entry, &CoreValue::from("model"), CoreValue::from(""));
+        v_model_missing = core_eq(&[v_model.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_model_missing) {
+            v_message_model = core_string_format(&[
+                CoreValue::from("executorModelPolicy[{}].model must be a non-empty string"),
+                v_index.clone(),
+            ])?;
+            v_error_model = core_runtime_error(&[v_message_model.clone()])?;
+            return Err(core_as_error(&v_error_model));
+        }
+        v_above = core_get(
+            &v_entry,
+            &CoreValue::from("aboveErrorTurns"),
+            CoreValue::Null,
+        );
+        v_namespaces = core_get(&v_entry, &CoreValue::from("namespaces"), CoreValue::Null);
+        v_has_above = core_is_not_none(&[v_above.clone()])?;
+        v_has_namespaces = core_type_is(&v_namespaces, CoreValue::from("list"));
+        if core_truthy(&v_has_above) {
+            v_above_is_number = core_type_is(&v_above, CoreValue::from("number"));
+            v_above_negative = core_lt(&[v_above.clone(), CoreValue::Num(0f64)])?;
+            v_above_invalid = core_not(&[v_above_is_number.clone()])?;
+            v_above_invalid = core_or(&[v_above_invalid.clone(), v_above_negative.clone()])?;
+            if core_truthy(&v_above_invalid) {
+                v_message_above = core_string_format(&[
+                    CoreValue::from(
+                        "executorModelPolicy[{}].aboveErrorTurns must be a finite number >= 0",
+                    ),
+                    v_index.clone(),
+                ])?;
+                v_error_above = core_runtime_error(&[v_message_above.clone()])?;
+                return Err(core_as_error(&v_error_above));
+            }
+        }
+        if core_truthy(&v_has_namespaces) {
+            v_valid_namespace_count = CoreValue::Num(0f64);
+            for v_namespace in core_iter(&v_namespaces)? {
+                let mut v_namespace = v_namespace;
+                v_namespace_is_string = core_type_is(&v_namespace, CoreValue::from("string"));
+                if core_truthy(&v_namespace_is_string) {
+                    v_trimmed_namespace = core_string_trim(&v_namespace);
+                    v_namespace_nonempty =
+                        core_ne(&[v_trimmed_namespace.clone(), CoreValue::from("")])?;
+                    if core_truthy(&v_namespace_nonempty) {
+                        v_valid_namespace_count =
+                            core_add(&[v_valid_namespace_count.clone(), CoreValue::Num(1f64)])?;
+                    }
+                }
+            }
+            v_no_valid_namespaces =
+                core_eq(&[v_valid_namespace_count.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_no_valid_namespaces) {
+                v_message_namespaces = core_string_format(&[CoreValue::from("executorModelPolicy[{}].namespaces must contain at least one non-empty string"), v_index.clone()])?;
+                v_error_namespaces = core_runtime_error(&[v_message_namespaces.clone()])?;
+                return Err(core_as_error(&v_error_namespaces));
+            }
+        }
+        v_has_trigger = core_or(&[v_has_above.clone(), v_has_namespaces.clone()])?;
+        if core_truthy(&v_has_trigger) {
+        } else {
+            v_message_trigger = core_string_format(&[CoreValue::from("executorModelPolicy[{}] must define at least one of aboveErrorTurns or namespaces"), v_index.clone()])?;
+            v_error_trigger = core_runtime_error(&[v_message_trigger.clone()])?;
+            return Err(core_as_error(&v_error_trigger));
+        }
+        v_normalized = CoreValue::new_map();
+        core_set(&v_normalized, CoreValue::from("model"), v_model.clone())?;
+        if core_truthy(&v_has_above) {
+            core_set(
+                &v_normalized,
+                CoreValue::from("aboveErrorTurns"),
+                v_above.clone(),
+            )?;
+        }
+        if core_truthy(&v_has_namespaces) {
+            core_set(
+                &v_normalized,
+                CoreValue::from("namespaces"),
+                v_namespaces.clone(),
+            )?;
+        }
+        core_append(&v_out, v_normalized.clone())?;
+        v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_count = core_len(&[v_out.clone()])?;
+    v_empty = core_eq(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_empty) {
+        v_error_empty = core_runtime_error(&[CoreValue::from(
+            "executorModelPolicy must contain at least one entry",
+        )])?;
+        return Err(core_as_error(&v_error_empty));
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _select_agent_executor_model(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_policy = core_arg(args, 0);
+    let mut v_actor_model_state = core_arg(args, 1);
+    let mut v_above = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_error_trigger = CoreValue::Null;
+    let mut v_errors = CoreValue::Null;
+    let mut v_has_above = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_matched = CoreValue::Null;
+    let mut v_matched_is_list = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_namespace = CoreValue::Null;
+    let mut v_namespace_match = CoreValue::Null;
+    let mut v_namespaces = CoreValue::Null;
+    let mut v_namespaces_is_list = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_selected = CoreValue::Null;
+    let mut v_trigger = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_is_list = core_type_is(&v_policy, CoreValue::from("list"));
+    if core_truthy(&v_is_list) {
+    } else {
+        return Ok(v_none.clone());
+    }
+    v_errors = core_get(
+        &v_actor_model_state,
+        &CoreValue::from("consecutiveErrorTurns"),
+        CoreValue::Num(0f64),
+    );
+    v_matched = core_get(
+        &v_actor_model_state,
+        &CoreValue::from("matchedNamespaces"),
+        CoreValue::Null,
+    );
+    v_matched_is_list = core_type_is(&v_matched, CoreValue::from("list"));
+    if core_truthy(&v_matched_is_list) {
+    } else {
+        v_matched = CoreValue::new_list();
+    }
+    v_selected = core_none(&[])?;
+    for v_entry in core_iter(&v_policy)? {
+        let mut v_entry = v_entry;
+        v_model = core_get(&v_entry, &CoreValue::from("model"), CoreValue::from(""));
+        v_above = core_get(
+            &v_entry,
+            &CoreValue::from("aboveErrorTurns"),
+            CoreValue::Null,
+        );
+        v_namespaces = core_get(&v_entry, &CoreValue::from("namespaces"), CoreValue::Null);
+        v_trigger = CoreValue::Bool(false);
+        v_has_above = core_is_not_none(&[v_above.clone()])?;
+        if core_truthy(&v_has_above) {
+            v_error_trigger = core_gte(&[v_errors.clone(), v_above.clone()])?;
+            if core_truthy(&v_error_trigger) {
+                v_trigger = CoreValue::Bool(true);
+            }
+        }
+        v_namespaces_is_list = core_type_is(&v_namespaces, CoreValue::from("list"));
+        if core_truthy(&v_namespaces_is_list) {
+            for v_namespace in core_iter(&v_namespaces)? {
+                let mut v_namespace = v_namespace;
+                v_namespace_match = core_contains(&[v_matched.clone(), v_namespace.clone()])?;
+                if core_truthy(&v_namespace_match) {
+                    v_trigger = CoreValue::Bool(true);
+                }
+            }
+        }
+        if core_truthy(&v_trigger) {
+            v_selected = v_model.clone();
+        }
+    }
+    return Ok(v_selected.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_compute_effective_chat_budget(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_base_budget = core_arg(args, 0);
+    let mut v_fixed_overhead_chars = core_arg(args, 1);
+    let mut v_budget = CoreValue::Null;
+    let mut v_budget_math = CoreValue::Null;
+    let mut v_context_registry = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_max_system = CoreValue::Null;
+    let mut v_min_ratio = CoreValue::Null;
+    let mut v_negative_overhead = CoreValue::Null;
+    let mut v_overhead_ratio = CoreValue::Null;
+    let mut v_ratio = CoreValue::Null;
+    let mut v_too_high = CoreValue::Null;
+    let mut v_too_low = CoreValue::Null;
+    v_context_registry = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_budget_math = core_get(
+        &v_context_registry,
+        &CoreValue::from("budget_math"),
+        v_empty_map.clone(),
+    );
+    v_ratio = CoreValue::Num(1f64);
+    v_max_system = core_get(
+        &v_budget_math,
+        &CoreValue::from("maxSystemPromptChars"),
+        CoreValue::Num(30000f64),
+    );
+    v_min_ratio = core_get(
+        &v_budget_math,
+        &CoreValue::from("minEffectiveBudgetRatio"),
+        CoreValue::Num(0.25f64),
+    );
+    v_overhead_ratio = core_div(&[v_fixed_overhead_chars.clone(), v_max_system.clone()])?;
+    v_negative_overhead = core_mul(&[CoreValue::Num(-1f64), v_overhead_ratio.clone()])?;
+    v_ratio = core_add(&[CoreValue::Num(1f64), v_negative_overhead.clone()])?;
+    v_too_low = core_lt(&[v_ratio.clone(), v_min_ratio.clone()])?;
+    if core_truthy(&v_too_low) {
+        v_ratio = v_min_ratio.clone();
+    }
+    v_too_high = core_gt(&[v_ratio.clone(), CoreValue::Num(1f64)])?;
+    if core_truthy(&v_too_high) {
+        v_ratio = CoreValue::Num(1f64);
+    }
+    v_budget = core_mul(&[v_base_budget.clone(), v_ratio.clone()])?;
+    return Ok(v_budget.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_action_log_char_count(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_entries = core_arg(args, 0);
+    let mut v_code = CoreValue::Null;
+    let mut v_code_len = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_len = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_output_len = CoreValue::Null;
+    let mut v_total = CoreValue::Null;
+    v_total = CoreValue::Num(0f64);
+    for v_entry in core_iter(&v_entries)? {
+        let mut v_entry = v_entry;
+        v_code = core_get(&v_entry, &CoreValue::from("code"), CoreValue::from(""));
+        v_output = core_get(&v_entry, &CoreValue::from("output"), CoreValue::from(""));
+        v_code_len = core_len(&[v_code.clone()])?;
+        v_output_len = core_len(&[v_output.clone()])?;
+        v_entry_len = core_add(&[v_code_len.clone(), v_output_len.clone()])?;
+        v_total = core_add(&[v_total.clone(), v_entry_len.clone()])?;
+    }
+    return Ok(v_total.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_compute_dynamic_runtime_chars(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_entries = core_arg(args, 0);
+    let mut v_target_prompt_chars = core_arg(args, 1);
+    let mut v_max_runtime_chars = core_arg(args, 2);
+    let mut v_above_max = CoreValue::Null;
+    let mut v_below_min = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_context_registry = CoreValue::Null;
+    let mut v_current_chars = CoreValue::Null;
+    let mut v_effective_min = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_floor_ratio = CoreValue::Null;
+    let mut v_max_below_min = CoreValue::Null;
+    let mut v_min_runtime_chars = CoreValue::Null;
+    let mut v_negative_usage_ratio = CoreValue::Null;
+    let mut v_remaining_ratio = CoreValue::Null;
+    let mut v_runtime_budget = CoreValue::Null;
+    let mut v_too_high = CoreValue::Null;
+    let mut v_too_low = CoreValue::Null;
+    let mut v_usage_ratio = CoreValue::Null;
+    v_context_registry = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_runtime_budget = core_get(
+        &v_context_registry,
+        &CoreValue::from("runtime_output_budget"),
+        v_empty_map.clone(),
+    );
+    v_floor_ratio = core_get(
+        &v_runtime_budget,
+        &CoreValue::from("floorRatio"),
+        CoreValue::Num(0.15f64),
+    );
+    v_min_runtime_chars = core_get(
+        &v_runtime_budget,
+        &CoreValue::from("minRuntimeChars"),
+        CoreValue::Num(400f64),
+    );
+    v_current_chars = _agent_action_log_char_count(&[v_entries.clone()])?;
+    v_usage_ratio = core_div(&[v_current_chars.clone(), v_target_prompt_chars.clone()])?;
+    v_negative_usage_ratio = core_mul(&[CoreValue::Num(-1f64), v_usage_ratio.clone()])?;
+    v_remaining_ratio = core_add(&[CoreValue::Num(1f64), v_negative_usage_ratio.clone()])?;
+    v_too_low = core_lt(&[v_remaining_ratio.clone(), v_floor_ratio.clone()])?;
+    if core_truthy(&v_too_low) {
+        v_remaining_ratio = v_floor_ratio.clone();
+    }
+    v_too_high = core_gt(&[v_remaining_ratio.clone(), CoreValue::Num(1f64)])?;
+    if core_truthy(&v_too_high) {
+        v_remaining_ratio = CoreValue::Num(1f64);
+    }
+    v_effective_min = v_min_runtime_chars.clone();
+    v_max_below_min = core_lt(&[v_max_runtime_chars.clone(), v_effective_min.clone()])?;
+    if core_truthy(&v_max_below_min) {
+        v_effective_min = v_max_runtime_chars.clone();
+    }
+    v_candidate = core_mul(&[v_max_runtime_chars.clone(), v_remaining_ratio.clone()])?;
+    v_above_max = core_gt(&[v_candidate.clone(), v_max_runtime_chars.clone()])?;
+    if core_truthy(&v_above_max) {
+        v_candidate = v_max_runtime_chars.clone();
+    }
+    v_below_min = core_lt(&[v_candidate.clone(), v_effective_min.clone()])?;
+    if core_truthy(&v_below_min) {
+        v_candidate = v_effective_min.clone();
+    }
+    return Ok(v_candidate.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_context_pressure(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_mutable_prompt_chars = core_arg(args, 0);
+    let mut v_effective_budget_chars = core_arg(args, 1);
+    let mut v_checkpoint_active = core_arg(args, 2);
+    let mut v_context_registry = CoreValue::Null;
+    let mut v_critical = CoreValue::Null;
+    let mut v_critical_id = CoreValue::Null;
+    let mut v_critical_level = CoreValue::Null;
+    let mut v_critical_threshold = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_invalid_budget = CoreValue::Null;
+    let mut v_ok_id = CoreValue::Null;
+    let mut v_ok_level = CoreValue::Null;
+    let mut v_pressure_levels = CoreValue::Null;
+    let mut v_ratio = CoreValue::Null;
+    let mut v_watch = CoreValue::Null;
+    let mut v_watch_id = CoreValue::Null;
+    let mut v_watch_level = CoreValue::Null;
+    let mut v_watch_threshold = CoreValue::Null;
+    v_context_registry = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_pressure_levels = core_get(
+        &v_context_registry,
+        &CoreValue::from("pressure_levels"),
+        v_empty_map.clone(),
+    );
+    v_ok_level = core_get(
+        &v_pressure_levels,
+        &CoreValue::from("ok"),
+        v_empty_map.clone(),
+    );
+    v_watch_level = core_get(
+        &v_pressure_levels,
+        &CoreValue::from("watch"),
+        v_empty_map.clone(),
+    );
+    v_critical_level = core_get(
+        &v_pressure_levels,
+        &CoreValue::from("critical"),
+        v_empty_map.clone(),
+    );
+    v_ok_id = core_get(&v_ok_level, &CoreValue::from("id"), CoreValue::from("ok"));
+    v_watch_id = core_get(
+        &v_watch_level,
+        &CoreValue::from("id"),
+        CoreValue::from("watch"),
+    );
+    v_critical_id = core_get(
+        &v_critical_level,
+        &CoreValue::from("id"),
+        CoreValue::from("critical"),
+    );
+    v_watch_threshold = core_get(
+        &v_watch_level,
+        &CoreValue::from("threshold"),
+        CoreValue::Num(0.7f64),
+    );
+    v_critical_threshold = core_get(
+        &v_critical_level,
+        &CoreValue::from("threshold"),
+        CoreValue::Num(0.9f64),
+    );
+    if core_truthy(&v_checkpoint_active) {
+        return Ok(v_critical_id.clone());
+    }
+    v_invalid_budget = core_lte(&[v_effective_budget_chars.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_invalid_budget) {
+        return Ok(v_ok_id.clone());
+    }
+    v_ratio = core_div(&[
+        v_mutable_prompt_chars.clone(),
+        v_effective_budget_chars.clone(),
+    ])?;
+    v_critical = core_gte(&[v_ratio.clone(), v_critical_threshold.clone()])?;
+    if core_truthy(&v_critical) {
+        return Ok(v_critical_id.clone());
+    }
+    v_watch = core_gte(&[v_ratio.clone(), v_watch_threshold.clone()])?;
+    if core_truthy(&v_watch) {
+        return Ok(v_watch_id.clone());
+    }
+    return Ok(v_ok_id.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_render_context_pressure(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_pressure = core_arg(args, 0);
+    let mut v_context_registry = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_empty_text = CoreValue::Null;
+    let mut v_level = CoreValue::Null;
+    let mut v_ok_level = CoreValue::Null;
+    let mut v_pressure_levels = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_context_registry = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_pressure_levels = core_get(
+        &v_context_registry,
+        &CoreValue::from("pressure_levels"),
+        v_empty_map.clone(),
+    );
+    v_level = core_get(&v_pressure_levels, &v_pressure.clone(), v_empty_map.clone());
+    v_text = core_get(&v_level, &CoreValue::from("text"), CoreValue::from(""));
+    v_empty_text = core_eq(&[v_text.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty_text) {
+        v_ok_level = core_get(
+            &v_pressure_levels,
+            &CoreValue::from("ok"),
+            v_empty_map.clone(),
+        );
+        v_text = core_get(
+            &v_ok_level,
+            &CoreValue::from("text"),
+            CoreValue::from(
+                "ok - normal context pressure; continue with focused, useful inspections.",
+            ),
+        );
+    }
+    return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_smart_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_value = core_arg(args, 0);
+    let mut v_max_chars = core_arg(args, 1);
+    let mut v_array_head_items = CoreValue::Null;
+    let mut v_array_tail_items = CoreValue::Null;
+    let mut v_array_threshold = CoreValue::Null;
+    let mut v_context_registry = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_head = CoreValue::Null;
+    let mut v_head_text = CoreValue::Null;
+    let mut v_hidden = CoreValue::Null;
+    let mut v_in_head = CoreValue::Null;
+    let mut v_in_tail = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_item_text = CoreValue::Null;
+    let mut v_json = CoreValue::Null;
+    let mut v_large = CoreValue::Null;
+    let mut v_negative_tail_items = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_settings = CoreValue::Null;
+    let mut v_tail = CoreValue::Null;
+    let mut v_tail_start = CoreValue::Null;
+    let mut v_tail_text = CoreValue::Null;
+    v_context_registry = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_settings = core_get(
+        &v_context_registry,
+        &CoreValue::from("smart_stringify"),
+        v_empty_map.clone(),
+    );
+    v_array_threshold = core_get(
+        &v_settings,
+        &CoreValue::from("arrayThreshold"),
+        CoreValue::Num(10f64),
+    );
+    v_array_head_items = core_get(
+        &v_settings,
+        &CoreValue::from("arrayHeadItems"),
+        CoreValue::Num(3f64),
+    );
+    v_array_tail_items = core_get(
+        &v_settings,
+        &CoreValue::from("arrayTailItems"),
+        CoreValue::Num(2f64),
+    );
+    v_is_list = core_type_is(&v_value, CoreValue::from("list"));
+    if core_truthy(&v_is_list) {
+        v_count = core_len(&[v_value.clone()])?;
+        v_large = core_gt(&[v_count.clone(), v_array_threshold.clone()])?;
+        if core_truthy(&v_large) {
+            v_head = CoreValue::new_list();
+            v_tail = CoreValue::new_list();
+            v_negative_tail_items = core_mul(&[CoreValue::Num(-1f64), v_array_tail_items.clone()])?;
+            v_tail_start = core_add(&[v_count.clone(), v_negative_tail_items.clone()])?;
+            v_index = CoreValue::Num(0f64);
+            for v_item in core_iter(&v_value)? {
+                let mut v_item = v_item;
+                v_item_text = core_json_stringify(&[v_item.clone()])?;
+                v_in_head = core_lt(&[v_index.clone(), v_array_head_items.clone()])?;
+                if core_truthy(&v_in_head) {
+                    core_append(&v_head, v_item_text.clone())?;
+                }
+                v_in_tail = core_gte(&[v_index.clone(), v_tail_start.clone()])?;
+                if core_truthy(&v_in_tail) {
+                    core_append(&v_tail, v_item_text.clone())?;
+                }
+                v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+            }
+            v_head_text = core_string_join_intrinsic(&[CoreValue::from(",\n  "), v_head.clone()])?;
+            v_tail_text = core_string_join_intrinsic(&[CoreValue::from(",\n  "), v_tail.clone()])?;
+            v_hidden = core_add(&[v_count.clone(), CoreValue::Num(-5f64)])?;
+            v_out = core_string_format(&[
+                CoreValue::from("[\n  {},\n  ... [{} hidden items],\n  {}\n]"),
+                v_head_text.clone(),
+                v_hidden.clone(),
+                v_tail_text.clone(),
+            ])?;
+            return Ok(v_out.clone());
+        }
+    }
+    v_json = core_json_pretty(&[v_value.clone()])?;
+    return Ok(v_json.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_record_context_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_event = core_arg(args, 1);
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_events = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_events = core_get(
+        &v_state,
+        &CoreValue::from("context_events"),
+        v_empty_list.clone(),
+    );
+    core_append(&v_events, v_event.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("context_events"),
+        v_events.clone(),
+    )?;
+    return Ok(v_event.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_entry_turn(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_entry = core_arg(args, 0);
+    let mut v_fallback = core_arg(args, 1);
+    let mut v_turn = CoreValue::Null;
+    v_turn = core_get(&v_entry, &CoreValue::from("turn"), v_fallback.clone());
+    return Ok(v_turn.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_entry_is_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_entry = core_arg(args, 0);
+    let mut v_is_error = CoreValue::Null;
+    let mut v_tag_error = CoreValue::Null;
+    let mut v_tags = CoreValue::Null;
+    let mut v_tags_is_list = CoreValue::Null;
+    v_tags = core_get(&v_entry, &CoreValue::from("tags"), CoreValue::Null);
+    v_tags_is_list = core_type_is(&v_tags, CoreValue::from("list"));
+    if core_truthy(&v_tags_is_list) {
+    } else {
+        v_tags = CoreValue::new_list();
+    }
+    v_tag_error = core_contains(&[v_tags.clone(), CoreValue::from("error")])?;
+    v_is_error = core_get(&v_entry, &CoreValue::from("is_error"), v_tag_error.clone());
+    return Ok(v_is_error.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_entry_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_entry = core_arg(args, 0);
+    let mut v_fallback_turn = core_arg(args, 1);
+    let mut v_has_summary = CoreValue::Null;
+    let mut v_has_tombstone = CoreValue::Null;
+    let mut v_is_error = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_preview = CoreValue::Null;
+    let mut v_summary = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_tombstone = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    v_tombstone = core_get(&v_entry, &CoreValue::from("tombstone"), CoreValue::from(""));
+    v_has_tombstone = core_ne(&[v_tombstone.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_tombstone) {
+        return Ok(v_tombstone.clone());
+    }
+    v_turn = _agent_entry_turn(&[v_entry.clone(), v_fallback_turn.clone()])?;
+    v_summary = core_get(&v_entry, &CoreValue::from("summary"), CoreValue::from(""));
+    v_has_summary = core_ne(&[v_summary.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_summary) {
+        return Ok(v_summary.clone());
+    }
+    v_kind = core_get(
+        &v_entry,
+        &CoreValue::from("kind"),
+        CoreValue::from("result"),
+    );
+    v_output = core_get(&v_entry, &CoreValue::from("output"), CoreValue::from(""));
+    v_preview = core_string_slice(&[
+        v_output.clone(),
+        CoreValue::Num(0f64),
+        CoreValue::Num(180f64),
+    ])?;
+    v_text = core_string_format(&[
+        CoreValue::from("{} turn result: {}"),
+        v_kind.clone(),
+        v_preview.clone(),
+    ])?;
+    v_is_error = _agent_entry_is_error(&[v_entry.clone()])?;
+    if core_truthy(&v_is_error) {
+        v_text = core_string_format(&[
+            CoreValue::from("error turn {}: {}"),
+            v_turn.clone(),
+            v_preview.clone(),
+        ])?;
+    }
+    return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_entry_callables_text(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_entry = core_arg(args, 0);
+    let mut v_call = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_calls_is_list = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_direct = CoreValue::Null;
+    let mut v_direct_is_list = CoreValue::Null;
+    let mut v_direct_name = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_has_direct = CoreValue::Null;
+    let mut v_has_qualified = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_known_direct = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    let mut v_new_direct = CoreValue::Null;
+    let mut v_new_name = CoreValue::Null;
+    let mut v_qualified = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_calls = core_get(
+        &v_entry,
+        &CoreValue::from("_functionCalls"),
+        v_empty_list.clone(),
+    );
+    v_names = CoreValue::new_list();
+    v_calls_is_list = core_type_is(&v_calls, CoreValue::from("list"));
+    if core_truthy(&v_calls_is_list) {
+        for v_call in core_iter(&v_calls)? {
+            let mut v_call = v_call;
+            v_qualified = core_get(
+                &v_call,
+                &CoreValue::from("qualifiedName"),
+                CoreValue::from(""),
+            );
+            v_has_qualified = core_ne(&[v_qualified.clone(), CoreValue::from("")])?;
+            if core_truthy(&v_has_qualified) {
+                v_known = core_contains(&[v_names.clone(), v_qualified.clone()])?;
+                v_new_name = core_not(&[v_known.clone()])?;
+                if core_truthy(&v_new_name) {
+                    core_append(&v_names, v_qualified.clone())?;
+                }
+            }
+        }
+    }
+    v_direct = core_get(
+        &v_entry,
+        &CoreValue::from("_directQualifiedCalls"),
+        v_empty_list.clone(),
+    );
+    v_direct_is_list = core_type_is(&v_direct, CoreValue::from("list"));
+    if core_truthy(&v_direct_is_list) {
+        for v_direct_name in core_iter(&v_direct)? {
+            let mut v_direct_name = v_direct_name;
+            v_has_direct = core_ne(&[v_direct_name.clone(), CoreValue::from("")])?;
+            if core_truthy(&v_has_direct) {
+                v_known_direct = core_contains(&[v_names.clone(), v_direct_name.clone()])?;
+                v_new_direct = core_not(&[v_known_direct.clone()])?;
+                if core_truthy(&v_new_direct) {
+                    core_append(&v_names, v_direct_name.clone())?;
+                }
+            }
+        }
+    }
+    v_count = core_len(&[v_names.clone()])?;
+    v_empty = core_eq(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_empty) {
+        return Ok(CoreValue::from("none"));
+    }
+    v_text = core_string_join_intrinsic(&[CoreValue::from(", "), v_names.clone()])?;
+    return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_distill_structured_action_output(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_output = core_arg(args, 0);
+    let mut v_clean_counts = CoreValue::Null;
+    let mut v_counts = CoreValue::Null;
+    let mut v_detail = CoreValue::Null;
+    let mut v_failure = CoreValue::Null;
+    let mut v_has_failed_count = CoreValue::Null;
+    let mut v_has_failed_line = CoreValue::Null;
+    let mut v_has_passed = CoreValue::Null;
+    let mut v_json_distill = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_line_counts = CoreValue::Null;
+    let mut v_line_has_failed = CoreValue::Null;
+    let mut v_line_has_passed = CoreValue::Null;
+    let mut v_line_is_failure = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_long_output = CoreValue::Null;
+    let mut v_looks_json_array = CoreValue::Null;
+    let mut v_looks_test = CoreValue::Null;
+    let mut v_no_failure_yet = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_out_json = CoreValue::Null;
+    let mut v_output_len = CoreValue::Null;
+    let mut v_preview = CoreValue::Null;
+    let mut v_take_failure = CoreValue::Null;
+    let mut v_test_name = CoreValue::Null;
+    v_has_failed_line = core_contains(&[v_output.clone(), CoreValue::from("FAILED ")])?;
+    v_has_passed = core_contains(&[v_output.clone(), CoreValue::from(" passed")])?;
+    v_has_failed_count = core_contains(&[v_output.clone(), CoreValue::from(" failed")])?;
+    v_looks_test = core_and(&[v_has_failed_line.clone(), v_has_passed.clone()])?;
+    v_looks_test = core_and(&[v_looks_test.clone(), v_has_failed_count.clone()])?;
+    if core_truthy(&v_looks_test) {
+        v_lines = core_string_split_trim_nonempty(&[v_output.clone(), CoreValue::from("\n")])?;
+        v_failure = CoreValue::from("");
+        v_counts = CoreValue::from("");
+        for v_line in core_iter(&v_lines)? {
+            let mut v_line = v_line;
+            v_line_is_failure =
+                core_string_starts_with(&[v_line.clone(), CoreValue::from("FAILED ")])?;
+            v_no_failure_yet = core_eq(&[v_failure.clone(), CoreValue::from("")])?;
+            v_take_failure = core_and(&[v_line_is_failure.clone(), v_no_failure_yet.clone()])?;
+            if core_truthy(&v_take_failure) {
+                v_failure = v_line.clone();
+            }
+            v_line_has_passed = core_contains(&[v_line.clone(), CoreValue::from(" passed")])?;
+            v_line_has_failed = core_contains(&[v_line.clone(), CoreValue::from(" failed")])?;
+            v_line_counts = core_and(&[v_line_has_passed.clone(), v_line_has_failed.clone()])?;
+            if core_truthy(&v_line_counts) {
+                v_counts = v_line.clone();
+            }
+        }
+        v_clean_counts = core_regex_replace(&[
+            CoreValue::from("^=+\\s*"),
+            CoreValue::from(""),
+            v_counts.clone(),
+        ])?;
+        v_clean_counts = core_regex_replace(&[
+            CoreValue::from("\\s*=+$"),
+            CoreValue::from(""),
+            v_clean_counts.clone(),
+        ])?;
+        v_clean_counts = core_regex_replace(&[
+            CoreValue::from("\\s+in\\s+.*$"),
+            CoreValue::from(""),
+            v_clean_counts.clone(),
+        ])?;
+        v_test_name = core_regex_replace(&[
+            CoreValue::from("^FAILED\\s+"),
+            CoreValue::from(""),
+            v_failure.clone(),
+        ])?;
+        v_test_name = core_regex_replace(&[
+            CoreValue::from("\\s+-\\s+.*$"),
+            CoreValue::from(""),
+            v_test_name.clone(),
+        ])?;
+        v_detail = core_string_slice(&[
+            v_failure.clone(),
+            CoreValue::Num(0f64),
+            CoreValue::Num(180f64),
+        ])?;
+        v_out = core_string_format(&[
+            CoreValue::from("[DISTILLED:test-output]: {}\nFailures: {}\nError details: {}"),
+            v_clean_counts.clone(),
+            v_test_name.clone(),
+            v_detail.clone(),
+        ])?;
+        return Ok(v_out.clone());
+    }
+    v_looks_json_array = core_string_starts_with(&[v_output.clone(), CoreValue::from("[")])?;
+    v_output_len = core_len(&[v_output.clone()])?;
+    v_long_output = core_gt(&[v_output_len.clone(), CoreValue::Num(220f64)])?;
+    v_json_distill = core_and(&[v_looks_json_array.clone(), v_long_output.clone()])?;
+    if core_truthy(&v_json_distill) {
+        v_preview = core_string_slice(&[
+            v_output.clone(),
+            CoreValue::Num(0f64),
+            CoreValue::Num(180f64),
+        ])?;
+        v_out_json = core_string_format(&[
+            CoreValue::from("[DISTILLED:json]: array\nPreview: {}"),
+            v_preview.clone(),
+        ])?;
+        return Ok(v_out_json.clone());
+    }
+    return Ok(CoreValue::from(""));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_render_full_action_entry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_entry = core_arg(args, 1);
+    let mut v_code = CoreValue::Null;
+    let mut v_fence = CoreValue::Null;
+    let mut v_has_tombstone = CoreValue::Null;
+    let mut v_js_fence = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_runtime_contract = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_tombstone = CoreValue::Null;
+    v_tombstone = core_get(&v_entry, &CoreValue::from("tombstone"), CoreValue::from(""));
+    v_has_tombstone = core_ne(&[v_tombstone.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_tombstone) {
+        return Ok(v_tombstone.clone());
+    }
+    v_runtime_contract = core_get(
+        &v_state,
+        &CoreValue::from("runtime_contract"),
+        CoreValue::Null,
+    );
+    v_fence = core_get(
+        &v_runtime_contract,
+        &CoreValue::from("code_fence_language"),
+        CoreValue::from("javascript"),
+    );
+    v_js_fence = core_eq(&[v_fence.clone(), CoreValue::from("js")])?;
+    if core_truthy(&v_js_fence) {
+        v_fence = CoreValue::from("javascript");
+    }
+    v_code = core_get(&v_entry, &CoreValue::from("code"), CoreValue::from(""));
+    v_output = core_get(&v_entry, &CoreValue::from("output"), CoreValue::from(""));
+    v_text = core_string_format(&[
+        CoreValue::from("```{}\n{}\n```\nResult:\n{}"),
+        v_fence.clone(),
+        v_code.clone(),
+        v_output.clone(),
+    ])?;
+    return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_render_compact_action_entry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_entry = core_arg(args, 0);
+    let mut v_turn = core_arg(args, 1);
+    let mut v_reason = core_arg(args, 2);
+    let mut v_callables = CoreValue::Null;
+    let mut v_distilled = CoreValue::Null;
+    let mut v_has_distilled = CoreValue::Null;
+    let mut v_head = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_preview = CoreValue::Null;
+    let mut v_state_delta = CoreValue::Null;
+    let mut v_tail = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_kind = core_get(
+        &v_entry,
+        &CoreValue::from("kind"),
+        CoreValue::from("result"),
+    );
+    v_state_delta = core_get(
+        &v_entry,
+        &CoreValue::from("stateDelta"),
+        CoreValue::from("No durable runtime state update"),
+    );
+    v_output = core_get(&v_entry, &CoreValue::from("output"), CoreValue::from(""));
+    v_callables = _agent_entry_callables_text(&[v_entry.clone()])?;
+    v_distilled = _agent_distill_structured_action_output(&[v_output.clone()])?;
+    v_has_distilled = core_ne(&[v_distilled.clone(), CoreValue::from("")])?;
+    v_preview = core_string_slice(&[
+        v_output.clone(),
+        CoreValue::Num(0f64),
+        CoreValue::Num(180f64),
+    ])?;
+    if core_truthy(&v_has_distilled) {
+        v_preview = v_distilled.clone();
+    }
+    v_head = core_string_format(&[
+        CoreValue::from("[COMPACT:{}]: Turn {}. {} step."),
+        v_reason.clone(),
+        v_turn.clone(),
+        v_kind.clone(),
+    ])?;
+    v_tail = core_string_format(&[
+        CoreValue::from(" State: {}. Callables: {}. Result: {}."),
+        v_state_delta.clone(),
+        v_callables.clone(),
+        v_preview.clone(),
+    ])?;
+    v_text = core_add(&[v_head.clone(), v_tail.clone()])?;
+    return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_fallback_checkpoint_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_entries = core_arg(args, 0);
+    let mut v_turns = core_arg(args, 1);
+    let mut v_all_working = CoreValue::Null;
+    let mut v_artifact = CoreValue::Null;
+    let mut v_artifact_text = CoreValue::Null;
+    let mut v_artifacts = CoreValue::Null;
+    let mut v_covered = CoreValue::Null;
+    let mut v_empty_artifact = CoreValue::Null;
+    let mut v_empty_evidence = CoreValue::Null;
+    let mut v_empty_failures = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_evidence = CoreValue::Null;
+    let mut v_evidence_text = CoreValue::Null;
+    let mut v_failure_text = CoreValue::Null;
+    let mut v_failures = CoreValue::Null;
+    let mut v_fallback = CoreValue::Null;
+    let mut v_has_state = CoreValue::Null;
+    let mut v_has_working = CoreValue::Null;
+    let mut v_head_summary = CoreValue::Null;
+    let mut v_is_error = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_objective = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_preview = CoreValue::Null;
+    let mut v_state_delta = CoreValue::Null;
+    let mut v_summary = CoreValue::Null;
+    let mut v_tail_summary = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    let mut v_turn_count = CoreValue::Null;
+    let mut v_working = CoreValue::Null;
+    let mut v_working_count = CoreValue::Null;
+    let mut v_working_text = CoreValue::Null;
+    let mut v_working_turns = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_evidence = CoreValue::new_list();
+    v_failures = CoreValue::new_list();
+    v_artifacts = CoreValue::new_list();
+    v_objective = CoreValue::from("explore");
+    v_fallback = CoreValue::Num(1f64);
+    for v_entry in core_iter(&v_entries)? {
+        let mut v_entry = v_entry;
+        v_turn = _agent_entry_turn(&[v_entry.clone(), v_fallback.clone()])?;
+        v_covered = core_contains(&[v_turns.clone(), v_turn.clone()])?;
+        if core_truthy(&v_covered) {
+            v_kind = core_get(
+                &v_entry,
+                &CoreValue::from("kind"),
+                CoreValue::from("result"),
+            );
+            v_objective = v_kind.clone();
+            v_output = core_get(&v_entry, &CoreValue::from("output"), CoreValue::from(""));
+            v_preview = core_string_slice(&[
+                v_output.clone(),
+                CoreValue::Num(0f64),
+                CoreValue::Num(200f64),
+            ])?;
+            v_line = core_string_format(&[
+                CoreValue::from("Turn {}: {}"),
+                v_turn.clone(),
+                v_preview.clone(),
+            ])?;
+            core_append(&v_evidence, v_line.clone())?;
+            v_state_delta = core_get(
+                &v_entry,
+                &CoreValue::from("stateDelta"),
+                CoreValue::from(""),
+            );
+            v_has_state = core_ne(&[v_state_delta.clone(), CoreValue::from("")])?;
+            if core_truthy(&v_has_state) {
+                v_artifact = core_string_format(&[
+                    CoreValue::from("Turn {}: {}"),
+                    v_turn.clone(),
+                    v_state_delta.clone(),
+                ])?;
+                core_append(&v_artifacts, v_artifact.clone())?;
+            }
+            v_is_error = _agent_entry_is_error(&[v_entry.clone()])?;
+            if core_truthy(&v_is_error) {
+                core_append(&v_failures, v_line.clone())?;
+            }
+        }
+        v_fallback = core_add(&[v_fallback.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_artifact_text = core_string_join_intrinsic(&[CoreValue::from(" | "), v_artifacts.clone()])?;
+    v_evidence_text = core_string_join_intrinsic(&[CoreValue::from(" | "), v_evidence.clone()])?;
+    v_failure_text = core_string_join_intrinsic(&[CoreValue::from(" | "), v_failures.clone()])?;
+    v_empty_artifact = core_eq(&[v_artifact_text.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty_artifact) {
+        v_artifact_text =
+            CoreValue::from("Continue from liveRuntimeState and recent full action replay.");
+    }
+    v_empty_evidence = core_eq(&[v_evidence_text.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty_evidence) {
+        v_evidence_text = CoreValue::from("none");
+    }
+    v_empty_failures = core_eq(&[v_failure_text.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty_failures) {
+        v_failure_text = CoreValue::from("none");
+    }
+    v_head_summary = core_string_format(&[CoreValue::from("Objective: {}\nCurrent state and artifacts: {}\nExact callables and formats: none\nEvidence: {}"), v_objective.clone(), v_artifact_text.clone(), v_evidence_text.clone()])?;
+    v_tail_summary = core_string_format(&[CoreValue::from("\nUser constraints and preferences: none\nFailures to avoid: {}\nNext step: Continue from the latest live runtime state."), v_failure_text.clone()])?;
+    v_summary = core_add(&[v_head_summary.clone(), v_tail_summary.clone()])?;
+    v_working = _agent_working_code_state(&[v_entries.clone(), v_turns.clone()])?;
+    v_working_text = core_get(&v_working, &CoreValue::from("text"), CoreValue::from(""));
+    v_working_turns = core_get(&v_working, &CoreValue::from("turns"), v_empty_list.clone());
+    v_working_count = core_len(&[v_working_turns.clone()])?;
+    v_turn_count = core_len(&[v_turns.clone()])?;
+    v_has_working = core_ne(&[v_working_text.clone(), CoreValue::from("")])?;
+    v_all_working = core_eq(&[v_working_count.clone(), v_turn_count.clone()])?;
+    if core_truthy(&v_has_working) {
+        if core_truthy(&v_all_working) {
+            v_summary = v_working_text.clone();
+        } else {
+            v_summary = core_string_format(&[
+                CoreValue::from("{}\n\n{}"),
+                v_working_text.clone(),
+                v_summary.clone(),
+            ])?;
+        }
+    }
+    return Ok(v_summary.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_build_deterministic_tombstone(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_error_entry = core_arg(args, 0);
+    let mut v_resolution_entry = core_arg(args, 1);
+    let mut v_empty_signature = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_resolved_turn = CoreValue::Null;
+    let mut v_signature = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_output = core_get(
+        &v_error_entry,
+        &CoreValue::from("output"),
+        CoreValue::from(""),
+    );
+    v_signature = core_string_slice(&[
+        v_output.clone(),
+        CoreValue::Num(0f64),
+        CoreValue::Num(96f64),
+    ])?;
+    v_empty_signature = core_eq(&[v_signature.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty_signature) {
+        v_signature = CoreValue::from("runtime error");
+    }
+    v_resolved_turn = _agent_entry_turn(&[v_resolution_entry.clone(), CoreValue::Num(0f64)])?;
+    v_text = core_string_format(&[
+        CoreValue::from("[TOMBSTONE]: Resolved {} in turn {}."),
+        v_signature.clone(),
+        v_resolved_turn.clone(),
+    ])?;
+    return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_apply_context_management(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_count = CoreValue::Null;
+    let mut v_current_is_error = CoreValue::Null;
+    let mut v_current_success = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_entries = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_error_pruning = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_existing = CoreValue::Null;
+    let mut v_has_pairs = CoreValue::Null;
+    let mut v_has_prev = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_policy = CoreValue::Null;
+    let mut v_prev = CoreValue::Null;
+    let mut v_prev_is_error = CoreValue::Null;
+    let mut v_resolved = CoreValue::Null;
+    let mut v_resolved_turn = CoreValue::Null;
+    let mut v_summary_chars = CoreValue::Null;
+    let mut v_tombstone = CoreValue::Null;
+    let mut v_tombstoning = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_entries = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_policy = core_get(
+        &v_state,
+        &CoreValue::from("context_policy"),
+        CoreValue::Null,
+    );
+    v_error_pruning = core_get(
+        &v_policy,
+        &CoreValue::from("errorPruning"),
+        CoreValue::Bool(false),
+    );
+    v_tombstoning = core_get(
+        &v_policy,
+        &CoreValue::from("tombstoning"),
+        CoreValue::Bool(false),
+    );
+    v_enabled = core_or(&[v_error_pruning.clone(), v_tombstoning.clone()])?;
+    if core_truthy(&v_enabled) {
+    } else {
+        return Ok(v_entries.clone());
+    }
+    v_count = core_len(&[v_entries.clone()])?;
+    v_has_pairs = core_gt(&[v_count.clone(), CoreValue::Num(1f64)])?;
+    if core_truthy(&v_has_pairs) {
+    } else {
+        return Ok(v_entries.clone());
+    }
+    v_prev = core_none(&[])?;
+    v_has_prev = CoreValue::Bool(false);
+    for v_entry in core_iter(&v_entries)? {
+        let mut v_entry = v_entry;
+        if core_truthy(&v_has_prev) {
+            v_prev_is_error = _agent_entry_is_error(&[v_prev.clone()])?;
+            v_current_is_error = _agent_entry_is_error(&[v_entry.clone()])?;
+            v_current_success = core_not(&[v_current_is_error.clone()])?;
+            v_resolved = core_and(&[v_prev_is_error.clone(), v_current_success.clone()])?;
+            if core_truthy(&v_resolved) {
+                v_existing = core_get(&v_prev, &CoreValue::from("tombstone"), CoreValue::from(""));
+                v_missing = core_eq(&[v_existing.clone(), CoreValue::from("")])?;
+                if core_truthy(&v_missing) {
+                    v_tombstone =
+                        _agent_build_deterministic_tombstone(&[v_prev.clone(), v_entry.clone()])?;
+                    core_set(&v_prev, CoreValue::from("tombstone"), v_tombstone.clone())?;
+                    v_event = CoreValue::new_map();
+                    v_kind = _agent_context_event_name(&[CoreValue::from("tombstone_created")])?;
+                    core_set(&v_event, CoreValue::from("kind"), v_kind.clone())?;
+                    core_set(
+                        &v_event,
+                        CoreValue::from("stage"),
+                        CoreValue::from("executor"),
+                    )?;
+                    v_turn = _agent_entry_turn(&[v_prev.clone(), CoreValue::Num(0f64)])?;
+                    v_resolved_turn = _agent_entry_turn(&[v_entry.clone(), CoreValue::Num(0f64)])?;
+                    core_set(&v_event, CoreValue::from("turn"), v_turn.clone())?;
+                    core_set(
+                        &v_event,
+                        CoreValue::from("resolvedByTurn"),
+                        v_resolved_turn.clone(),
+                    )?;
+                    core_set(
+                        &v_event,
+                        CoreValue::from("source"),
+                        CoreValue::from("deterministic"),
+                    )?;
+                    v_summary_chars = core_len(&[v_tombstone.clone()])?;
+                    core_set(
+                        &v_event,
+                        CoreValue::from("summaryChars"),
+                        v_summary_chars.clone(),
+                    )?;
+                    _agent_record_context_event(&[v_state.clone(), v_event.clone()])?;
+                }
+            }
+        }
+        v_prev = v_entry.clone();
+        v_has_prev = CoreValue::Bool(true);
+    }
+    core_set(&v_state, CoreValue::from("action_log"), v_entries.clone())?;
+    return Ok(v_entries.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_working_code_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_entries = core_arg(args, 0);
+    let mut v_turns = core_arg(args, 1);
+    let mut v_block = CoreValue::Null;
+    let mut v_block_head = CoreValue::Null;
+    let mut v_block_tail = CoreValue::Null;
+    let mut v_blocks = CoreValue::Null;
+    let mut v_body = CoreValue::Null;
+    let mut v_callables = CoreValue::Null;
+    let mut v_code = CoreValue::Null;
+    let mut v_code_head = CoreValue::Null;
+    let mut v_code_len = CoreValue::Null;
+    let mut v_code_too_long = CoreValue::Null;
+    let mut v_coverable2 = CoreValue::Null;
+    let mut v_coverable_count = CoreValue::Null;
+    let mut v_covered = CoreValue::Null;
+    let mut v_covered2 = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry2 = CoreValue::Null;
+    let mut v_fallback = CoreValue::Null;
+    let mut v_fallback2 = CoreValue::Null;
+    let mut v_has_body = CoreValue::Null;
+    let mut v_has_tombstone = CoreValue::Null;
+    let mut v_has_tombstone2 = CoreValue::Null;
+    let mut v_include = CoreValue::Null;
+    let mut v_include_working = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_is_error = CoreValue::Null;
+    let mut v_is_error2 = CoreValue::Null;
+    let mut v_more_than_two = CoreValue::Null;
+    let mut v_not_error = CoreValue::Null;
+    let mut v_not_error2 = CoreValue::Null;
+    let mut v_not_tombstone = CoreValue::Null;
+    let mut v_not_tombstone2 = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_output_preview = CoreValue::Null;
+    let mut v_produced = CoreValue::Null;
+    let mut v_produced_empty = CoreValue::Null;
+    let mut v_produced_text = CoreValue::Null;
+    let mut v_read_empty = CoreValue::Null;
+    let mut v_read_text = CoreValue::Null;
+    let mut v_reads = CoreValue::Null;
+    let mut v_reads_is_list = CoreValue::Null;
+    let mut v_start = CoreValue::Null;
+    let mut v_state_delta = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_tombstone = CoreValue::Null;
+    let mut v_tombstone2 = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    let mut v_turn2 = CoreValue::Null;
+    let mut v_working_turns = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_working_turns = CoreValue::new_list();
+    v_coverable_count = CoreValue::Num(0f64);
+    v_fallback = CoreValue::Num(1f64);
+    for v_entry in core_iter(&v_entries)? {
+        let mut v_entry = v_entry;
+        v_turn = _agent_entry_turn(&[v_entry.clone(), v_fallback.clone()])?;
+        v_covered = core_contains(&[v_turns.clone(), v_turn.clone()])?;
+        v_is_error = _agent_entry_is_error(&[v_entry.clone()])?;
+        v_not_error = core_not(&[v_is_error.clone()])?;
+        v_tombstone = core_get(&v_entry, &CoreValue::from("tombstone"), CoreValue::from(""));
+        v_has_tombstone = core_ne(&[v_tombstone.clone(), CoreValue::from("")])?;
+        v_not_tombstone = core_not(&[v_has_tombstone.clone()])?;
+        v_include = core_and(&[v_covered.clone(), v_not_error.clone()])?;
+        v_include = core_and(&[v_include.clone(), v_not_tombstone.clone()])?;
+        if core_truthy(&v_include) {
+            v_coverable_count = core_add(&[v_coverable_count.clone(), CoreValue::Num(1f64)])?;
+        }
+        v_fallback = core_add(&[v_fallback.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_start = CoreValue::Num(0f64);
+    v_more_than_two = core_gt(&[v_coverable_count.clone(), CoreValue::Num(2f64)])?;
+    if core_truthy(&v_more_than_two) {
+        v_start = core_add(&[v_coverable_count.clone(), CoreValue::Num(-2f64)])?;
+    }
+    v_blocks = CoreValue::new_list();
+    v_index = CoreValue::Num(0f64);
+    v_fallback2 = CoreValue::Num(1f64);
+    for v_entry2 in core_iter(&v_entries)? {
+        let mut v_entry2 = v_entry2;
+        v_turn2 = _agent_entry_turn(&[v_entry2.clone(), v_fallback2.clone()])?;
+        v_covered2 = core_contains(&[v_turns.clone(), v_turn2.clone()])?;
+        v_is_error2 = _agent_entry_is_error(&[v_entry2.clone()])?;
+        v_not_error2 = core_not(&[v_is_error2.clone()])?;
+        v_tombstone2 = core_get(
+            &v_entry2,
+            &CoreValue::from("tombstone"),
+            CoreValue::from(""),
+        );
+        v_has_tombstone2 = core_ne(&[v_tombstone2.clone(), CoreValue::from("")])?;
+        v_not_tombstone2 = core_not(&[v_has_tombstone2.clone()])?;
+        v_coverable2 = core_and(&[v_covered2.clone(), v_not_error2.clone()])?;
+        v_coverable2 = core_and(&[v_coverable2.clone(), v_not_tombstone2.clone()])?;
+        if core_truthy(&v_coverable2) {
+            v_include_working = core_gte(&[v_index.clone(), v_start.clone()])?;
+            if core_truthy(&v_include_working) {
+                core_append(&v_working_turns, v_turn2.clone())?;
+                v_code = core_get(
+                    &v_entry2,
+                    &CoreValue::from("code"),
+                    CoreValue::from("(no code)"),
+                );
+                v_code_len = core_len(&[v_code.clone()])?;
+                v_code_too_long = core_gt(&[v_code_len.clone(), CoreValue::Num(2000f64)])?;
+                if core_truthy(&v_code_too_long) {
+                    v_code_head = core_string_slice(&[
+                        v_code.clone(),
+                        CoreValue::Num(0f64),
+                        CoreValue::Num(2000f64),
+                    ])?;
+                    v_code = core_string_format(&[
+                        CoreValue::from("{}\n// ... (truncated)"),
+                        v_code_head.clone(),
+                    ])?;
+                }
+                v_produced = core_get(
+                    &v_entry2,
+                    &CoreValue::from("producedVars"),
+                    v_empty_list.clone(),
+                );
+                v_produced_text =
+                    core_string_join_intrinsic(&[CoreValue::from(", "), v_produced.clone()])?;
+                v_produced_empty = core_eq(&[v_produced_text.clone(), CoreValue::from("")])?;
+                if core_truthy(&v_produced_empty) {
+                    v_produced_text = CoreValue::from("none");
+                }
+                v_reads = core_get(
+                    &v_entry2,
+                    &CoreValue::from("_durableReads"),
+                    CoreValue::Null,
+                );
+                v_reads_is_list = core_type_is(&v_reads, CoreValue::from("list"));
+                if core_truthy(&v_reads_is_list) {
+                } else {
+                    v_reads = core_get(
+                        &v_entry2,
+                        &CoreValue::from("referencedVars"),
+                        v_empty_list.clone(),
+                    );
+                }
+                v_read_text =
+                    core_string_join_intrinsic(&[CoreValue::from(", "), v_reads.clone()])?;
+                v_read_empty = core_eq(&[v_read_text.clone(), CoreValue::from("")])?;
+                if core_truthy(&v_read_empty) {
+                    v_read_text = CoreValue::from("none");
+                }
+                v_callables = _agent_entry_callables_text(&[v_entry2.clone()])?;
+                v_state_delta = core_get(
+                    &v_entry2,
+                    &CoreValue::from("stateDelta"),
+                    CoreValue::from("none"),
+                );
+                v_output = core_get(
+                    &v_entry2,
+                    &CoreValue::from("output"),
+                    CoreValue::from("(no output)"),
+                );
+                v_output_preview = core_string_slice(&[
+                    v_output.clone(),
+                    CoreValue::Num(0f64),
+                    CoreValue::Num(800f64),
+                ])?;
+                v_block_head = core_string_format(&[
+                    CoreValue::from("Code:\n{}\nProduced: {}\nRead: {}"),
+                    v_code.clone(),
+                    v_produced_text.clone(),
+                    v_read_text.clone(),
+                ])?;
+                v_block_tail = core_string_format(&[
+                    CoreValue::from("\nDirect callables: {}\nState delta: {}\nOutput: {}"),
+                    v_callables.clone(),
+                    v_state_delta.clone(),
+                    v_output_preview.clone(),
+                ])?;
+                v_block = core_add(&[v_block_head.clone(), v_block_tail.clone()])?;
+                core_append(&v_blocks, v_block.clone())?;
+            }
+            v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+        }
+        v_fallback2 = core_add(&[v_fallback2.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_body = core_string_join_intrinsic(&[CoreValue::from("\n\n"), v_blocks.clone()])?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("turns"), v_working_turns.clone())?;
+    v_has_body = core_ne(&[v_body.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_body) {
+        v_text = core_string_format(&[
+            CoreValue::from("=== Working Code State (verbatim) ===\n{}"),
+            v_body.clone(),
+        ])?;
+        core_set(&v_out, CoreValue::from("text"), v_text.clone())?;
+    } else {
+        core_set(&v_out, CoreValue::from("text"), CoreValue::from(""))?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_refresh_checkpoint_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_chars = CoreValue::Null;
+    let mut v_checkpoint = CoreValue::Null;
+    let mut v_checkpoints = CoreValue::Null;
+    let mut v_cleared = CoreValue::Null;
+    let mut v_cleared_kind = CoreValue::Null;
+    let mut v_context_registry = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_coverable = CoreValue::Null;
+    let mut v_covered_count = CoreValue::Null;
+    let mut v_covered_turns = CoreValue::Null;
+    let mut v_created_kind = CoreValue::Null;
+    let mut v_current = CoreValue::Null;
+    let mut v_disabled_reason = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_entries = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_existing = CoreValue::Null;
+    let mut v_fallback_turn = CoreValue::Null;
+    let mut v_fingerprint = CoreValue::Null;
+    let mut v_has_covered = CoreValue::Null;
+    let mut v_has_entries = CoreValue::Null;
+    let mut v_has_existing = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_is_error = CoreValue::Null;
+    let mut v_is_recent = CoreValue::Null;
+    let mut v_negative_recent = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_none_checkpoint = CoreValue::Null;
+    let mut v_none_empty = CoreValue::Null;
+    let mut v_none_no_covered = CoreValue::Null;
+    let mut v_not_recent = CoreValue::Null;
+    let mut v_ok_level = CoreValue::Null;
+    let mut v_ok_pressure = CoreValue::Null;
+    let mut v_over = CoreValue::Null;
+    let mut v_over_budget_reason = CoreValue::Null;
+    let mut v_policy = CoreValue::Null;
+    let mut v_pressure_levels = CoreValue::Null;
+    let mut v_recent = CoreValue::Null;
+    let mut v_recent_start = CoreValue::Null;
+    let mut v_summary = CoreValue::Null;
+    let mut v_summary_len = CoreValue::Null;
+    let mut v_too_many = CoreValue::Null;
+    let mut v_trigger = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_context_registry = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_pressure_levels = core_get(
+        &v_context_registry,
+        &CoreValue::from("pressure_levels"),
+        v_empty_map.clone(),
+    );
+    v_ok_level = core_get(
+        &v_pressure_levels,
+        &CoreValue::from("ok"),
+        v_empty_map.clone(),
+    );
+    v_ok_pressure = core_get(&v_ok_level, &CoreValue::from("id"), CoreValue::from("ok"));
+    v_policy = core_get(
+        &v_state,
+        &CoreValue::from("context_policy"),
+        CoreValue::Null,
+    );
+    v_checkpoints = core_get(&v_policy, &CoreValue::from("checkpoints"), CoreValue::Null);
+    v_enabled = core_get(
+        &v_checkpoints,
+        &CoreValue::from("enabled"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_enabled) {
+    } else {
+        v_existing = core_get(
+            &v_state,
+            &CoreValue::from("checkpoint_state"),
+            CoreValue::Null,
+        );
+        v_has_existing = core_type_is(&v_existing, CoreValue::from("object"));
+        if core_truthy(&v_has_existing) {
+            v_cleared = CoreValue::new_map();
+            v_cleared_kind = _agent_context_event_name(&[CoreValue::from("checkpoint_cleared")])?;
+            v_disabled_reason = _agent_context_event_reason(&[CoreValue::from("disabled")])?;
+            core_set(&v_cleared, CoreValue::from("kind"), v_cleared_kind.clone())?;
+            core_set(
+                &v_cleared,
+                CoreValue::from("stage"),
+                CoreValue::from("executor"),
+            )?;
+            core_set(&v_cleared, CoreValue::from("turn"), CoreValue::Num(0f64))?;
+            core_set(
+                &v_cleared,
+                CoreValue::from("coveredTurns"),
+                v_empty_list.clone(),
+            )?;
+            core_set(
+                &v_cleared,
+                CoreValue::from("reason"),
+                v_disabled_reason.clone(),
+            )?;
+            _agent_record_context_event(&[v_state.clone(), v_cleared.clone()])?;
+        }
+        v_none_checkpoint = core_none(&[])?;
+        core_set(
+            &v_state,
+            CoreValue::from("checkpoint_state"),
+            v_none_checkpoint.clone(),
+        )?;
+        v_none = core_none(&[])?;
+        return Ok(v_none.clone());
+    }
+    v_entries = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_count = core_len(&[v_entries.clone()])?;
+    v_has_entries = core_gt(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_entries) {
+    } else {
+        v_none_empty = core_none(&[])?;
+        return Ok(v_none_empty.clone());
+    }
+    v_chars = _agent_action_log_char_count(&[v_entries.clone()])?;
+    v_trigger = core_get(
+        &v_checkpoints,
+        &CoreValue::from("triggerChars"),
+        CoreValue::Num(16000f64),
+    );
+    v_over = core_gte(&[v_chars.clone(), v_trigger.clone()])?;
+    if core_truthy(&v_over) {
+    } else {
+        v_current = core_get(
+            &v_state,
+            &CoreValue::from("checkpoint_state"),
+            CoreValue::Null,
+        );
+        return Ok(v_current.clone());
+    }
+    v_recent = core_get(
+        &v_policy,
+        &CoreValue::from("recentFullActions"),
+        CoreValue::Num(1f64),
+    );
+    v_recent_start = CoreValue::Num(0f64);
+    v_too_many = core_gt(&[v_count.clone(), v_recent.clone()])?;
+    if core_truthy(&v_too_many) {
+        v_negative_recent = core_mul(&[CoreValue::Num(-1f64), v_recent.clone()])?;
+        v_recent_start = core_add(&[v_count.clone(), v_negative_recent.clone()])?;
+    }
+    v_covered_turns = CoreValue::new_list();
+    v_index = CoreValue::Num(0f64);
+    v_fallback_turn = CoreValue::Num(1f64);
+    for v_entry in core_iter(&v_entries)? {
+        let mut v_entry = v_entry;
+        v_turn = _agent_entry_turn(&[v_entry.clone(), v_fallback_turn.clone()])?;
+        v_is_error = _agent_entry_is_error(&[v_entry.clone()])?;
+        v_is_recent = core_gte(&[v_index.clone(), v_recent_start.clone()])?;
+        v_coverable = core_not(&[v_is_error.clone()])?;
+        v_not_recent = core_not(&[v_is_recent.clone()])?;
+        v_coverable = core_and(&[v_coverable.clone(), v_not_recent.clone()])?;
+        if core_truthy(&v_coverable) {
+            core_append(&v_covered_turns, v_turn.clone())?;
+        }
+        v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+        v_fallback_turn = core_add(&[v_fallback_turn.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_covered_count = core_len(&[v_covered_turns.clone()])?;
+    v_has_covered = core_gt(&[v_covered_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_covered) {
+    } else {
+        v_none_no_covered = core_none(&[])?;
+        return Ok(v_none_no_covered.clone());
+    }
+    v_summary = _agent_fallback_checkpoint_summary(&[v_entries.clone(), v_covered_turns.clone()])?;
+    v_checkpoint = CoreValue::new_map();
+    v_fingerprint = core_json_stable_stringify(&[v_covered_turns.clone()])?;
+    core_set(
+        &v_checkpoint,
+        CoreValue::from("fingerprint"),
+        v_fingerprint.clone(),
+    )?;
+    core_set(&v_checkpoint, CoreValue::from("summary"), v_summary.clone())?;
+    core_set(
+        &v_checkpoint,
+        CoreValue::from("turns"),
+        v_covered_turns.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("checkpoint_state"),
+        v_checkpoint.clone(),
+    )?;
+    v_event = CoreValue::new_map();
+    v_created_kind = _agent_context_event_name(&[CoreValue::from("checkpoint_created")])?;
+    v_over_budget_reason = _agent_context_event_reason(&[CoreValue::from("over_budget")])?;
+    core_set(&v_event, CoreValue::from("kind"), v_created_kind.clone())?;
+    core_set(
+        &v_event,
+        CoreValue::from("stage"),
+        CoreValue::from("executor"),
+    )?;
+    core_set(&v_event, CoreValue::from("turn"), v_count.clone())?;
+    core_set(
+        &v_event,
+        CoreValue::from("coveredTurns"),
+        v_covered_turns.clone(),
+    )?;
+    v_summary_len = core_len(&[v_summary.clone()])?;
+    core_set(
+        &v_event,
+        CoreValue::from("summaryChars"),
+        v_summary_len.clone(),
+    )?;
+    core_set(
+        &v_event,
+        CoreValue::from("reason"),
+        v_over_budget_reason.clone(),
+    )?;
+    _agent_record_context_event(&[v_state.clone(), v_event.clone()])?;
+    return Ok(v_checkpoint.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_build_action_log_parts(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_hygiene_mode = core_arg(args, 1);
+    let mut v_action_replay = CoreValue::Null;
+    let mut v_aggressive = CoreValue::Null;
+    let mut v_aggressive_hygiene_mode = CoreValue::Null;
+    let mut v_aggressive_pre = CoreValue::Null;
+    let mut v_checkpoint_covered = CoreValue::Null;
+    let mut v_checkpoint_state = CoreValue::Null;
+    let mut v_checkpoint_summary = CoreValue::Null;
+    let mut v_checkpoint_text = CoreValue::Null;
+    let mut v_checkpoint_turns = CoreValue::Null;
+    let mut v_checkpointed = CoreValue::Null;
+    let mut v_code_distill = CoreValue::Null;
+    let mut v_compaction = CoreValue::Null;
+    let mut v_compaction_distill = CoreValue::Null;
+    let mut v_compactions = CoreValue::Null;
+    let mut v_context_registry = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_covered_success = CoreValue::Null;
+    let mut v_delegated_summary = CoreValue::Null;
+    let mut v_delegated_text = CoreValue::Null;
+    let mut v_distilled_output = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_entries = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_summary = CoreValue::Null;
+    let mut v_fallback_turn = CoreValue::Null;
+    let mut v_fence_distill = CoreValue::Null;
+    let mut v_full_replay = CoreValue::Null;
+    let mut v_full_text = CoreValue::Null;
+    let mut v_full_text_distill = CoreValue::Null;
+    let mut v_has_checkpoint_summary = CoreValue::Null;
+    let mut v_has_delegated = CoreValue::Null;
+    let mut v_has_distill = CoreValue::Null;
+    let mut v_has_distilled_output = CoreValue::Null;
+    let mut v_has_rendered = CoreValue::Null;
+    let mut v_has_rendered_pre = CoreValue::Null;
+    let mut v_has_restore = CoreValue::Null;
+    let mut v_has_tombstone = CoreValue::Null;
+    let mut v_history = CoreValue::Null;
+    let mut v_history_parts = CoreValue::Null;
+    let mut v_hygiene_modes = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_is_error = CoreValue::Null;
+    let mut v_is_recent = CoreValue::Null;
+    let mut v_js_fence_distill = CoreValue::Null;
+    let mut v_negative_recent = CoreValue::Null;
+    let mut v_not_error = CoreValue::Null;
+    let mut v_not_replay_full = CoreValue::Null;
+    let mut v_old_success = CoreValue::Null;
+    let mut v_original_chars = CoreValue::Null;
+    let mut v_original_chars_distill = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_policy = CoreValue::Null;
+    let mut v_pressure = CoreValue::Null;
+    let mut v_pressure_can_compact = CoreValue::Null;
+    let mut v_pressure_compaction = CoreValue::Null;
+    let mut v_pressure_hygiene_mode = CoreValue::Null;
+    let mut v_pressure_pre = CoreValue::Null;
+    let mut v_raw_output_for_distill = CoreValue::Null;
+    let mut v_reason = CoreValue::Null;
+    let mut v_recent = CoreValue::Null;
+    let mut v_recent_start = CoreValue::Null;
+    let mut v_render_full = CoreValue::Null;
+    let mut v_rendered = CoreValue::Null;
+    let mut v_rendered_after_distill = CoreValue::Null;
+    let mut v_rendered_chars = CoreValue::Null;
+    let mut v_rendered_chars_distill = CoreValue::Null;
+    let mut v_replay_compact = CoreValue::Null;
+    let mut v_replay_distill = CoreValue::Null;
+    let mut v_replay_full = CoreValue::Null;
+    let mut v_replay_mode = CoreValue::Null;
+    let mut v_replay_omit = CoreValue::Null;
+    let mut v_restore_notice = CoreValue::Null;
+    let mut v_runtime_contract_distill = CoreValue::Null;
+    let mut v_should_compact = CoreValue::Null;
+    let mut v_should_distill = CoreValue::Null;
+    let mut v_summary = CoreValue::Null;
+    let mut v_summary_parts = CoreValue::Null;
+    let mut v_tombstone = CoreValue::Null;
+    let mut v_too_many = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_context_registry = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_hygiene_modes = core_get(
+        &v_context_registry,
+        &CoreValue::from("hygiene_modes"),
+        v_empty_map.clone(),
+    );
+    v_pressure_hygiene_mode = core_get(
+        &v_hygiene_modes,
+        &CoreValue::from("pressure"),
+        CoreValue::from("pressure"),
+    );
+    v_aggressive_hygiene_mode = core_get(
+        &v_hygiene_modes,
+        &CoreValue::from("aggressive"),
+        CoreValue::from("aggressive"),
+    );
+    v_entries = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_policy = core_get(
+        &v_state,
+        &CoreValue::from("context_policy"),
+        CoreValue::Null,
+    );
+    v_action_replay = core_get(
+        &v_policy,
+        &CoreValue::from("actionReplay"),
+        CoreValue::from("full"),
+    );
+    v_recent = core_get(
+        &v_policy,
+        &CoreValue::from("recentFullActions"),
+        CoreValue::Num(1f64),
+    );
+    v_checkpoint_state = core_get(
+        &v_state,
+        &CoreValue::from("checkpoint_state"),
+        CoreValue::Null,
+    );
+    v_checkpoint_summary = core_get(
+        &v_checkpoint_state,
+        &CoreValue::from("summary"),
+        CoreValue::from(""),
+    );
+    v_checkpoint_turns = core_get(
+        &v_checkpoint_state,
+        &CoreValue::from("turns"),
+        v_empty_list.clone(),
+    );
+    v_restore_notice = core_get(
+        &v_state,
+        &CoreValue::from("restore_notice"),
+        CoreValue::from(""),
+    );
+    v_delegated_summary = core_get(
+        &v_state,
+        &CoreValue::from("delegated_context_summary"),
+        CoreValue::from(""),
+    );
+    v_summary_parts = CoreValue::new_list();
+    v_has_restore = core_ne(&[v_restore_notice.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_restore) {
+        core_append(&v_summary_parts, v_restore_notice.clone())?;
+    }
+    v_has_delegated = core_ne(&[v_delegated_summary.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_delegated) {
+        v_delegated_text = core_string_format(&[
+            CoreValue::from("Delegated Context (runtime-only - explore with code):\n{}"),
+            v_delegated_summary.clone(),
+        ])?;
+        core_append(&v_summary_parts, v_delegated_text.clone())?;
+    }
+    v_has_checkpoint_summary = core_ne(&[v_checkpoint_summary.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_checkpoint_summary) {
+        v_checkpoint_text = core_string_format(&[
+            CoreValue::from("Checkpoint Summary:\n{}"),
+            v_checkpoint_summary.clone(),
+        ])?;
+        core_append(&v_summary_parts, v_checkpoint_text.clone())?;
+    }
+    v_summary = core_string_join_intrinsic(&[CoreValue::from("\n\n"), v_summary_parts.clone()])?;
+    v_history_parts = CoreValue::new_list();
+    v_compactions = CoreValue::new_list();
+    v_count = core_len(&[v_entries.clone()])?;
+    v_recent_start = CoreValue::Num(0f64);
+    v_too_many = core_gt(&[v_count.clone(), v_recent.clone()])?;
+    if core_truthy(&v_too_many) {
+        v_negative_recent = core_mul(&[CoreValue::Num(-1f64), v_recent.clone()])?;
+        v_recent_start = core_add(&[v_count.clone(), v_negative_recent.clone()])?;
+    }
+    v_full_replay = core_eq(&[v_action_replay.clone(), CoreValue::from("full")])?;
+    v_checkpointed = core_eq(&[v_action_replay.clone(), CoreValue::from("checkpointed")])?;
+    v_index = CoreValue::Num(0f64);
+    v_fallback_turn = CoreValue::Num(1f64);
+    for v_entry in core_iter(&v_entries)? {
+        let mut v_entry = v_entry;
+        v_turn = _agent_entry_turn(&[v_entry.clone(), v_fallback_turn.clone()])?;
+        v_is_error = _agent_entry_is_error(&[v_entry.clone()])?;
+        v_tombstone = core_get(&v_entry, &CoreValue::from("tombstone"), CoreValue::from(""));
+        v_has_tombstone = core_ne(&[v_tombstone.clone(), CoreValue::from("")])?;
+        v_is_recent = core_gte(&[v_index.clone(), v_recent_start.clone()])?;
+        v_checkpoint_covered = core_contains(&[v_checkpoint_turns.clone(), v_turn.clone()])?;
+        v_not_error = core_not(&[v_is_error.clone()])?;
+        v_replay_mode = core_get(
+            &v_entry,
+            &CoreValue::from("replayMode"),
+            CoreValue::from(""),
+        );
+        v_replay_full = core_eq(&[v_replay_mode.clone(), CoreValue::from("full")])?;
+        v_replay_distill = core_eq(&[v_replay_mode.clone(), CoreValue::from("distill")])?;
+        v_replay_compact = core_eq(&[v_replay_mode.clone(), CoreValue::from("compact")])?;
+        v_replay_omit = core_eq(&[v_replay_mode.clone(), CoreValue::from("omit")])?;
+        v_covered_success = core_and(&[v_checkpoint_covered.clone(), v_not_error.clone()])?;
+        v_not_replay_full = core_not(&[v_replay_full.clone()])?;
+        v_covered_success = core_and(&[v_covered_success.clone(), v_not_replay_full.clone()])?;
+        v_rendered = CoreValue::from("");
+        if core_truthy(&v_covered_success) {
+            v_rendered = CoreValue::from("");
+        } else {
+            v_render_full = CoreValue::Bool(false);
+            if core_truthy(&v_replay_full) {
+                v_render_full = CoreValue::Bool(true);
+            }
+            if core_truthy(&v_full_replay) {
+                v_render_full = CoreValue::Bool(true);
+            }
+            if core_truthy(&v_is_recent) {
+                v_render_full = CoreValue::Bool(true);
+            }
+            if core_truthy(&v_is_error) {
+                v_render_full = CoreValue::Bool(true);
+            }
+            v_pressure_pre = core_eq(&[v_hygiene_mode.clone(), v_pressure_hygiene_mode.clone()])?;
+            v_aggressive_pre =
+                core_eq(&[v_hygiene_mode.clone(), v_aggressive_hygiene_mode.clone()])?;
+            v_pressure_compaction = core_or(&[v_pressure_pre.clone(), v_aggressive_pre.clone()])?;
+            v_old_success = core_not(&[v_is_recent.clone()])?;
+            v_old_success = core_and(&[v_old_success.clone(), v_not_error.clone()])?;
+            v_pressure_can_compact =
+                core_and(&[v_pressure_compaction.clone(), v_old_success.clone()])?;
+            if core_truthy(&v_pressure_can_compact) {
+                v_render_full = CoreValue::Bool(false);
+            }
+            if core_truthy(&v_has_tombstone) {
+                v_rendered = v_tombstone.clone();
+            }
+            v_has_rendered_pre = core_ne(&[v_rendered.clone(), CoreValue::from("")])?;
+            if core_truthy(&v_has_rendered_pre) {
+            } else {
+                if core_truthy(&v_render_full) {
+                    v_rendered =
+                        _agent_render_full_action_entry(&[v_state.clone(), v_entry.clone()])?;
+                } else {
+                    v_pressure =
+                        core_eq(&[v_hygiene_mode.clone(), v_pressure_hygiene_mode.clone()])?;
+                    v_aggressive =
+                        core_eq(&[v_hygiene_mode.clone(), v_aggressive_hygiene_mode.clone()])?;
+                    v_should_compact = core_or(&[v_pressure.clone(), v_aggressive.clone()])?;
+                    v_should_compact =
+                        core_or(&[v_should_compact.clone(), v_replay_compact.clone()])?;
+                    v_should_distill = v_replay_distill.clone();
+                    if core_truthy(&v_should_distill) {
+                        v_distilled_output = core_get(
+                            &v_entry,
+                            &CoreValue::from("distilledOutput"),
+                            CoreValue::from(""),
+                        );
+                        v_has_distilled_output =
+                            core_ne(&[v_distilled_output.clone(), CoreValue::from("")])?;
+                        if core_truthy(&v_has_distilled_output) {
+                        } else {
+                            v_raw_output_for_distill =
+                                core_get(&v_entry, &CoreValue::from("output"), CoreValue::from(""));
+                            v_distilled_output = _agent_distill_structured_action_output(&[
+                                v_raw_output_for_distill.clone(),
+                            ])?;
+                        }
+                        v_has_distill =
+                            core_ne(&[v_distilled_output.clone(), CoreValue::from("")])?;
+                        if core_truthy(&v_has_distill) {
+                            v_full_text_distill = _agent_render_full_action_entry(&[
+                                v_state.clone(),
+                                v_entry.clone(),
+                            ])?;
+                            v_runtime_contract_distill = core_get(
+                                &v_state,
+                                &CoreValue::from("runtime_contract"),
+                                CoreValue::Null,
+                            );
+                            v_fence_distill = core_get(
+                                &v_runtime_contract_distill,
+                                &CoreValue::from("code_fence_language"),
+                                CoreValue::from("javascript"),
+                            );
+                            v_js_fence_distill =
+                                core_eq(&[v_fence_distill.clone(), CoreValue::from("js")])?;
+                            if core_truthy(&v_js_fence_distill) {
+                                v_fence_distill = CoreValue::from("javascript");
+                            }
+                            v_code_distill =
+                                core_get(&v_entry, &CoreValue::from("code"), CoreValue::from(""));
+                            v_rendered = core_string_format(&[
+                                CoreValue::from("```{}\n{}\n```\nResult:\n{}"),
+                                v_fence_distill.clone(),
+                                v_code_distill.clone(),
+                                v_distilled_output.clone(),
+                            ])?;
+                            v_compaction_distill = CoreValue::new_map();
+                            core_set(
+                                &v_compaction_distill,
+                                CoreValue::from("turn"),
+                                v_turn.clone(),
+                            )?;
+                            core_set(
+                                &v_compaction_distill,
+                                CoreValue::from("mode"),
+                                CoreValue::from("distill"),
+                            )?;
+                            core_set(
+                                &v_compaction_distill,
+                                CoreValue::from("reason"),
+                                CoreValue::from("structured_output"),
+                            )?;
+                            v_original_chars_distill = core_len(&[v_full_text_distill.clone()])?;
+                            v_rendered_chars_distill = core_len(&[v_rendered.clone()])?;
+                            core_set(
+                                &v_compaction_distill,
+                                CoreValue::from("originalChars"),
+                                v_original_chars_distill.clone(),
+                            )?;
+                            core_set(
+                                &v_compaction_distill,
+                                CoreValue::from("renderedChars"),
+                                v_rendered_chars_distill.clone(),
+                            )?;
+                            core_append(&v_compactions, v_compaction_distill.clone())?;
+                        }
+                    }
+                    v_rendered_after_distill = core_ne(&[v_rendered.clone(), CoreValue::from("")])?;
+                    if core_truthy(&v_rendered_after_distill) {
+                    } else {
+                        if core_truthy(&v_should_compact) {
+                            v_reason = _agent_context_event_reason(&[CoreValue::from("pressure")])?;
+                            if core_truthy(&v_aggressive) {
+                                v_reason = _agent_context_event_reason(&[CoreValue::from("lean")])?;
+                            }
+                            v_full_text = _agent_render_full_action_entry(&[
+                                v_state.clone(),
+                                v_entry.clone(),
+                            ])?;
+                            v_rendered = _agent_render_compact_action_entry(&[
+                                v_entry.clone(),
+                                v_turn.clone(),
+                                v_reason.clone(),
+                            ])?;
+                            v_compaction = CoreValue::new_map();
+                            core_set(&v_compaction, CoreValue::from("turn"), v_turn.clone())?;
+                            core_set(
+                                &v_compaction,
+                                CoreValue::from("mode"),
+                                CoreValue::from("compact"),
+                            )?;
+                            core_set(&v_compaction, CoreValue::from("reason"), v_reason.clone())?;
+                            v_original_chars = core_len(&[v_full_text.clone()])?;
+                            v_rendered_chars = core_len(&[v_rendered.clone()])?;
+                            core_set(
+                                &v_compaction,
+                                CoreValue::from("originalChars"),
+                                v_original_chars.clone(),
+                            )?;
+                            core_set(
+                                &v_compaction,
+                                CoreValue::from("renderedChars"),
+                                v_rendered_chars.clone(),
+                            )?;
+                            core_append(&v_compactions, v_compaction.clone())?;
+                        } else {
+                            if core_truthy(&v_replay_omit) {
+                                v_rendered =
+                                    _agent_entry_summary(&[v_entry.clone(), v_turn.clone()])?;
+                            } else {
+                                v_entry_summary =
+                                    _agent_entry_summary(&[v_entry.clone(), v_turn.clone()])?;
+                                v_rendered = core_string_format(&[
+                                    CoreValue::from("- Action {}: {}"),
+                                    v_turn.clone(),
+                                    v_entry_summary.clone(),
+                                ])?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        v_has_rendered = core_ne(&[v_rendered.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_rendered) {
+            core_append(&v_history_parts, v_rendered.clone())?;
+        }
+        v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+        v_fallback_turn = core_add(&[v_fallback_turn.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_history = core_string_join_intrinsic(&[CoreValue::from("\n\n"), v_history_parts.clone()])?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("summary"), v_summary.clone())?;
+    core_set(&v_out, CoreValue::from("history"), v_history.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("compactions"),
+        v_compactions.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_render_runtime_state_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_policy = core_arg(args, 1);
+    let mut v_allowed_key = CoreValue::Null;
+    let mut v_bindings = CoreValue::Null;
+    let mut v_bindings_is_map = CoreValue::Null;
+    let mut v_body = CoreValue::Null;
+    let mut v_body_structured = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_created_turn = CoreValue::Null;
+    let mut v_ctor = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_empty_structured = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_entries = CoreValue::Null;
+    let mut v_entries_is_list = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_count = CoreValue::Null;
+    let mut v_globals = CoreValue::Null;
+    let mut v_has_ctor = CoreValue::Null;
+    let mut v_has_entries = CoreValue::Null;
+    let mut v_has_preview = CoreValue::Null;
+    let mut v_has_prov = CoreValue::Null;
+    let mut v_has_size = CoreValue::Null;
+    let mut v_has_source = CoreValue::Null;
+    let mut v_include_key = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_last_read = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_line_base = CoreValue::Null;
+    let mut v_line_with_prov = CoreValue::Null;
+    let mut v_lines_structured = CoreValue::Null;
+    let mut v_max_entries = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_object_type = CoreValue::Null;
+    let mut v_object_with_ctor = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_out_structured = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_preview = CoreValue::Null;
+    let mut v_preview_text = CoreValue::Null;
+    let mut v_prov = CoreValue::Null;
+    let mut v_prov_text = CoreValue::Null;
+    let mut v_provenance = CoreValue::Null;
+    let mut v_read_after = CoreValue::Null;
+    let mut v_reserved = CoreValue::Null;
+    let mut v_reserved_key = CoreValue::Null;
+    let mut v_restorable = CoreValue::Null;
+    let mut v_restore_text = CoreValue::Null;
+    let mut v_session_state = CoreValue::Null;
+    let mut v_size = CoreValue::Null;
+    let mut v_snapshot_only = CoreValue::Null;
+    let mut v_source = CoreValue::Null;
+    let mut v_state_summary = CoreValue::Null;
+    let mut v_structured_count = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_type_label = CoreValue::Null;
+    let mut v_under_limit = CoreValue::Null;
+    let mut v_under_structured_limit = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_session_state = core_get(
+        &v_state,
+        &CoreValue::from("runtime_session_state"),
+        v_empty_map.clone(),
+    );
+    v_state_summary = core_get(
+        &v_policy,
+        &CoreValue::from("stateSummary"),
+        v_empty_map.clone(),
+    );
+    v_enabled = core_get(
+        &v_state_summary,
+        &CoreValue::from("enabled"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_enabled) {
+    } else {
+        return Ok(CoreValue::from(""));
+    }
+    v_max_entries = core_get(
+        &v_state_summary,
+        &CoreValue::from("maxEntries"),
+        CoreValue::Num(8f64),
+    );
+    v_entries = core_get(
+        &v_session_state,
+        &CoreValue::from("entries"),
+        v_empty_list.clone(),
+    );
+    v_entries_is_list = core_type_is(&v_entries, CoreValue::from("list"));
+    if core_truthy(&v_entries_is_list) {
+        v_entry_count = core_len(&[v_entries.clone()])?;
+        v_has_entries = core_gt(&[v_entry_count.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_has_entries) {
+            v_provenance = core_get(
+                &v_state,
+                &CoreValue::from("provenance"),
+                v_empty_map.clone(),
+            );
+            v_lines_structured = CoreValue::new_list();
+            v_structured_count = CoreValue::Num(0f64);
+            for v_entry in core_iter(&v_entries)? {
+                let mut v_entry = v_entry;
+                v_under_structured_limit =
+                    core_lt(&[v_structured_count.clone(), v_max_entries.clone()])?;
+                if core_truthy(&v_under_structured_limit) {
+                    v_name = core_get(&v_entry, &CoreValue::from("name"), CoreValue::from(""));
+                    v_type = core_get(
+                        &v_entry,
+                        &CoreValue::from("type"),
+                        CoreValue::from("unknown"),
+                    );
+                    v_size = core_get(&v_entry, &CoreValue::from("size"), CoreValue::from(""));
+                    v_preview =
+                        core_get(&v_entry, &CoreValue::from("preview"), CoreValue::from(""));
+                    v_ctor = core_get(&v_entry, &CoreValue::from("ctor"), CoreValue::from(""));
+                    v_type_label = v_type.clone();
+                    v_object_type = core_eq(&[v_type.clone(), CoreValue::from("object")])?;
+                    v_has_ctor = core_ne(&[v_ctor.clone(), CoreValue::from("")])?;
+                    v_object_with_ctor = core_and(&[v_object_type.clone(), v_has_ctor.clone()])?;
+                    if core_truthy(&v_object_with_ctor) {
+                        v_type_label =
+                            core_string_format(&[CoreValue::from("object<{}>"), v_ctor.clone()])?;
+                    }
+                    v_has_size = core_ne(&[v_size.clone(), CoreValue::from("")])?;
+                    if core_truthy(&v_has_size) {
+                        v_type_label = core_string_format(&[
+                            CoreValue::from("{} ({})"),
+                            v_type_label.clone(),
+                            v_size.clone(),
+                        ])?;
+                    }
+                    v_preview_text = CoreValue::from("");
+                    v_has_preview = core_ne(&[v_preview.clone(), CoreValue::from("")])?;
+                    if core_truthy(&v_has_preview) {
+                        v_preview_text =
+                            core_string_format(&[CoreValue::from(" = {}"), v_preview.clone()])?;
+                    }
+                    v_prov = core_get(&v_provenance, &v_name.clone(), CoreValue::Null);
+                    v_prov_text = CoreValue::from("");
+                    v_has_prov = core_type_is(&v_prov, CoreValue::from("object"));
+                    if core_truthy(&v_has_prov) {
+                        v_created_turn = core_get(
+                            &v_prov,
+                            &CoreValue::from("createdTurn"),
+                            CoreValue::Num(0f64),
+                        );
+                        v_source =
+                            core_get(&v_prov, &CoreValue::from("source"), CoreValue::from(""));
+                        v_last_read = core_get(
+                            &v_prov,
+                            &CoreValue::from("lastReadTurn"),
+                            CoreValue::Num(0f64),
+                        );
+                        v_has_source = core_ne(&[v_source.clone(), CoreValue::from("")])?;
+                        if core_truthy(&v_has_source) {
+                            v_prov_text = core_string_format(&[
+                                CoreValue::from(" [from t{} via {}"),
+                                v_created_turn.clone(),
+                                v_source.clone(),
+                            ])?;
+                        } else {
+                            v_prov_text = core_string_format(&[
+                                CoreValue::from(" [from t{}"),
+                                v_created_turn.clone(),
+                            ])?;
+                        }
+                        v_read_after = core_gt(&[v_last_read.clone(), v_created_turn.clone()])?;
+                        if core_truthy(&v_read_after) {
+                            v_prov_text = core_string_format(&[
+                                CoreValue::from("{}; read t{}"),
+                                v_prov_text.clone(),
+                                v_last_read.clone(),
+                            ])?;
+                        }
+                        v_prov_text = core_add(&[v_prov_text.clone(), CoreValue::from("]")])?;
+                    }
+                    v_restorable = core_get(
+                        &v_entry,
+                        &CoreValue::from("restorable"),
+                        CoreValue::Bool(true),
+                    );
+                    v_snapshot_only = core_eq(&[v_restorable.clone(), CoreValue::Bool(false)])?;
+                    v_restore_text = CoreValue::from("");
+                    if core_truthy(&v_snapshot_only) {
+                        v_restore_text = CoreValue::from(" [snapshot only]");
+                    }
+                    v_line_base = core_string_format(&[
+                        CoreValue::from("{}: {}{}"),
+                        v_name.clone(),
+                        v_type_label.clone(),
+                        v_preview_text.clone(),
+                    ])?;
+                    v_line_with_prov = core_add(&[v_line_base.clone(), v_prov_text.clone()])?;
+                    v_line = core_add(&[v_line_with_prov.clone(), v_restore_text.clone()])?;
+                    core_append(&v_lines_structured, v_line.clone())?;
+                    v_structured_count =
+                        core_add(&[v_structured_count.clone(), CoreValue::Num(1f64)])?;
+                }
+            }
+            v_body_structured =
+                core_string_join_intrinsic(&[CoreValue::from("\n"), v_lines_structured.clone()])?;
+            v_empty_structured = core_eq(&[v_body_structured.clone(), CoreValue::from("")])?;
+            if core_truthy(&v_empty_structured) {
+                v_body_structured = CoreValue::from("(no user variables)");
+            }
+            v_out_structured = core_string_format(&[
+                CoreValue::from("Current runtime state:\n{}"),
+                v_body_structured.clone(),
+            ])?;
+            core_set(
+                &v_state,
+                CoreValue::from("runtime_state_summary"),
+                v_out_structured.clone(),
+            )?;
+            return Ok(v_out_structured.clone());
+        }
+    }
+    v_globals = core_get(
+        &v_session_state,
+        &CoreValue::from("globals"),
+        CoreValue::Null,
+    );
+    v_bindings = core_get(
+        &v_session_state,
+        &CoreValue::from("bindings"),
+        v_globals.clone(),
+    );
+    v_bindings_is_map = core_type_is(&v_bindings, CoreValue::from("object"));
+    if core_truthy(&v_bindings_is_map) {
+    } else {
+        return Ok(CoreValue::from(""));
+    }
+    v_reserved = _agent_reserved_runtime_names(&[])?;
+    v_parts = CoreValue::new_list();
+    v_count = CoreValue::Num(0f64);
+    for v_key in core_iter(&v_bindings)? {
+        let mut v_key = v_key;
+        v_reserved_key = core_contains(&[v_reserved.clone(), v_key.clone()])?;
+        v_allowed_key = core_not(&[v_reserved_key.clone()])?;
+        v_under_limit = core_lt(&[v_count.clone(), v_max_entries.clone()])?;
+        v_include_key = core_and(&[v_allowed_key.clone(), v_under_limit.clone()])?;
+        if core_truthy(&v_include_key) {
+            v_value = core_get(&v_bindings, &v_key.clone(), CoreValue::Null);
+            v_text = core_json_stringify(&[v_value.clone()])?;
+            v_line =
+                core_string_format(&[CoreValue::from("- {}: {}"), v_key.clone(), v_text.clone()])?;
+            core_append(&v_parts, v_line.clone())?;
+            v_count = core_add(&[v_count.clone(), CoreValue::Num(1f64)])?;
+        }
+    }
+    v_body = core_string_join_intrinsic(&[CoreValue::from("\n"), v_parts.clone()])?;
+    v_empty = core_eq(&[v_body.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty) {
+        return Ok(CoreValue::from(""));
+    }
+    v_out = core_string_format(&[
+        CoreValue::from("Current runtime state:\n{}"),
+        v_body.clone(),
+    ])?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_state_summary"),
+        v_out.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_prepare_actor_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_action_compacted_kind = CoreValue::Null;
+    let mut v_action_count = CoreValue::Null;
+    let mut v_action_log = CoreValue::Null;
+    let mut v_budget_check_kind = CoreValue::Null;
+    let mut v_budget_event = CoreValue::Null;
+    let mut v_checkpoint = CoreValue::Null;
+    let mut v_checkpoint_is_map = CoreValue::Null;
+    let mut v_compaction = CoreValue::Null;
+    let mut v_compactions = CoreValue::Null;
+    let mut v_context_registry = CoreValue::Null;
+    let mut v_default_hygiene = CoreValue::Null;
+    let mut v_default_preset = CoreValue::Null;
+    let mut v_default_reason = CoreValue::Null;
+    let mut v_dynamic_runtime_chars = CoreValue::Null;
+    let mut v_effective_budget = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_fixed = CoreValue::Null;
+    let mut v_full_preset = CoreValue::Null;
+    let mut v_guidance_chars = CoreValue::Null;
+    let mut v_guidance_count = CoreValue::Null;
+    let mut v_guidance_log = CoreValue::Null;
+    let mut v_guidance_text = CoreValue::Null;
+    let mut v_history = CoreValue::Null;
+    let mut v_history_chars = CoreValue::Null;
+    let mut v_history_empty = CoreValue::Null;
+    let mut v_history_len = CoreValue::Null;
+    let mut v_hygiene = CoreValue::Null;
+    let mut v_hygiene_changes = CoreValue::Null;
+    let mut v_is_full = CoreValue::Null;
+    let mut v_max_runtime = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_mutable_chars = CoreValue::Null;
+    let mut v_ok_level = CoreValue::Null;
+    let mut v_ok_pressure = CoreValue::Null;
+    let mut v_original_chars = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_policy = CoreValue::Null;
+    let mut v_preset = CoreValue::Null;
+    let mut v_pressure = CoreValue::Null;
+    let mut v_pressure_history = CoreValue::Null;
+    let mut v_pressure_history_empty = CoreValue::Null;
+    let mut v_pressure_hygiene = CoreValue::Null;
+    let mut v_pressure_is_ok = CoreValue::Null;
+    let mut v_pressure_len = CoreValue::Null;
+    let mut v_pressure_levels = CoreValue::Null;
+    let mut v_pressure_not_ok = CoreValue::Null;
+    let mut v_pressure_parts = CoreValue::Null;
+    let mut v_pressure_text = CoreValue::Null;
+    let mut v_reason = CoreValue::Null;
+    let mut v_rendered_chars = CoreValue::Null;
+    let mut v_runtime_chars = CoreValue::Null;
+    let mut v_runtime_state_summary = CoreValue::Null;
+    let mut v_shorter = CoreValue::Null;
+    let mut v_should_pressure = CoreValue::Null;
+    let mut v_summary = CoreValue::Null;
+    let mut v_summary_chars = CoreValue::Null;
+    let mut v_target = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_context_registry = _agent_context_policy_registry(&[])?;
+    v_empty_map = CoreValue::new_map();
+    v_pressure_levels = core_get(
+        &v_context_registry,
+        &CoreValue::from("pressure_levels"),
+        v_empty_map.clone(),
+    );
+    v_ok_level = core_get(
+        &v_pressure_levels,
+        &CoreValue::from("ok"),
+        v_empty_map.clone(),
+    );
+    v_ok_pressure = core_get(&v_ok_level, &CoreValue::from("id"), CoreValue::from("ok"));
+    v_policy = core_get(
+        &v_state,
+        &CoreValue::from("context_policy"),
+        CoreValue::Null,
+    );
+    v_hygiene = core_get(
+        &v_policy,
+        &CoreValue::from("contextHygiene"),
+        CoreValue::Null,
+    );
+    v_default_hygiene = core_get(
+        &v_hygiene,
+        &CoreValue::from("defaultMode"),
+        CoreValue::from("none"),
+    );
+    v_pressure_hygiene = core_get(
+        &v_hygiene,
+        &CoreValue::from("pressureMode"),
+        v_default_hygiene.clone(),
+    );
+    v_checkpoint = _agent_refresh_checkpoint_state(&[v_state.clone()])?;
+    v_parts = _agent_build_action_log_parts(&[v_state.clone(), v_default_hygiene.clone()])?;
+    v_summary = core_get(&v_parts, &CoreValue::from("summary"), CoreValue::from(""));
+    v_history = core_get(&v_parts, &CoreValue::from("history"), CoreValue::from(""));
+    v_history_empty = core_eq(&[v_history.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_history_empty) {
+        v_history = CoreValue::from("(no actions yet)");
+    }
+    v_runtime_state_summary =
+        _agent_render_runtime_state_summary(&[v_state.clone(), v_policy.clone()])?;
+    v_guidance_log = core_get(
+        &v_state,
+        &CoreValue::from("guidance_log"),
+        v_empty_list.clone(),
+    );
+    v_guidance_text = core_json_stringify(&[v_guidance_log.clone()])?;
+    v_history_chars = core_len(&[v_history.clone()])?;
+    v_guidance_chars = core_len(&[v_guidance_text.clone()])?;
+    v_runtime_chars = core_len(&[v_runtime_state_summary.clone()])?;
+    v_summary_chars = core_len(&[v_summary.clone()])?;
+    v_mutable_chars = core_add(&[v_history_chars.clone(), v_guidance_chars.clone()])?;
+    v_mutable_chars = core_add(&[v_mutable_chars.clone(), v_runtime_chars.clone()])?;
+    v_mutable_chars = core_add(&[v_mutable_chars.clone(), v_summary_chars.clone()])?;
+    v_target = core_get(
+        &v_policy,
+        &CoreValue::from("targetPromptChars"),
+        CoreValue::Num(16000f64),
+    );
+    v_fixed = core_get(
+        &v_state,
+        &CoreValue::from("fixed_prompt_chars"),
+        CoreValue::Num(0f64),
+    );
+    v_effective_budget =
+        _agent_compute_effective_chat_budget(&[v_target.clone(), v_fixed.clone()])?;
+    v_checkpoint_is_map = core_type_is(&v_checkpoint, CoreValue::from("object"));
+    v_pressure = _agent_context_pressure(&[
+        v_mutable_chars.clone(),
+        v_effective_budget.clone(),
+        v_checkpoint_is_map.clone(),
+    ])?;
+    v_pressure_is_ok = core_eq(&[v_pressure.clone(), v_ok_pressure.clone()])?;
+    v_hygiene_changes = core_ne(&[v_pressure_hygiene.clone(), v_default_hygiene.clone()])?;
+    v_pressure_not_ok = core_not(&[v_pressure_is_ok.clone()])?;
+    v_should_pressure = core_and(&[v_pressure_not_ok.clone(), v_hygiene_changes.clone()])?;
+    if core_truthy(&v_should_pressure) {
+        v_pressure_parts =
+            _agent_build_action_log_parts(&[v_state.clone(), v_pressure_hygiene.clone()])?;
+        v_pressure_history = core_get(
+            &v_pressure_parts,
+            &CoreValue::from("history"),
+            CoreValue::from(""),
+        );
+        v_pressure_history_empty = core_eq(&[v_pressure_history.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_pressure_history_empty) {
+            v_pressure_history = CoreValue::from("(no actions yet)");
+        }
+        v_pressure_len = core_len(&[v_pressure_history.clone()])?;
+        v_history_len = core_len(&[v_history.clone()])?;
+        v_shorter = core_lt(&[v_pressure_len.clone(), v_history_len.clone()])?;
+        if core_truthy(&v_shorter) {
+            v_parts = v_pressure_parts.clone();
+            v_summary = core_get(
+                &v_pressure_parts,
+                &CoreValue::from("summary"),
+                v_summary.clone(),
+            );
+            v_history = v_pressure_history.clone();
+        }
+    }
+    v_compactions = core_get(
+        &v_parts,
+        &CoreValue::from("compactions"),
+        v_empty_list.clone(),
+    );
+    for v_compaction in core_iter(&v_compactions)? {
+        let mut v_compaction = v_compaction;
+        v_event = CoreValue::new_map();
+        v_action_compacted_kind =
+            _agent_context_event_name(&[CoreValue::from("action_compacted")])?;
+        core_set(
+            &v_event,
+            CoreValue::from("kind"),
+            v_action_compacted_kind.clone(),
+        )?;
+        core_set(
+            &v_event,
+            CoreValue::from("stage"),
+            CoreValue::from("executor"),
+        )?;
+        v_turn = core_get(
+            &v_compaction,
+            &CoreValue::from("turn"),
+            CoreValue::Num(0f64),
+        );
+        v_mode = core_get(
+            &v_compaction,
+            &CoreValue::from("mode"),
+            CoreValue::from("compact"),
+        );
+        v_default_reason = _agent_context_event_reason(&[CoreValue::from("pressure")])?;
+        v_reason = core_get(
+            &v_compaction,
+            &CoreValue::from("reason"),
+            v_default_reason.clone(),
+        );
+        v_original_chars = core_get(
+            &v_compaction,
+            &CoreValue::from("originalChars"),
+            CoreValue::Num(0f64),
+        );
+        v_rendered_chars = core_get(
+            &v_compaction,
+            &CoreValue::from("renderedChars"),
+            CoreValue::Num(0f64),
+        );
+        core_set(&v_event, CoreValue::from("turn"), v_turn.clone())?;
+        core_set(&v_event, CoreValue::from("mode"), v_mode.clone())?;
+        core_set(&v_event, CoreValue::from("reason"), v_reason.clone())?;
+        core_set(
+            &v_event,
+            CoreValue::from("originalChars"),
+            v_original_chars.clone(),
+        )?;
+        core_set(
+            &v_event,
+            CoreValue::from("renderedChars"),
+            v_rendered_chars.clone(),
+        )?;
+        _agent_record_context_event(&[v_state.clone(), v_event.clone()])?;
+    }
+    v_action_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_guidance_count = core_len(&[v_guidance_log.clone()])?;
+    v_action_count = core_len(&[v_action_log.clone()])?;
+    v_budget_event = CoreValue::new_map();
+    v_budget_check_kind = _agent_context_event_name(&[CoreValue::from("budget_check")])?;
+    core_set(
+        &v_budget_event,
+        CoreValue::from("kind"),
+        v_budget_check_kind.clone(),
+    )?;
+    core_set(
+        &v_budget_event,
+        CoreValue::from("stage"),
+        CoreValue::from("executor"),
+    )?;
+    v_turn = core_add(&[v_action_count.clone(), CoreValue::Num(1f64)])?;
+    core_set(&v_budget_event, CoreValue::from("turn"), v_turn.clone())?;
+    core_set(
+        &v_budget_event,
+        CoreValue::from("pressure"),
+        v_pressure.clone(),
+    )?;
+    core_set(
+        &v_budget_event,
+        CoreValue::from("mutablePromptChars"),
+        v_mutable_chars.clone(),
+    )?;
+    core_set(
+        &v_budget_event,
+        CoreValue::from("fixedPromptChars"),
+        v_fixed.clone(),
+    )?;
+    core_set(
+        &v_budget_event,
+        CoreValue::from("effectiveBudgetChars"),
+        v_effective_budget.clone(),
+    )?;
+    core_set(
+        &v_budget_event,
+        CoreValue::from("targetPromptChars"),
+        v_target.clone(),
+    )?;
+    core_set(
+        &v_budget_event,
+        CoreValue::from("checkpointActive"),
+        v_checkpoint_is_map.clone(),
+    )?;
+    core_set(
+        &v_budget_event,
+        CoreValue::from("actionLogEntryCount"),
+        v_action_count.clone(),
+    )?;
+    core_set(
+        &v_budget_event,
+        CoreValue::from("guidanceLogEntryCount"),
+        v_guidance_count.clone(),
+    )?;
+    _agent_record_context_event(&[v_state.clone(), v_budget_event.clone()])?;
+    v_pressure_text = CoreValue::from("");
+    v_default_preset = core_get(
+        &v_context_registry,
+        &CoreValue::from("default_preset"),
+        CoreValue::from("checkpointed"),
+    );
+    v_full_preset = core_get(
+        &v_context_registry,
+        &CoreValue::from("full_preset"),
+        CoreValue::from("full"),
+    );
+    v_preset = core_get(
+        &v_policy,
+        &CoreValue::from("preset"),
+        v_default_preset.clone(),
+    );
+    v_is_full = core_eq(&[v_preset.clone(), v_full_preset.clone()])?;
+    if core_truthy(&v_is_full) {
+        v_pressure_text = CoreValue::from("");
+    } else {
+        v_pressure_text = _agent_render_context_pressure(&[v_pressure.clone()])?;
+    }
+    v_max_runtime = core_get(
+        &v_policy,
+        &CoreValue::from("maxRuntimeChars"),
+        CoreValue::Num(3000f64),
+    );
+    v_dynamic_runtime_chars = _agent_compute_dynamic_runtime_chars(&[
+        v_action_log.clone(),
+        v_target.clone(),
+        v_max_runtime.clone(),
+    ])?;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("summarizedActorLog"),
+        v_summary.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("actionLog"), v_history.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("guidanceLog"),
+        v_guidance_text.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("liveRuntimeState"),
+        v_runtime_state_summary.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("contextPressure"),
+        v_pressure_text.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("pressure"), v_pressure.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("effectiveBudgetChars"),
+        v_effective_budget.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("mutablePromptChars"),
+        v_mutable_chars.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("dynamicRuntimeChars"),
+        v_dynamic_runtime_chars.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("last_actor_context"),
+        v_out.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_build_action_evidence_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_checkpoint = CoreValue::Null;
+    let mut v_checkpoint_summary = CoreValue::Null;
+    let mut v_checkpoint_text = CoreValue::Null;
+    let mut v_checkpoint_turns = CoreValue::Null;
+    let mut v_covered = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entries = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_fallback = CoreValue::Null;
+    let mut v_has_checkpoint = CoreValue::Null;
+    let mut v_has_lines = CoreValue::Null;
+    let mut v_has_runtime = CoreValue::Null;
+    let mut v_is_error = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_line_text = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_no_checkpoint = CoreValue::Null;
+    let mut v_not_error_skip = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_runtime_summary = CoreValue::Null;
+    let mut v_runtime_text = CoreValue::Null;
+    let mut v_skip = CoreValue::Null;
+    let mut v_summary = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_entries = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_checkpoint = core_get(
+        &v_state,
+        &CoreValue::from("checkpoint_state"),
+        CoreValue::Null,
+    );
+    v_checkpoint_summary = core_get(
+        &v_checkpoint,
+        &CoreValue::from("summary"),
+        CoreValue::from(""),
+    );
+    v_checkpoint_turns = core_get(
+        &v_checkpoint,
+        &CoreValue::from("turns"),
+        v_empty_list.clone(),
+    );
+    v_runtime_summary = core_get(
+        &v_state,
+        &CoreValue::from("runtime_state_summary"),
+        CoreValue::from(""),
+    );
+    v_parts = CoreValue::new_list();
+    core_append(
+        &v_parts,
+        CoreValue::from("Actor stopped without calling final(...). Evidence summary:"),
+    )?;
+    v_has_checkpoint = core_ne(&[v_checkpoint_summary.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_checkpoint) {
+        v_checkpoint_text = core_string_format(&[
+            CoreValue::from("Checkpoint summary:\n{}"),
+            v_checkpoint_summary.clone(),
+        ])?;
+        core_append(&v_parts, v_checkpoint_text.clone())?;
+    }
+    v_lines = CoreValue::new_list();
+    v_fallback = CoreValue::Num(1f64);
+    for v_entry in core_iter(&v_entries)? {
+        let mut v_entry = v_entry;
+        v_turn = _agent_entry_turn(&[v_entry.clone(), v_fallback.clone()])?;
+        v_covered = core_contains(&[v_checkpoint_turns.clone(), v_turn.clone()])?;
+        v_is_error = _agent_entry_is_error(&[v_entry.clone()])?;
+        v_not_error_skip = core_not(&[v_is_error.clone()])?;
+        v_skip = core_and(&[v_covered.clone(), v_not_error_skip.clone()])?;
+        if core_truthy(&v_skip) {
+        } else {
+            v_summary = _agent_entry_summary(&[v_entry.clone(), v_turn.clone()])?;
+            v_line = core_string_format(&[
+                CoreValue::from("- Action {}: {}"),
+                v_turn.clone(),
+                v_summary.clone(),
+            ])?;
+            core_append(&v_lines, v_line.clone())?;
+        }
+        v_fallback = core_add(&[v_fallback.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_line_text = core_string_join_intrinsic(&[CoreValue::from("\n"), v_lines.clone()])?;
+    v_has_lines = core_ne(&[v_line_text.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_lines) {
+        core_append(&v_parts, v_line_text.clone())?;
+    } else {
+        v_no_checkpoint = core_not(&[v_has_checkpoint.clone()])?;
+        if core_truthy(&v_no_checkpoint) {
+            core_append(&v_parts, CoreValue::from("- No actions were taken."))?;
+        }
+    }
+    v_has_runtime = core_ne(&[v_runtime_summary.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_runtime) {
+        v_runtime_text = core_string_format(&[
+            CoreValue::from("Current runtime state:\n{}"),
+            v_runtime_summary.clone(),
+        ])?;
+        core_append(&v_parts, v_runtime_text.clone())?;
+    }
+    v_out = core_string_join_intrinsic(&[CoreValue::from("\n"), v_parts.clone()])?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_sanitize_action_log_entries(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_entries = core_arg(args, 0);
+    let mut v_clean = CoreValue::Null;
+    let mut v_code = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_error = CoreValue::Null;
+    let mut v_entry_message = CoreValue::Null;
+    let mut v_entry_name = CoreValue::Null;
+    let mut v_entry_namespace = CoreValue::Null;
+    let mut v_error_category = CoreValue::Null;
+    let mut v_guidance = CoreValue::Null;
+    let mut v_has_entry_error = CoreValue::Null;
+    let mut v_has_entry_message = CoreValue::Null;
+    let mut v_has_entry_name = CoreValue::Null;
+    let mut v_has_entry_namespace = CoreValue::Null;
+    let mut v_has_error_category = CoreValue::Null;
+    let mut v_has_guidance = CoreValue::Null;
+    let mut v_has_public_action = CoreValue::Null;
+    let mut v_has_public_kind = CoreValue::Null;
+    let mut v_has_public_reason = CoreValue::Null;
+    let mut v_has_public_status = CoreValue::Null;
+    let mut v_has_public_type = CoreValue::Null;
+    let mut v_has_qualified_name = CoreValue::Null;
+    let mut v_has_rank = CoreValue::Null;
+    let mut v_has_replay_mode = CoreValue::Null;
+    let mut v_has_state_delta = CoreValue::Null;
+    let mut v_has_step_kind = CoreValue::Null;
+    let mut v_has_tombstone = CoreValue::Null;
+    let mut v_has_triggered_by = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_produced = CoreValue::Null;
+    let mut v_produced_is_list = CoreValue::Null;
+    let mut v_public_action = CoreValue::Null;
+    let mut v_public_kind = CoreValue::Null;
+    let mut v_public_reason = CoreValue::Null;
+    let mut v_public_status = CoreValue::Null;
+    let mut v_public_type = CoreValue::Null;
+    let mut v_qualified_name = CoreValue::Null;
+    let mut v_rank = CoreValue::Null;
+    let mut v_referenced = CoreValue::Null;
+    let mut v_referenced_is_list = CoreValue::Null;
+    let mut v_replay_mode = CoreValue::Null;
+    let mut v_request = CoreValue::Null;
+    let mut v_request_is_object = CoreValue::Null;
+    let mut v_searches = CoreValue::Null;
+    let mut v_searches_is_list = CoreValue::Null;
+    let mut v_skills = CoreValue::Null;
+    let mut v_skills_is_list = CoreValue::Null;
+    let mut v_state_delta = CoreValue::Null;
+    let mut v_step_kind = CoreValue::Null;
+    let mut v_tags = CoreValue::Null;
+    let mut v_tags_is_list = CoreValue::Null;
+    let mut v_tombstone = CoreValue::Null;
+    let mut v_tools = CoreValue::Null;
+    let mut v_tools_is_list = CoreValue::Null;
+    let mut v_triggered_by = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    v_out = CoreValue::new_list();
+    for v_entry in core_iter(&v_entries)? {
+        let mut v_entry = v_entry;
+        v_clean = CoreValue::new_map();
+        v_public_type = core_get(&v_entry, &CoreValue::from("type"), CoreValue::from(""));
+        v_has_public_type = core_ne(&[v_public_type.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_public_type) {
+            core_set(&v_clean, CoreValue::from("type"), v_public_type.clone())?;
+        }
+        v_public_kind = core_get(&v_entry, &CoreValue::from("kind"), CoreValue::from(""));
+        v_has_public_kind = core_ne(&[v_public_kind.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_public_kind) {
+            core_set(&v_clean, CoreValue::from("kind"), v_public_kind.clone())?;
+        }
+        v_public_action = core_get(&v_entry, &CoreValue::from("action"), CoreValue::from(""));
+        v_has_public_action = core_ne(&[v_public_action.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_public_action) {
+            core_set(&v_clean, CoreValue::from("action"), v_public_action.clone())?;
+        }
+        v_public_reason = core_get(&v_entry, &CoreValue::from("reason"), CoreValue::from(""));
+        v_has_public_reason = core_ne(&[v_public_reason.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_public_reason) {
+            core_set(&v_clean, CoreValue::from("reason"), v_public_reason.clone())?;
+        }
+        v_public_status = core_get(&v_entry, &CoreValue::from("status"), CoreValue::from(""));
+        v_has_public_status = core_ne(&[v_public_status.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_public_status) {
+            core_set(&v_clean, CoreValue::from("status"), v_public_status.clone())?;
+        }
+        v_qualified_name = core_get(
+            &v_entry,
+            &CoreValue::from("qualified_name"),
+            CoreValue::from(""),
+        );
+        v_has_qualified_name = core_ne(&[v_qualified_name.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_qualified_name) {
+            core_set(
+                &v_clean,
+                CoreValue::from("qualified_name"),
+                v_qualified_name.clone(),
+            )?;
+        }
+        v_entry_name = core_get(&v_entry, &CoreValue::from("name"), CoreValue::from(""));
+        v_has_entry_name = core_ne(&[v_entry_name.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_entry_name) {
+            core_set(&v_clean, CoreValue::from("name"), v_entry_name.clone())?;
+        }
+        v_entry_namespace = core_get(&v_entry, &CoreValue::from("namespace"), CoreValue::from(""));
+        v_has_entry_namespace = core_ne(&[v_entry_namespace.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_entry_namespace) {
+            core_set(
+                &v_clean,
+                CoreValue::from("namespace"),
+                v_entry_namespace.clone(),
+            )?;
+        }
+        v_entry_error = core_get(&v_entry, &CoreValue::from("error"), CoreValue::from(""));
+        v_has_entry_error = core_ne(&[v_entry_error.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_entry_error) {
+            core_set(&v_clean, CoreValue::from("error"), v_entry_error.clone())?;
+        }
+        v_error_category = core_get(
+            &v_entry,
+            &CoreValue::from("error_category"),
+            CoreValue::from(""),
+        );
+        v_has_error_category = core_ne(&[v_error_category.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_error_category) {
+            core_set(
+                &v_clean,
+                CoreValue::from("error_category"),
+                v_error_category.clone(),
+            )?;
+        }
+        v_entry_message = core_get(&v_entry, &CoreValue::from("message"), CoreValue::from(""));
+        v_has_entry_message = core_ne(&[v_entry_message.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_entry_message) {
+            core_set(
+                &v_clean,
+                CoreValue::from("message"),
+                v_entry_message.clone(),
+            )?;
+        }
+        v_guidance = core_get(&v_entry, &CoreValue::from("guidance"), CoreValue::from(""));
+        v_has_guidance = core_ne(&[v_guidance.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_guidance) {
+            core_set(&v_clean, CoreValue::from("guidance"), v_guidance.clone())?;
+        }
+        v_triggered_by = core_get(
+            &v_entry,
+            &CoreValue::from("triggered_by"),
+            CoreValue::from(""),
+        );
+        v_has_triggered_by = core_ne(&[v_triggered_by.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_triggered_by) {
+            core_set(
+                &v_clean,
+                CoreValue::from("triggered_by"),
+                v_triggered_by.clone(),
+            )?;
+        }
+        v_searches = core_get(&v_entry, &CoreValue::from("searches"), CoreValue::Null);
+        v_searches_is_list = core_type_is(&v_searches, CoreValue::from("list"));
+        if core_truthy(&v_searches_is_list) {
+            core_set(&v_clean, CoreValue::from("searches"), v_searches.clone())?;
+        }
+        v_tools = core_get(&v_entry, &CoreValue::from("tools"), CoreValue::Null);
+        v_tools_is_list = core_type_is(&v_tools, CoreValue::from("list"));
+        if core_truthy(&v_tools_is_list) {
+            core_set(&v_clean, CoreValue::from("tools"), v_tools.clone())?;
+        }
+        v_skills = core_get(&v_entry, &CoreValue::from("skills"), CoreValue::Null);
+        v_skills_is_list = core_type_is(&v_skills, CoreValue::from("list"));
+        if core_truthy(&v_skills_is_list) {
+            core_set(&v_clean, CoreValue::from("skills"), v_skills.clone())?;
+        }
+        v_request = core_get(&v_entry, &CoreValue::from("request"), CoreValue::Null);
+        v_request_is_object = core_type_is(&v_request, CoreValue::from("object"));
+        if core_truthy(&v_request_is_object) {
+            core_set(&v_clean, CoreValue::from("request"), v_request.clone())?;
+        }
+        v_turn = core_get(&v_entry, &CoreValue::from("turn"), CoreValue::Num(0f64));
+        v_code = core_get(&v_entry, &CoreValue::from("code"), CoreValue::from(""));
+        v_output = core_get(&v_entry, &CoreValue::from("output"), CoreValue::from(""));
+        v_tags = core_get(&v_entry, &CoreValue::from("tags"), CoreValue::Null);
+        v_tags_is_list = core_type_is(&v_tags, CoreValue::from("list"));
+        if core_truthy(&v_tags_is_list) {
+        } else {
+            v_tags = CoreValue::new_list();
+        }
+        core_set(&v_clean, CoreValue::from("turn"), v_turn.clone())?;
+        core_set(&v_clean, CoreValue::from("code"), v_code.clone())?;
+        core_set(&v_clean, CoreValue::from("output"), v_output.clone())?;
+        core_set(&v_clean, CoreValue::from("tags"), v_tags.clone())?;
+        v_produced = core_get(&v_entry, &CoreValue::from("producedVars"), CoreValue::Null);
+        v_produced_is_list = core_type_is(&v_produced, CoreValue::from("list"));
+        if core_truthy(&v_produced_is_list) {
+            core_set(
+                &v_clean,
+                CoreValue::from("producedVars"),
+                v_produced.clone(),
+            )?;
+        }
+        v_referenced = core_get(
+            &v_entry,
+            &CoreValue::from("referencedVars"),
+            CoreValue::Null,
+        );
+        v_referenced_is_list = core_type_is(&v_referenced, CoreValue::from("list"));
+        if core_truthy(&v_referenced_is_list) {
+            core_set(
+                &v_clean,
+                CoreValue::from("referencedVars"),
+                v_referenced.clone(),
+            )?;
+        }
+        v_state_delta = core_get(
+            &v_entry,
+            &CoreValue::from("stateDelta"),
+            CoreValue::from(""),
+        );
+        v_has_state_delta = core_ne(&[v_state_delta.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_state_delta) {
+            core_set(
+                &v_clean,
+                CoreValue::from("stateDelta"),
+                v_state_delta.clone(),
+            )?;
+        }
+        v_step_kind = core_get(&v_entry, &CoreValue::from("stepKind"), CoreValue::from(""));
+        v_has_step_kind = core_ne(&[v_step_kind.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_step_kind) {
+            core_set(&v_clean, CoreValue::from("stepKind"), v_step_kind.clone())?;
+        }
+        v_replay_mode = core_get(
+            &v_entry,
+            &CoreValue::from("replayMode"),
+            CoreValue::from(""),
+        );
+        v_has_replay_mode = core_ne(&[v_replay_mode.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_replay_mode) {
+            core_set(
+                &v_clean,
+                CoreValue::from("replayMode"),
+                v_replay_mode.clone(),
+            )?;
+        }
+        v_rank = core_get(&v_entry, &CoreValue::from("rank"), CoreValue::Null);
+        v_has_rank = core_is_not_none(&[v_rank.clone()])?;
+        if core_truthy(&v_has_rank) {
+            core_set(&v_clean, CoreValue::from("rank"), v_rank.clone())?;
+        }
+        v_tombstone = core_get(&v_entry, &CoreValue::from("tombstone"), CoreValue::from(""));
+        v_has_tombstone = core_ne(&[v_tombstone.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_tombstone) {
+            core_set(&v_clean, CoreValue::from("tombstone"), v_tombstone.clone())?;
+        }
+        core_append(&v_out, v_clean.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_context_fixture_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_fixture = core_arg(args, 1);
+    let mut v_actor_state = CoreValue::Null;
+    let mut v_base = CoreValue::Null;
+    let mut v_checkpoint_active = CoreValue::Null;
+    let mut v_checkpoint_entries = CoreValue::Null;
+    let mut v_checkpoint_turns = CoreValue::Null;
+    let mut v_dynamic = CoreValue::Null;
+    let mut v_effective = CoreValue::Null;
+    let mut v_empty_actor_state = CoreValue::Null;
+    let mut v_empty_entries = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_empty_map2 = CoreValue::Null;
+    let mut v_entries = CoreValue::Null;
+    let mut v_evidence = CoreValue::Null;
+    let mut v_exported = CoreValue::Null;
+    let mut v_fixed = CoreValue::Null;
+    let mut v_fixture_action_log = CoreValue::Null;
+    let mut v_fixture_checkpoint = CoreValue::Null;
+    let mut v_fixture_options = CoreValue::Null;
+    let mut v_fixture_options2 = CoreValue::Null;
+    let mut v_fixture_provenance = CoreValue::Null;
+    let mut v_fixture_restore_notice = CoreValue::Null;
+    let mut v_fixture_session_state = CoreValue::Null;
+    let mut v_has_fixture_action_log = CoreValue::Null;
+    let mut v_has_fixture_checkpoint = CoreValue::Null;
+    let mut v_has_fixture_provenance = CoreValue::Null;
+    let mut v_has_fixture_restore_notice = CoreValue::Null;
+    let mut v_has_session_state = CoreValue::Null;
+    let mut v_is_budget = CoreValue::Null;
+    let mut v_is_checkpoint_summary = CoreValue::Null;
+    let mut v_is_executor_policy = CoreValue::Null;
+    let mut v_is_manage_context = CoreValue::Null;
+    let mut v_is_policy = CoreValue::Null;
+    let mut v_is_smart = CoreValue::Null;
+    let mut v_max_chars = CoreValue::Null;
+    let mut v_max_runtime = CoreValue::Null;
+    let mut v_mutable_prompt_chars = CoreValue::Null;
+    let mut v_operation = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_options2 = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_out2 = CoreValue::Null;
+    let mut v_out_budget = CoreValue::Null;
+    let mut v_out_smart = CoreValue::Null;
+    let mut v_out_summary = CoreValue::Null;
+    let mut v_policy = CoreValue::Null;
+    let mut v_policy2 = CoreValue::Null;
+    let mut v_prepared = CoreValue::Null;
+    let mut v_pressure = CoreValue::Null;
+    let mut v_pressure_text_budget = CoreValue::Null;
+    let mut v_selected = CoreValue::Null;
+    let mut v_summary = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_operation = core_get(
+        &v_fixture,
+        &CoreValue::from("context_operation"),
+        CoreValue::from("prepare"),
+    );
+    v_is_policy = core_eq(&[v_operation.clone(), CoreValue::from("resolve_policy")])?;
+    if core_truthy(&v_is_policy) {
+        v_empty_map = CoreValue::new_map();
+        v_fixture_options = core_get(&v_fixture, &CoreValue::from("options"), v_empty_map.clone());
+        v_options = core_get(
+            &v_fixture,
+            &CoreValue::from("context_options"),
+            v_fixture_options.clone(),
+        );
+        v_policy = _resolve_agent_context_policy(&[v_options.clone()])?;
+        return Ok(v_policy.clone());
+    }
+    v_is_executor_policy = core_eq(&[
+        v_operation.clone(),
+        CoreValue::from("executor_model_policy"),
+    ])?;
+    if core_truthy(&v_is_executor_policy) {
+        v_empty_map2 = CoreValue::new_map();
+        v_fixture_options2 = core_get(
+            &v_fixture,
+            &CoreValue::from("options"),
+            v_empty_map2.clone(),
+        );
+        v_options2 = core_get(
+            &v_fixture,
+            &CoreValue::from("context_options"),
+            v_fixture_options2.clone(),
+        );
+        v_policy2 = _resolve_agent_executor_model_policy(&[v_options2.clone()])?;
+        v_empty_actor_state = CoreValue::new_map();
+        v_actor_state = core_get(
+            &v_fixture,
+            &CoreValue::from("actor_model_state"),
+            v_empty_actor_state.clone(),
+        );
+        v_selected = _select_agent_executor_model(&[v_policy2.clone(), v_actor_state.clone()])?;
+        v_out2 = CoreValue::new_map();
+        core_set(&v_out2, CoreValue::from("policy"), v_policy2.clone())?;
+        core_set(
+            &v_out2,
+            CoreValue::from("selectedModel"),
+            v_selected.clone(),
+        )?;
+        return Ok(v_out2.clone());
+    }
+    v_is_budget = core_eq(&[v_operation.clone(), CoreValue::from("budget")])?;
+    if core_truthy(&v_is_budget) {
+        v_base = core_get(
+            &v_fixture,
+            &CoreValue::from("base_budget"),
+            CoreValue::Num(16000f64),
+        );
+        v_fixed = core_get(
+            &v_fixture,
+            &CoreValue::from("fixed_overhead_chars"),
+            CoreValue::Num(0f64),
+        );
+        v_empty_entries = CoreValue::new_list();
+        v_entries = core_get(
+            &v_fixture,
+            &CoreValue::from("action_log"),
+            v_empty_entries.clone(),
+        );
+        v_max_runtime = core_get(
+            &v_fixture,
+            &CoreValue::from("max_runtime_chars"),
+            CoreValue::Num(3000f64),
+        );
+        v_effective = _agent_compute_effective_chat_budget(&[v_base.clone(), v_fixed.clone()])?;
+        v_dynamic = _agent_compute_dynamic_runtime_chars(&[
+            v_entries.clone(),
+            v_base.clone(),
+            v_max_runtime.clone(),
+        ])?;
+        v_mutable_prompt_chars = core_get(
+            &v_fixture,
+            &CoreValue::from("mutable_prompt_chars"),
+            CoreValue::Num(0f64),
+        );
+        v_checkpoint_active = core_get(
+            &v_fixture,
+            &CoreValue::from("checkpoint_active"),
+            CoreValue::Bool(false),
+        );
+        v_pressure = _agent_context_pressure(&[
+            v_mutable_prompt_chars.clone(),
+            v_effective.clone(),
+            v_checkpoint_active.clone(),
+        ])?;
+        v_pressure_text_budget = _agent_render_context_pressure(&[v_pressure.clone()])?;
+        v_out_budget = CoreValue::new_map();
+        core_set(
+            &v_out_budget,
+            CoreValue::from("effectiveBudgetChars"),
+            v_effective.clone(),
+        )?;
+        core_set(
+            &v_out_budget,
+            CoreValue::from("dynamicRuntimeChars"),
+            v_dynamic.clone(),
+        )?;
+        core_set(
+            &v_out_budget,
+            CoreValue::from("pressure"),
+            v_pressure.clone(),
+        )?;
+        core_set(
+            &v_out_budget,
+            CoreValue::from("contextPressure"),
+            v_pressure_text_budget.clone(),
+        )?;
+        return Ok(v_out_budget.clone());
+    }
+    v_is_smart = core_eq(&[v_operation.clone(), CoreValue::from("smart_stringify")])?;
+    if core_truthy(&v_is_smart) {
+        v_value = core_get(&v_fixture, &CoreValue::from("value"), CoreValue::Null);
+        v_max_chars = core_get(
+            &v_fixture,
+            &CoreValue::from("max_chars"),
+            CoreValue::Num(400f64),
+        );
+        v_text = _agent_smart_stringify(&[v_value.clone(), v_max_chars.clone()])?;
+        v_out_smart = CoreValue::new_map();
+        core_set(&v_out_smart, CoreValue::from("text"), v_text.clone())?;
+        return Ok(v_out_smart.clone());
+    }
+    v_fixture_action_log = core_get(&v_fixture, &CoreValue::from("action_log"), CoreValue::Null);
+    v_has_fixture_action_log = core_type_is(&v_fixture_action_log, CoreValue::from("list"));
+    if core_truthy(&v_has_fixture_action_log) {
+        core_set(
+            &v_state,
+            CoreValue::from("action_log"),
+            v_fixture_action_log.clone(),
+        )?;
+    }
+    v_fixture_session_state = core_get(
+        &v_fixture,
+        &CoreValue::from("runtime_session_state"),
+        CoreValue::Null,
+    );
+    v_has_session_state = core_type_is(&v_fixture_session_state, CoreValue::from("object"));
+    if core_truthy(&v_has_session_state) {
+        core_set(
+            &v_state,
+            CoreValue::from("runtime_session_state"),
+            v_fixture_session_state.clone(),
+        )?;
+    }
+    v_fixture_checkpoint = core_get(
+        &v_fixture,
+        &CoreValue::from("checkpoint_state"),
+        CoreValue::Null,
+    );
+    v_has_fixture_checkpoint = core_type_is(&v_fixture_checkpoint, CoreValue::from("object"));
+    if core_truthy(&v_has_fixture_checkpoint) {
+        core_set(
+            &v_state,
+            CoreValue::from("checkpoint_state"),
+            v_fixture_checkpoint.clone(),
+        )?;
+    }
+    v_fixture_provenance = core_get(&v_fixture, &CoreValue::from("provenance"), CoreValue::Null);
+    v_has_fixture_provenance = core_type_is(&v_fixture_provenance, CoreValue::from("object"));
+    if core_truthy(&v_has_fixture_provenance) {
+        core_set(
+            &v_state,
+            CoreValue::from("provenance"),
+            v_fixture_provenance.clone(),
+        )?;
+    }
+    v_fixture_restore_notice = core_get(
+        &v_fixture,
+        &CoreValue::from("restore_notice"),
+        CoreValue::from(""),
+    );
+    v_has_fixture_restore_notice =
+        core_ne(&[v_fixture_restore_notice.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_fixture_restore_notice) {
+        core_set(
+            &v_state,
+            CoreValue::from("restore_notice"),
+            v_fixture_restore_notice.clone(),
+        )?;
+    }
+    v_is_checkpoint_summary =
+        core_eq(&[v_operation.clone(), CoreValue::from("checkpoint_summary")])?;
+    if core_truthy(&v_is_checkpoint_summary) {
+        v_checkpoint_entries = core_get(
+            &v_fixture,
+            &CoreValue::from("checkpoint_entries"),
+            v_fixture_action_log.clone(),
+        );
+        v_checkpoint_turns = core_get(
+            &v_fixture,
+            &CoreValue::from("checkpoint_turns"),
+            v_empty_list.clone(),
+        );
+        v_summary = _agent_fallback_checkpoint_summary(&[
+            v_checkpoint_entries.clone(),
+            v_checkpoint_turns.clone(),
+        ])?;
+        v_out_summary = CoreValue::new_map();
+        core_set(
+            &v_out_summary,
+            CoreValue::from("summary"),
+            v_summary.clone(),
+        )?;
+        return Ok(v_out_summary.clone());
+    }
+    v_is_manage_context = core_eq(&[v_operation.clone(), CoreValue::from("manage_context")])?;
+    if core_truthy(&v_is_manage_context) {
+        _agent_apply_context_management(&[v_state.clone()])?;
+    }
+    v_prepared = _agent_prepare_actor_context(&[v_state.clone()])?;
+    v_evidence = _agent_build_action_evidence_summary(&[v_state.clone()])?;
+    v_exported = _agent_export_runtime_state(&[v_state.clone()])?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("prepared"), v_prepared.clone())?;
+    core_set(&v_out, CoreValue::from("evidence"), v_evidence.clone())?;
+    core_set(&v_out, CoreValue::from("exported"), v_exported.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_callable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_raw = core_arg(args, 0);
+    let mut v_namespace = core_arg(args, 1);
+    let mut v_always_camel = CoreValue::Null;
+    let mut v_always_include = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_missing_name = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_parameters = CoreValue::Null;
+    let mut v_qualified = CoreValue::Null;
+    v_name = core_get(&v_raw, &CoreValue::from("name"), CoreValue::from(""));
+    v_missing_name = core_eq(&[v_name.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing_name) {
+        v_error = core_runtime_error(&[CoreValue::from("agent callable name is required")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_kind = core_get(&v_raw, &CoreValue::from("kind"), CoreValue::from("tool"));
+    v_description = core_get(&v_raw, &CoreValue::from("description"), CoreValue::from(""));
+    v_qualified = core_string_format(&[
+        CoreValue::from("{}.{}"),
+        v_namespace.clone(),
+        v_name.clone(),
+    ])?;
+    v_parameters = core_get(&v_raw, &CoreValue::from("parameters"), CoreValue::Null);
+    v_always_camel = core_get(
+        &v_raw,
+        &CoreValue::from("alwaysInclude"),
+        CoreValue::Bool(false),
+    );
+    v_always_include = core_get(
+        &v_raw,
+        &CoreValue::from("always_include"),
+        v_always_camel.clone(),
+    );
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_out, CoreValue::from("namespace"), v_namespace.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("qualified_name"),
+        v_qualified.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("kind"), v_kind.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("description"),
+        v_description.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("parameters"), v_parameters.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("always_include"),
+        v_always_include.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_group(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_raw = core_arg(args, 0);
+    let mut v_always_camel = CoreValue::Null;
+    let mut v_always_include = CoreValue::Null;
+    let mut v_callable = CoreValue::Null;
+    let mut v_callables = CoreValue::Null;
+    let mut v_conflicts = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_fn = CoreValue::Null;
+    let mut v_functions = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_namespace = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_reserved = CoreValue::Null;
+    let mut v_selection_camel = CoreValue::Null;
+    let mut v_selection_criteria = CoreValue::Null;
+    let mut v_title = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_name = core_get(&v_raw, &CoreValue::from("name"), CoreValue::from("tools"));
+    v_namespace = core_get(&v_raw, &CoreValue::from("namespace"), v_name.clone());
+    v_reserved = _agent_reserved_runtime_names(&[])?;
+    v_conflicts = core_contains(&[v_reserved.clone(), v_namespace.clone()])?;
+    if core_truthy(&v_conflicts) {
+        v_message = core_string_format(&[
+            CoreValue::from("agent callable namespace conflicts with reserved runtime name: {}"),
+            v_namespace.clone(),
+        ])?;
+        v_error = core_runtime_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_title = core_get(&v_raw, &CoreValue::from("title"), v_namespace.clone());
+    v_description = core_get(&v_raw, &CoreValue::from("description"), CoreValue::from(""));
+    v_selection_camel = core_get(
+        &v_raw,
+        &CoreValue::from("selectionCriteria"),
+        CoreValue::from(""),
+    );
+    v_selection_criteria = core_get(
+        &v_raw,
+        &CoreValue::from("selection_criteria"),
+        v_selection_camel.clone(),
+    );
+    v_always_camel = core_get(
+        &v_raw,
+        &CoreValue::from("alwaysInclude"),
+        CoreValue::Bool(false),
+    );
+    v_always_include = core_get(
+        &v_raw,
+        &CoreValue::from("always_include"),
+        v_always_camel.clone(),
+    );
+    v_functions = core_get(&v_raw, &CoreValue::from("functions"), v_empty_list.clone());
+    v_callables = CoreValue::new_list();
+    for v_fn in core_iter(&v_functions)? {
+        let mut v_fn = v_fn;
+        v_callable = _normalize_agent_callable(&[v_fn.clone(), v_namespace.clone()])?;
+        core_append(&v_callables, v_callable.clone())?;
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("namespace"), v_namespace.clone())?;
+    core_set(&v_out, CoreValue::from("title"), v_title.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("description"),
+        v_description.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("selection_criteria"),
+        v_selection_criteria.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("always_include"),
+        v_always_include.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("callables"), v_callables.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_callable_inventory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_options = core_arg(args, 0);
+    let mut v_callable = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_flat_callables = CoreValue::Null;
+    let mut v_flat_count = CoreValue::Null;
+    let mut v_flat_group = CoreValue::Null;
+    let mut v_functions = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_group_functions = CoreValue::Null;
+    let mut v_groups = CoreValue::Null;
+    let mut v_has_any_flat = CoreValue::Null;
+    let mut v_has_flat = CoreValue::Null;
+    let mut v_has_group = CoreValue::Null;
+    let mut v_is_group = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_functions = core_get(
+        &v_options,
+        &CoreValue::from("functions"),
+        v_empty_list.clone(),
+    );
+    v_groups = CoreValue::new_list();
+    v_flat_callables = CoreValue::new_list();
+    v_has_flat = CoreValue::Bool(false);
+    v_has_group = CoreValue::Bool(false);
+    for v_item in core_iter(&v_functions)? {
+        let mut v_item = v_item;
+        v_group_functions = core_get(&v_item, &CoreValue::from("functions"), CoreValue::Null);
+        v_is_group = core_type_is(&v_group_functions, CoreValue::from("list"));
+        if core_truthy(&v_is_group) {
+            v_has_group = CoreValue::Bool(true);
+            if core_truthy(&v_has_flat) {
+                v_error = core_runtime_error(&[CoreValue::from(
+                    "agent functions cannot mix grouped modules and flat functions",
+                )])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_group = _normalize_agent_group(&[v_item.clone()])?;
+            core_append(&v_groups, v_group.clone())?;
+        } else {
+            v_has_flat = CoreValue::Bool(true);
+            if core_truthy(&v_has_group) {
+                v_error = core_runtime_error(&[CoreValue::from(
+                    "agent functions cannot mix grouped modules and flat functions",
+                )])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_callable = _normalize_agent_callable(&[v_item.clone(), CoreValue::from("tools")])?;
+            core_append(&v_flat_callables, v_callable.clone())?;
+        }
+    }
+    v_flat_count = core_len(&[v_flat_callables.clone()])?;
+    v_has_any_flat = core_gt(&[v_flat_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_any_flat) {
+        v_flat_group = CoreValue::new_map();
+        core_set(
+            &v_flat_group,
+            CoreValue::from("namespace"),
+            CoreValue::from("tools"),
+        )?;
+        core_set(
+            &v_flat_group,
+            CoreValue::from("title"),
+            CoreValue::from("Tools"),
+        )?;
+        core_set(
+            &v_flat_group,
+            CoreValue::from("description"),
+            CoreValue::from(""),
+        )?;
+        core_set(
+            &v_flat_group,
+            CoreValue::from("selection_criteria"),
+            CoreValue::from(""),
+        )?;
+        core_set(
+            &v_flat_group,
+            CoreValue::from("always_include"),
+            CoreValue::Bool(true),
+        )?;
+        core_set(
+            &v_flat_group,
+            CoreValue::from("callables"),
+            v_flat_callables.clone(),
+        )?;
+        core_append(&v_groups, v_flat_group.clone())?;
+    }
+    return Ok(v_groups.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _split_agent_callable_inventory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_inventory = core_arg(args, 0);
+    let mut v_always = CoreValue::Null;
+    let mut v_discoverable = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_inline = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_inline = CoreValue::new_list();
+    v_discoverable = CoreValue::new_list();
+    for v_group in core_iter(&v_inventory)? {
+        let mut v_group = v_group;
+        v_always = core_get(
+            &v_group,
+            &CoreValue::from("always_include"),
+            CoreValue::Bool(false),
+        );
+        if core_truthy(&v_always) {
+            core_append(&v_inline, v_group.clone())?;
+        } else {
+            core_append(&v_discoverable, v_group.clone())?;
+        }
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("inline"), v_inline.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("discoverable"),
+        v_discoverable.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _render_agent_discovery_catalog(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_split = core_arg(args, 0);
+    let mut v_callable = CoreValue::Null;
+    let mut v_callable_names = CoreValue::Null;
+    let mut v_callables = CoreValue::Null;
+    let mut v_catalog = CoreValue::Null;
+    let mut v_discoverable = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_hint = CoreValue::Null;
+    let mut v_inline = CoreValue::Null;
+    let mut v_namespace = CoreValue::Null;
+    let mut v_qualified = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_catalog = CoreValue::new_list();
+    v_inline = core_get(&v_split, &CoreValue::from("inline"), v_empty_list.clone());
+    v_discoverable = core_get(
+        &v_split,
+        &CoreValue::from("discoverable"),
+        v_empty_list.clone(),
+    );
+    for v_group in core_iter(&v_inline)? {
+        let mut v_group = v_group;
+        v_callable_names = CoreValue::new_list();
+        v_callables = core_get(
+            &v_group,
+            &CoreValue::from("callables"),
+            v_empty_list.clone(),
+        );
+        for v_callable in core_iter(&v_callables)? {
+            let mut v_callable = v_callable;
+            v_qualified = core_get(
+                &v_callable,
+                &CoreValue::from("qualified_name"),
+                CoreValue::Null,
+            );
+            core_append(&v_callable_names, v_qualified.clone())?;
+        }
+        v_namespace = core_get(&v_group, &CoreValue::from("namespace"), CoreValue::Null);
+        v_entry = CoreValue::new_map();
+        core_set(&v_entry, CoreValue::from("namespace"), v_namespace.clone())?;
+        core_set(
+            &v_entry,
+            CoreValue::from("placement"),
+            CoreValue::from("actor_prompt"),
+        )?;
+        core_set(
+            &v_entry,
+            CoreValue::from("callables"),
+            v_callable_names.clone(),
+        )?;
+        core_append(&v_catalog, v_entry.clone())?;
+    }
+    for v_group in core_iter(&v_discoverable)? {
+        let mut v_group = v_group;
+        v_namespace = core_get(&v_group, &CoreValue::from("namespace"), CoreValue::Null);
+        v_hint = core_string_format(&[CoreValue::from("discover tools {}"), v_namespace.clone()])?;
+        v_entry = CoreValue::new_map();
+        core_set(&v_entry, CoreValue::from("namespace"), v_namespace.clone())?;
+        core_set(
+            &v_entry,
+            CoreValue::from("placement"),
+            CoreValue::from("discover"),
+        )?;
+        core_set(&v_entry, CoreValue::from("hint"), v_hint.clone())?;
+        core_append(&v_catalog, v_entry.clone())?;
+    }
+    return Ok(v_catalog.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_string_list(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_value = core_arg(args, 0);
+    let mut v_label = core_arg(args, 1);
+    let mut v_already = CoreValue::Null;
+    let mut v_bad_item = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_item = CoreValue::Null;
+    let mut v_empty_out = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_fresh = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_item_is_string = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_not_list = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_trimmed_item = CoreValue::Null;
+    v_out = CoreValue::new_list();
+    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
+    if core_truthy(&v_is_string) {
+        v_trimmed = core_string_trim(&v_value);
+        v_empty = core_eq(&[v_trimmed.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_empty) {
+            v_message = core_string_format(&[
+                CoreValue::from("{} entries must be non-empty strings"),
+                v_label.clone(),
+            ])?;
+            v_error = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        } else {
+            core_append(&v_out, v_trimmed.clone())?;
+        }
+    } else {
+        v_is_list = core_type_is(&v_value, CoreValue::from("list"));
+        v_not_list = core_not(&[v_is_list.clone()])?;
+        if core_truthy(&v_not_list) {
+            v_message = core_string_format(&[
+                CoreValue::from("{} must be a string or string[]"),
+                v_label.clone(),
+            ])?;
+            v_error = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        } else {
+            for v_item in core_iter(&v_value)? {
+                let mut v_item = v_item;
+                v_item_is_string = core_type_is(&v_item, CoreValue::from("string"));
+                v_bad_item = core_not(&[v_item_is_string.clone()])?;
+                if core_truthy(&v_bad_item) {
+                    v_message = core_string_format(&[
+                        CoreValue::from("{} entries must be strings"),
+                        v_label.clone(),
+                    ])?;
+                    v_error = core_runtime_error(&[v_message.clone()])?;
+                    return Err(core_as_error(&v_error));
+                } else {
+                    v_trimmed_item = core_string_trim(&v_item);
+                    v_empty_item = core_eq(&[v_trimmed_item.clone(), CoreValue::from("")])?;
+                    if core_truthy(&v_empty_item) {
+                        v_message = core_string_format(&[
+                            CoreValue::from("{} entries must be non-empty strings"),
+                            v_label.clone(),
+                        ])?;
+                        v_error = core_runtime_error(&[v_message.clone()])?;
+                        return Err(core_as_error(&v_error));
+                    } else {
+                        v_already = core_contains(&[v_out.clone(), v_trimmed_item.clone()])?;
+                        v_fresh = core_not(&[v_already.clone()])?;
+                        if core_truthy(&v_fresh) {
+                            core_append(&v_out, v_trimmed_item.clone())?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    v_count = core_len(&[v_out.clone()])?;
+    v_empty_out = core_eq(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_empty_out) {
+        v_message = core_string_format(&[
+            CoreValue::from("{} requires at least one entry"),
+            v_label.clone(),
+        ])?;
+        v_error = core_runtime_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_discover_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_bad = CoreValue::Null;
+    let mut v_bad_skills = CoreValue::Null;
+    let mut v_bad_tools = CoreValue::Null;
+    let mut v_direct_tools = CoreValue::Null;
+    let mut v_discovery_mode = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_flags = CoreValue::Null;
+    let mut v_has_any = CoreValue::Null;
+    let mut v_has_skill_items = CoreValue::Null;
+    let mut v_has_skills = CoreValue::Null;
+    let mut v_has_tool_items = CoreValue::Null;
+    let mut v_has_tools = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_missing_any = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_raw_skills = CoreValue::Null;
+    let mut v_raw_tools = CoreValue::Null;
+    let mut v_skill_count = CoreValue::Null;
+    let mut v_skills = CoreValue::Null;
+    let mut v_skills_disabled = CoreValue::Null;
+    let mut v_skills_mode = CoreValue::Null;
+    let mut v_tool_count = CoreValue::Null;
+    let mut v_tools = CoreValue::Null;
+    let mut v_tools_disabled = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_tools = CoreValue::new_list();
+    v_skills = CoreValue::new_list();
+    v_flags = core_get(&v_state, &CoreValue::from("policy_flags"), CoreValue::Null);
+    v_is_string = core_type_is(&v_request, CoreValue::from("string"));
+    v_is_list = core_type_is(&v_request, CoreValue::from("list"));
+    v_direct_tools = core_or(&[v_is_string.clone(), v_is_list.clone()])?;
+    if core_truthy(&v_direct_tools) {
+        v_tools =
+            _normalize_agent_string_list(&[v_request.clone(), CoreValue::from("discover tools")])?;
+    } else {
+        v_is_map = core_type_is(&v_request, CoreValue::from("object"));
+        v_bad = core_not(&[v_is_map.clone()])?;
+        if core_truthy(&v_bad) {
+            v_error = core_runtime_error(&[CoreValue::from(
+                "discover(...) expects a string, string[], or { tools?, skills? }",
+            )])?;
+            return Err(core_as_error(&v_error));
+        } else {
+            v_has_tools = core_map_contains(&[v_request.clone(), CoreValue::from("tools")])?;
+            v_has_skills = core_map_contains(&[v_request.clone(), CoreValue::from("skills")])?;
+            v_has_any = core_or(&[v_has_tools.clone(), v_has_skills.clone()])?;
+            v_missing_any = core_not(&[v_has_any.clone()])?;
+            if core_truthy(&v_missing_any) {
+                v_error = core_runtime_error(&[CoreValue::from(
+                    "discover(...) requires at least one of tools or skills",
+                )])?;
+                return Err(core_as_error(&v_error));
+            }
+            if core_truthy(&v_has_tools) {
+                v_raw_tools = core_get(&v_request, &CoreValue::from("tools"), v_empty_list.clone());
+                v_tools = _normalize_agent_string_list(&[
+                    v_raw_tools.clone(),
+                    CoreValue::from("discover tools"),
+                ])?;
+            }
+            if core_truthy(&v_has_skills) {
+                v_raw_skills =
+                    core_get(&v_request, &CoreValue::from("skills"), v_empty_list.clone());
+                v_skills = _normalize_agent_string_list(&[
+                    v_raw_skills.clone(),
+                    CoreValue::from("discover skills"),
+                ])?;
+            }
+        }
+    }
+    v_tool_count = core_len(&[v_tools.clone()])?;
+    v_skill_count = core_len(&[v_skills.clone()])?;
+    v_has_tool_items = core_gt(&[v_tool_count.clone(), CoreValue::Num(0f64)])?;
+    v_has_skill_items = core_gt(&[v_skill_count.clone(), CoreValue::Num(0f64)])?;
+    v_discovery_mode = core_get(
+        &v_flags,
+        &CoreValue::from("discoveryMode"),
+        CoreValue::Bool(false),
+    );
+    v_skills_mode = core_get(
+        &v_flags,
+        &CoreValue::from("skillsMode"),
+        CoreValue::Bool(false),
+    );
+    v_tools_disabled = core_not(&[v_discovery_mode.clone()])?;
+    v_skills_disabled = core_not(&[v_skills_mode.clone()])?;
+    v_bad_tools = core_and(&[v_has_tool_items.clone(), v_tools_disabled.clone()])?;
+    if core_truthy(&v_bad_tools) {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "discover({ tools }) requires function discovery to be enabled",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_bad_skills = core_and(&[v_has_skill_items.clone(), v_skills_disabled.clone()])?;
+    if core_truthy(&v_bad_skills) {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "discover({ skills }) requires skill discovery to be enabled",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("tools"), v_tools.clone())?;
+    core_set(&v_out, CoreValue::from("skills"), v_skills.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_append_unique_by_field(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_items = core_arg(args, 0);
+    let mut v_item = core_arg(args, 1);
+    let mut v_field = core_arg(args, 2);
+    let mut v_existing = CoreValue::Null;
+    let mut v_existing_value = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_value = core_get(&v_item, &v_field.clone(), CoreValue::from(""));
+    v_found = CoreValue::Bool(false);
+    for v_existing in core_iter(&v_items)? {
+        let mut v_existing = v_existing;
+        v_existing_value = core_get(&v_existing, &v_field.clone(), CoreValue::from(""));
+        v_matches = core_eq(&[v_existing_value.clone(), v_value.clone()])?;
+        if core_truthy(&v_matches) {
+            v_found = CoreValue::Bool(true);
+        }
+    }
+    v_missing = core_not(&[v_found.clone()])?;
+    if core_truthy(&v_missing) {
+        core_append(&v_items, v_item.clone())?;
+    }
+    return Ok(v_items.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_render_discovered_tool_docs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_docs = core_arg(args, 0);
+    let mut v_body = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_qualified = CoreValue::Null;
+    v_lines = CoreValue::new_list();
+    for v_doc in core_iter(&v_docs)? {
+        let mut v_doc = v_doc;
+        v_qualified = core_get(
+            &v_doc,
+            &CoreValue::from("qualified_name"),
+            CoreValue::from(""),
+        );
+        v_description = core_get(&v_doc, &CoreValue::from("description"), CoreValue::from(""));
+        v_line = core_string_format(&[
+            CoreValue::from("- {}: {}"),
+            v_qualified.clone(),
+            v_description.clone(),
+        ])?;
+        core_append(&v_lines, v_line.clone())?;
+    }
+    v_body = core_string_join_intrinsic(&[CoreValue::from("\n"), v_lines.clone()])?;
+    v_empty = core_eq(&[v_body.clone(), CoreValue::from("")])?;
+    v_out = v_body.clone();
+    if core_truthy(&v_empty) {
+        v_out = CoreValue::from("");
+    } else {
+        v_out = core_string_format(&[CoreValue::from("Discovered Tool Docs\n{}"), v_body.clone()])?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_render_loaded_skills(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_skills = core_arg(args, 0);
+    let mut v_body = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_skill = CoreValue::Null;
+    v_lines = CoreValue::new_list();
+    for v_skill in core_iter(&v_skills)? {
+        let mut v_skill = v_skill;
+        v_name = core_get(&v_skill, &CoreValue::from("name"), CoreValue::from(""));
+        v_content = core_get(&v_skill, &CoreValue::from("content"), CoreValue::from(""));
+        v_line = core_string_format(&[
+            CoreValue::from("### {}\n{}"),
+            v_name.clone(),
+            v_content.clone(),
+        ])?;
+        core_append(&v_lines, v_line.clone())?;
+    }
+    v_body = core_string_join_intrinsic(&[CoreValue::from("\n\n"), v_lines.clone()])?;
+    v_empty = core_eq(&[v_body.clone(), CoreValue::from("")])?;
+    v_out = v_body.clone();
+    if core_truthy(&v_empty) {
+        v_out = CoreValue::from("");
+    } else {
+        v_out = core_string_format(&[CoreValue::from("Loaded Skills\n{}"), v_body.clone()])?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_discover(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_action_event = CoreValue::Null;
+    let mut v_action_log = CoreValue::Null;
+    let mut v_callable = CoreValue::Null;
+    let mut v_callables = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_doc_description = CoreValue::Null;
+    let mut v_doc_kind = CoreValue::Null;
+    let mut v_doc_name = CoreValue::Null;
+    let mut v_doc_qualified = CoreValue::Null;
+    let mut v_docs = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_has_host = CoreValue::Null;
+    let mut v_has_skills = CoreValue::Null;
+    let mut v_host_count = CoreValue::Null;
+    let mut v_host_skill = CoreValue::Null;
+    let mut v_host_skills = CoreValue::Null;
+    let mut v_inventory = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_name_match = CoreValue::Null;
+    let mut v_namespace = CoreValue::Null;
+    let mut v_namespace_match = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_qualified = CoreValue::Null;
+    let mut v_qualified_match = CoreValue::Null;
+    let mut v_skill = CoreValue::Null;
+    let mut v_skill_count = CoreValue::Null;
+    let mut v_skill_docs = CoreValue::Null;
+    let mut v_skill_id = CoreValue::Null;
+    let mut v_skill_name = CoreValue::Null;
+    let mut v_skills = CoreValue::Null;
+    let mut v_tools = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_wanted = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_normalized = _normalize_agent_discover_request(&[v_state.clone(), v_request.clone()])?;
+    v_inventory = core_get(
+        &v_state,
+        &CoreValue::from("callable_inventory"),
+        v_empty_list.clone(),
+    );
+    v_docs = core_get(
+        &v_state,
+        &CoreValue::from("discovered_tool_docs"),
+        v_empty_list.clone(),
+    );
+    v_skill_docs = core_get(
+        &v_state,
+        &CoreValue::from("loaded_skill_docs"),
+        v_empty_list.clone(),
+    );
+    v_trace = core_get(
+        &v_state,
+        &CoreValue::from("policy_trace"),
+        v_empty_list.clone(),
+    );
+    v_action_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_tools = core_get(
+        &v_normalized,
+        &CoreValue::from("tools"),
+        v_empty_list.clone(),
+    );
+    v_skills = core_get(
+        &v_normalized,
+        &CoreValue::from("skills"),
+        v_empty_list.clone(),
+    );
+    for v_wanted in core_iter(&v_tools)? {
+        let mut v_wanted = v_wanted;
+        for v_group in core_iter(&v_inventory)? {
+            let mut v_group = v_group;
+            v_namespace = core_get(&v_group, &CoreValue::from("namespace"), CoreValue::Null);
+            v_namespace_match = core_eq(&[v_namespace.clone(), v_wanted.clone()])?;
+            v_callables = core_get(
+                &v_group,
+                &CoreValue::from("callables"),
+                v_empty_list.clone(),
+            );
+            if core_truthy(&v_namespace_match) {
+                for v_callable in core_iter(&v_callables)? {
+                    let mut v_callable = v_callable;
+                    v_doc_name = core_get(&v_callable, &CoreValue::from("name"), CoreValue::Null);
+                    v_doc_qualified = core_get(
+                        &v_callable,
+                        &CoreValue::from("qualified_name"),
+                        CoreValue::Null,
+                    );
+                    v_doc_kind = core_get(&v_callable, &CoreValue::from("kind"), CoreValue::Null);
+                    v_doc_description = core_get(
+                        &v_callable,
+                        &CoreValue::from("description"),
+                        CoreValue::from(""),
+                    );
+                    v_doc = CoreValue::new_map();
+                    core_set(&v_doc, CoreValue::from("namespace"), v_namespace.clone())?;
+                    core_set(&v_doc, CoreValue::from("name"), v_doc_name.clone())?;
+                    core_set(
+                        &v_doc,
+                        CoreValue::from("qualified_name"),
+                        v_doc_qualified.clone(),
+                    )?;
+                    core_set(&v_doc, CoreValue::from("kind"), v_doc_kind.clone())?;
+                    core_set(
+                        &v_doc,
+                        CoreValue::from("description"),
+                        v_doc_description.clone(),
+                    )?;
+                    v_docs = _agent_append_unique_by_field(&[
+                        v_docs.clone(),
+                        v_doc.clone(),
+                        CoreValue::from("qualified_name"),
+                    ])?;
+                }
+            } else {
+                for v_callable in core_iter(&v_callables)? {
+                    let mut v_callable = v_callable;
+                    v_qualified = core_get(
+                        &v_callable,
+                        &CoreValue::from("qualified_name"),
+                        CoreValue::Null,
+                    );
+                    v_name = core_get(&v_callable, &CoreValue::from("name"), CoreValue::Null);
+                    v_qualified_match = core_eq(&[v_qualified.clone(), v_wanted.clone()])?;
+                    v_name_match = core_eq(&[v_name.clone(), v_wanted.clone()])?;
+                    v_matches = core_or(&[v_qualified_match.clone(), v_name_match.clone()])?;
+                    if core_truthy(&v_matches) {
+                        v_kind = core_get(&v_callable, &CoreValue::from("kind"), CoreValue::Null);
+                        v_description = core_get(
+                            &v_callable,
+                            &CoreValue::from("description"),
+                            CoreValue::from(""),
+                        );
+                        v_doc = CoreValue::new_map();
+                        core_set(&v_doc, CoreValue::from("namespace"), v_namespace.clone())?;
+                        core_set(&v_doc, CoreValue::from("name"), v_name.clone())?;
+                        core_set(
+                            &v_doc,
+                            CoreValue::from("qualified_name"),
+                            v_qualified.clone(),
+                        )?;
+                        core_set(&v_doc, CoreValue::from("kind"), v_kind.clone())?;
+                        core_set(
+                            &v_doc,
+                            CoreValue::from("description"),
+                            v_description.clone(),
+                        )?;
+                        v_docs = _agent_append_unique_by_field(&[
+                            v_docs.clone(),
+                            v_doc.clone(),
+                            CoreValue::from("qualified_name"),
+                        ])?;
+                    }
+                }
+            }
+        }
+    }
+    v_skill_count = core_len(&[v_skills.clone()])?;
+    v_has_skills = core_gt(&[v_skill_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_skills) {
+        v_host_skills = core_agent_skill_search(&[v_state.clone(), v_skills.clone()])?;
+        v_host_count = core_len(&[v_host_skills.clone()])?;
+        v_has_host = core_gt(&[v_host_count.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_has_host) {
+            for v_host_skill in core_iter(&v_host_skills)? {
+                let mut v_host_skill = v_host_skill;
+                v_skill_name =
+                    core_get(&v_host_skill, &CoreValue::from("name"), CoreValue::from(""));
+                v_skill_id = core_get(&v_host_skill, &CoreValue::from("id"), v_skill_name.clone());
+                core_set(&v_host_skill, CoreValue::from("id"), v_skill_id.clone())?;
+                v_skill_docs = _agent_append_unique_by_field(&[
+                    v_skill_docs.clone(),
+                    v_host_skill.clone(),
+                    CoreValue::from("id"),
+                ])?;
+            }
+        } else {
+            for v_skill in core_iter(&v_skills)? {
+                let mut v_skill = v_skill;
+                v_doc = CoreValue::new_map();
+                core_set(&v_doc, CoreValue::from("id"), v_skill.clone())?;
+                core_set(&v_doc, CoreValue::from("name"), v_skill.clone())?;
+                v_content = core_string_format(&[
+                    CoreValue::from("Skill docs loaded for {}"),
+                    v_skill.clone(),
+                ])?;
+                core_set(&v_doc, CoreValue::from("content"), v_content.clone())?;
+                v_skill_docs = _agent_append_unique_by_field(&[
+                    v_skill_docs.clone(),
+                    v_doc.clone(),
+                    CoreValue::from("id"),
+                ])?;
+            }
+        }
+    }
+    v_event = CoreValue::new_map();
+    core_set(
+        &v_event,
+        CoreValue::from("type"),
+        CoreValue::from("discover"),
+    )?;
+    core_set(&v_event, CoreValue::from("tools"), v_tools.clone())?;
+    core_set(&v_event, CoreValue::from("skills"), v_skills.clone())?;
+    core_append(&v_trace, v_event.clone())?;
+    v_action_event = CoreValue::new_map();
+    core_set(
+        &v_action_event,
+        CoreValue::from("type"),
+        CoreValue::from("discover"),
+    )?;
+    core_set(
+        &v_action_event,
+        CoreValue::from("request"),
+        v_request.clone(),
+    )?;
+    core_set(&v_action_event, CoreValue::from("tools"), v_tools.clone())?;
+    core_set(&v_action_event, CoreValue::from("skills"), v_skills.clone())?;
+    core_append(&v_action_log, v_action_event.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("discovered_tool_docs"),
+        v_docs.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("loaded_skill_docs"),
+        v_skill_docs.clone(),
+    )?;
+    core_set(&v_state, CoreValue::from("policy_trace"), v_trace.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("action_log"),
+        v_action_log.clone(),
+    )?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("discover"),
+        v_event.clone(),
+    ])?;
+    v_none = core_none(&[])?;
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_recall_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_disabled = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_flags = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_searches = CoreValue::Null;
+    v_flags = core_get(&v_state, &CoreValue::from("policy_flags"), CoreValue::Null);
+    v_enabled = core_get(
+        &v_flags,
+        &CoreValue::from("memoriesMode"),
+        CoreValue::Bool(false),
+    );
+    v_disabled = core_not(&[v_enabled.clone()])?;
+    if core_truthy(&v_disabled) {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "recall(...) requires memory search to be enabled",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_searches =
+        _normalize_agent_string_list(&[v_request.clone(), CoreValue::from("recall searches")])?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("searches"), v_searches.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_merge_memory_results(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_existing = core_arg(args, 0);
+    let mut v_incoming = core_arg(args, 1);
+    let mut v_content = CoreValue::Null;
+    let mut v_has_content = CoreValue::Null;
+    let mut v_has_id = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_memory = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_out = v_existing.clone();
+    for v_memory in core_iter(&v_incoming)? {
+        let mut v_memory = v_memory;
+        v_id = core_get(&v_memory, &CoreValue::from("id"), CoreValue::from(""));
+        v_content = core_get(&v_memory, &CoreValue::from("content"), CoreValue::from(""));
+        v_has_id = core_ne(&[v_id.clone(), CoreValue::from("")])?;
+        v_has_content = core_ne(&[v_content.clone(), CoreValue::from("")])?;
+        v_valid = core_and(&[v_has_id.clone(), v_has_content.clone()])?;
+        if core_truthy(&v_valid) {
+            v_out = _agent_append_unique_by_field(&[
+                v_out.clone(),
+                v_memory.clone(),
+                CoreValue::from("id"),
+            ])?;
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_recall(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_action = CoreValue::Null;
+    let mut v_action_log = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_incoming = CoreValue::Null;
+    let mut v_loaded = CoreValue::Null;
+    let mut v_merged = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_searches = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_normalized = _normalize_agent_recall_request(&[v_state.clone(), v_request.clone()])?;
+    v_searches = core_get(
+        &v_normalized,
+        &CoreValue::from("searches"),
+        v_empty_list.clone(),
+    );
+    v_loaded = core_get(
+        &v_state,
+        &CoreValue::from("loaded_memories"),
+        v_empty_list.clone(),
+    );
+    v_incoming =
+        core_agent_memory_search(&[v_state.clone(), v_searches.clone(), v_loaded.clone()])?;
+    v_merged = _agent_merge_memory_results(&[v_loaded.clone(), v_incoming.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("loaded_memories"),
+        v_merged.clone(),
+    )?;
+    v_trace = core_get(
+        &v_state,
+        &CoreValue::from("policy_trace"),
+        v_empty_list.clone(),
+    );
+    v_event = CoreValue::new_map();
+    core_set(&v_event, CoreValue::from("type"), CoreValue::from("recall"))?;
+    core_set(&v_event, CoreValue::from("searches"), v_searches.clone())?;
+    core_set(&v_event, CoreValue::from("loaded"), v_incoming.clone())?;
+    core_append(&v_trace, v_event.clone())?;
+    core_set(&v_state, CoreValue::from("policy_trace"), v_trace.clone())?;
+    v_action_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_action = CoreValue::new_map();
+    core_set(
+        &v_action,
+        CoreValue::from("type"),
+        CoreValue::from("recall"),
+    )?;
+    core_set(&v_action, CoreValue::from("searches"), v_searches.clone())?;
+    core_set(&v_action, CoreValue::from("loaded"), v_incoming.clone())?;
+    core_append(&v_action_log, v_action.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("action_log"),
+        v_action_log.clone(),
+    )?;
+    _agent_record_trace_event(&[v_state.clone(), CoreValue::from("recall"), v_event.clone()])?;
+    v_none = core_none(&[])?;
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_used_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_request = core_arg(args, 0);
+    let mut v_default_stage = core_arg(args, 1);
+    let mut v_error = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_reason = CoreValue::Null;
+    let mut v_stage = CoreValue::Null;
+    v_is_map = core_type_is(&v_request, CoreValue::from("object"));
+    v_id = CoreValue::from("");
+    v_reason = CoreValue::from("");
+    v_stage = v_default_stage.clone();
+    if core_truthy(&v_is_map) {
+        v_id = core_get(&v_request, &CoreValue::from("id"), CoreValue::from(""));
+        v_reason = core_get(&v_request, &CoreValue::from("reason"), CoreValue::from(""));
+        v_stage = core_get(
+            &v_request,
+            &CoreValue::from("stage"),
+            v_default_stage.clone(),
+        );
+    } else {
+        v_id = v_request.clone();
+    }
+    v_id = core_string_trim(&v_id);
+    v_reason = core_string_trim(&v_reason);
+    v_missing = core_eq(&[v_id.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing) {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "used(...) requires a non-empty loaded memory or skill id",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_out, CoreValue::from("reason"), v_reason.clone())?;
+    core_set(&v_out, CoreValue::from("stage"), v_stage.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_used(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_stage = core_arg(args, 2);
+    let mut v_action_log = CoreValue::Null;
+    let mut v_dedupe_key = CoreValue::Null;
+    let mut v_disabled = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_flags = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_is_match = CoreValue::Null;
+    let mut v_matched = CoreValue::Null;
+    let mut v_memories = CoreValue::Null;
+    let mut v_memory = CoreValue::Null;
+    let mut v_memory_id = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_normalized_stage = CoreValue::Null;
+    let mut v_reason = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_skill = CoreValue::Null;
+    let mut v_skill_id = CoreValue::Null;
+    let mut v_skill_name = CoreValue::Null;
+    let mut v_skills = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_used_memories = CoreValue::Null;
+    let mut v_used_skills = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_flags = core_get(&v_state, &CoreValue::from("policy_flags"), CoreValue::Null);
+    v_enabled = core_get(
+        &v_flags,
+        &CoreValue::from("usageTrackingMode"),
+        CoreValue::Bool(false),
+    );
+    v_disabled = core_not(&[v_enabled.clone()])?;
+    if core_truthy(&v_disabled) {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "used(...) requires usage tracking to be enabled",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_normalized = _normalize_agent_used_request(&[v_request.clone(), v_stage.clone()])?;
+    v_id = core_get(&v_normalized, &CoreValue::from("id"), CoreValue::Null);
+    v_reason = core_get(
+        &v_normalized,
+        &CoreValue::from("reason"),
+        CoreValue::from(""),
+    );
+    v_normalized_stage = core_get(&v_normalized, &CoreValue::from("stage"), v_stage.clone());
+    v_dedupe_key = core_string_format(&[
+        CoreValue::from("{}\n{}\n{}"),
+        v_normalized_stage.clone(),
+        v_id.clone(),
+        v_reason.clone(),
+    ])?;
+    v_memories = core_get(
+        &v_state,
+        &CoreValue::from("loaded_memories"),
+        v_empty_list.clone(),
+    );
+    v_skills = core_get(
+        &v_state,
+        &CoreValue::from("loaded_skill_docs"),
+        v_empty_list.clone(),
+    );
+    v_used_memories = core_get(
+        &v_state,
+        &CoreValue::from("used_memories"),
+        v_empty_list.clone(),
+    );
+    v_used_skills = core_get(
+        &v_state,
+        &CoreValue::from("used_skills"),
+        v_empty_list.clone(),
+    );
+    v_matched = CoreValue::Bool(false);
+    for v_memory in core_iter(&v_memories)? {
+        let mut v_memory = v_memory;
+        v_memory_id = core_get(&v_memory, &CoreValue::from("id"), CoreValue::from(""));
+        v_is_match = core_eq(&[v_memory_id.clone(), v_id.clone()])?;
+        if core_truthy(&v_is_match) {
+            v_record = CoreValue::new_map();
+            core_set(&v_record, CoreValue::from("id"), v_id.clone())?;
+            core_set(&v_record, CoreValue::from("reason"), v_reason.clone())?;
+            core_set(
+                &v_record,
+                CoreValue::from("stage"),
+                v_normalized_stage.clone(),
+            )?;
+            core_set(
+                &v_record,
+                CoreValue::from("dedupe_key"),
+                v_dedupe_key.clone(),
+            )?;
+            v_used_memories = _agent_append_unique_by_field(&[
+                v_used_memories.clone(),
+                v_record.clone(),
+                CoreValue::from("dedupe_key"),
+            ])?;
+            v_matched = CoreValue::Bool(true);
+        }
+    }
+    for v_skill in core_iter(&v_skills)? {
+        let mut v_skill = v_skill;
+        v_skill_id = core_get(&v_skill, &CoreValue::from("id"), CoreValue::from(""));
+        v_skill_name = core_get(&v_skill, &CoreValue::from("name"), v_skill_id.clone());
+        v_is_match = core_eq(&[v_skill_id.clone(), v_id.clone()])?;
+        if core_truthy(&v_is_match) {
+            v_record = CoreValue::new_map();
+            core_set(&v_record, CoreValue::from("id"), v_id.clone())?;
+            core_set(&v_record, CoreValue::from("name"), v_skill_name.clone())?;
+            core_set(&v_record, CoreValue::from("reason"), v_reason.clone())?;
+            core_set(
+                &v_record,
+                CoreValue::from("stage"),
+                v_normalized_stage.clone(),
+            )?;
+            core_set(
+                &v_record,
+                CoreValue::from("dedupe_key"),
+                v_dedupe_key.clone(),
+            )?;
+            v_used_skills = _agent_append_unique_by_field(&[
+                v_used_skills.clone(),
+                v_record.clone(),
+                CoreValue::from("dedupe_key"),
+            ])?;
+            v_matched = CoreValue::Bool(true);
+        }
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("used_memories"),
+        v_used_memories.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("used_skills"),
+        v_used_skills.clone(),
+    )?;
+    v_trace = core_get(
+        &v_state,
+        &CoreValue::from("policy_trace"),
+        v_empty_list.clone(),
+    );
+    v_event = CoreValue::new_map();
+    core_set(&v_event, CoreValue::from("type"), CoreValue::from("used"))?;
+    core_set(&v_event, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_event, CoreValue::from("reason"), v_reason.clone())?;
+    core_set(
+        &v_event,
+        CoreValue::from("stage"),
+        v_normalized_stage.clone(),
+    )?;
+    core_set(&v_event, CoreValue::from("matched"), v_matched.clone())?;
+    core_append(&v_trace, v_event.clone())?;
+    core_set(&v_state, CoreValue::from("policy_trace"), v_trace.clone())?;
+    v_action_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    core_append(&v_action_log, v_event.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("action_log"),
+        v_action_log.clone(),
+    )?;
+    _agent_record_trace_event(&[v_state.clone(), CoreValue::from("used"), v_event.clone()])?;
+    v_none = core_none(&[])?;
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_guidance_payload(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_value = core_arg(args, 0);
+    let mut v_triggered_by = core_arg(args, 1);
+    let mut v_error = CoreValue::Null;
+    let mut v_guidance = CoreValue::Null;
+    let mut v_has_trigger = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_trigger = CoreValue::Null;
+    v_is_map = core_type_is(&v_value, CoreValue::from("object"));
+    v_guidance = CoreValue::from("");
+    v_trigger = v_triggered_by.clone();
+    if core_truthy(&v_is_map) {
+        v_guidance = core_get(&v_value, &CoreValue::from("guidance"), CoreValue::from(""));
+        v_trigger = core_get(
+            &v_value,
+            &CoreValue::from("triggeredBy"),
+            v_triggered_by.clone(),
+        );
+    } else {
+        v_guidance = v_value.clone();
+    }
+    v_guidance = core_string_trim(&v_guidance);
+    v_missing = core_eq(&[v_guidance.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing) {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "guideAgent() requires a non-empty string guidance",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("type"),
+        CoreValue::from("guide_agent"),
+    )?;
+    core_set(&v_out, CoreValue::from("guidance"), v_guidance.clone())?;
+    v_has_trigger = core_ne(&[v_trigger.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_trigger) {
+        core_set(&v_out, CoreValue::from("triggeredBy"), v_trigger.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_append_guidance(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_payload = core_arg(args, 1);
+    let mut v_action = CoreValue::Null;
+    let mut v_action_log = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entries = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_guidance = CoreValue::Null;
+    let mut v_has_trigger = CoreValue::Null;
+    let mut v_triggered_by = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_entries = core_get(
+        &v_state,
+        &CoreValue::from("guidance_log"),
+        v_empty_list.clone(),
+    );
+    v_count = core_len(&[v_entries.clone()])?;
+    v_turn = core_add(&[v_count.clone(), CoreValue::Num(1f64)])?;
+    v_guidance = core_get(
+        &v_payload,
+        &CoreValue::from("guidance"),
+        CoreValue::from(""),
+    );
+    v_triggered_by = core_get(
+        &v_payload,
+        &CoreValue::from("triggeredBy"),
+        CoreValue::from(""),
+    );
+    v_entry = CoreValue::new_map();
+    core_set(&v_entry, CoreValue::from("turn"), v_turn.clone())?;
+    core_set(&v_entry, CoreValue::from("guidance"), v_guidance.clone())?;
+    v_has_trigger = core_ne(&[v_triggered_by.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_trigger) {
+        core_set(
+            &v_entry,
+            CoreValue::from("triggeredBy"),
+            v_triggered_by.clone(),
+        )?;
+    }
+    core_append(&v_entries, v_entry.clone())?;
+    core_set(&v_state, CoreValue::from("guidance_log"), v_entries.clone())?;
+    v_action_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_action = CoreValue::new_map();
+    core_set(
+        &v_action,
+        CoreValue::from("type"),
+        CoreValue::from("guide_agent"),
+    )?;
+    core_set(&v_action, CoreValue::from("guidance"), v_guidance.clone())?;
+    core_set(
+        &v_action,
+        CoreValue::from("triggeredBy"),
+        v_triggered_by.clone(),
+    )?;
+    core_append(&v_action_log, v_action.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("action_log"),
+        v_action_log.clone(),
+    )?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("guide_agent"),
+        v_entry.clone(),
+    ])?;
+    return Ok(v_entry.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_execute_callable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_action = CoreValue::Null;
+    let mut v_action_log = CoreValue::Null;
+    let mut v_args = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_guidance = CoreValue::Null;
+    let mut v_has_guidance = CoreValue::Null;
+    let mut v_host_event = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_payload = CoreValue::Null;
+    let mut v_qualified = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_result =
+        core_agent_callable_invoke(&[v_state.clone(), v_request.clone(), v_options.clone()])?;
+    v_qualified = core_get(
+        &v_request,
+        &CoreValue::from("qualified_name"),
+        CoreValue::from(""),
+    );
+    v_name = core_get(&v_request, &CoreValue::from("name"), v_qualified.clone());
+    v_args = core_get(&v_request, &CoreValue::from("args"), v_request.clone());
+    v_status = core_get(&v_result, &CoreValue::from("status"), CoreValue::from("ok"));
+    v_trace = core_get(
+        &v_state,
+        &CoreValue::from("function_call_traces"),
+        v_empty_list.clone(),
+    );
+    v_record = CoreValue::new_map();
+    core_set(
+        &v_record,
+        CoreValue::from("qualified_name"),
+        v_qualified.clone(),
+    )?;
+    core_set(&v_record, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_record, CoreValue::from("arguments"), v_args.clone())?;
+    core_set(&v_record, CoreValue::from("status"), v_status.clone())?;
+    core_set(&v_record, CoreValue::from("result"), v_result.clone())?;
+    core_append(&v_trace, v_record.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("function_call_traces"),
+        v_trace.clone(),
+    )?;
+    v_action_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_action = CoreValue::new_map();
+    core_set(
+        &v_action,
+        CoreValue::from("type"),
+        CoreValue::from("function_call"),
+    )?;
+    core_set(
+        &v_action,
+        CoreValue::from("qualified_name"),
+        v_qualified.clone(),
+    )?;
+    core_set(&v_action, CoreValue::from("status"), v_status.clone())?;
+    core_append(&v_action_log, v_action.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("action_log"),
+        v_action_log.clone(),
+    )?;
+    v_host_event = _agent_normalize_host_boundary_event(&[
+        CoreValue::from("callable"),
+        v_request.clone(),
+        v_result.clone(),
+        v_status.clone(),
+    ])?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("function_call"),
+        v_host_event.clone(),
+    ])?;
+    v_guidance = core_get(&v_result, &CoreValue::from("guidance"), CoreValue::Null);
+    v_has_guidance = core_is_not_none(&[v_guidance.clone()])?;
+    if core_truthy(&v_has_guidance) {
+        v_payload = _normalize_agent_guidance_payload(&[v_guidance.clone(), v_qualified.clone()])?;
+        _agent_append_guidance(&[v_state.clone(), v_payload.clone()])?;
+        core_set(
+            &v_result,
+            CoreValue::from("guidance_payload"),
+            v_payload.clone(),
+        )?;
+    }
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_final_payload(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_value = core_arg(args, 0);
+    let mut v_args = CoreValue::Null;
+    let mut v_is_final = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    v_is_map = core_type_is(&v_value, CoreValue::from("object"));
+    if core_truthy(&v_is_map) {
+        v_type = core_get(&v_value, &CoreValue::from("type"), CoreValue::from(""));
+        v_is_final = core_eq(&[v_type.clone(), CoreValue::from("final")])?;
+        if core_truthy(&v_is_final) {
+            return Ok(v_value.clone());
+        }
+    }
+    v_args = CoreValue::new_list();
+    core_append(&v_args, v_value.clone())?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("type"), CoreValue::from("final"))?;
+    core_set(&v_out, CoreValue::from("args"), v_args.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_clarification_payload(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_value = core_arg(args, 0);
+    let mut v_args = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_is_clarification = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_payload = CoreValue::Null;
+    let mut v_question = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    v_is_map = core_type_is(&v_value, CoreValue::from("object"));
+    v_question = CoreValue::from("");
+    v_payload = CoreValue::new_map();
+    if core_truthy(&v_is_map) {
+        v_type = core_get(&v_value, &CoreValue::from("type"), CoreValue::from(""));
+        v_is_clarification = core_eq(&[v_type.clone(), CoreValue::from("askClarification")])?;
+        if core_truthy(&v_is_clarification) {
+            return Ok(v_value.clone());
+        }
+        v_message = core_get(&v_value, &CoreValue::from("message"), CoreValue::from(""));
+        v_question = core_get(&v_value, &CoreValue::from("question"), v_message.clone());
+        v_payload = v_value.clone();
+    } else {
+        v_question = v_value.clone();
+        core_set(&v_payload, CoreValue::from("question"), v_question.clone())?;
+    }
+    v_missing = core_eq(&[v_question.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing) {
+        v_error =
+            core_runtime_error(&[CoreValue::from("agent clarification question is required")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_args = CoreValue::new_list();
+    core_append(&v_args, v_payload.clone())?;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("type"),
+        CoreValue::from("askClarification"),
+    )?;
+    core_set(&v_out, CoreValue::from("args"), v_args.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_optimizer_metadata(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_components = CoreValue::Null;
+    let mut v_delegation_component = CoreValue::Null;
+    let mut v_discovery_component = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_policy = CoreValue::Null;
+    let mut v_policy_version = CoreValue::Null;
+    let mut v_responder_component = CoreValue::Null;
+    let mut v_runtime_component = CoreValue::Null;
+    let mut v_stage_ids = CoreValue::Null;
+    v_policy = core_get(&v_state, &CoreValue::from("policy"), CoreValue::Null);
+    v_policy_version = core_get(
+        &v_policy,
+        &CoreValue::from("policy_version"),
+        CoreValue::from("agent-runtime-decision-v1"),
+    );
+    v_stage_ids = CoreValue::new_list();
+    core_append(&v_stage_ids, CoreValue::from("distiller"))?;
+    core_append(&v_stage_ids, CoreValue::from("executor"))?;
+    core_append(&v_stage_ids, CoreValue::from("responder"))?;
+    v_components = CoreValue::new_list();
+    v_runtime_component = CoreValue::new_map();
+    core_set(
+        &v_runtime_component,
+        CoreValue::from("id"),
+        CoreValue::from("agent.actor.runtime_instructions"),
+    )?;
+    core_set(
+        &v_runtime_component,
+        CoreValue::from("kind"),
+        CoreValue::from("runtime_instruction"),
+    )?;
+    core_append(&v_components, v_runtime_component.clone())?;
+    v_discovery_component = CoreValue::new_map();
+    core_set(
+        &v_discovery_component,
+        CoreValue::from("id"),
+        CoreValue::from("agent.actor.discovery_policy"),
+    )?;
+    core_set(
+        &v_discovery_component,
+        CoreValue::from("kind"),
+        CoreValue::from("policy"),
+    )?;
+    core_append(&v_components, v_discovery_component.clone())?;
+    v_delegation_component = CoreValue::new_map();
+    core_set(
+        &v_delegation_component,
+        CoreValue::from("id"),
+        CoreValue::from("agent.actor.delegation_policy"),
+    )?;
+    core_set(
+        &v_delegation_component,
+        CoreValue::from("kind"),
+        CoreValue::from("policy"),
+    )?;
+    core_append(&v_components, v_delegation_component.clone())?;
+    v_responder_component = CoreValue::new_map();
+    core_set(
+        &v_responder_component,
+        CoreValue::from("id"),
+        CoreValue::from("agent.responder.signature"),
+    )?;
+    core_set(
+        &v_responder_component,
+        CoreValue::from("kind"),
+        CoreValue::from("stage"),
+    )?;
+    core_append(&v_components, v_responder_component.clone())?;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("policy_version"),
+        v_policy_version.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("stage_ids"), v_stage_ids.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("optimizable_components"),
+        v_components.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_begin_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_input = core_arg(args, 1);
+    let mut v_events = CoreValue::Null;
+    let mut v_optimizer = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    v_events = CoreValue::new_list();
+    v_optimizer = core_get(
+        &v_state,
+        &CoreValue::from("optimizer_metadata"),
+        CoreValue::Null,
+    );
+    v_trace = CoreValue::new_map();
+    core_set(
+        &v_trace,
+        CoreValue::from("schema_version"),
+        CoreValue::from("axir-agent-trace-v1"),
+    )?;
+    core_set(
+        &v_trace,
+        CoreValue::from("kind"),
+        CoreValue::from("agent_run"),
+    )?;
+    core_set(
+        &v_trace,
+        CoreValue::from("status"),
+        CoreValue::from("running"),
+    )?;
+    core_set(&v_trace, CoreValue::from("input"), v_input.clone())?;
+    core_set(&v_trace, CoreValue::from("events"), v_events.clone())?;
+    core_set(
+        &v_trace,
+        CoreValue::from("optimizer_metadata"),
+        v_optimizer.clone(),
+    )?;
+    core_set(
+        &v_trace,
+        CoreValue::from("replayable"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(&v_state, CoreValue::from("trace"), v_trace.clone())?;
+    return Ok(v_trace.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_record_trace_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_kind = core_arg(args, 1);
+    let mut v_payload = core_arg(args, 2);
+    let mut v_component = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_events = CoreValue::Null;
+    let mut v_has_component = CoreValue::Null;
+    let mut v_has_trace = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_payload_is_map = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_trace = core_get(&v_state, &CoreValue::from("trace"), v_empty_map.clone());
+    v_has_trace = core_type_is(&v_trace, CoreValue::from("object"));
+    if core_truthy(&v_has_trace) {
+    } else {
+        v_trace = _agent_begin_trace(&[v_state.clone(), v_empty_map.clone()])?;
+    }
+    v_events = core_get(&v_trace, &CoreValue::from("events"), v_empty_list.clone());
+    v_index = core_len(&[v_events.clone()])?;
+    v_event = CoreValue::new_map();
+    core_set(&v_event, CoreValue::from("index"), v_index.clone())?;
+    core_set(&v_event, CoreValue::from("kind"), v_kind.clone())?;
+    v_payload_is_map = core_type_is(&v_payload, CoreValue::from("object"));
+    if core_truthy(&v_payload_is_map) {
+        v_component = core_get(
+            &v_payload,
+            &CoreValue::from("component_id"),
+            CoreValue::from(""),
+        );
+        v_has_component = core_ne(&[v_component.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_component) {
+            core_set(
+                &v_event,
+                CoreValue::from("component_id"),
+                v_component.clone(),
+            )?;
+        }
+        core_set(&v_event, CoreValue::from("payload"), v_payload.clone())?;
+    } else {
+        core_set(&v_event, CoreValue::from("value"), v_payload.clone())?;
+    }
+    core_append(&v_events, v_event.clone())?;
+    core_set(&v_trace, CoreValue::from("events"), v_events.clone())?;
+    core_set(&v_state, CoreValue::from("trace"), v_trace.clone())?;
+    return Ok(v_event.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_normalize_host_boundary_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_boundary = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_result = core_arg(args, 2);
+    let mut v_status = core_arg(args, 3);
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("boundary"), v_boundary.clone())?;
+    core_set(&v_out, CoreValue::from("request"), v_request.clone())?;
+    core_set(&v_out, CoreValue::from("result"), v_result.clone())?;
+    core_set(&v_out, CoreValue::from("status"), v_status.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_finalize_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_status = core_arg(args, 1);
+    let mut v_output = core_arg(args, 2);
+    let mut v_action_log = CoreValue::Null;
+    let mut v_chat_log = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_event_count = CoreValue::Null;
+    let mut v_event_payload = CoreValue::Null;
+    let mut v_events = CoreValue::Null;
+    let mut v_function_traces = CoreValue::Null;
+    let mut v_has_trace = CoreValue::Null;
+    let mut v_optimizer = CoreValue::Null;
+    let mut v_policy_trace = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_trace = core_get(&v_state, &CoreValue::from("trace"), v_empty_map.clone());
+    v_has_trace = core_type_is(&v_trace, CoreValue::from("object"));
+    if core_truthy(&v_has_trace) {
+    } else {
+        v_trace = _agent_begin_trace(&[v_state.clone(), v_empty_map.clone()])?;
+    }
+    v_event_payload = CoreValue::new_map();
+    core_set(
+        &v_event_payload,
+        CoreValue::from("output"),
+        v_output.clone(),
+    )?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("final"),
+        v_event_payload.clone(),
+    ])?;
+    v_trace = core_get(&v_state, &CoreValue::from("trace"), v_trace.clone());
+    v_events = core_get(&v_trace, &CoreValue::from("events"), v_empty_list.clone());
+    v_event_count = core_len(&[v_events.clone()])?;
+    v_usage = core_get(&v_state, &CoreValue::from("usage"), v_empty_map.clone());
+    v_chat_log = core_get(&v_state, &CoreValue::from("chat_log"), v_empty_list.clone());
+    v_action_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_policy_trace = core_get(
+        &v_state,
+        &CoreValue::from("policy_trace"),
+        v_empty_list.clone(),
+    );
+    v_function_traces = core_get(
+        &v_state,
+        &CoreValue::from("function_call_traces"),
+        v_empty_list.clone(),
+    );
+    v_optimizer = core_get(
+        &v_state,
+        &CoreValue::from("optimizer_metadata"),
+        v_empty_map.clone(),
+    );
+    core_set(&v_trace, CoreValue::from("status"), v_status.clone())?;
+    core_set(&v_trace, CoreValue::from("final_output"), v_output.clone())?;
+    core_set(
+        &v_trace,
+        CoreValue::from("event_count"),
+        v_event_count.clone(),
+    )?;
+    core_set(&v_trace, CoreValue::from("usage"), v_usage.clone())?;
+    core_set(&v_trace, CoreValue::from("chat_log"), v_chat_log.clone())?;
+    core_set(
+        &v_trace,
+        CoreValue::from("action_log"),
+        v_action_log.clone(),
+    )?;
+    core_set(
+        &v_trace,
+        CoreValue::from("policy_trace"),
+        v_policy_trace.clone(),
+    )?;
+    core_set(
+        &v_trace,
+        CoreValue::from("function_call_traces"),
+        v_function_traces.clone(),
+    )?;
+    core_set(
+        &v_trace,
+        CoreValue::from("optimizer_metadata"),
+        v_optimizer.clone(),
+    )?;
+    core_set(&v_state, CoreValue::from("trace"), v_trace.clone())?;
+    return Ok(v_trace.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_export_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_action_log = CoreValue::Null;
+    let mut v_chat_log = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_event_count = CoreValue::Null;
+    let mut v_events = CoreValue::Null;
+    let mut v_function_traces = CoreValue::Null;
+    let mut v_has_trace = CoreValue::Null;
+    let mut v_optimizer = CoreValue::Null;
+    let mut v_policy_trace = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_trace = core_get(&v_state, &CoreValue::from("trace"), v_empty_map.clone());
+    v_has_trace = core_type_is(&v_trace, CoreValue::from("object"));
+    if core_truthy(&v_has_trace) {
+    } else {
+        v_trace = _agent_begin_trace(&[v_state.clone(), v_empty_map.clone()])?;
+    }
+    v_events = core_get(&v_trace, &CoreValue::from("events"), v_empty_list.clone());
+    v_event_count = core_len(&[v_events.clone()])?;
+    v_usage = core_get(&v_state, &CoreValue::from("usage"), v_empty_map.clone());
+    v_chat_log = core_get(&v_state, &CoreValue::from("chat_log"), v_empty_list.clone());
+    v_action_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_policy_trace = core_get(
+        &v_state,
+        &CoreValue::from("policy_trace"),
+        v_empty_list.clone(),
+    );
+    v_function_traces = core_get(
+        &v_state,
+        &CoreValue::from("function_call_traces"),
+        v_empty_list.clone(),
+    );
+    v_optimizer = core_get(
+        &v_state,
+        &CoreValue::from("optimizer_metadata"),
+        v_empty_map.clone(),
+    );
+    core_set(
+        &v_trace,
+        CoreValue::from("event_count"),
+        v_event_count.clone(),
+    )?;
+    core_set(&v_trace, CoreValue::from("usage"), v_usage.clone())?;
+    core_set(&v_trace, CoreValue::from("chat_log"), v_chat_log.clone())?;
+    core_set(
+        &v_trace,
+        CoreValue::from("action_log"),
+        v_action_log.clone(),
+    )?;
+    core_set(
+        &v_trace,
+        CoreValue::from("policy_trace"),
+        v_policy_trace.clone(),
+    )?;
+    core_set(
+        &v_trace,
+        CoreValue::from("function_call_traces"),
+        v_function_traces.clone(),
+    )?;
+    core_set(
+        &v_trace,
+        CoreValue::from("optimizer_metadata"),
+        v_optimizer.clone(),
+    )?;
+    core_set(&v_state, CoreValue::from("trace"), v_trace.clone())?;
+    return Ok(v_trace.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_replay_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_trace = core_arg(args, 0);
+    let mut v_fixtures = core_arg(args, 1);
+    let mut v_action_log = CoreValue::Null;
+    let mut v_actual_output_text = CoreValue::Null;
+    let mut v_actual_text = CoreValue::Null;
+    let mut v_chat_log = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_event_count = CoreValue::Null;
+    let mut v_event_kinds = CoreValue::Null;
+    let mut v_events = CoreValue::Null;
+    let mut v_expected_kinds = CoreValue::Null;
+    let mut v_expected_output = CoreValue::Null;
+    let mut v_expected_output_text = CoreValue::Null;
+    let mut v_expected_text = CoreValue::Null;
+    let mut v_has_expected_kinds = CoreValue::Null;
+    let mut v_has_expected_output = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_mismatch = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_output_matches = CoreValue::Null;
+    let mut v_output_mismatch = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_events = core_get(&v_trace, &CoreValue::from("events"), v_empty_list.clone());
+    v_event_kinds = CoreValue::new_list();
+    for v_event in core_iter(&v_events)? {
+        let mut v_event = v_event;
+        v_kind = core_get(&v_event, &CoreValue::from("kind"), CoreValue::from(""));
+        core_append(&v_event_kinds, v_kind.clone())?;
+    }
+    v_expected_kinds = core_get(
+        &v_fixtures,
+        &CoreValue::from("expected_event_kinds"),
+        CoreValue::Null,
+    );
+    v_has_expected_kinds = core_type_is(&v_expected_kinds, CoreValue::from("list"));
+    if core_truthy(&v_has_expected_kinds) {
+        v_actual_text = core_json_stringify(&[v_event_kinds.clone()])?;
+        v_expected_text = core_json_stringify(&[v_expected_kinds.clone()])?;
+        v_matches = core_eq(&[v_actual_text.clone(), v_expected_text.clone()])?;
+        v_mismatch = core_not(&[v_matches.clone()])?;
+        if core_truthy(&v_mismatch) {
+            v_message = core_string_format(&[
+                CoreValue::from("agent replay event sequence mismatch: expected {} got {}"),
+                v_expected_text.clone(),
+                v_actual_text.clone(),
+            ])?;
+            v_error = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    v_output = core_get(&v_trace, &CoreValue::from("final_output"), CoreValue::Null);
+    v_expected_output = core_get(
+        &v_fixtures,
+        &CoreValue::from("expected_output"),
+        CoreValue::Null,
+    );
+    v_has_expected_output = core_is_not_none(&[v_expected_output.clone()])?;
+    if core_truthy(&v_has_expected_output) {
+        v_actual_output_text = core_json_stringify(&[v_output.clone()])?;
+        v_expected_output_text = core_json_stringify(&[v_expected_output.clone()])?;
+        v_output_matches =
+            core_eq(&[v_actual_output_text.clone(), v_expected_output_text.clone()])?;
+        v_output_mismatch = core_not(&[v_output_matches.clone()])?;
+        if core_truthy(&v_output_mismatch) {
+            v_message = core_string_format(&[
+                CoreValue::from("agent replay output mismatch: expected {} got {}"),
+                v_expected_output_text.clone(),
+                v_actual_output_text.clone(),
+            ])?;
+            v_error = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    v_event_count = core_len(&[v_events.clone()])?;
+    v_status = core_get(
+        &v_trace,
+        &CoreValue::from("status"),
+        CoreValue::from("unknown"),
+    );
+    v_action_log = core_get(
+        &v_trace,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_chat_log = core_get(&v_trace, &CoreValue::from("chat_log"), v_empty_list.clone());
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
+    core_set(
+        &v_out,
+        CoreValue::from("status"),
+        CoreValue::from("replayed"),
+    )?;
+    core_set(&v_out, CoreValue::from("original_status"), v_status.clone())?;
+    core_set(&v_out, CoreValue::from("output"), v_output.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("event_kinds"),
+        v_event_kinds.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("event_count"),
+        v_event_count.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("action_log"), v_action_log.clone())?;
+    core_set(&v_out, CoreValue::from("chat_log"), v_chat_log.clone())?;
+    core_set(&v_out, CoreValue::from("trace"), v_trace.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_export_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_action_log = CoreValue::Null;
+    let mut v_actor_model_state = CoreValue::Null;
+    let mut v_actor_prompt_policy = CoreValue::Null;
+    let mut v_checkpoint_state = CoreValue::Null;
+    let mut v_clean_action_log = CoreValue::Null;
+    let mut v_context_events = CoreValue::Null;
+    let mut v_context_policy = CoreValue::Null;
+    let mut v_discovered = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_function_call_traces = CoreValue::Null;
+    let mut v_guidance_log = CoreValue::Null;
+    let mut v_last_actor_context = CoreValue::Null;
+    let mut v_memories = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_policy_registry = CoreValue::Null;
+    let mut v_provenance = CoreValue::Null;
+    let mut v_run_trace = CoreValue::Null;
+    let mut v_runtime_globals = CoreValue::Null;
+    let mut v_runtime_inspection = CoreValue::Null;
+    let mut v_runtime_session_state = CoreValue::Null;
+    let mut v_runtime_state = CoreValue::Null;
+    let mut v_runtime_state_summary = CoreValue::Null;
+    let mut v_skills = CoreValue::Null;
+    let mut v_status_log = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_used_memories = CoreValue::Null;
+    let mut v_used_skills = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_out = CoreValue::new_map();
+    v_runtime_state = core_get(
+        &v_state,
+        &CoreValue::from("runtime_state"),
+        v_empty_map.clone(),
+    );
+    v_discovered = core_get(
+        &v_state,
+        &CoreValue::from("discovered_tool_docs"),
+        v_empty_list.clone(),
+    );
+    v_skills = core_get(
+        &v_state,
+        &CoreValue::from("loaded_skill_docs"),
+        v_empty_list.clone(),
+    );
+    v_memories = core_get(
+        &v_state,
+        &CoreValue::from("loaded_memories"),
+        v_empty_list.clone(),
+    );
+    v_used_memories = core_get(
+        &v_state,
+        &CoreValue::from("used_memories"),
+        v_empty_list.clone(),
+    );
+    v_used_skills = core_get(
+        &v_state,
+        &CoreValue::from("used_skills"),
+        v_empty_list.clone(),
+    );
+    v_guidance_log = core_get(
+        &v_state,
+        &CoreValue::from("guidance_log"),
+        v_empty_list.clone(),
+    );
+    v_function_call_traces = core_get(
+        &v_state,
+        &CoreValue::from("function_call_traces"),
+        v_empty_list.clone(),
+    );
+    v_trace = core_get(
+        &v_state,
+        &CoreValue::from("policy_trace"),
+        v_empty_list.clone(),
+    );
+    v_action_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_status_log = core_get(
+        &v_state,
+        &CoreValue::from("status_log"),
+        v_empty_list.clone(),
+    );
+    v_runtime_session_state = core_get(
+        &v_state,
+        &CoreValue::from("runtime_session_state"),
+        v_empty_map.clone(),
+    );
+    v_runtime_globals = core_get(
+        &v_state,
+        &CoreValue::from("runtime_globals"),
+        v_empty_map.clone(),
+    );
+    v_runtime_inspection = core_get(
+        &v_state,
+        &CoreValue::from("runtime_inspection"),
+        CoreValue::Null,
+    );
+    v_actor_prompt_policy = core_get(
+        &v_state,
+        &CoreValue::from("actor_prompt_policy"),
+        v_empty_map.clone(),
+    );
+    v_policy_registry = core_get(
+        &v_state,
+        &CoreValue::from("policy_registry"),
+        v_empty_map.clone(),
+    );
+    v_context_policy = core_get(
+        &v_state,
+        &CoreValue::from("context_policy"),
+        v_empty_map.clone(),
+    );
+    v_context_events = core_get(
+        &v_state,
+        &CoreValue::from("context_events"),
+        v_empty_list.clone(),
+    );
+    v_checkpoint_state = core_get(
+        &v_state,
+        &CoreValue::from("checkpoint_state"),
+        CoreValue::Null,
+    );
+    v_runtime_state_summary = core_get(
+        &v_state,
+        &CoreValue::from("runtime_state_summary"),
+        CoreValue::from(""),
+    );
+    v_actor_model_state = core_get(
+        &v_state,
+        &CoreValue::from("actor_model_state"),
+        v_empty_map.clone(),
+    );
+    v_provenance = core_get(
+        &v_state,
+        &CoreValue::from("provenance"),
+        v_empty_map.clone(),
+    );
+    v_last_actor_context = core_get(
+        &v_state,
+        &CoreValue::from("last_actor_context"),
+        v_empty_map.clone(),
+    );
+    v_clean_action_log = _agent_sanitize_action_log_entries(&[v_action_log.clone()])?;
+    v_run_trace = _agent_export_trace(&[v_state.clone()])?;
+    core_set(
+        &v_out,
+        CoreValue::from("runtime_state"),
+        v_runtime_state.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("discovered_tool_docs"),
+        v_discovered.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("loaded_skill_docs"),
+        v_skills.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("loaded_memories"),
+        v_memories.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("used_memories"),
+        v_used_memories.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("used_skills"),
+        v_used_skills.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("guidance_log"),
+        v_guidance_log.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("function_call_traces"),
+        v_function_call_traces.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("policy_trace"), v_trace.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("action_log"),
+        v_clean_action_log.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("status_log"), v_status_log.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("runtime_session_state"),
+        v_runtime_session_state.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("runtime_globals"),
+        v_runtime_globals.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("runtime_inspection"),
+        v_runtime_inspection.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("actor_prompt_policy"),
+        v_actor_prompt_policy.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("policy_registry"),
+        v_policy_registry.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("context_policy"),
+        v_context_policy.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("context_events"),
+        v_context_events.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("checkpoint_state"),
+        v_checkpoint_state.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("runtime_state_summary"),
+        v_runtime_state_summary.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("actor_model_state"),
+        v_actor_model_state.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("provenance"), v_provenance.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("last_actor_context"),
+        v_last_actor_context.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("trace"), v_run_trace.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_restore_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_snapshot = core_arg(args, 1);
+    let mut v_action_log = CoreValue::Null;
+    let mut v_actor_model_state = CoreValue::Null;
+    let mut v_checkpoint_state = CoreValue::Null;
+    let mut v_clean_restore_action_log = CoreValue::Null;
+    let mut v_context_events = CoreValue::Null;
+    let mut v_discovered = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_function_call_traces = CoreValue::Null;
+    let mut v_guidance_log = CoreValue::Null;
+    let mut v_has_policy_registry = CoreValue::Null;
+    let mut v_has_trace = CoreValue::Null;
+    let mut v_last_actor_context = CoreValue::Null;
+    let mut v_memories = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_policy_registry = CoreValue::Null;
+    let mut v_provenance = CoreValue::Null;
+    let mut v_run_trace = CoreValue::Null;
+    let mut v_runtime_globals = CoreValue::Null;
+    let mut v_runtime_session_state = CoreValue::Null;
+    let mut v_runtime_state = CoreValue::Null;
+    let mut v_runtime_state_summary = CoreValue::Null;
+    let mut v_skills = CoreValue::Null;
+    let mut v_status_log = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_used_memories = CoreValue::Null;
+    let mut v_used_skills = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_runtime_state = core_get(
+        &v_snapshot,
+        &CoreValue::from("runtime_state"),
+        v_empty_map.clone(),
+    );
+    v_discovered = core_get(
+        &v_snapshot,
+        &CoreValue::from("discovered_tool_docs"),
+        v_empty_list.clone(),
+    );
+    v_skills = core_get(
+        &v_snapshot,
+        &CoreValue::from("loaded_skill_docs"),
+        v_empty_list.clone(),
+    );
+    v_memories = core_get(
+        &v_snapshot,
+        &CoreValue::from("loaded_memories"),
+        v_empty_list.clone(),
+    );
+    v_used_memories = core_get(
+        &v_snapshot,
+        &CoreValue::from("used_memories"),
+        v_empty_list.clone(),
+    );
+    v_used_skills = core_get(
+        &v_snapshot,
+        &CoreValue::from("used_skills"),
+        v_empty_list.clone(),
+    );
+    v_guidance_log = core_get(
+        &v_snapshot,
+        &CoreValue::from("guidance_log"),
+        v_empty_list.clone(),
+    );
+    v_function_call_traces = core_get(
+        &v_snapshot,
+        &CoreValue::from("function_call_traces"),
+        v_empty_list.clone(),
+    );
+    v_trace = core_get(
+        &v_snapshot,
+        &CoreValue::from("policy_trace"),
+        v_empty_list.clone(),
+    );
+    v_action_log = core_get(
+        &v_snapshot,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_status_log = core_get(
+        &v_snapshot,
+        &CoreValue::from("status_log"),
+        v_empty_list.clone(),
+    );
+    v_runtime_session_state = core_get(
+        &v_snapshot,
+        &CoreValue::from("runtime_session_state"),
+        v_empty_map.clone(),
+    );
+    v_runtime_globals = core_get(
+        &v_snapshot,
+        &CoreValue::from("runtime_globals"),
+        v_empty_map.clone(),
+    );
+    v_policy_registry = core_get(
+        &v_snapshot,
+        &CoreValue::from("policy_registry"),
+        CoreValue::Null,
+    );
+    v_run_trace = core_get(&v_snapshot, &CoreValue::from("trace"), CoreValue::Null);
+    v_context_events = core_get(
+        &v_snapshot,
+        &CoreValue::from("context_events"),
+        v_empty_list.clone(),
+    );
+    v_checkpoint_state = core_get(
+        &v_snapshot,
+        &CoreValue::from("checkpoint_state"),
+        CoreValue::Null,
+    );
+    v_runtime_state_summary = core_get(
+        &v_snapshot,
+        &CoreValue::from("runtime_state_summary"),
+        CoreValue::from(""),
+    );
+    v_actor_model_state = core_get(
+        &v_snapshot,
+        &CoreValue::from("actor_model_state"),
+        v_empty_map.clone(),
+    );
+    v_provenance = core_get(
+        &v_snapshot,
+        &CoreValue::from("provenance"),
+        v_empty_map.clone(),
+    );
+    v_last_actor_context = core_get(
+        &v_snapshot,
+        &CoreValue::from("last_actor_context"),
+        v_empty_map.clone(),
+    );
+    v_clean_restore_action_log = _agent_sanitize_action_log_entries(&[v_action_log.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_state"),
+        v_runtime_state.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("discovered_tool_docs"),
+        v_discovered.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("loaded_skill_docs"),
+        v_skills.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("loaded_memories"),
+        v_memories.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("used_memories"),
+        v_used_memories.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("used_skills"),
+        v_used_skills.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("guidance_log"),
+        v_guidance_log.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("function_call_traces"),
+        v_function_call_traces.clone(),
+    )?;
+    core_set(&v_state, CoreValue::from("policy_trace"), v_trace.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("action_log"),
+        v_clean_restore_action_log.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("status_log"),
+        v_status_log.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_session_state"),
+        v_runtime_session_state.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_globals"),
+        v_runtime_globals.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("context_events"),
+        v_context_events.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("checkpoint_state"),
+        v_checkpoint_state.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_state_summary"),
+        v_runtime_state_summary.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("actor_model_state"),
+        v_actor_model_state.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("provenance"),
+        v_provenance.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("last_actor_context"),
+        v_last_actor_context.clone(),
+    )?;
+    v_has_policy_registry = core_type_is(&v_policy_registry, CoreValue::from("object"));
+    if core_truthy(&v_has_policy_registry) {
+        core_set(
+            &v_state,
+            CoreValue::from("policy_registry"),
+            v_policy_registry.clone(),
+        )?;
+    }
+    v_has_trace = core_type_is(&v_run_trace, CoreValue::from("object"));
+    if core_truthy(&v_has_trace) {
+        core_set(&v_state, CoreValue::from("trace"), v_run_trace.clone())?;
+    }
+    v_out = _agent_export_runtime_state(&[v_state.clone()])?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_build_globals(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_callable_inventory = CoreValue::Null;
+    let mut v_conflict = CoreValue::Null;
+    let mut v_discovery_catalog = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_globals = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_primitive = CoreValue::Null;
+    let mut v_primitive_meta = CoreValue::Null;
+    let mut v_primitives = CoreValue::Null;
+    let mut v_registry = CoreValue::Null;
+    let mut v_reserved = CoreValue::Null;
+    let mut v_runtime_contract = CoreValue::Null;
+    let mut v_selected_primitives = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_empty_map = CoreValue::new_map();
+    v_reserved = _agent_reserved_runtime_names(&[])?;
+    v_globals = CoreValue::new_map();
+    v_primitives = CoreValue::new_list();
+    v_callable_inventory = core_get(
+        &v_state,
+        &CoreValue::from("callable_inventory"),
+        v_empty_list.clone(),
+    );
+    v_discovery_catalog = core_get(
+        &v_state,
+        &CoreValue::from("discovery_catalog"),
+        v_empty_list.clone(),
+    );
+    v_registry = core_get(
+        &v_state,
+        &CoreValue::from("policy_registry"),
+        v_empty_map.clone(),
+    );
+    v_selected_primitives =
+        _select_actor_primitives(&[v_registry.clone(), CoreValue::from("executor")])?;
+    core_set(&v_globals, CoreValue::from("inputs"), v_values.clone())?;
+    core_set(&v_globals, CoreValue::from("context"), v_values.clone())?;
+    core_set(
+        &v_globals,
+        CoreValue::from("callables"),
+        v_callable_inventory.clone(),
+    )?;
+    core_set(
+        &v_globals,
+        CoreValue::from("discovery_catalog"),
+        v_discovery_catalog.clone(),
+    )?;
+    for v_primitive_meta in core_iter(&v_selected_primitives)? {
+        let mut v_primitive_meta = v_primitive_meta;
+        v_name = core_get(&v_primitive_meta, &CoreValue::from("id"), CoreValue::Null);
+        v_primitive = CoreValue::new_map();
+        core_set(&v_primitive, CoreValue::from("name"), v_name.clone())?;
+        core_set(
+            &v_primitive,
+            CoreValue::from("kind"),
+            CoreValue::from("runtime_primitive"),
+        )?;
+        core_set(
+            &v_primitive,
+            CoreValue::from("metadata"),
+            v_primitive_meta.clone(),
+        )?;
+        core_append(&v_primitives, v_primitive.clone())?;
+    }
+    core_set(
+        &v_globals,
+        CoreValue::from("runtime_primitives"),
+        v_primitives.clone(),
+    )?;
+    for v_key in core_iter(&v_values)? {
+        let mut v_key = v_key;
+        v_conflict = core_contains(&[v_reserved.clone(), v_key.clone()])?;
+        if core_truthy(&v_conflict) {
+            v_message = core_string_format(&[
+                CoreValue::from("agent runtime global conflicts with reserved name: {}"),
+                v_key.clone(),
+            ])?;
+            v_error = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        } else {
+            v_value = core_get(&v_values, &v_key.clone(), CoreValue::Null);
+            core_set(&v_globals, v_key.clone(), v_value.clone())?;
+        }
+    }
+    v_runtime_contract = core_get(
+        &v_state,
+        &CoreValue::from("runtime_contract"),
+        v_empty_map.clone(),
+    );
+    core_set(
+        &v_globals,
+        CoreValue::from("runtime"),
+        v_runtime_contract.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_globals"),
+        v_globals.clone(),
+    )?;
+    return Ok(v_globals.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_sanitize_bindings(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_bindings = core_arg(args, 0);
+    let mut v_bindings_is_map = CoreValue::Null;
+    let mut v_conflict = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_reserved = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_reserved = _agent_reserved_runtime_names(&[])?;
+    v_out = CoreValue::new_map();
+    v_bindings_is_map = core_type_is(&v_bindings, CoreValue::from("object"));
+    if core_truthy(&v_bindings_is_map) {
+        for v_key in core_iter(&v_bindings)? {
+            let mut v_key = v_key;
+            v_conflict = core_contains(&[v_reserved.clone(), v_key.clone()])?;
+            if core_truthy(&v_conflict) {
+            } else {
+                v_value = core_get(&v_bindings, &v_key.clone(), CoreValue::Null);
+                core_set(&v_out, v_key.clone(), v_value.clone())?;
+            }
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_runtime_snapshot(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_snapshot = core_arg(args, 0);
+    let mut v_bindings = CoreValue::Null;
+    let mut v_clean_bindings = CoreValue::Null;
+    let mut v_closed = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entries = CoreValue::Null;
+    let mut v_entries_is_list = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_error2 = CoreValue::Null;
+    let mut v_has_any = CoreValue::Null;
+    let mut v_has_bindings = CoreValue::Null;
+    let mut v_has_globals = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_raw_bindings = CoreValue::Null;
+    let mut v_raw_globals = CoreValue::Null;
+    let mut v_snapshot_is_map = CoreValue::Null;
+    let mut v_version = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_snapshot_is_map = core_type_is(&v_snapshot, CoreValue::from("object"));
+    if core_truthy(&v_snapshot_is_map) {
+    } else {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "runtime session snapshot must be an object",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_raw_globals = core_get(&v_snapshot, &CoreValue::from("globals"), CoreValue::Null);
+    v_raw_bindings = core_get(&v_snapshot, &CoreValue::from("bindings"), CoreValue::Null);
+    v_has_globals = core_type_is(&v_raw_globals, CoreValue::from("object"));
+    v_has_bindings = core_type_is(&v_raw_bindings, CoreValue::from("object"));
+    v_has_any = core_or(&[v_has_globals.clone(), v_has_bindings.clone()])?;
+    if core_truthy(&v_has_any) {
+    } else {
+        v_error2 = core_runtime_error(&[CoreValue::from(
+            "runtime session snapshot globals must be an object",
+        )])?;
+        return Err(core_as_error(&v_error2));
+    }
+    v_bindings = v_raw_globals.clone();
+    if core_truthy(&v_has_bindings) {
+        v_bindings = v_raw_bindings.clone();
+    }
+    v_clean_bindings = _agent_runtime_sanitize_bindings(&[v_bindings.clone()])?;
+    v_entries = core_get(
+        &v_snapshot,
+        &CoreValue::from("entries"),
+        v_empty_list.clone(),
+    );
+    v_entries_is_list = core_type_is(&v_entries, CoreValue::from("list"));
+    if core_truthy(&v_entries_is_list) {
+    } else {
+        v_entries = v_empty_list.clone();
+    }
+    v_closed = core_get(
+        &v_snapshot,
+        &CoreValue::from("closed"),
+        CoreValue::Bool(false),
+    );
+    v_version = core_get(
+        &v_snapshot,
+        &CoreValue::from("version"),
+        CoreValue::Num(1f64),
+    );
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("version"), v_version.clone())?;
+    core_set(&v_out, CoreValue::from("entries"), v_entries.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("bindings"),
+        v_clean_bindings.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("globals"), v_clean_bindings.clone())?;
+    core_set(&v_out, CoreValue::from("closed"), v_closed.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_append_action_log(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_entry = core_arg(args, 1);
+    let mut v_count = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entry_is_map = CoreValue::Null;
+    let mut v_has_tags = CoreValue::Null;
+    let mut v_has_turn = CoreValue::Null;
+    let mut v_is_error = CoreValue::Null;
+    let mut v_log = CoreValue::Null;
+    let mut v_tags = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_entry_is_map = core_type_is(&v_entry, CoreValue::from("object"));
+    if core_truthy(&v_entry_is_map) {
+        v_has_turn = core_map_contains(&[v_entry.clone(), CoreValue::from("turn")])?;
+        if core_truthy(&v_has_turn) {
+        } else {
+            v_count = core_len(&[v_log.clone()])?;
+            v_turn = core_add(&[v_count.clone(), CoreValue::Num(1f64)])?;
+            core_set(&v_entry, CoreValue::from("turn"), v_turn.clone())?;
+        }
+        v_has_tags = core_map_contains(&[v_entry.clone(), CoreValue::from("tags")])?;
+        if core_truthy(&v_has_tags) {
+        } else {
+            v_tags = CoreValue::new_list();
+            v_is_error = core_get(
+                &v_entry,
+                &CoreValue::from("is_error"),
+                CoreValue::Bool(false),
+            );
+            if core_truthy(&v_is_error) {
+                core_append(&v_tags, CoreValue::from("error"))?;
+            }
+            core_set(&v_entry, CoreValue::from("tags"), v_tags.clone())?;
+        }
+    }
+    core_append(&v_log, v_entry.clone())?;
+    core_set(&v_state, CoreValue::from("action_log"), v_log.clone())?;
+    return Ok(v_entry.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_runtime_step_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_raw = core_arg(args, 0);
+    let mut v_code = core_arg(args, 1);
+    let mut v_abort_like = CoreValue::Null;
+    let mut v_callable_request = CoreValue::Null;
+    let mut v_completion_is_map = CoreValue::Null;
+    let mut v_completion_is_map2 = CoreValue::Null;
+    let mut v_completion_payload = CoreValue::Null;
+    let mut v_completion_type = CoreValue::Null;
+    let mut v_discover_request = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_error_category = CoreValue::Null;
+    let mut v_error_message = CoreValue::Null;
+    let mut v_escape_error = CoreValue::Null;
+    let mut v_escape_message = CoreValue::Null;
+    let mut v_guidance_payload = CoreValue::Null;
+    let mut v_is_abort = CoreValue::Null;
+    let mut v_is_aborted = CoreValue::Null;
+    let mut v_is_clarification = CoreValue::Null;
+    let mut v_is_clarification_kind = CoreValue::Null;
+    let mut v_is_closed = CoreValue::Null;
+    let mut v_is_error = CoreValue::Null;
+    let mut v_is_final = CoreValue::Null;
+    let mut v_is_final_kind = CoreValue::Null;
+    let mut v_is_guide_kind = CoreValue::Null;
+    let mut v_is_protocol_kind = CoreValue::Null;
+    let mut v_is_user_error = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_missing_kind = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_raw_is_map = CoreValue::Null;
+    let mut v_raw_type = CoreValue::Null;
+    let mut v_recall_request = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_should_escape = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_used_request = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_none = core_none(&[])?;
+    v_out = CoreValue::new_map();
+    v_raw_is_map = core_type_is(&v_raw, CoreValue::from("object"));
+    v_kind = CoreValue::from("result");
+    v_is_error = CoreValue::Bool(false);
+    v_result = v_raw.clone();
+    v_output = CoreValue::from("");
+    v_error_message = CoreValue::from("");
+    v_error_category = CoreValue::from("");
+    v_completion_payload = v_none.clone();
+    v_discover_request = v_none.clone();
+    v_recall_request = v_none.clone();
+    v_used_request = v_none.clone();
+    v_callable_request = v_none.clone();
+    v_guidance_payload = v_none.clone();
+    v_status = v_none.clone();
+    if core_truthy(&v_raw_is_map) {
+        v_raw_type = core_get(&v_raw, &CoreValue::from("type"), CoreValue::from(""));
+        v_kind = core_get(&v_raw, &CoreValue::from("kind"), v_raw_type.clone());
+        v_missing_kind = core_eq(&[v_kind.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_missing_kind) {
+            v_kind = CoreValue::from("result");
+        }
+        v_is_error = core_get(&v_raw, &CoreValue::from("is_error"), CoreValue::Bool(false));
+        v_result = core_get(&v_raw, &CoreValue::from("result"), v_raw.clone());
+        v_output = core_get(&v_raw, &CoreValue::from("output"), CoreValue::from(""));
+        v_error_message = core_get(&v_raw, &CoreValue::from("error"), CoreValue::from(""));
+        v_error_category = core_get(
+            &v_raw,
+            &CoreValue::from("error_category"),
+            CoreValue::from(""),
+        );
+        v_completion_payload = core_get(
+            &v_raw,
+            &CoreValue::from("completion_payload"),
+            CoreValue::Null,
+        );
+        v_discover_request = core_get(&v_raw, &CoreValue::from("discover"), CoreValue::Null);
+        v_recall_request = core_get(&v_raw, &CoreValue::from("recall"), CoreValue::Null);
+        v_used_request = core_get(&v_raw, &CoreValue::from("used"), CoreValue::Null);
+        v_callable_request = core_get(&v_raw, &CoreValue::from("callable"), CoreValue::Null);
+        v_guidance_payload = core_get(&v_raw, &CoreValue::from("guidance"), CoreValue::Null);
+        v_status = core_get(&v_raw, &CoreValue::from("status"), CoreValue::Null);
+    }
+    v_completion_is_map = core_type_is(&v_completion_payload, CoreValue::from("object"));
+    if core_truthy(&v_completion_is_map) {
+    } else {
+        v_is_final_kind = core_eq(&[v_kind.clone(), CoreValue::from("final")])?;
+        v_is_clarification_kind = core_eq(&[v_kind.clone(), CoreValue::from("askClarification")])?;
+        v_is_protocol_kind = core_or(&[v_is_final_kind.clone(), v_is_clarification_kind.clone()])?;
+        if core_truthy(&v_is_protocol_kind) {
+            v_completion_payload = v_raw.clone();
+        }
+    }
+    v_completion_is_map2 = core_type_is(&v_completion_payload, CoreValue::from("object"));
+    if core_truthy(&v_completion_is_map2) {
+        v_completion_type = core_get(
+            &v_completion_payload,
+            &CoreValue::from("type"),
+            v_kind.clone(),
+        );
+        v_is_final = core_eq(&[v_completion_type.clone(), CoreValue::from("final")])?;
+        if core_truthy(&v_is_final) {
+            v_completion_payload = _normalize_agent_final_payload(&[v_completion_payload.clone()])?;
+            v_kind = CoreValue::from("final");
+        } else {
+            v_is_clarification = core_eq(&[
+                v_completion_type.clone(),
+                CoreValue::from("askClarification"),
+            ])?;
+            if core_truthy(&v_is_clarification) {
+                v_completion_payload =
+                    _normalize_agent_clarification_payload(&[v_completion_payload.clone()])?;
+                v_kind = CoreValue::from("askClarification");
+            }
+        }
+    }
+    v_is_guide_kind = core_eq(&[v_kind.clone(), CoreValue::from("guide_agent")])?;
+    if core_truthy(&v_is_guide_kind) {
+        v_guidance_payload =
+            _normalize_agent_guidance_payload(&[v_raw.clone(), CoreValue::from("")])?;
+    }
+    core_set(
+        &v_out,
+        CoreValue::from("type"),
+        CoreValue::from("runtime_step"),
+    )?;
+    core_set(&v_out, CoreValue::from("kind"), v_kind.clone())?;
+    core_set(&v_out, CoreValue::from("code"), v_code.clone())?;
+    core_set(&v_out, CoreValue::from("result"), v_result.clone())?;
+    core_set(&v_out, CoreValue::from("output"), v_output.clone())?;
+    core_set(&v_out, CoreValue::from("is_error"), v_is_error.clone())?;
+    core_set(&v_out, CoreValue::from("error"), v_error_message.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("error_category"),
+        v_error_category.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("completion_payload"),
+        v_completion_payload.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("discover_request"),
+        v_discover_request.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("recall_request"),
+        v_recall_request.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("used_request"),
+        v_used_request.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("callable_request"),
+        v_callable_request.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("guidance_payload"),
+        v_guidance_payload.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("status"), v_status.clone())?;
+    v_is_closed = core_eq(&[v_error_category.clone(), CoreValue::from("session_closed")])?;
+    if core_truthy(&v_is_closed) {
+        core_set(
+            &v_out,
+            CoreValue::from("restart_notice"),
+            CoreValue::from("runtime session closed; restarting fresh session"),
+        )?;
+    }
+    v_is_abort = core_eq(&[v_error_category.clone(), CoreValue::from("abort")])?;
+    v_is_aborted = core_eq(&[v_error_category.clone(), CoreValue::from("aborted")])?;
+    v_is_user_error = core_eq(&[v_error_category.clone(), CoreValue::from("user_error")])?;
+    v_abort_like = core_or(&[v_is_abort.clone(), v_is_aborted.clone()])?;
+    v_should_escape = core_or(&[v_abort_like.clone(), v_is_user_error.clone()])?;
+    if core_truthy(&v_should_escape) {
+        v_escape_message = core_string_format(&[
+            CoreValue::from("runtime host boundary escaped {}: {}"),
+            v_error_category.clone(),
+            v_error_message.clone(),
+        ])?;
+        v_escape_error = core_runtime_error(&[v_escape_message.clone()])?;
+        return Err(core_as_error(&v_escape_error));
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_execution_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_abort_signal = CoreValue::Null;
+    let mut v_abort_snake = CoreValue::Null;
+    let mut v_aborted = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_has_abort = CoreValue::Null;
+    let mut v_has_session_id = CoreValue::Null;
+    let mut v_has_timeout = CoreValue::Null;
+    let mut v_has_trace_id = CoreValue::Null;
+    let mut v_reserved_names = CoreValue::Null;
+    let mut v_runtime_options = CoreValue::Null;
+    let mut v_session_id = CoreValue::Null;
+    let mut v_session_id_snake = CoreValue::Null;
+    let mut v_timeout = CoreValue::Null;
+    let mut v_timeout_ms = CoreValue::Null;
+    let mut v_trace_id = CoreValue::Null;
+    let mut v_trace_id_snake = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_reserved_names = _agent_reserved_runtime_names(&[])?;
+    v_runtime_options = core_map_merge(&[v_empty_map.clone(), v_options.clone()])?;
+    core_map_delete(&[v_runtime_options.clone(), CoreValue::from("runtime")])?;
+    core_set(
+        &v_runtime_options,
+        CoreValue::from("reservedNames"),
+        v_reserved_names.clone(),
+    )?;
+    v_timeout_ms = core_get(&v_options, &CoreValue::from("timeout_ms"), CoreValue::Null);
+    v_timeout = core_get(
+        &v_options,
+        &CoreValue::from("timeout"),
+        v_timeout_ms.clone(),
+    );
+    v_has_timeout = core_is_not_none(&[v_timeout.clone()])?;
+    if core_truthy(&v_has_timeout) {
+        core_set(
+            &v_runtime_options,
+            CoreValue::from("timeout"),
+            v_timeout.clone(),
+        )?;
+    }
+    v_abort_snake = core_get(
+        &v_options,
+        &CoreValue::from("abort"),
+        CoreValue::Bool(false),
+    );
+    v_aborted = core_get(
+        &v_options,
+        &CoreValue::from("aborted"),
+        v_abort_snake.clone(),
+    );
+    v_abort_signal = core_get(
+        &v_options,
+        &CoreValue::from("abortSignal"),
+        v_aborted.clone(),
+    );
+    v_has_abort = core_truthy_value(&[v_abort_signal.clone()])?;
+    if core_truthy(&v_has_abort) {
+        core_set(
+            &v_runtime_options,
+            CoreValue::from("abort"),
+            CoreValue::Bool(true),
+        )?;
+    }
+    v_session_id_snake = core_get(&v_options, &CoreValue::from("session_id"), CoreValue::Null);
+    v_session_id = core_get(
+        &v_options,
+        &CoreValue::from("sessionId"),
+        v_session_id_snake.clone(),
+    );
+    v_has_session_id = core_is_not_none(&[v_session_id.clone()])?;
+    if core_truthy(&v_has_session_id) {
+        core_set(
+            &v_runtime_options,
+            CoreValue::from("sessionId"),
+            v_session_id.clone(),
+        )?;
+    }
+    v_trace_id_snake = core_get(&v_options, &CoreValue::from("trace_id"), CoreValue::Null);
+    v_trace_id = core_get(
+        &v_options,
+        &CoreValue::from("traceId"),
+        v_trace_id_snake.clone(),
+    );
+    v_has_trace_id = core_is_not_none(&[v_trace_id.clone()])?;
+    if core_truthy(&v_has_trace_id) {
+        core_set(
+            &v_runtime_options,
+            CoreValue::from("traceId"),
+            v_trace_id.clone(),
+        )?;
+    }
+    return Ok(v_runtime_options.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_lifecycle_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_action = core_arg(args, 1);
+    let mut v_details = core_arg(args, 2);
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_entry = core_map_merge(&[v_empty_map.clone(), v_details.clone()])?;
+    core_set(
+        &v_entry,
+        CoreValue::from("type"),
+        CoreValue::from("runtime_session"),
+    )?;
+    core_set(&v_entry, CoreValue::from("action"), v_action.clone())?;
+    _agent_runtime_append_action_log(&[v_state.clone(), v_entry.clone()])?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("runtime_lifecycle"),
+        v_entry.clone(),
+    ])?;
+    return Ok(v_entry.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_create_session(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_runtime = core_arg(args, 1);
+    let mut v_globals = core_arg(args, 2);
+    let mut v_options = core_arg(args, 3);
+    let mut v_entry = CoreValue::Null;
+    let mut v_runtime_options = CoreValue::Null;
+    let mut v_session = CoreValue::Null;
+    v_runtime_options = _agent_runtime_execution_options(&[v_state.clone(), v_options.clone()])?;
+    v_session = core_agent_runtime_create_session(&[
+        v_runtime.clone(),
+        v_globals.clone(),
+        v_runtime_options.clone(),
+    ])?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_session"),
+        v_session.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_globals"),
+        v_globals.clone(),
+    )?;
+    v_entry = CoreValue::new_map();
+    core_set(&v_entry, CoreValue::from("globals"), v_globals.clone())?;
+    core_set(
+        &v_entry,
+        CoreValue::from("options"),
+        v_runtime_options.clone(),
+    )?;
+    _agent_runtime_lifecycle_event(&[
+        v_state.clone(),
+        CoreValue::from("create_session"),
+        v_entry.clone(),
+    ])?;
+    return Ok(v_session.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_runtime = core_arg(args, 1);
+    let mut v_session = core_arg(args, 2);
+    let mut v_code = core_arg(args, 3);
+    let mut v_options = core_arg(args, 4);
+    let mut v_callable_request = CoreValue::Null;
+    let mut v_callable_result = CoreValue::Null;
+    let mut v_closed = CoreValue::Null;
+    let mut v_completion_payload = CoreValue::Null;
+    let mut v_completion_type = CoreValue::Null;
+    let mut v_discover_request = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_globals = CoreValue::Null;
+    let mut v_guidance_payload = CoreValue::Null;
+    let mut v_has_callable = CoreValue::Null;
+    let mut v_has_completion = CoreValue::Null;
+    let mut v_has_discover = CoreValue::Null;
+    let mut v_has_guidance = CoreValue::Null;
+    let mut v_has_recall = CoreValue::Null;
+    let mut v_has_status = CoreValue::Null;
+    let mut v_has_used = CoreValue::Null;
+    let mut v_is_clarification_completion = CoreValue::Null;
+    let mut v_is_closed = CoreValue::Null;
+    let mut v_is_final_completion = CoreValue::Null;
+    let mut v_missing_session = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_notice = CoreValue::Null;
+    let mut v_raw = CoreValue::Null;
+    let mut v_recall_request = CoreValue::Null;
+    let mut v_runtime_options = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_status_log = CoreValue::Null;
+    let mut v_step_error = CoreValue::Null;
+    let mut v_used_request = CoreValue::Null;
+    v_runtime_options = _agent_runtime_execution_options(&[v_state.clone(), v_options.clone()])?;
+    v_empty_map = CoreValue::new_map();
+    v_globals = core_get(
+        &v_state,
+        &CoreValue::from("runtime_globals"),
+        v_empty_map.clone(),
+    );
+    v_missing_session = core_is_none(&[v_session.clone()])?;
+    if core_truthy(&v_missing_session) {
+        v_session = _agent_runtime_create_session(&[
+            v_state.clone(),
+            v_runtime.clone(),
+            v_globals.clone(),
+            v_runtime_options.clone(),
+        ])?;
+    }
+    v_raw = core_agent_runtime_execute(&[
+        v_session.clone(),
+        v_code.clone(),
+        v_runtime_options.clone(),
+    ])?;
+    v_normalized = _normalize_agent_runtime_step_result(&[v_raw.clone(), v_code.clone()])?;
+    v_closed = core_get(
+        &v_normalized,
+        &CoreValue::from("error_category"),
+        CoreValue::from(""),
+    );
+    v_is_closed = core_eq(&[v_closed.clone(), CoreValue::from("session_closed")])?;
+    if core_truthy(&v_is_closed) {
+        v_notice = CoreValue::new_map();
+        core_set(
+            &v_notice,
+            CoreValue::from("reason"),
+            CoreValue::from("session_closed"),
+        )?;
+        _agent_runtime_lifecycle_event(&[
+            v_state.clone(),
+            CoreValue::from("restart"),
+            v_notice.clone(),
+        ])?;
+        v_session = _agent_runtime_create_session(&[
+            v_state.clone(),
+            v_runtime.clone(),
+            v_globals.clone(),
+            v_runtime_options.clone(),
+        ])?;
+        v_raw = core_agent_runtime_execute(&[
+            v_session.clone(),
+            v_code.clone(),
+            v_runtime_options.clone(),
+        ])?;
+        v_normalized = _normalize_agent_runtime_step_result(&[v_raw.clone(), v_code.clone()])?;
+    }
+    _agent_runtime_append_action_log(&[v_state.clone(), v_normalized.clone()])?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("runtime_execute"),
+        v_normalized.clone(),
+    ])?;
+    v_step_error = core_get(
+        &v_normalized,
+        &CoreValue::from("is_error"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_step_error) {
+        _agent_record_trace_event(&[
+            v_state.clone(),
+            CoreValue::from("error"),
+            v_normalized.clone(),
+        ])?;
+    }
+    v_discover_request = core_get(
+        &v_normalized,
+        &CoreValue::from("discover_request"),
+        CoreValue::Null,
+    );
+    v_has_discover = core_type_is(&v_discover_request, CoreValue::from("object"));
+    if core_truthy(&v_has_discover) {
+        _agent_discover(&[v_state.clone(), v_discover_request.clone()])?;
+    }
+    v_recall_request = core_get(
+        &v_normalized,
+        &CoreValue::from("recall_request"),
+        CoreValue::Null,
+    );
+    v_has_recall = core_is_not_none(&[v_recall_request.clone()])?;
+    if core_truthy(&v_has_recall) {
+        _agent_recall(&[v_state.clone(), v_recall_request.clone()])?;
+    }
+    v_used_request = core_get(
+        &v_normalized,
+        &CoreValue::from("used_request"),
+        CoreValue::Null,
+    );
+    v_has_used = core_is_not_none(&[v_used_request.clone()])?;
+    if core_truthy(&v_has_used) {
+        _agent_used(&[
+            v_state.clone(),
+            v_used_request.clone(),
+            CoreValue::from("executor"),
+        ])?;
+    }
+    v_callable_request = core_get(
+        &v_normalized,
+        &CoreValue::from("callable_request"),
+        CoreValue::Null,
+    );
+    v_has_callable = core_is_not_none(&[v_callable_request.clone()])?;
+    if core_truthy(&v_has_callable) {
+        v_callable_result = _agent_execute_callable(&[
+            v_state.clone(),
+            v_callable_request.clone(),
+            v_options.clone(),
+        ])?;
+        core_set(
+            &v_normalized,
+            CoreValue::from("callable_result"),
+            v_callable_result.clone(),
+        )?;
+    }
+    v_guidance_payload = core_get(
+        &v_normalized,
+        &CoreValue::from("guidance_payload"),
+        CoreValue::Null,
+    );
+    v_has_guidance = core_type_is(&v_guidance_payload, CoreValue::from("object"));
+    if core_truthy(&v_has_guidance) {
+        _agent_append_guidance(&[v_state.clone(), v_guidance_payload.clone()])?;
+    }
+    v_completion_payload = core_get(
+        &v_normalized,
+        &CoreValue::from("completion_payload"),
+        CoreValue::Null,
+    );
+    v_has_completion = core_type_is(&v_completion_payload, CoreValue::from("object"));
+    if core_truthy(&v_has_completion) {
+        core_set(
+            &v_state,
+            CoreValue::from("last_runtime_completion"),
+            v_completion_payload.clone(),
+        )?;
+        v_completion_type = core_get(
+            &v_completion_payload,
+            &CoreValue::from("type"),
+            CoreValue::from(""),
+        );
+        v_is_final_completion = core_eq(&[v_completion_type.clone(), CoreValue::from("final")])?;
+        if core_truthy(&v_is_final_completion) {
+            _agent_record_trace_event(&[
+                v_state.clone(),
+                CoreValue::from("final"),
+                v_completion_payload.clone(),
+            ])?;
+        } else {
+            v_is_clarification_completion = core_eq(&[
+                v_completion_type.clone(),
+                CoreValue::from("askClarification"),
+            ])?;
+            if core_truthy(&v_is_clarification_completion) {
+                _agent_record_trace_event(&[
+                    v_state.clone(),
+                    CoreValue::from("clarification"),
+                    v_completion_payload.clone(),
+                ])?;
+            }
+        }
+    }
+    v_status = core_get(&v_normalized, &CoreValue::from("status"), CoreValue::Null);
+    v_has_status = core_type_is(&v_status, CoreValue::from("object"));
+    if core_truthy(&v_has_status) {
+        v_empty_list = CoreValue::new_list();
+        v_status_log = core_get(
+            &v_state,
+            &CoreValue::from("status_log"),
+            v_empty_list.clone(),
+        );
+        core_append(&v_status_log, v_status.clone())?;
+        core_set(
+            &v_state,
+            CoreValue::from("status_log"),
+            v_status_log.clone(),
+        )?;
+        _agent_record_trace_event(&[v_state.clone(), CoreValue::from("status"), v_status.clone()])?;
+    }
+    return Ok(v_normalized.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_inspect_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_session = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_entry = CoreValue::Null;
+    let mut v_inspection = CoreValue::Null;
+    v_inspection = core_agent_runtime_inspect(&[v_session.clone(), v_options.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_inspection"),
+        v_inspection.clone(),
+    )?;
+    v_entry = CoreValue::new_map();
+    core_set(
+        &v_entry,
+        CoreValue::from("type"),
+        CoreValue::from("runtime_session"),
+    )?;
+    core_set(
+        &v_entry,
+        CoreValue::from("action"),
+        CoreValue::from("inspect_globals"),
+    )?;
+    core_set(&v_entry, CoreValue::from("result"), v_inspection.clone())?;
+    _agent_runtime_append_action_log(&[v_state.clone(), v_entry.clone()])?;
+    return Ok(v_inspection.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_export_session_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_session = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_event = CoreValue::Null;
+    let mut v_log_entry = CoreValue::Null;
+    let mut v_raw_snapshot = CoreValue::Null;
+    let mut v_snapshot = CoreValue::Null;
+    v_raw_snapshot = core_agent_runtime_export_state(&[v_session.clone(), v_options.clone()])?;
+    v_snapshot = _normalize_agent_runtime_snapshot(&[v_raw_snapshot.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_session_state"),
+        v_snapshot.clone(),
+    )?;
+    v_log_entry = CoreValue::new_map();
+    core_set(
+        &v_log_entry,
+        CoreValue::from("type"),
+        CoreValue::from("runtime_session"),
+    )?;
+    core_set(
+        &v_log_entry,
+        CoreValue::from("action"),
+        CoreValue::from("snapshot_globals"),
+    )?;
+    core_set(
+        &v_log_entry,
+        CoreValue::from("snapshot"),
+        v_snapshot.clone(),
+    )?;
+    _agent_runtime_append_action_log(&[v_state.clone(), v_log_entry.clone()])?;
+    v_event = CoreValue::new_map();
+    core_set(&v_event, CoreValue::from("snapshot"), v_snapshot.clone())?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("state_export"),
+        v_event.clone(),
+    ])?;
+    return Ok(v_snapshot.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_restore_session_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_session = core_arg(args, 1);
+    let mut v_snapshot = core_arg(args, 2);
+    let mut v_options = core_arg(args, 3);
+    let mut v_event = CoreValue::Null;
+    let mut v_log_entry = CoreValue::Null;
+    let mut v_normalized_snapshot = CoreValue::Null;
+    let mut v_raw_restored = CoreValue::Null;
+    let mut v_restored = CoreValue::Null;
+    v_normalized_snapshot = _normalize_agent_runtime_snapshot(&[v_snapshot.clone()])?;
+    v_raw_restored = core_agent_runtime_restore_state(&[
+        v_session.clone(),
+        v_normalized_snapshot.clone(),
+        v_options.clone(),
+    ])?;
+    v_restored = _normalize_agent_runtime_snapshot(&[v_raw_restored.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_session_state"),
+        v_restored.clone(),
+    )?;
+    v_log_entry = CoreValue::new_map();
+    core_set(
+        &v_log_entry,
+        CoreValue::from("type"),
+        CoreValue::from("runtime_session"),
+    )?;
+    core_set(
+        &v_log_entry,
+        CoreValue::from("action"),
+        CoreValue::from("patch_globals"),
+    )?;
+    core_set(
+        &v_log_entry,
+        CoreValue::from("snapshot"),
+        v_restored.clone(),
+    )?;
+    _agent_runtime_append_action_log(&[v_state.clone(), v_log_entry.clone()])?;
+    v_event = CoreValue::new_map();
+    core_set(&v_event, CoreValue::from("snapshot"), v_restored.clone())?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("state_restore"),
+        v_event.clone(),
+    ])?;
+    return Ok(v_restored.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_close_session(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_session = core_arg(args, 1);
+    let mut v_closed = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    v_closed = core_agent_runtime_close(&[v_session.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_session_closed"),
+        CoreValue::Bool(true),
+    )?;
+    v_entry = CoreValue::new_map();
+    core_set(&v_entry, CoreValue::from("result"), v_closed.clone())?;
+    _agent_runtime_lifecycle_event(&[
+        v_state.clone(),
+        CoreValue::from("close_session"),
+        v_entry.clone(),
+    ])?;
+    return Ok(v_closed.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_test(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_runtime = core_arg(args, 1);
+    let mut v_code = core_arg(args, 2);
+    let mut v_values = core_arg(args, 3);
+    let mut v_options = core_arg(args, 4);
+    let mut v_active_session = CoreValue::Null;
+    let mut v_error_session = CoreValue::Null;
+    let mut v_globals = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_runtime_options = CoreValue::Null;
+    let mut v_runtime_test_error = CoreValue::Null;
+    let mut v_session = CoreValue::Null;
+    v_globals = _agent_runtime_build_globals(&[v_state.clone(), v_values.clone()])?;
+    v_runtime_options = _agent_runtime_execution_options(&[v_state.clone(), v_options.clone()])?;
+    v_session = _agent_runtime_create_session(&[
+        v_state.clone(),
+        v_runtime.clone(),
+        v_globals.clone(),
+        v_runtime_options.clone(),
+    ])?;
+    v_result = CoreValue::new_map();
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_result = _agent_runtime_execute_step(&[
+            v_state.clone(),
+            v_runtime.clone(),
+            v_session.clone(),
+            v_code.clone(),
+            v_runtime_options.clone(),
+        ])?;
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_runtime_test_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            v_error_session = core_get(
+                &v_state,
+                &CoreValue::from("runtime_session"),
+                v_session.clone(),
+            );
+            _agent_runtime_close_session(&[v_state.clone(), v_error_session.clone()])?;
+            return Err(core_as_error(&v_runtime_test_error));
+        }
+    }
+    v_active_session = core_get(
+        &v_state,
+        &CoreValue::from("runtime_session"),
+        v_session.clone(),
+    );
+    _agent_runtime_close_session(&[v_state.clone(), v_active_session.clone()])?;
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _split_context_values(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_context_fields = CoreValue::Null;
+    let mut v_ctx_values = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_is_context = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_non_ctx_values = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_context_fields = core_get(
+        &v_state,
+        &CoreValue::from("context_fields"),
+        v_empty_list.clone(),
+    );
+    v_ctx_values = CoreValue::new_map();
+    v_non_ctx_values = CoreValue::new_map();
+    for v_key in core_iter(&v_values)? {
+        let mut v_key = v_key;
+        v_value = core_get(&v_values, &v_key.clone(), CoreValue::Null);
+        v_is_context = core_contains(&[v_context_fields.clone(), v_key.clone()])?;
+        if core_truthy(&v_is_context) {
+            core_set(&v_ctx_values, v_key.clone(), v_value.clone())?;
+        } else {
+            core_set(&v_non_ctx_values, v_key.clone(), v_value.clone())?;
+        }
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("context"), v_ctx_values.clone())?;
+    core_set(&v_out, CoreValue::from("values"), v_non_ctx_values.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _build_distiller_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_context = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_split = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_split = _split_context_values(&[v_state.clone(), v_values.clone()])?;
+    v_context = core_get(&v_split, &CoreValue::from("context"), v_empty_map.clone());
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("input"), v_values.clone())?;
+    core_set(&v_out, CoreValue::from("context"), v_context.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _build_executor_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_distiller_payload = core_arg(args, 2);
+    let mut v_action_text = CoreValue::Null;
+    let mut v_actor_context = CoreValue::Null;
+    let mut v_args = CoreValue::Null;
+    let mut v_discovered_docs = CoreValue::Null;
+    let mut v_discovered_text = CoreValue::Null;
+    let mut v_distilled_context = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_exclude = CoreValue::Null;
+    let mut v_executor_request = CoreValue::Null;
+    let mut v_fallback_request = CoreValue::Null;
+    let mut v_guidance_text = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_loaded_memories = CoreValue::Null;
+    let mut v_loaded_skills = CoreValue::Null;
+    let mut v_non_ctx = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_pressure_text = CoreValue::Null;
+    let mut v_runtime_text = CoreValue::Null;
+    let mut v_skills_text = CoreValue::Null;
+    let mut v_split = CoreValue::Null;
+    let mut v_summary_text = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_empty_map = CoreValue::new_map();
+    v_split = _split_context_values(&[v_state.clone(), v_values.clone()])?;
+    v_non_ctx = core_get(&v_split, &CoreValue::from("values"), v_empty_map.clone());
+    v_empty = CoreValue::new_map();
+    v_out = core_map_merge(&[v_non_ctx.clone(), v_empty.clone()])?;
+    v_args = core_get(
+        &v_distiller_payload,
+        &CoreValue::from("args"),
+        v_empty_list.clone(),
+    );
+    v_fallback_request = core_json_stringify(&[v_non_ctx.clone()])?;
+    v_executor_request = core_list_get(&[
+        v_args.clone(),
+        CoreValue::Num(0f64),
+        v_fallback_request.clone(),
+    ])?;
+    v_distilled_context =
+        core_list_get(&[v_args.clone(), CoreValue::Num(1f64), v_empty_map.clone()])?;
+    core_set(&v_out, CoreValue::from("input"), v_non_ctx.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("executorRequest"),
+        v_executor_request.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("distilledContext"),
+        v_distilled_context.clone(),
+    )?;
+    v_discovered_docs = core_get(
+        &v_state,
+        &CoreValue::from("discovered_tool_docs"),
+        v_empty_list.clone(),
+    );
+    v_loaded_skills = core_get(
+        &v_state,
+        &CoreValue::from("loaded_skill_docs"),
+        v_empty_list.clone(),
+    );
+    v_loaded_memories = core_get(
+        &v_state,
+        &CoreValue::from("loaded_memories"),
+        v_empty_list.clone(),
+    );
+    v_discovered_text = _agent_render_discovered_tool_docs(&[v_discovered_docs.clone()])?;
+    v_skills_text = _agent_render_loaded_skills(&[v_loaded_skills.clone()])?;
+    v_actor_context = _agent_prepare_actor_context(&[v_state.clone()])?;
+    v_guidance_text = core_get(
+        &v_actor_context,
+        &CoreValue::from("guidanceLog"),
+        CoreValue::from("[]"),
+    );
+    v_action_text = core_get(
+        &v_actor_context,
+        &CoreValue::from("actionLog"),
+        CoreValue::from("(no actions yet)"),
+    );
+    v_summary_text = core_get(
+        &v_actor_context,
+        &CoreValue::from("summarizedActorLog"),
+        CoreValue::from(""),
+    );
+    v_runtime_text = core_get(
+        &v_actor_context,
+        &CoreValue::from("liveRuntimeState"),
+        CoreValue::from(""),
+    );
+    v_pressure_text = core_get(
+        &v_actor_context,
+        &CoreValue::from("contextPressure"),
+        CoreValue::from(""),
+    );
+    core_set(
+        &v_out,
+        CoreValue::from("discoveredToolDocs"),
+        v_discovered_text.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("loadedSkills"),
+        v_skills_text.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("memories"),
+        v_loaded_memories.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("summarizedActorLog"),
+        v_summary_text.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("guidanceLog"),
+        v_guidance_text.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("actionLog"), v_action_text.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("liveRuntimeState"),
+        v_runtime_text.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("contextPressure"),
+        v_pressure_text.clone(),
+    )?;
+    v_exclude = core_get(
+        &v_state,
+        &CoreValue::from("executor_exclude_fields"),
+        v_empty_list.clone(),
+    );
+    for v_key in core_iter(&v_exclude)? {
+        let mut v_key = v_key;
+        core_map_delete(&[v_out.clone(), v_key.clone()])?;
+        core_map_delete(&[v_non_ctx.clone(), v_key.clone()])?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _build_responder_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_executor_payload = core_arg(args, 2);
+    let mut v_args = CoreValue::Null;
+    let mut v_context = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_exclude = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_non_ctx = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_split = CoreValue::Null;
+    let mut v_task = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_empty_map = CoreValue::new_map();
+    v_split = _split_context_values(&[v_state.clone(), v_values.clone()])?;
+    v_non_ctx = core_get(&v_split, &CoreValue::from("values"), v_empty_map.clone());
+    v_empty = CoreValue::new_map();
+    v_out = core_map_merge(&[v_values.clone(), v_empty.clone()])?;
+    v_args = core_get(
+        &v_executor_payload,
+        &CoreValue::from("args"),
+        v_empty_list.clone(),
+    );
+    v_task = core_list_get(&[v_args.clone(), CoreValue::Num(0f64), CoreValue::from("")])?;
+    v_context = core_list_get(&[v_args.clone(), CoreValue::Num(1f64), v_empty_map.clone()])?;
+    core_set(&v_out, CoreValue::from("agentTask"), v_task.clone())?;
+    core_set(&v_out, CoreValue::from("agentContext"), v_context.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("executorResult"),
+        v_executor_payload.clone(),
+    )?;
+    v_exclude = core_get(
+        &v_state,
+        &CoreValue::from("responder_exclude_fields"),
+        v_empty_list.clone(),
+    );
+    for v_key in core_iter(&v_exclude)? {
+        let mut v_key = v_key;
+        core_map_delete(&[v_out.clone(), v_key.clone()])?;
+        core_map_delete(&[v_non_ctx.clone(), v_key.clone()])?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_completion_payload(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_output = core_arg(args, 0);
+    let mut v_completion = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_clarification = CoreValue::Null;
+    let mut v_is_final = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_payload = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_completion = core_get(&v_output, &CoreValue::from("completion"), v_output.clone());
+    v_payload = core_get(
+        &v_completion,
+        &CoreValue::from("executorResult"),
+        v_completion.clone(),
+    );
+    v_type = core_get(&v_payload, &CoreValue::from("type"), CoreValue::Null);
+    v_is_final = core_eq(&[v_type.clone(), CoreValue::from("final")])?;
+    v_is_clarification = core_eq(&[v_type.clone(), CoreValue::from("askClarification")])?;
+    v_valid = core_or(&[v_is_final.clone(), v_is_clarification.clone()])?;
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_message = core_string_format(&[
+            CoreValue::from("agent stage did not return a completion payload: {}"),
+            v_payload.clone(),
+        ])?;
+        v_error = core_runtime_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _throw_agent_clarification(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_payload = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_error = CoreValue::Null;
+    let mut v_is_clarification = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    v_type = core_get(&v_payload, &CoreValue::from("type"), CoreValue::Null);
+    v_is_clarification = core_eq(&[v_type.clone(), CoreValue::from("askClarification")])?;
+    if core_truthy(&v_is_clarification) {
+        v_error = core_agent_clarification_error(&[v_payload.clone(), v_state.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_none = core_none(&[])?;
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _merge_agent_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_distiller = core_arg(args, 1);
+    let mut v_executor = core_arg(args, 2);
+    let mut v_responder = core_arg(args, 3);
+    let mut v_distiller_logs = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_executor_logs = CoreValue::Null;
+    let mut v_logs = CoreValue::Null;
+    let mut v_responder_logs = CoreValue::Null;
+    v_logs = CoreValue::new_list();
+    v_distiller_logs = core_agent_stage_chat_log(&[v_distiller.clone()])?;
+    for v_entry in core_iter(&v_distiller_logs)? {
+        let mut v_entry = v_entry;
+        core_set(
+            &v_entry,
+            CoreValue::from("name"),
+            CoreValue::from("distiller"),
+        )?;
+        core_set(&v_entry, CoreValue::from("stage"), CoreValue::from("ctx"))?;
+        core_append(&v_logs, v_entry.clone())?;
+    }
+    v_executor_logs = core_agent_stage_chat_log(&[v_executor.clone()])?;
+    for v_entry in core_iter(&v_executor_logs)? {
+        let mut v_entry = v_entry;
+        core_set(
+            &v_entry,
+            CoreValue::from("name"),
+            CoreValue::from("executor"),
+        )?;
+        core_set(&v_entry, CoreValue::from("stage"), CoreValue::from("task"))?;
+        core_append(&v_logs, v_entry.clone())?;
+    }
+    v_responder_logs = core_agent_stage_chat_log(&[v_responder.clone()])?;
+    for v_entry in core_iter(&v_responder_logs)? {
+        let mut v_entry = v_entry;
+        core_set(
+            &v_entry,
+            CoreValue::from("name"),
+            CoreValue::from("responder"),
+        )?;
+        core_set(&v_entry, CoreValue::from("stage"), CoreValue::from("task"))?;
+        core_append(&v_logs, v_entry.clone())?;
+    }
+    core_set(&v_state, CoreValue::from("chat_log"), v_logs.clone())?;
+    return Ok(v_logs.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _merge_agent_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_chat_log = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_chat_log = core_get(&v_state, &CoreValue::from("chat_log"), v_empty_list.clone());
+    v_count = core_len(&[v_chat_log.clone()])?;
+    v_usage = CoreValue::new_map();
+    core_set(
+        &v_usage,
+        CoreValue::from("chat_log_entries"),
+        v_count.clone(),
+    )?;
+    core_set(&v_state, CoreValue::from("usage"), v_usage.clone())?;
+    return Ok(v_usage.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_get_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_runtime_state = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_runtime_state = core_get(
+        &v_state,
+        &CoreValue::from("runtime_state"),
+        v_empty_map.clone(),
+    );
+    return Ok(v_runtime_state.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_set_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_runtime_state = core_arg(args, 1);
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_state"),
+        v_runtime_state.clone(),
+    )?;
+    return Ok(v_runtime_state.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_stage_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_stage = core_arg(args, 1);
+    let mut v_forward_options = core_arg(args, 2);
+    let mut v_base_options = CoreValue::Null;
+    let mut v_cache = CoreValue::Null;
+    let mut v_call_cache = CoreValue::Null;
+    let mut v_call_cache_snake = CoreValue::Null;
+    let mut v_context_opts_camel = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_executor_opts_camel = CoreValue::Null;
+    let mut v_has_cache = CoreValue::Null;
+    let mut v_has_call_cache = CoreValue::Null;
+    let mut v_has_stage_cache = CoreValue::Null;
+    let mut v_is_distiller = CoreValue::Null;
+    let mut v_is_executor = CoreValue::Null;
+    let mut v_is_responder = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_responder_opts_camel = CoreValue::Null;
+    let mut v_stage_cache = CoreValue::Null;
+    let mut v_stage_cache_snake = CoreValue::Null;
+    let mut v_stage_options = CoreValue::Null;
+    let mut v_top_cache = CoreValue::Null;
+    let mut v_top_cache_snake = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_base_options = core_get(&v_state, &CoreValue::from("options"), v_empty_map.clone());
+    v_stage_options = CoreValue::new_map();
+    v_is_distiller = core_eq(&[v_stage.clone(), CoreValue::from("distiller")])?;
+    v_is_executor = core_eq(&[v_stage.clone(), CoreValue::from("executor")])?;
+    v_is_responder = core_eq(&[v_stage.clone(), CoreValue::from("responder")])?;
+    if core_truthy(&v_is_distiller) {
+        v_context_opts_camel = core_get(
+            &v_base_options,
+            &CoreValue::from("contextOptions"),
+            v_empty_map.clone(),
+        );
+        v_stage_options = core_get(
+            &v_base_options,
+            &CoreValue::from("context_options"),
+            v_context_opts_camel.clone(),
+        );
+    }
+    if core_truthy(&v_is_executor) {
+        v_executor_opts_camel = core_get(
+            &v_base_options,
+            &CoreValue::from("executorOptions"),
+            v_empty_map.clone(),
+        );
+        v_stage_options = core_get(
+            &v_base_options,
+            &CoreValue::from("executor_options"),
+            v_executor_opts_camel.clone(),
+        );
+    }
+    if core_truthy(&v_is_responder) {
+        v_responder_opts_camel = core_get(
+            &v_base_options,
+            &CoreValue::from("responderOptions"),
+            v_empty_map.clone(),
+        );
+        v_stage_options = core_get(
+            &v_base_options,
+            &CoreValue::from("responder_options"),
+            v_responder_opts_camel.clone(),
+        );
+    }
+    v_out = core_map_merge(&[v_stage_options.clone(), v_forward_options.clone()])?;
+    v_top_cache_snake = core_get(
+        &v_base_options,
+        &CoreValue::from("context_cache"),
+        CoreValue::Null,
+    );
+    v_top_cache = core_get(
+        &v_base_options,
+        &CoreValue::from("contextCache"),
+        v_top_cache_snake.clone(),
+    );
+    v_stage_cache_snake = core_get(
+        &v_stage_options,
+        &CoreValue::from("context_cache"),
+        CoreValue::Null,
+    );
+    v_stage_cache = core_get(
+        &v_stage_options,
+        &CoreValue::from("contextCache"),
+        v_stage_cache_snake.clone(),
+    );
+    v_call_cache_snake = core_get(
+        &v_forward_options,
+        &CoreValue::from("context_cache"),
+        CoreValue::Null,
+    );
+    v_call_cache = core_get(
+        &v_forward_options,
+        &CoreValue::from("contextCache"),
+        v_call_cache_snake.clone(),
+    );
+    v_cache = v_top_cache.clone();
+    v_has_stage_cache = core_is_not_none(&[v_stage_cache.clone()])?;
+    if core_truthy(&v_has_stage_cache) {
+        v_cache = v_stage_cache.clone();
+    }
+    v_has_call_cache = core_is_not_none(&[v_call_cache.clone()])?;
+    if core_truthy(&v_has_call_cache) {
+        v_cache = v_call_cache.clone();
+    }
+    v_has_cache = core_is_not_none(&[v_cache.clone()])?;
+    if core_truthy(&v_has_cache) {
+        core_set(&v_out, CoreValue::from("context_cache"), v_cache.clone())?;
+        core_set(&v_out, CoreValue::from("contextCache"), v_cache.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _extract_agent_runtime_code(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_executor_output = core_arg(args, 1);
+    let mut v_code = CoreValue::Null;
+    let mut v_code_field_name = CoreValue::Null;
+    let mut v_completion = CoreValue::Null;
+    let mut v_completion_code = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_runtime_contract = CoreValue::Null;
+    v_runtime_contract = core_get(
+        &v_state,
+        &CoreValue::from("runtime_contract"),
+        CoreValue::Null,
+    );
+    v_code_field_name = core_get(
+        &v_runtime_contract,
+        &CoreValue::from("code_field_name"),
+        CoreValue::from("javascriptCode"),
+    );
+    v_code = core_get(
+        &v_executor_output,
+        &v_code_field_name.clone(),
+        CoreValue::from(""),
+    );
+    v_completion = core_get(
+        &v_executor_output,
+        &CoreValue::from("completion"),
+        v_executor_output.clone(),
+    );
+    v_completion_code = core_get(&v_completion, &v_code_field_name.clone(), v_code.clone());
+    v_code = v_completion_code.clone();
+    v_missing = core_eq(&[v_code.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing) {
+        v_message = core_string_format(&[
+            CoreValue::from("agent executor did not return runtime code field: {}"),
+            v_code_field_name.clone(),
+        ])?;
+        v_error = core_runtime_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_code.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_distiller = core_arg(args, 1);
+    let mut v_executor = core_arg(args, 2);
+    let mut v_responder = core_arg(args, 3);
+    let mut v_client = core_arg(args, 4);
+    let mut v_values = core_arg(args, 5);
+    let mut v_options = core_arg(args, 6);
+    let mut v_code = CoreValue::Null;
+    let mut v_completion_payload = CoreValue::Null;
+    let mut v_distiller_options = CoreValue::Null;
+    let mut v_distiller_output = CoreValue::Null;
+    let mut v_distiller_payload = CoreValue::Null;
+    let mut v_distiller_request_event = CoreValue::Null;
+    let mut v_distiller_response_event = CoreValue::Null;
+    let mut v_distiller_values = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_error_event = CoreValue::Null;
+    let mut v_executor_options = CoreValue::Null;
+    let mut v_executor_output = CoreValue::Null;
+    let mut v_executor_payload = CoreValue::Null;
+    let mut v_executor_request_event = CoreValue::Null;
+    let mut v_executor_response_event = CoreValue::Null;
+    let mut v_executor_values = CoreValue::Null;
+    let mut v_globals = CoreValue::Null;
+    let mut v_has_completion = CoreValue::Null;
+    let mut v_logs = CoreValue::Null;
+    let mut v_max_steps = CoreValue::Null;
+    let mut v_responder_options = CoreValue::Null;
+    let mut v_responder_output = CoreValue::Null;
+    let mut v_responder_request_event = CoreValue::Null;
+    let mut v_responder_response_event = CoreValue::Null;
+    let mut v_responder_values = CoreValue::Null;
+    let mut v_runtime_enabled = CoreValue::Null;
+    let mut v_runtime_from_options = CoreValue::Null;
+    let mut v_runtime_from_state = CoreValue::Null;
+    let mut v_runtime_step = CoreValue::Null;
+    let mut v_session = CoreValue::Null;
+    let mut v_state_options = CoreValue::Null;
+    let mut v_step = CoreValue::Null;
+    let mut v_too_many = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    _agent_begin_trace(&[v_state.clone(), v_values.clone()])?;
+    v_state_options = core_get(&v_state, &CoreValue::from("options"), CoreValue::Null);
+    v_runtime_from_state = core_get(
+        &v_state_options,
+        &CoreValue::from("runtime"),
+        CoreValue::Null,
+    );
+    v_runtime_from_options = core_get(
+        &v_options,
+        &CoreValue::from("runtime"),
+        v_runtime_from_state.clone(),
+    );
+    v_runtime_enabled = core_is_not_none(&[v_runtime_from_options.clone()])?;
+    v_distiller_options = _agent_stage_options(&[
+        v_state.clone(),
+        CoreValue::from("distiller"),
+        v_options.clone(),
+    ])?;
+    v_executor_options = _agent_stage_options(&[
+        v_state.clone(),
+        CoreValue::from("executor"),
+        v_options.clone(),
+    ])?;
+    v_responder_options = _agent_stage_options(&[
+        v_state.clone(),
+        CoreValue::from("responder"),
+        v_options.clone(),
+    ])?;
+    v_distiller_values = _build_distiller_inputs(&[v_state.clone(), v_values.clone()])?;
+    v_distiller_request_event = CoreValue::new_map();
+    core_set(
+        &v_distiller_request_event,
+        CoreValue::from("stage"),
+        CoreValue::from("distiller"),
+    )?;
+    core_set(
+        &v_distiller_request_event,
+        CoreValue::from("values"),
+        v_distiller_values.clone(),
+    )?;
+    core_set(
+        &v_distiller_request_event,
+        CoreValue::from("component_id"),
+        CoreValue::from("agent.stage.distiller"),
+    )?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("stage_request"),
+        v_distiller_request_event.clone(),
+    ])?;
+    v_distiller_output = core_agent_stage_forward(&[
+        v_distiller.clone(),
+        v_client.clone(),
+        v_distiller_values.clone(),
+        v_distiller_options.clone(),
+    ])?;
+    v_distiller_response_event = CoreValue::new_map();
+    core_set(
+        &v_distiller_response_event,
+        CoreValue::from("stage"),
+        CoreValue::from("distiller"),
+    )?;
+    core_set(
+        &v_distiller_response_event,
+        CoreValue::from("output"),
+        v_distiller_output.clone(),
+    )?;
+    core_set(
+        &v_distiller_response_event,
+        CoreValue::from("component_id"),
+        CoreValue::from("agent.stage.distiller"),
+    )?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("stage_response"),
+        v_distiller_response_event.clone(),
+    ])?;
+    v_distiller_payload = _normalize_agent_completion_payload(&[v_distiller_output.clone()])?;
+    _throw_agent_clarification(&[v_distiller_payload.clone(), v_state.clone()])?;
+    v_executor_payload = core_none(&[])?;
+    if core_truthy(&v_runtime_enabled) {
+        v_globals = _agent_runtime_build_globals(&[v_state.clone(), v_values.clone()])?;
+        v_session = core_get(
+            &v_state,
+            &CoreValue::from("runtime_session"),
+            CoreValue::Null,
+        );
+        v_max_steps = core_get(
+            &v_options,
+            &CoreValue::from("max_actor_steps"),
+            CoreValue::Num(4f64),
+        );
+        v_step = CoreValue::Num(0f64);
+        loop {
+            v_too_many = core_gte(&[v_step.clone(), v_max_steps.clone()])?;
+            if core_truthy(&v_too_many) {
+                v_error_event = CoreValue::new_map();
+                core_set(
+                    &v_error_event,
+                    CoreValue::from("error"),
+                    CoreValue::from("agent actor loop exceeded max steps"),
+                )?;
+                core_set(
+                    &v_error_event,
+                    CoreValue::from("stage"),
+                    CoreValue::from("executor"),
+                )?;
+                _agent_record_trace_event(&[
+                    v_state.clone(),
+                    CoreValue::from("error"),
+                    v_error_event.clone(),
+                ])?;
+                v_error =
+                    core_runtime_error(&[CoreValue::from("agent actor loop exceeded max steps")])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_executor_values = _build_executor_inputs(&[
+                v_state.clone(),
+                v_values.clone(),
+                v_distiller_payload.clone(),
+            ])?;
+            v_executor_request_event = CoreValue::new_map();
+            core_set(
+                &v_executor_request_event,
+                CoreValue::from("stage"),
+                CoreValue::from("executor"),
+            )?;
+            core_set(
+                &v_executor_request_event,
+                CoreValue::from("step"),
+                v_step.clone(),
+            )?;
+            core_set(
+                &v_executor_request_event,
+                CoreValue::from("values"),
+                v_executor_values.clone(),
+            )?;
+            core_set(
+                &v_executor_request_event,
+                CoreValue::from("component_id"),
+                CoreValue::from("agent.stage.executor"),
+            )?;
+            _agent_record_trace_event(&[
+                v_state.clone(),
+                CoreValue::from("stage_request"),
+                v_executor_request_event.clone(),
+            ])?;
+            v_executor_output = core_agent_stage_forward(&[
+                v_executor.clone(),
+                v_client.clone(),
+                v_executor_values.clone(),
+                v_executor_options.clone(),
+            ])?;
+            v_executor_response_event = CoreValue::new_map();
+            core_set(
+                &v_executor_response_event,
+                CoreValue::from("stage"),
+                CoreValue::from("executor"),
+            )?;
+            core_set(
+                &v_executor_response_event,
+                CoreValue::from("step"),
+                v_step.clone(),
+            )?;
+            core_set(
+                &v_executor_response_event,
+                CoreValue::from("output"),
+                v_executor_output.clone(),
+            )?;
+            core_set(
+                &v_executor_response_event,
+                CoreValue::from("component_id"),
+                CoreValue::from("agent.stage.executor"),
+            )?;
+            _agent_record_trace_event(&[
+                v_state.clone(),
+                CoreValue::from("stage_response"),
+                v_executor_response_event.clone(),
+            ])?;
+            v_code = _extract_agent_runtime_code(&[v_state.clone(), v_executor_output.clone()])?;
+            v_runtime_step = _agent_runtime_execute_step(&[
+                v_state.clone(),
+                v_runtime_from_options.clone(),
+                v_session.clone(),
+                v_code.clone(),
+                v_options.clone(),
+            ])?;
+            v_session = core_get(
+                &v_state,
+                &CoreValue::from("runtime_session"),
+                v_session.clone(),
+            );
+            v_completion_payload = core_get(
+                &v_runtime_step,
+                &CoreValue::from("completion_payload"),
+                CoreValue::Null,
+            );
+            v_has_completion = core_type_is(&v_completion_payload, CoreValue::from("object"));
+            if core_truthy(&v_has_completion) {
+                _throw_agent_clarification(&[v_completion_payload.clone(), v_state.clone()])?;
+                v_executor_payload = v_completion_payload.clone();
+                break;
+            }
+            v_step = core_add(&[v_step.clone(), CoreValue::Num(1f64)])?;
+        }
+    } else {
+        v_executor_values = _build_executor_inputs(&[
+            v_state.clone(),
+            v_values.clone(),
+            v_distiller_payload.clone(),
+        ])?;
+        v_executor_request_event = CoreValue::new_map();
+        core_set(
+            &v_executor_request_event,
+            CoreValue::from("stage"),
+            CoreValue::from("executor"),
+        )?;
+        core_set(
+            &v_executor_request_event,
+            CoreValue::from("values"),
+            v_executor_values.clone(),
+        )?;
+        core_set(
+            &v_executor_request_event,
+            CoreValue::from("component_id"),
+            CoreValue::from("agent.stage.executor"),
+        )?;
+        _agent_record_trace_event(&[
+            v_state.clone(),
+            CoreValue::from("stage_request"),
+            v_executor_request_event.clone(),
+        ])?;
+        v_executor_output = core_agent_stage_forward(&[
+            v_executor.clone(),
+            v_client.clone(),
+            v_executor_values.clone(),
+            v_executor_options.clone(),
+        ])?;
+        v_executor_response_event = CoreValue::new_map();
+        core_set(
+            &v_executor_response_event,
+            CoreValue::from("stage"),
+            CoreValue::from("executor"),
+        )?;
+        core_set(
+            &v_executor_response_event,
+            CoreValue::from("output"),
+            v_executor_output.clone(),
+        )?;
+        core_set(
+            &v_executor_response_event,
+            CoreValue::from("component_id"),
+            CoreValue::from("agent.stage.executor"),
+        )?;
+        _agent_record_trace_event(&[
+            v_state.clone(),
+            CoreValue::from("stage_response"),
+            v_executor_response_event.clone(),
+        ])?;
+        v_executor_payload = _normalize_agent_completion_payload(&[v_executor_output.clone()])?;
+        _throw_agent_clarification(&[v_executor_payload.clone(), v_state.clone()])?;
+    }
+    v_responder_values = _build_responder_inputs(&[
+        v_state.clone(),
+        v_values.clone(),
+        v_executor_payload.clone(),
+    ])?;
+    v_responder_request_event = CoreValue::new_map();
+    core_set(
+        &v_responder_request_event,
+        CoreValue::from("stage"),
+        CoreValue::from("responder"),
+    )?;
+    core_set(
+        &v_responder_request_event,
+        CoreValue::from("values"),
+        v_responder_values.clone(),
+    )?;
+    core_set(
+        &v_responder_request_event,
+        CoreValue::from("component_id"),
+        CoreValue::from("agent.stage.responder"),
+    )?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("stage_request"),
+        v_responder_request_event.clone(),
+    ])?;
+    v_responder_output = core_agent_stage_forward(&[
+        v_responder.clone(),
+        v_client.clone(),
+        v_responder_values.clone(),
+        v_responder_options.clone(),
+    ])?;
+    v_responder_response_event = CoreValue::new_map();
+    core_set(
+        &v_responder_response_event,
+        CoreValue::from("stage"),
+        CoreValue::from("responder"),
+    )?;
+    core_set(
+        &v_responder_response_event,
+        CoreValue::from("output"),
+        v_responder_output.clone(),
+    )?;
+    core_set(
+        &v_responder_response_event,
+        CoreValue::from("component_id"),
+        CoreValue::from("agent.stage.responder"),
+    )?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("stage_response"),
+        v_responder_response_event.clone(),
+    ])?;
+    v_logs = _merge_agent_chat_log(&[
+        v_state.clone(),
+        v_distiller.clone(),
+        v_executor.clone(),
+        v_responder.clone(),
+    ])?;
+    v_usage = _merge_agent_usage(&[v_state.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("last_output"),
+        v_responder_output.clone(),
+    )?;
+    core_set(&v_state, CoreValue::from("chat_log"), v_logs.clone())?;
+    core_set(&v_state, CoreValue::from("usage"), v_usage.clone())?;
+    _agent_finalize_trace(&[
+        v_state.clone(),
+        CoreValue::from("completed"),
+        v_responder_output.clone(),
+    ])?;
+    return Ok(v_responder_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_options = core_arg(args, 0);
+    let mut v_chat_log = CoreValue::Null;
+    let mut v_demos = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_opts_missing = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_steps = CoreValue::Null;
+    let mut v_traces = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_opts_missing = core_is_none(&[v_options.clone()])?;
+    v_opts = v_options.clone();
+    if core_truthy(&v_opts_missing) {
+        v_opts = v_empty_map.clone();
+    }
+    v_steps = CoreValue::new_list();
+    v_traces = CoreValue::new_list();
+    v_chat_log = CoreValue::new_list();
+    v_usage = CoreValue::new_map();
+    v_demos = CoreValue::new_map();
+    v_state = CoreValue::new_map();
+    v_id = core_get(
+        &v_opts,
+        &CoreValue::from("id"),
+        CoreValue::from("root.flow"),
+    );
+    core_set(
+        &v_state,
+        CoreValue::from("program_kind"),
+        CoreValue::from("axflow"),
+    )?;
+    core_set(&v_state, CoreValue::from("program_id"), v_id.clone())?;
+    core_set(&v_state, CoreValue::from("options"), v_opts.clone())?;
+    core_set(&v_state, CoreValue::from("steps"), v_steps.clone())?;
+    core_set(&v_state, CoreValue::from("returns"), v_empty_map.clone())?;
+    core_set(&v_state, CoreValue::from("demos"), v_demos.clone())?;
+    core_set(&v_state, CoreValue::from("traces"), v_traces.clone())?;
+    core_set(&v_state, CoreValue::from("chat_log"), v_chat_log.clone())?;
+    core_set(&v_state, CoreValue::from("usage"), v_usage.clone())?;
+    return Ok(v_state.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _program_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_kind = core_arg(args, 0);
+    let mut v_id = core_arg(args, 1);
+    let mut v_metadata = core_arg(args, 2);
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_meta = CoreValue::Null;
+    let mut v_meta_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_meta_missing = core_is_none(&[v_metadata.clone()])?;
+    v_meta = v_metadata.clone();
+    if core_truthy(&v_meta_missing) {
+        v_meta = v_empty_map.clone();
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("kind"), v_kind.clone())?;
+    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_out, CoreValue::from("metadata"), v_meta.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _program_trace_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_program_id = core_arg(args, 0);
+    let mut v_kind = core_arg(args, 1);
+    let mut v_payload = core_arg(args, 2);
+    let mut v_data = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_payload_missing = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_payload_missing = core_is_none(&[v_payload.clone()])?;
+    v_data = v_payload.clone();
+    if core_truthy(&v_payload_missing) {
+        v_data = v_empty_map.clone();
+    }
+    v_event = CoreValue::new_map();
+    core_set(&v_event, CoreValue::from("programId"), v_program_id.clone())?;
+    core_set(&v_event, CoreValue::from("kind"), v_kind.clone())?;
+    core_set(&v_event, CoreValue::from("payload"), v_data.clone())?;
+    return Ok(v_event.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_kind = core_arg(args, 0);
+    let mut v_name = core_arg(args, 1);
+    let mut v_program = core_arg(args, 2);
+    let mut v_options = core_arg(args, 3);
+    let mut v_barrier = CoreValue::Null;
+    let mut v_barrier_from_camel = CoreValue::Null;
+    let mut v_barrier_from_snake = CoreValue::Null;
+    let mut v_default_barrier = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_err = CoreValue::Null;
+    let mut v_execute_write = CoreValue::Null;
+    let mut v_is_derive = CoreValue::Null;
+    let mut v_is_execute = CoreValue::Null;
+    let mut v_is_parallel = CoreValue::Null;
+    let mut v_is_parallel_merge = CoreValue::Null;
+    let mut v_may_parallel = CoreValue::Null;
+    let mut v_missing_name = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_opts_missing = CoreValue::Null;
+    let mut v_reads = CoreValue::Null;
+    let mut v_reads_empty = CoreValue::Null;
+    let mut v_step = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_writes = CoreValue::Null;
+    let mut v_writes_default = CoreValue::Null;
+    v_trimmed = core_string_trim(&v_name);
+    v_missing_name = core_eq(&[v_trimmed.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing_name) {
+        v_err = core_runtime_error(&[CoreValue::from("flow step name is required")])?;
+        return Err(core_as_error(&v_err));
+    }
+    v_empty_map = CoreValue::new_map();
+    v_opts_missing = core_is_none(&[v_options.clone()])?;
+    v_opts = v_options.clone();
+    if core_truthy(&v_opts_missing) {
+        v_opts = v_empty_map.clone();
+    }
+    v_step = CoreValue::new_map();
+    core_set(&v_step, CoreValue::from("kind"), v_kind.clone())?;
+    core_set(&v_step, CoreValue::from("name"), v_trimmed.clone())?;
+    core_set(&v_step, CoreValue::from("nodeName"), v_trimmed.clone())?;
+    core_set(&v_step, CoreValue::from("program"), v_program.clone())?;
+    core_set(&v_step, CoreValue::from("options"), v_opts.clone())?;
+    v_reads_empty = CoreValue::new_list();
+    v_reads = core_get(&v_opts, &CoreValue::from("reads"), v_reads_empty.clone());
+    v_writes_default = CoreValue::new_list();
+    v_is_execute = core_eq(&[v_kind.clone(), CoreValue::from("execute")])?;
+    v_is_derive = core_eq(&[v_kind.clone(), CoreValue::from("derive")])?;
+    v_is_parallel = core_eq(&[v_kind.clone(), CoreValue::from("parallel")])?;
+    v_is_parallel_merge = core_eq(&[v_kind.clone(), CoreValue::from("parallelMerge")])?;
+    if core_truthy(&v_is_execute) {
+        v_execute_write = core_string_format(&[CoreValue::from("{}Result"), v_trimmed.clone()])?;
+        core_append(&v_writes_default, v_execute_write.clone())?;
+    }
+    if core_truthy(&v_is_derive) {
+        core_append(&v_writes_default, v_trimmed.clone())?;
+    }
+    if core_truthy(&v_is_parallel) {
+        core_append(&v_writes_default, CoreValue::from("_parallelResults"))?;
+    }
+    if core_truthy(&v_is_parallel_merge) {
+        core_append(&v_writes_default, v_trimmed.clone())?;
+    }
+    v_writes = core_get(
+        &v_opts,
+        &CoreValue::from("writes"),
+        v_writes_default.clone(),
+    );
+    v_default_barrier = CoreValue::Bool(true);
+    v_may_parallel = core_or(&[v_is_execute.clone(), v_is_derive.clone()])?;
+    if core_truthy(&v_may_parallel) {
+        v_default_barrier = CoreValue::Bool(false);
+    }
+    v_barrier_from_snake = core_get(
+        &v_opts,
+        &CoreValue::from("is_barrier"),
+        v_default_barrier.clone(),
+    );
+    v_barrier_from_camel = core_get(
+        &v_opts,
+        &CoreValue::from("isBarrier"),
+        v_barrier_from_snake.clone(),
+    );
+    v_barrier = core_get(
+        &v_opts,
+        &CoreValue::from("barrier"),
+        v_barrier_from_camel.clone(),
+    );
+    core_set(&v_step, CoreValue::from("reads"), v_reads.clone())?;
+    core_set(&v_step, CoreValue::from("writes"), v_writes.clone())?;
+    core_set(&v_step, CoreValue::from("isBarrier"), v_barrier.clone())?;
+    return Ok(v_step.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _program_child_component_prefix(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_owner = core_arg(args, 0);
+    let mut v_node = core_arg(args, 1);
+    let mut v_path = CoreValue::Null;
+    v_path = core_string_format(&[CoreValue::from("{}.{}::"), v_owner.clone(), v_node.clone()])?;
+    return Ok(v_path.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _program_prefix_component(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_component = core_arg(args, 0);
+    let mut v_owner = core_arg(args, 1);
+    let mut v_node = core_arg(args, 2);
+    let mut v_child = CoreValue::Null;
+    let mut v_child_id = CoreValue::Null;
+    let mut v_child_owner = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_prefixed_id = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_child = core_map_merge(&[v_empty_map.clone(), v_component.clone()])?;
+    v_child_owner =
+        core_string_format(&[CoreValue::from("{}.{}"), v_owner.clone(), v_node.clone()])?;
+    v_child_id = core_get(&v_component, &CoreValue::from("id"), CoreValue::from(""));
+    v_prefixed_id = core_string_format(&[
+        CoreValue::from("{}::{}"),
+        v_child_owner.clone(),
+        v_child_id.clone(),
+    ])?;
+    core_set(&v_child, CoreValue::from("owner"), v_child_owner.clone())?;
+    core_set(&v_child, CoreValue::from("id"), v_prefixed_id.clone())?;
+    return Ok(v_child.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _program_slice_component_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_component_map = core_arg(args, 0);
+    let mut v_prefix = core_arg(args, 1);
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_prefix_len = CoreValue::Null;
+    let mut v_short_key = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_keys = core_map_keys(&[v_component_map.clone()])?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_matches = core_string_starts_with(&[v_key.clone(), v_prefix.clone()])?;
+        if core_truthy(&v_matches) {
+            v_prefix_len = core_len(&[v_prefix.clone()])?;
+            v_short_key = core_string_slice(&[v_key.clone(), v_prefix_len.clone()])?;
+            v_value = core_get(&v_component_map, &v_key.clone(), CoreValue::Null);
+            core_set(&v_out, v_short_key.clone(), v_value.clone())?;
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_add_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_step = core_arg(args, 1);
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_err = CoreValue::Null;
+    let mut v_existing = CoreValue::Null;
+    let mut v_existing_name = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_steps = CoreValue::Null;
+    v_steps = core_get(&v_flow, &CoreValue::from("steps"), CoreValue::Null);
+    v_name = core_get(&v_step, &CoreValue::from("name"), CoreValue::from(""));
+    for v_existing in core_iter(&v_steps)? {
+        let mut v_existing = v_existing;
+        v_existing_name = core_get(&v_existing, &CoreValue::from("name"), CoreValue::from(""));
+        v_duplicate = core_eq(&[v_existing_name.clone(), v_name.clone()])?;
+        if core_truthy(&v_duplicate) {
+            v_message =
+                core_string_format(&[CoreValue::from("duplicate flow step: {}"), v_name.clone()])?;
+            v_err = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_err));
+        }
+    }
+    core_append(&v_steps, v_step.clone())?;
+    core_set(&v_flow, CoreValue::from("steps"), v_steps.clone())?;
+    return Ok(v_flow.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_set_returns(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_returns = core_arg(args, 1);
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_spec = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_missing = core_is_none(&[v_returns.clone()])?;
+    v_spec = v_returns.clone();
+    if core_truthy(&v_missing) {
+        v_spec = v_empty_map.clone();
+    }
+    core_set(&v_flow, CoreValue::from("returns"), v_spec.clone())?;
+    return Ok(v_flow.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_plan_entry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_step = core_arg(args, 0);
+    let mut v_step_index = core_arg(args, 1);
+    let mut v_barrier = CoreValue::Null;
+    let mut v_barrier_camel = CoreValue::Null;
+    let mut v_barrier_snake = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_reads = CoreValue::Null;
+    let mut v_writes = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_kind = core_get(
+        &v_step,
+        &CoreValue::from("kind"),
+        CoreValue::from("execute"),
+    );
+    v_name = core_get(&v_step, &CoreValue::from("name"), CoreValue::from(""));
+    v_reads = core_get(&v_step, &CoreValue::from("reads"), v_empty_list.clone());
+    v_writes = core_get(&v_step, &CoreValue::from("writes"), v_empty_list.clone());
+    v_barrier_snake = core_get(
+        &v_step,
+        &CoreValue::from("is_barrier"),
+        CoreValue::Bool(false),
+    );
+    v_barrier_camel = core_get(
+        &v_step,
+        &CoreValue::from("isBarrier"),
+        v_barrier_snake.clone(),
+    );
+    v_barrier = core_get(
+        &v_step,
+        &CoreValue::from("barrier"),
+        v_barrier_camel.clone(),
+    );
+    v_entry = CoreValue::new_map();
+    core_set(&v_entry, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_entry, CoreValue::from("kind"), v_kind.clone())?;
+    core_set(&v_entry, CoreValue::from("reads"), v_reads.clone())?;
+    core_set(&v_entry, CoreValue::from("writes"), v_writes.clone())?;
+    core_set(&v_entry, CoreValue::from("barrier"), v_barrier.clone())?;
+    core_set(&v_entry, CoreValue::from("stepIndex"), v_step_index.clone())?;
+    return Ok(v_entry.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_plan_can_share_group(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_group = core_arg(args, 0);
+    let mut v_candidate = core_arg(args, 1);
+    let mut v_can_share = CoreValue::Null;
+    let mut v_candidate_barrier = CoreValue::Null;
+    let mut v_candidate_reads = CoreValue::Null;
+    let mut v_candidate_writes = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_existing = CoreValue::Null;
+    let mut v_existing_barrier = CoreValue::Null;
+    let mut v_existing_read = CoreValue::Null;
+    let mut v_existing_reads = CoreValue::Null;
+    let mut v_existing_writes = CoreValue::Null;
+    let mut v_no_writes = CoreValue::Null;
+    let mut v_read = CoreValue::Null;
+    let mut v_read_conflict = CoreValue::Null;
+    let mut v_reverse_read_conflict = CoreValue::Null;
+    let mut v_write = CoreValue::Null;
+    let mut v_write_conflict = CoreValue::Null;
+    let mut v_write_count = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_candidate_barrier = core_get(
+        &v_candidate,
+        &CoreValue::from("barrier"),
+        CoreValue::Bool(true),
+    );
+    v_candidate_writes = core_get(
+        &v_candidate,
+        &CoreValue::from("writes"),
+        v_empty_list.clone(),
+    );
+    v_candidate_reads = core_get(
+        &v_candidate,
+        &CoreValue::from("reads"),
+        v_empty_list.clone(),
+    );
+    v_write_count = core_len(&[v_candidate_writes.clone()])?;
+    v_no_writes = core_eq(&[v_write_count.clone(), CoreValue::Num(0f64)])?;
+    v_can_share = CoreValue::Bool(true);
+    if core_truthy(&v_candidate_barrier) {
+        v_can_share = CoreValue::Bool(false);
+    }
+    if core_truthy(&v_no_writes) {
+        v_can_share = CoreValue::Bool(false);
+    }
+    for v_existing in core_iter(&v_group)? {
+        let mut v_existing = v_existing;
+        v_existing_barrier = core_get(
+            &v_existing,
+            &CoreValue::from("barrier"),
+            CoreValue::Bool(true),
+        );
+        if core_truthy(&v_existing_barrier) {
+            v_can_share = CoreValue::Bool(false);
+        }
+        v_existing_writes = core_get(
+            &v_existing,
+            &CoreValue::from("writes"),
+            v_empty_list.clone(),
+        );
+        v_existing_reads = core_get(&v_existing, &CoreValue::from("reads"), v_empty_list.clone());
+        for v_read in core_iter(&v_candidate_reads)? {
+            let mut v_read = v_read;
+            v_read_conflict = core_contains(&[v_existing_writes.clone(), v_read.clone()])?;
+            if core_truthy(&v_read_conflict) {
+                v_can_share = CoreValue::Bool(false);
+            }
+        }
+        for v_existing_read in core_iter(&v_existing_reads)? {
+            let mut v_existing_read = v_existing_read;
+            v_reverse_read_conflict =
+                core_contains(&[v_candidate_writes.clone(), v_existing_read.clone()])?;
+            if core_truthy(&v_reverse_read_conflict) {
+                v_can_share = CoreValue::Bool(false);
+            }
+        }
+        for v_write in core_iter(&v_candidate_writes)? {
+            let mut v_write = v_write;
+            v_write_conflict = core_contains(&[v_existing_writes.clone(), v_write.clone()])?;
+            if core_truthy(&v_write_conflict) {
+                v_can_share = CoreValue::Bool(false);
+            }
+        }
+    }
+    return Ok(v_can_share.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_barrier = CoreValue::Null;
+    let mut v_bigger = CoreValue::Null;
+    let mut v_can_add = CoreValue::Null;
+    let mut v_current_count = CoreValue::Null;
+    let mut v_current_group = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_group_count = CoreValue::Null;
+    let mut v_group_steps = CoreValue::Null;
+    let mut v_groups = CoreValue::Null;
+    let mut v_has_current = CoreValue::Null;
+    let mut v_has_remaining = CoreValue::Null;
+    let mut v_has_returns = CoreValue::Null;
+    let mut v_level = CoreValue::Null;
+    let mut v_max_parallelism = CoreValue::Null;
+    let mut v_next_step_index = CoreValue::Null;
+    let mut v_parallel_groups = CoreValue::Null;
+    let mut v_plan = CoreValue::Null;
+    let mut v_plan_step = CoreValue::Null;
+    let mut v_plan_steps = CoreValue::Null;
+    let mut v_remaining_count = CoreValue::Null;
+    let mut v_return_next_step_index = CoreValue::Null;
+    let mut v_return_reads = CoreValue::Null;
+    let mut v_return_writes = CoreValue::Null;
+    let mut v_returns = CoreValue::Null;
+    let mut v_returns_entry = CoreValue::Null;
+    let mut v_single_group = CoreValue::Null;
+    let mut v_single_level = CoreValue::Null;
+    let mut v_single_steps = CoreValue::Null;
+    let mut v_step = CoreValue::Null;
+    let mut v_step_index = CoreValue::Null;
+    let mut v_steps = CoreValue::Null;
+    let mut v_total_steps = CoreValue::Null;
+    v_steps = core_get(&v_flow, &CoreValue::from("steps"), CoreValue::Null);
+    v_plan_steps = CoreValue::new_list();
+    v_step_index = CoreValue::Num(0f64);
+    for v_step in core_iter(&v_steps)? {
+        let mut v_step = v_step;
+        v_entry = _flow_plan_entry(&[v_step.clone(), v_step_index.clone()])?;
+        core_append(&v_plan_steps, v_entry.clone())?;
+        v_next_step_index = core_add(&[v_step_index.clone(), CoreValue::Num(1f64)])?;
+        v_step_index = v_next_step_index.clone();
+    }
+    v_empty_map = CoreValue::new_map();
+    v_returns = core_get(&v_flow, &CoreValue::from("returns"), v_empty_map.clone());
+    v_has_returns = core_truthy_value(&[v_returns.clone()])?;
+    if core_truthy(&v_has_returns) {
+        v_return_reads = CoreValue::new_list();
+        v_return_writes = CoreValue::new_list();
+        v_returns_entry = CoreValue::new_map();
+        core_set(
+            &v_returns_entry,
+            CoreValue::from("name"),
+            CoreValue::from("returns"),
+        )?;
+        core_set(
+            &v_returns_entry,
+            CoreValue::from("kind"),
+            CoreValue::from("returns"),
+        )?;
+        core_set(
+            &v_returns_entry,
+            CoreValue::from("reads"),
+            v_return_reads.clone(),
+        )?;
+        core_set(
+            &v_returns_entry,
+            CoreValue::from("writes"),
+            v_return_writes.clone(),
+        )?;
+        core_set(
+            &v_returns_entry,
+            CoreValue::from("barrier"),
+            CoreValue::Bool(true),
+        )?;
+        core_set(
+            &v_returns_entry,
+            CoreValue::from("stepIndex"),
+            v_step_index.clone(),
+        )?;
+        core_append(&v_plan_steps, v_returns_entry.clone())?;
+        v_return_next_step_index = core_add(&[v_step_index.clone(), CoreValue::Num(1f64)])?;
+        v_step_index = v_return_next_step_index.clone();
+    }
+    v_groups = CoreValue::new_list();
+    v_current_group = CoreValue::new_list();
+    for v_plan_step in core_iter(&v_plan_steps)? {
+        let mut v_plan_step = v_plan_step;
+        v_barrier = core_get(
+            &v_plan_step,
+            &CoreValue::from("barrier"),
+            CoreValue::Bool(true),
+        );
+        v_current_count = core_len(&[v_current_group.clone()])?;
+        v_has_current = core_gt(&[v_current_count.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_barrier) {
+            if core_truthy(&v_has_current) {
+                v_group = CoreValue::new_map();
+                v_level = core_len(&[v_groups.clone()])?;
+                core_set(&v_group, CoreValue::from("level"), v_level.clone())?;
+                core_set(&v_group, CoreValue::from("steps"), v_current_group.clone())?;
+                core_append(&v_groups, v_group.clone())?;
+                v_current_group = CoreValue::new_list();
+            }
+            v_single_steps = CoreValue::new_list();
+            core_append(&v_single_steps, v_plan_step.clone())?;
+            v_single_group = CoreValue::new_map();
+            v_single_level = core_len(&[v_groups.clone()])?;
+            core_set(
+                &v_single_group,
+                CoreValue::from("level"),
+                v_single_level.clone(),
+            )?;
+            core_set(
+                &v_single_group,
+                CoreValue::from("steps"),
+                v_single_steps.clone(),
+            )?;
+            core_append(&v_groups, v_single_group.clone())?;
+        } else {
+            v_can_add = CoreValue::Bool(true);
+            if core_truthy(&v_has_current) {
+                v_can_add =
+                    _flow_plan_can_share_group(&[v_current_group.clone(), v_plan_step.clone()])?;
+            }
+            if core_truthy(&v_can_add) {
+                core_append(&v_current_group, v_plan_step.clone())?;
+            } else {
+                v_group = CoreValue::new_map();
+                v_level = core_len(&[v_groups.clone()])?;
+                core_set(&v_group, CoreValue::from("level"), v_level.clone())?;
+                core_set(&v_group, CoreValue::from("steps"), v_current_group.clone())?;
+                core_append(&v_groups, v_group.clone())?;
+                v_current_group = CoreValue::new_list();
+                core_append(&v_current_group, v_plan_step.clone())?;
+            }
+        }
+    }
+    v_remaining_count = core_len(&[v_current_group.clone()])?;
+    v_has_remaining = core_gt(&[v_remaining_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_remaining) {
+        v_group = CoreValue::new_map();
+        v_level = core_len(&[v_groups.clone()])?;
+        core_set(&v_group, CoreValue::from("level"), v_level.clone())?;
+        core_set(&v_group, CoreValue::from("steps"), v_current_group.clone())?;
+        core_append(&v_groups, v_group.clone())?;
+    }
+    v_max_parallelism = CoreValue::Num(1f64);
+    for v_group in core_iter(&v_groups)? {
+        let mut v_group = v_group;
+        v_group_steps = core_get(&v_group, &CoreValue::from("steps"), CoreValue::Null);
+        v_group_count = core_len(&[v_group_steps.clone()])?;
+        v_bigger = core_gt(&[v_group_count.clone(), v_max_parallelism.clone()])?;
+        if core_truthy(&v_bigger) {
+            v_max_parallelism = v_group_count.clone();
+        }
+    }
+    v_plan = CoreValue::new_map();
+    v_total_steps = core_len(&[v_plan_steps.clone()])?;
+    v_parallel_groups = core_len(&[v_groups.clone()])?;
+    core_set(
+        &v_plan,
+        CoreValue::from("totalSteps"),
+        v_total_steps.clone(),
+    )?;
+    core_set(
+        &v_plan,
+        CoreValue::from("parallelGroups"),
+        v_parallel_groups.clone(),
+    )?;
+    core_set(
+        &v_plan,
+        CoreValue::from("maxParallelism"),
+        v_max_parallelism.clone(),
+    )?;
+    core_set(&v_plan, CoreValue::from("steps"), v_plan_steps.clone())?;
+    core_set(&v_plan, CoreValue::from("groups"), v_groups.clone())?;
+    return Ok(v_plan.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_cache_key(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_values = core_arg(args, 0);
+    let mut v_key = CoreValue::Null;
+    v_key = core_json_stable_stringify(&[v_values.clone()])?;
+    return Ok(v_key.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_cache_read_write(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_mode = core_arg(args, 3);
+    let mut v_cached_value = core_arg(args, 4);
+    let mut v_cached = CoreValue::Null;
+    let mut v_can_read_store = CoreValue::Null;
+    let mut v_can_write_store = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_has_store = CoreValue::Null;
+    let mut v_hit = CoreValue::Null;
+    let mut v_is_read = CoreValue::Null;
+    let mut v_is_write = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_opts_missing = CoreValue::Null;
+    let mut v_read_error = CoreValue::Null;
+    let mut v_read_error_snake = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_skip_read = CoreValue::Null;
+    let mut v_skip_write = CoreValue::Null;
+    let mut v_store = CoreValue::Null;
+    let mut v_store_snake = CoreValue::Null;
+    let mut v_write_error = CoreValue::Null;
+    let mut v_write_error_snake = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_opts_missing = core_is_none(&[v_options.clone()])?;
+    v_opts = v_options.clone();
+    if core_truthy(&v_opts_missing) {
+        v_opts = v_empty_map.clone();
+    }
+    v_key = _flow_cache_key(&[v_values.clone()])?;
+    v_store_snake = core_get(&v_opts, &CoreValue::from("cache_store"), CoreValue::Null);
+    v_store = core_get(
+        &v_opts,
+        &CoreValue::from("cacheStore"),
+        v_store_snake.clone(),
+    );
+    v_has_store = core_is_not_none(&[v_store.clone()])?;
+    v_read_error_snake = core_get(
+        &v_opts,
+        &CoreValue::from("cache_read_error"),
+        CoreValue::Bool(false),
+    );
+    v_read_error = core_get(
+        &v_opts,
+        &CoreValue::from("cacheReadError"),
+        v_read_error_snake.clone(),
+    );
+    v_write_error_snake = core_get(
+        &v_opts,
+        &CoreValue::from("cache_write_error"),
+        CoreValue::Bool(false),
+    );
+    v_write_error = core_get(
+        &v_opts,
+        &CoreValue::from("cacheWriteError"),
+        v_write_error_snake.clone(),
+    );
+    v_is_read = core_eq(&[v_mode.clone(), CoreValue::from("read")])?;
+    v_is_write = core_eq(&[v_mode.clone(), CoreValue::from("write")])?;
+    v_none = core_none(&[])?;
+    v_result = CoreValue::new_map();
+    core_set(&v_result, CoreValue::from("key"), v_key.clone())?;
+    core_set(&v_result, CoreValue::from("hit"), CoreValue::Bool(false))?;
+    core_set(&v_result, CoreValue::from("value"), v_none.clone())?;
+    if core_truthy(&v_is_read) {
+        v_can_read_store = core_and(&[v_has_store.clone(), v_read_error.clone()])?;
+        v_skip_read = core_truthy_value(&[v_can_read_store.clone()])?;
+        if core_truthy(&v_skip_read) {
+        } else {
+            if core_truthy(&v_has_store) {
+                v_cached = core_get(&v_store, &v_key.clone(), CoreValue::Null);
+                v_hit = core_is_not_none(&[v_cached.clone()])?;
+                if core_truthy(&v_hit) {
+                    core_set(&v_result, CoreValue::from("hit"), CoreValue::Bool(true))?;
+                    core_set(&v_result, CoreValue::from("value"), v_cached.clone())?;
+                }
+            }
+        }
+    }
+    if core_truthy(&v_is_write) {
+        v_can_write_store = core_and(&[v_has_store.clone(), v_write_error.clone()])?;
+        v_skip_write = core_truthy_value(&[v_can_write_store.clone()])?;
+        if core_truthy(&v_skip_write) {
+        } else {
+            if core_truthy(&v_has_store) {
+                core_set(&v_store, v_key.clone(), v_cached_value.clone())?;
+                core_set(&v_result, CoreValue::from("value"), v_cached_value.clone())?;
+            }
+        }
+    }
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_check_abort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_options = core_arg(args, 0);
+    let mut v_location = core_arg(args, 1);
+    let mut v_abort = CoreValue::Null;
+    let mut v_abort_camel = CoreValue::Null;
+    let mut v_abort_snake = CoreValue::Null;
+    let mut v_aborted = CoreValue::Null;
+    let mut v_err = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_abort_snake = core_get(
+        &v_options,
+        &CoreValue::from("abort_before_step"),
+        CoreValue::Bool(false),
+    );
+    v_abort_camel = core_get(
+        &v_options,
+        &CoreValue::from("abortBeforeStep"),
+        v_abort_snake.clone(),
+    );
+    v_aborted = core_get(
+        &v_options,
+        &CoreValue::from("aborted"),
+        v_abort_camel.clone(),
+    );
+    v_abort = core_get(&v_options, &CoreValue::from("abort"), v_aborted.clone());
+    if core_truthy(&v_abort) {
+        v_message =
+            core_string_format(&[CoreValue::from("Flow aborted at {}"), v_location.clone()])?;
+        v_err = core_runtime_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_err));
+    }
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_project_returns(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_returns = core_arg(args, 1);
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_has_returns = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_path = CoreValue::Null;
+    let mut v_projected = CoreValue::Null;
+    let mut v_spec = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_spec = v_returns.clone();
+    v_missing = core_is_none(&[v_returns.clone()])?;
+    if core_truthy(&v_missing) {
+        v_spec = v_empty_map.clone();
+    }
+    v_has_returns = core_truthy_value(&[v_spec.clone()])?;
+    v_output = v_state.clone();
+    if core_truthy(&v_has_returns) {
+        v_projected = CoreValue::new_map();
+        v_keys = core_map_keys(&[v_spec.clone()])?;
+        for v_key in core_iter(&v_keys)? {
+            let mut v_key = v_key;
+            v_path = core_get(&v_spec, &v_key.clone(), CoreValue::Null);
+            v_value = _flow_get_path(&[v_state.clone(), v_path.clone()])?;
+            core_set(&v_projected, v_key.clone(), v_value.clone())?;
+        }
+        v_output = v_projected.clone();
+    }
+    return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_get_path(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_path = core_arg(args, 1);
+    let mut v_current = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_path_text = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_path_text = core_string_str(&[v_path.clone()])?;
+    v_parts = core_string_split(&[v_path_text.clone(), CoreValue::from(".")])?;
+    v_current = v_state.clone();
+    for v_part in core_iter(&v_parts)? {
+        let mut v_part = v_part;
+        v_is_object = core_type_is(&v_current, CoreValue::from("object"));
+        if core_truthy(&v_is_object) {
+            v_current = core_get(&v_current, &v_part.clone(), v_none.clone());
+        } else {
+            v_current = v_none.clone();
+        }
+    }
+    return Ok(v_current.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_record_child_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_node = core_arg(args, 1);
+    let mut v_program = core_arg(args, 2);
+    let mut v_chat_log = CoreValue::Null;
+    let mut v_child_log = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_name = CoreValue::Null;
+    let mut v_has_entry_name = CoreValue::Null;
+    let mut v_prefixed_entry_name = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_chat_log = core_get(&v_flow, &CoreValue::from("chat_log"), v_empty_list.clone());
+    v_child_log = core_agent_stage_chat_log(&[v_program.clone()])?;
+    for v_entry in core_iter(&v_child_log)? {
+        let mut v_entry = v_entry;
+        v_entry_name = core_get(&v_entry, &CoreValue::from("name"), CoreValue::from(""));
+        v_has_entry_name = core_truthy_value(&[v_entry_name.clone()])?;
+        if core_truthy(&v_has_entry_name) {
+            v_prefixed_entry_name = core_string_format(&[
+                CoreValue::from("{}.{}"),
+                v_node.clone(),
+                v_entry_name.clone(),
+            ])?;
+            core_set(
+                &v_entry,
+                CoreValue::from("name"),
+                v_prefixed_entry_name.clone(),
+            )?;
+        } else {
+            core_set(&v_entry, CoreValue::from("name"), v_node.clone())?;
+        }
+        core_append(&v_chat_log, v_entry.clone())?;
+    }
+    core_set(&v_flow, CoreValue::from("chat_log"), v_chat_log.clone())?;
+    return Ok(v_chat_log.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_record_child_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_node = core_arg(args, 1);
+    let mut v_program = core_arg(args, 2);
+    let mut v_child_usage = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_has_usage = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_usage = core_get(&v_flow, &CoreValue::from("usage"), v_empty_map.clone());
+    v_child_usage = core_agent_stage_usage(&[v_program.clone()])?;
+    v_has_usage = core_truthy_value(&[v_child_usage.clone()])?;
+    if core_truthy(&v_has_usage) {
+        core_set(&v_usage, v_node.clone(), v_child_usage.clone())?;
+    }
+    core_set(&v_flow, CoreValue::from("usage"), v_usage.clone())?;
+    return Ok(v_usage.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_record_child_traces(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_node = core_arg(args, 1);
+    let mut v_program = core_arg(args, 2);
+    let mut v_child_traces = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_traces = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_traces = core_get(&v_flow, &CoreValue::from("traces"), v_empty_list.clone());
+    v_child_traces = core_agent_stage_traces(&[v_program.clone()])?;
+    for v_trace in core_iter(&v_child_traces)? {
+        let mut v_trace = v_trace;
+        v_entry = CoreValue::new_map();
+        core_set(
+            &v_entry,
+            CoreValue::from("kind"),
+            CoreValue::from("flow_child_trace"),
+        )?;
+        core_set(&v_entry, CoreValue::from("name"), v_node.clone())?;
+        core_set(&v_entry, CoreValue::from("trace"), v_trace.clone())?;
+        core_append(&v_traces, v_entry.clone())?;
+    }
+    core_set(&v_flow, CoreValue::from("traces"), v_traces.clone())?;
+    return Ok(v_traces.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_execute_program_node(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_step = core_arg(args, 1);
+    let mut v_client = core_arg(args, 2);
+    let mut v_state = core_arg(args, 3);
+    let mut v_options = core_arg(args, 4);
+    let mut v_abort_any_node = CoreValue::Null;
+    let mut v_abort_during = CoreValue::Null;
+    let mut v_abort_during_snake = CoreValue::Null;
+    let mut v_abort_error = CoreValue::Null;
+    let mut v_abort_message = CoreValue::Null;
+    let mut v_abort_named = CoreValue::Null;
+    let mut v_abort_no_name = CoreValue::Null;
+    let mut v_abort_node = CoreValue::Null;
+    let mut v_abort_node_snake = CoreValue::Null;
+    let mut v_abort_now = CoreValue::Null;
+    let mut v_abort_this_node = CoreValue::Null;
+    let mut v_base_options = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_has_trace_label = CoreValue::Null;
+    let mut v_is_derive = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_program = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_result_key = CoreValue::Null;
+    let mut v_runtime_base = CoreValue::Null;
+    let mut v_runtime_options = CoreValue::Null;
+    let mut v_step_options = CoreValue::Null;
+    let mut v_trace_label = CoreValue::Null;
+    let mut v_trace_label_in = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_name = core_get(&v_step, &CoreValue::from("name"), CoreValue::from(""));
+    v_kind = core_get(
+        &v_step,
+        &CoreValue::from("kind"),
+        CoreValue::from("execute"),
+    );
+    v_program = core_get(&v_step, &CoreValue::from("program"), CoreValue::Null);
+    v_step_options = core_get(&v_step, &CoreValue::from("options"), v_empty_map.clone());
+    v_base_options = core_get(&v_flow, &CoreValue::from("options"), v_empty_map.clone());
+    v_runtime_base = core_map_merge(&[v_base_options.clone(), v_options.clone()])?;
+    v_runtime_options = core_map_merge(&[v_runtime_base.clone(), v_step_options.clone()])?;
+    v_trace_label_in = core_get(
+        &v_options,
+        &CoreValue::from("traceLabel"),
+        CoreValue::from(""),
+    );
+    v_has_trace_label = core_truthy_value(&[v_trace_label_in.clone()])?;
+    v_trace_label = core_string_format(&[CoreValue::from("Node:{}"), v_name.clone()])?;
+    if core_truthy(&v_has_trace_label) {
+        v_trace_label = core_string_format(&[
+            CoreValue::from("Node:{} ({})"),
+            v_name.clone(),
+            v_trace_label_in.clone(),
+        ])?;
+    }
+    core_set(
+        &v_runtime_options,
+        CoreValue::from("traceLabel"),
+        v_trace_label.clone(),
+    )?;
+    v_abort_during_snake = core_get(
+        &v_options,
+        &CoreValue::from("abort_during_step"),
+        CoreValue::Bool(false),
+    );
+    v_abort_during = core_get(
+        &v_options,
+        &CoreValue::from("abortDuringStep"),
+        v_abort_during_snake.clone(),
+    );
+    v_abort_node_snake = core_get(
+        &v_options,
+        &CoreValue::from("abort_during_node"),
+        CoreValue::from(""),
+    );
+    v_abort_node = core_get(
+        &v_options,
+        &CoreValue::from("abortDuringNode"),
+        v_abort_node_snake.clone(),
+    );
+    v_abort_named = core_eq(&[v_abort_node.clone(), v_name.clone()])?;
+    v_abort_no_name = core_eq(&[v_abort_node.clone(), CoreValue::from("")])?;
+    v_abort_this_node = core_and(&[v_abort_during.clone(), v_abort_named.clone()])?;
+    v_abort_any_node = core_and(&[v_abort_during.clone(), v_abort_no_name.clone()])?;
+    v_abort_now = core_or(&[v_abort_this_node.clone(), v_abort_any_node.clone()])?;
+    if core_truthy(&v_abort_now) {
+        v_abort_message = core_string_format(&[
+            CoreValue::from("Flow aborted at flow-node-{}"),
+            v_name.clone(),
+        ])?;
+        v_abort_error = core_runtime_error(&[v_abort_message.clone()])?;
+        return Err(core_as_error(&v_abort_error));
+    }
+    v_result = core_agent_stage_forward(&[
+        v_program.clone(),
+        v_client.clone(),
+        v_state.clone(),
+        v_runtime_options.clone(),
+    ])?;
+    v_out = core_map_merge(&[v_state.clone(), v_empty_map.clone()])?;
+    v_result_key = core_string_format(&[CoreValue::from("{}Result"), v_name.clone()])?;
+    core_set(&v_out, v_result_key.clone(), v_result.clone())?;
+    v_is_derive = core_eq(&[v_kind.clone(), CoreValue::from("derive")])?;
+    if core_truthy(&v_is_derive) {
+        core_set(&v_out, v_name.clone(), v_result.clone())?;
+    }
+    v_out = core_map_update(&[v_out.clone(), v_result.clone()])?;
+    _flow_record_child_chat_log(&[v_flow.clone(), v_name.clone(), v_program.clone()])?;
+    _flow_record_child_usage(&[v_flow.clone(), v_name.clone(), v_program.clone()])?;
+    _flow_record_child_traces(&[v_flow.clone(), v_name.clone(), v_program.clone()])?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_step = core_arg(args, 1);
+    let mut v_plan_step = core_arg(args, 2);
+    let mut v_client = core_arg(args, 3);
+    let mut v_state = core_arg(args, 4);
+    let mut v_options = core_arg(args, 5);
+    let mut v_bad_results = CoreValue::Null;
+    let mut v_body_steps = CoreValue::Null;
+    let mut v_branch = CoreValue::Null;
+    let mut v_branch_steps = CoreValue::Null;
+    let mut v_branch_value = CoreValue::Null;
+    let mut v_branch_value_default = CoreValue::Null;
+    let mut v_branches = CoreValue::Null;
+    let mut v_condition = CoreValue::Null;
+    let mut v_condition_result = CoreValue::Null;
+    let mut v_current = CoreValue::Null;
+    let mut v_default_body = CoreValue::Null;
+    let mut v_default_branches = CoreValue::Null;
+    let mut v_default_results = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_err = CoreValue::Null;
+    let mut v_event_payload = CoreValue::Null;
+    let mut v_existing_iterations = CoreValue::Null;
+    let mut v_has_condition = CoreValue::Null;
+    let mut v_has_predicate = CoreValue::Null;
+    let mut v_is_branch = CoreValue::Null;
+    let mut v_is_feedback = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_is_parallel = CoreValue::Null;
+    let mut v_is_parallel_merge = CoreValue::Null;
+    let mut v_is_while = CoreValue::Null;
+    let mut v_iteration_key = CoreValue::Null;
+    let mut v_iterations = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_location = CoreValue::Null;
+    let mut v_mapped = CoreValue::Null;
+    let mut v_matched = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_max_iterations = CoreValue::Null;
+    let mut v_max_iterations_snake = CoreValue::Null;
+    let mut v_merge_output = CoreValue::Null;
+    let mut v_merge_output_snake = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing_iterations = CoreValue::Null;
+    let mut v_missing_step = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_parallel_results = CoreValue::Null;
+    let mut v_parallel_results_snake = CoreValue::Null;
+    let mut v_predicate = CoreValue::Null;
+    let mut v_program = CoreValue::Null;
+    let mut v_program_id = CoreValue::Null;
+    let mut v_program_out = CoreValue::Null;
+    let mut v_result_key = CoreValue::Null;
+    let mut v_results = CoreValue::Null;
+    let mut v_results_is_list = CoreValue::Null;
+    let mut v_should_continue = CoreValue::Null;
+    let mut v_step_event = CoreValue::Null;
+    let mut v_step_index = CoreValue::Null;
+    let mut v_step_options = CoreValue::Null;
+    let mut v_too_many = CoreValue::Null;
+    let mut v_traces = CoreValue::Null;
+    let mut v_when = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_missing_step = core_is_none(&[v_step.clone()])?;
+    if core_truthy(&v_missing_step) {
+        return Ok(v_state.clone());
+    }
+    v_kind = core_get(
+        &v_step,
+        &CoreValue::from("kind"),
+        CoreValue::from("execute"),
+    );
+    v_name = core_get(&v_step, &CoreValue::from("name"), CoreValue::from(""));
+    v_location = core_string_format(&[CoreValue::from("flow-step-{}"), v_name.clone()])?;
+    _flow_check_abort(&[v_options.clone(), v_location.clone()])?;
+    v_traces = core_get(&v_flow, &CoreValue::from("traces"), CoreValue::Null);
+    v_program_id = core_get(
+        &v_flow,
+        &CoreValue::from("program_id"),
+        CoreValue::from("root.flow"),
+    );
+    v_event_payload = CoreValue::new_map();
+    core_set(&v_event_payload, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_event_payload, CoreValue::from("kind"), v_kind.clone())?;
+    v_step_index = core_get(
+        &v_plan_step,
+        &CoreValue::from("stepIndex"),
+        CoreValue::Num(0f64),
+    );
+    core_set(
+        &v_event_payload,
+        CoreValue::from("stepIndex"),
+        v_step_index.clone(),
+    )?;
+    v_step_event = _program_trace_event(&[
+        v_program_id.clone(),
+        CoreValue::from("flow_step"),
+        v_event_payload.clone(),
+    ])?;
+    core_append(&v_traces, v_step_event.clone())?;
+    v_is_map = core_eq(&[v_kind.clone(), CoreValue::from("map")])?;
+    if core_truthy(&v_is_map) {
+        v_program = core_get(&v_step, &CoreValue::from("program"), CoreValue::Null);
+        v_mapped = core_object_call_method(&[
+            v_program.clone(),
+            CoreValue::from("call"),
+            v_state.clone(),
+        ])?;
+        v_out = core_map_merge(&[v_state.clone(), v_empty_map.clone()])?;
+        v_result_key = core_string_format(&[CoreValue::from("{}Result"), v_name.clone()])?;
+        core_set(&v_out, v_result_key.clone(), v_mapped.clone())?;
+        v_out = core_map_update(&[v_out.clone(), v_mapped.clone()])?;
+        return Ok(v_out.clone());
+    }
+    v_is_branch = core_eq(&[v_kind.clone(), CoreValue::from("branch")])?;
+    if core_truthy(&v_is_branch) {
+        v_step_options = core_get(&v_step, &CoreValue::from("options"), v_empty_map.clone());
+        v_predicate = core_get(
+            &v_step_options,
+            &CoreValue::from("predicate"),
+            CoreValue::Null,
+        );
+        v_has_predicate = core_is_not_none(&[v_predicate.clone()])?;
+        v_branch_value_default = core_get(
+            &v_step_options,
+            &CoreValue::from("value"),
+            CoreValue::Bool(false),
+        );
+        v_branch_value = core_get(
+            &v_step_options,
+            &CoreValue::from("branchValue"),
+            v_branch_value_default.clone(),
+        );
+        if core_truthy(&v_has_predicate) {
+            v_branch_value = core_object_call_method(&[
+                v_predicate.clone(),
+                CoreValue::from("call"),
+                v_state.clone(),
+            ])?;
+        }
+        v_default_branches = CoreValue::new_list();
+        v_branches = core_get(
+            &v_step_options,
+            &CoreValue::from("branches"),
+            v_default_branches.clone(),
+        );
+        v_current = v_state.clone();
+        v_matched = CoreValue::Bool(false);
+        for v_branch in core_iter(&v_branches)? {
+            let mut v_branch = v_branch;
+            v_when = core_get(&v_branch, &CoreValue::from("when"), CoreValue::Null);
+            v_matches = core_eq(&[v_when.clone(), v_branch_value.clone()])?;
+            if core_truthy(&v_matches) {
+                v_branch_steps = core_get(
+                    &v_branch,
+                    &CoreValue::from("steps"),
+                    v_default_branches.clone(),
+                );
+                v_current = _flow_execute_nested_steps(&[
+                    v_flow.clone(),
+                    v_client.clone(),
+                    v_branch_steps.clone(),
+                    v_current.clone(),
+                    v_options.clone(),
+                ])?;
+                v_matched = CoreValue::Bool(true);
+            }
+        }
+        return Ok(v_current.clone());
+    }
+    v_is_while = core_eq(&[v_kind.clone(), CoreValue::from("while")])?;
+    if core_truthy(&v_is_while) {
+        v_step_options = core_get(&v_step, &CoreValue::from("options"), v_empty_map.clone());
+        v_condition = core_get(
+            &v_step_options,
+            &CoreValue::from("condition"),
+            CoreValue::Null,
+        );
+        v_has_condition = core_is_not_none(&[v_condition.clone()])?;
+        v_default_body = CoreValue::new_list();
+        v_body_steps = core_get(
+            &v_step_options,
+            &CoreValue::from("steps"),
+            v_default_body.clone(),
+        );
+        v_max_iterations_snake = core_get(
+            &v_step_options,
+            &CoreValue::from("max_iterations"),
+            CoreValue::Num(100f64),
+        );
+        v_max_iterations = core_get(
+            &v_step_options,
+            &CoreValue::from("maxIterations"),
+            v_max_iterations_snake.clone(),
+        );
+        v_current = v_state.clone();
+        v_iterations = CoreValue::Num(0f64);
+        loop {
+            v_condition_result = core_get(
+                &v_step_options,
+                &CoreValue::from("conditionResult"),
+                CoreValue::Bool(false),
+            );
+            if core_truthy(&v_has_condition) {
+                v_condition_result = core_object_call_method(&[
+                    v_condition.clone(),
+                    CoreValue::from("call"),
+                    v_current.clone(),
+                ])?;
+            }
+            v_should_continue = core_truthy_value(&[v_condition_result.clone()])?;
+            v_done = core_not(&[v_should_continue.clone()])?;
+            if core_truthy(&v_done) {
+                break;
+            }
+            v_too_many = core_gte(&[v_iterations.clone(), v_max_iterations.clone()])?;
+            if core_truthy(&v_too_many) {
+                v_message = core_string_format(&[
+                    CoreValue::from("While loop exceeded maximum iterations ({})"),
+                    v_max_iterations.clone(),
+                ])?;
+                v_err = core_runtime_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_err));
+            }
+            _flow_check_abort(&[v_options.clone(), CoreValue::from("flow-while")])?;
+            v_current = _flow_execute_nested_steps(&[
+                v_flow.clone(),
+                v_client.clone(),
+                v_body_steps.clone(),
+                v_current.clone(),
+                v_options.clone(),
+            ])?;
+            v_iterations = core_add(&[v_iterations.clone(), CoreValue::Num(1f64)])?;
+        }
+        return Ok(v_current.clone());
+    }
+    v_is_feedback = core_eq(&[v_kind.clone(), CoreValue::from("feedback")])?;
+    if core_truthy(&v_is_feedback) {
+        v_step_options = core_get(&v_step, &CoreValue::from("options"), v_empty_map.clone());
+        v_condition = core_get(
+            &v_step_options,
+            &CoreValue::from("condition"),
+            CoreValue::Null,
+        );
+        v_has_condition = core_is_not_none(&[v_condition.clone()])?;
+        v_default_body = CoreValue::new_list();
+        v_body_steps = core_get(
+            &v_step_options,
+            &CoreValue::from("steps"),
+            v_default_body.clone(),
+        );
+        v_max_iterations_snake = core_get(
+            &v_step_options,
+            &CoreValue::from("max_iterations"),
+            CoreValue::Num(10f64),
+        );
+        v_max_iterations = core_get(
+            &v_step_options,
+            &CoreValue::from("maxIterations"),
+            v_max_iterations_snake.clone(),
+        );
+        v_label = core_get(&v_step_options, &CoreValue::from("label"), v_name.clone());
+        v_iteration_key =
+            core_string_format(&[CoreValue::from("_feedback_{}_iterations"), v_label.clone()])?;
+        v_current = core_map_merge(&[v_state.clone(), v_empty_map.clone()])?;
+        v_existing_iterations = core_get(&v_current, &v_iteration_key.clone(), CoreValue::Null);
+        v_missing_iterations = core_is_none(&[v_existing_iterations.clone()])?;
+        if core_truthy(&v_missing_iterations) {
+            core_set(&v_current, v_iteration_key.clone(), CoreValue::Num(1f64))?;
+        }
+        v_iterations = CoreValue::Num(1f64);
+        loop {
+            v_condition_result = core_get(
+                &v_step_options,
+                &CoreValue::from("conditionResult"),
+                CoreValue::Bool(false),
+            );
+            if core_truthy(&v_has_condition) {
+                v_condition_result = core_object_call_method(&[
+                    v_condition.clone(),
+                    CoreValue::from("call"),
+                    v_current.clone(),
+                ])?;
+            }
+            v_should_continue = core_truthy_value(&[v_condition_result.clone()])?;
+            v_done = core_not(&[v_should_continue.clone()])?;
+            if core_truthy(&v_done) {
+                break;
+            }
+            v_too_many = core_gte(&[v_iterations.clone(), v_max_iterations.clone()])?;
+            if core_truthy(&v_too_many) {
+                break;
+            }
+            v_location =
+                core_string_format(&[CoreValue::from("flow-feedback-{}"), v_label.clone()])?;
+            _flow_check_abort(&[v_options.clone(), v_location.clone()])?;
+            v_iterations = core_add(&[v_iterations.clone(), CoreValue::Num(1f64)])?;
+            core_set(&v_current, v_iteration_key.clone(), v_iterations.clone())?;
+            v_current = _flow_execute_nested_steps(&[
+                v_flow.clone(),
+                v_client.clone(),
+                v_body_steps.clone(),
+                v_current.clone(),
+                v_options.clone(),
+            ])?;
+        }
+        return Ok(v_current.clone());
+    }
+    v_is_parallel = core_eq(&[v_kind.clone(), CoreValue::from("parallel")])?;
+    if core_truthy(&v_is_parallel) {
+        v_step_options = core_get(&v_step, &CoreValue::from("options"), v_empty_map.clone());
+        v_default_results = CoreValue::new_list();
+        v_parallel_results_snake = core_get(
+            &v_step_options,
+            &CoreValue::from("parallel_results"),
+            v_default_results.clone(),
+        );
+        v_parallel_results = core_get(
+            &v_step_options,
+            &CoreValue::from("parallelResults"),
+            v_parallel_results_snake.clone(),
+        );
+        v_out = core_map_merge(&[v_state.clone(), v_empty_map.clone()])?;
+        core_set(
+            &v_out,
+            CoreValue::from("_parallelResults"),
+            v_parallel_results.clone(),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_is_parallel_merge = core_eq(&[v_kind.clone(), CoreValue::from("parallelMerge")])?;
+    if core_truthy(&v_is_parallel_merge) {
+        v_step_options = core_get(&v_step, &CoreValue::from("options"), v_empty_map.clone());
+        v_results = core_get(
+            &v_state,
+            &CoreValue::from("_parallelResults"),
+            CoreValue::Null,
+        );
+        v_results_is_list = core_type_is(&v_results, CoreValue::from("list"));
+        v_bad_results = core_not(&[v_results_is_list.clone()])?;
+        if core_truthy(&v_bad_results) {
+            v_err = core_runtime_error(&[CoreValue::from("No parallel results found for merge")])?;
+            return Err(core_as_error(&v_err));
+        }
+        v_merge_output_snake = core_get(
+            &v_step_options,
+            &CoreValue::from("merge_output"),
+            v_results.clone(),
+        );
+        v_merge_output = core_get(
+            &v_step_options,
+            &CoreValue::from("mergeOutput"),
+            v_merge_output_snake.clone(),
+        );
+        v_out = core_map_merge(&[v_state.clone(), v_empty_map.clone()])?;
+        v_none = core_none(&[])?;
+        core_set(&v_out, CoreValue::from("_parallelResults"), v_none.clone())?;
+        core_set(&v_out, v_name.clone(), v_merge_output.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_program_out = _flow_execute_program_node(&[
+        v_flow.clone(),
+        v_step.clone(),
+        v_client.clone(),
+        v_state.clone(),
+        v_options.clone(),
+    ])?;
+    return Ok(v_program_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_merge_parallel_results(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_state = core_arg(args, 0);
+    let mut v_result = core_arg(args, 1);
+    let mut v_merged = CoreValue::Null;
+    v_merged = core_map_merge(&[v_state.clone(), v_result.clone()])?;
+    return Ok(v_merged.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_execute_nested_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_client = core_arg(args, 1);
+    let mut v_steps = core_arg(args, 2);
+    let mut v_state = core_arg(args, 3);
+    let mut v_options = core_arg(args, 4);
+    let mut v_chat_log = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_nested = CoreValue::Null;
+    let mut v_nested_chat_log = CoreValue::Null;
+    let mut v_nested_traces = CoreValue::Null;
+    let mut v_nested_usage = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_traces = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_nested = core_map_merge(&[v_flow.clone(), v_empty_map.clone()])?;
+    v_traces = core_get(&v_flow, &CoreValue::from("traces"), CoreValue::Null);
+    v_chat_log = core_get(&v_flow, &CoreValue::from("chat_log"), CoreValue::Null);
+    v_usage = core_get(&v_flow, &CoreValue::from("usage"), CoreValue::Null);
+    core_set(&v_nested, CoreValue::from("steps"), v_steps.clone())?;
+    core_set(&v_nested, CoreValue::from("returns"), v_empty_map.clone())?;
+    core_set(&v_nested, CoreValue::from("traces"), v_traces.clone())?;
+    core_set(&v_nested, CoreValue::from("chat_log"), v_chat_log.clone())?;
+    core_set(&v_nested, CoreValue::from("usage"), v_usage.clone())?;
+    v_out = _flow_execute_steps(&[
+        v_nested.clone(),
+        v_client.clone(),
+        v_state.clone(),
+        v_options.clone(),
+    ])?;
+    v_nested_traces = core_get(&v_nested, &CoreValue::from("traces"), CoreValue::Null);
+    v_nested_chat_log = core_get(&v_nested, &CoreValue::from("chat_log"), CoreValue::Null);
+    v_nested_usage = core_get(&v_nested, &CoreValue::from("usage"), CoreValue::Null);
+    core_set(&v_flow, CoreValue::from("traces"), v_nested_traces.clone())?;
+    core_set(
+        &v_flow,
+        CoreValue::from("chat_log"),
+        v_nested_chat_log.clone(),
+    )?;
+    core_set(&v_flow, CoreValue::from("usage"), v_nested_usage.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_execute_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_client = core_arg(args, 1);
+    let mut v_state = core_arg(args, 2);
+    let mut v_options = core_arg(args, 3);
+    let mut v_auto_parallel = CoreValue::Null;
+    let mut v_current = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_flow_auto = CoreValue::Null;
+    let mut v_flow_auto_camel = CoreValue::Null;
+    let mut v_flow_options = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_group_count = CoreValue::Null;
+    let mut v_group_event = CoreValue::Null;
+    let mut v_group_payload = CoreValue::Null;
+    let mut v_group_start = CoreValue::Null;
+    let mut v_group_steps = CoreValue::Null;
+    let mut v_groups = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_is_parallel_group = CoreValue::Null;
+    let mut v_level = CoreValue::Null;
+    let mut v_location = CoreValue::Null;
+    let mut v_option_auto = CoreValue::Null;
+    let mut v_option_auto_camel = CoreValue::Null;
+    let mut v_plan = CoreValue::Null;
+    let mut v_plan_step = CoreValue::Null;
+    let mut v_plan_steps = CoreValue::Null;
+    let mut v_planned_groups = CoreValue::Null;
+    let mut v_program_id = CoreValue::Null;
+    let mut v_record_groups = CoreValue::Null;
+    let mut v_record_groups_snake = CoreValue::Null;
+    let mut v_result_state = CoreValue::Null;
+    let mut v_sequential_groups = CoreValue::Null;
+    let mut v_single = CoreValue::Null;
+    let mut v_step = CoreValue::Null;
+    let mut v_steps = CoreValue::Null;
+    let mut v_traces = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_steps = core_get(&v_flow, &CoreValue::from("steps"), v_empty_list.clone());
+    v_plan = _flow_plan(&[v_flow.clone()])?;
+    v_plan_steps = core_get(&v_plan, &CoreValue::from("steps"), v_empty_list.clone());
+    v_planned_groups = core_get(&v_plan, &CoreValue::from("groups"), v_empty_list.clone());
+    v_flow_options = core_get(&v_flow, &CoreValue::from("options"), v_empty_map.clone());
+    v_flow_auto_camel = core_get(
+        &v_flow_options,
+        &CoreValue::from("autoParallel"),
+        CoreValue::Bool(true),
+    );
+    v_flow_auto = core_get(
+        &v_flow_options,
+        &CoreValue::from("auto_parallel"),
+        v_flow_auto_camel.clone(),
+    );
+    v_option_auto_camel = core_get(
+        &v_options,
+        &CoreValue::from("autoParallel"),
+        CoreValue::Bool(true),
+    );
+    v_option_auto = core_get(
+        &v_options,
+        &CoreValue::from("auto_parallel"),
+        v_option_auto_camel.clone(),
+    );
+    v_auto_parallel = core_and(&[v_flow_auto.clone(), v_option_auto.clone()])?;
+    v_groups = v_planned_groups.clone();
+    if core_truthy(&v_auto_parallel) {
+    } else {
+        v_sequential_groups = CoreValue::new_list();
+        for v_plan_step in core_iter(&v_plan_steps)? {
+            let mut v_plan_step = v_plan_step;
+            v_single = CoreValue::new_list();
+            core_append(&v_single, v_plan_step.clone())?;
+            v_group = CoreValue::new_map();
+            v_level = core_len(&[v_sequential_groups.clone()])?;
+            core_set(&v_group, CoreValue::from("level"), v_level.clone())?;
+            core_set(&v_group, CoreValue::from("steps"), v_single.clone())?;
+            core_append(&v_sequential_groups, v_group.clone())?;
+        }
+        v_groups = v_sequential_groups.clone();
+    }
+    v_current = v_state.clone();
+    for v_group in core_iter(&v_groups)? {
+        let mut v_group = v_group;
+        v_level = core_get(&v_group, &CoreValue::from("level"), CoreValue::Num(0f64));
+        v_location =
+            core_string_format(&[CoreValue::from("flow-parallel-group-{}"), v_level.clone()])?;
+        _flow_check_abort(&[v_options.clone(), v_location.clone()])?;
+        v_group_steps = core_get(&v_group, &CoreValue::from("steps"), v_empty_list.clone());
+        v_group_count = core_len(&[v_group_steps.clone()])?;
+        v_record_groups_snake = core_get(
+            &v_options,
+            &CoreValue::from("record_flow_groups"),
+            CoreValue::Bool(false),
+        );
+        v_record_groups = core_get(
+            &v_options,
+            &CoreValue::from("recordFlowGroups"),
+            v_record_groups_snake.clone(),
+        );
+        if core_truthy(&v_record_groups) {
+            v_traces = core_get(&v_flow, &CoreValue::from("traces"), v_empty_list.clone());
+            v_program_id = core_get(
+                &v_flow,
+                &CoreValue::from("program_id"),
+                CoreValue::from("root.flow"),
+            );
+            v_group_payload = CoreValue::new_map();
+            core_set(&v_group_payload, CoreValue::from("level"), v_level.clone())?;
+            core_set(
+                &v_group_payload,
+                CoreValue::from("stepCount"),
+                v_group_count.clone(),
+            )?;
+            core_set(
+                &v_group_payload,
+                CoreValue::from("steps"),
+                v_group_steps.clone(),
+            )?;
+            v_group_event = _program_trace_event(&[
+                v_program_id.clone(),
+                CoreValue::from("flow_group"),
+                v_group_payload.clone(),
+            ])?;
+            core_append(&v_traces, v_group_event.clone())?;
+        }
+        v_is_parallel_group = core_gt(&[v_group_count.clone(), CoreValue::Num(1f64)])?;
+        if core_truthy(&v_is_parallel_group) {
+            v_group_start = core_map_merge(&[v_current.clone(), v_empty_map.clone()])?;
+            for v_plan_step in core_iter(&v_group_steps)? {
+                let mut v_plan_step = v_plan_step;
+                v_index = core_get(
+                    &v_plan_step,
+                    &CoreValue::from("stepIndex"),
+                    CoreValue::Num(0f64),
+                );
+                v_step = core_list_get(&[v_steps.clone(), v_index.clone(), CoreValue::Null])?;
+                v_result_state = _flow_execute_step(&[
+                    v_flow.clone(),
+                    v_step.clone(),
+                    v_plan_step.clone(),
+                    v_client.clone(),
+                    v_group_start.clone(),
+                    v_options.clone(),
+                ])?;
+                v_current =
+                    _flow_merge_parallel_results(&[v_current.clone(), v_result_state.clone()])?;
+            }
+        } else {
+            for v_plan_step in core_iter(&v_group_steps)? {
+                let mut v_plan_step = v_plan_step;
+                v_index = core_get(
+                    &v_plan_step,
+                    &CoreValue::from("stepIndex"),
+                    CoreValue::Num(0f64),
+                );
+                v_step = core_list_get(&[v_steps.clone(), v_index.clone(), CoreValue::Null])?;
+                v_current = _flow_execute_step(&[
+                    v_flow.clone(),
+                    v_step.clone(),
+                    v_plan_step.clone(),
+                    v_client.clone(),
+                    v_current.clone(),
+                    v_options.clone(),
+                ])?;
+            }
+        }
+    }
+    return Ok(v_current.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_client = core_arg(args, 1);
+    let mut v_values = core_arg(args, 2);
+    let mut v_options = core_arg(args, 3);
+    let mut v_begin = CoreValue::Null;
+    let mut v_cache_hit = CoreValue::Null;
+    let mut v_cache_key = CoreValue::Null;
+    let mut v_cache_read = CoreValue::Null;
+    let mut v_cached_value = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_done_payload = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_fresh_chat_log = CoreValue::Null;
+    let mut v_fresh_traces = CoreValue::Null;
+    let mut v_fresh_usage = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_opts_missing = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_program_id = CoreValue::Null;
+    let mut v_returns = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_traces = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_opts_missing = core_is_none(&[v_options.clone()])?;
+    v_opts = v_options.clone();
+    if core_truthy(&v_opts_missing) {
+        v_opts = v_empty_map.clone();
+    }
+    v_cache_read = _flow_cache_read_write(&[
+        v_flow.clone(),
+        v_values.clone(),
+        v_opts.clone(),
+        CoreValue::from("read"),
+        CoreValue::Null,
+    ])?;
+    v_cache_hit = core_get(
+        &v_cache_read,
+        &CoreValue::from("hit"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_cache_hit) {
+        v_cached_value = core_get(&v_cache_read, &CoreValue::from("value"), CoreValue::Null);
+        return Ok(v_cached_value.clone());
+    }
+    v_fresh_traces = CoreValue::new_list();
+    v_fresh_chat_log = CoreValue::new_list();
+    v_fresh_usage = CoreValue::new_map();
+    core_set(&v_flow, CoreValue::from("traces"), v_fresh_traces.clone())?;
+    core_set(
+        &v_flow,
+        CoreValue::from("chat_log"),
+        v_fresh_chat_log.clone(),
+    )?;
+    core_set(&v_flow, CoreValue::from("usage"), v_fresh_usage.clone())?;
+    v_state = core_map_merge(&[v_empty_map.clone(), v_values.clone()])?;
+    v_traces = core_get(&v_flow, &CoreValue::from("traces"), CoreValue::Null);
+    v_program_id = core_get(
+        &v_flow,
+        &CoreValue::from("program_id"),
+        CoreValue::from("root.flow"),
+    );
+    v_cache_key = _flow_cache_key(&[v_values.clone()])?;
+    v_begin = _program_trace_event(&[
+        v_program_id.clone(),
+        CoreValue::from("flow_start"),
+        v_state.clone(),
+    ])?;
+    core_append(&v_traces, v_begin.clone())?;
+    v_state = _flow_execute_steps(&[
+        v_flow.clone(),
+        v_client.clone(),
+        v_state.clone(),
+        v_opts.clone(),
+    ])?;
+    v_returns = core_get(&v_flow, &CoreValue::from("returns"), v_empty_map.clone());
+    v_output = _flow_project_returns(&[v_state.clone(), v_returns.clone()])?;
+    _flow_cache_read_write(&[
+        v_flow.clone(),
+        v_values.clone(),
+        v_opts.clone(),
+        CoreValue::from("write"),
+        v_output.clone(),
+    ])?;
+    v_done_payload = CoreValue::new_map();
+    core_set(
+        &v_done_payload,
+        CoreValue::from("cache_key"),
+        v_cache_key.clone(),
+    )?;
+    core_set(&v_done_payload, CoreValue::from("output"), v_output.clone())?;
+    v_done = _program_trace_event(&[
+        v_program_id.clone(),
+        CoreValue::from("flow_done"),
+        v_done_payload.clone(),
+    ])?;
+    core_append(&v_traces, v_done.clone())?;
+    return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_get_optimizable_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_child = CoreValue::Null;
+    let mut v_child_components = CoreValue::Null;
+    let mut v_component = CoreValue::Null;
+    let mut v_components = CoreValue::Null;
+    let mut v_constraints = CoreValue::Null;
+    let mut v_current_plan = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_graph = CoreValue::Null;
+    let mut v_graph_id = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_owner = CoreValue::Null;
+    let mut v_plan = CoreValue::Null;
+    let mut v_program = CoreValue::Null;
+    let mut v_step = CoreValue::Null;
+    let mut v_steps = CoreValue::Null;
+    let mut v_validation = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_empty_map = CoreValue::new_map();
+    v_owner = core_get(
+        &v_flow,
+        &CoreValue::from("program_id"),
+        CoreValue::from("root.flow"),
+    );
+    v_plan = _flow_plan(&[v_flow.clone()])?;
+    v_current_plan = core_get(
+        &v_flow,
+        &CoreValue::from("optimized_graph_plan"),
+        v_plan.clone(),
+    );
+    v_components = CoreValue::new_list();
+    v_graph_id = core_string_format(&[CoreValue::from("{}::graph-plan"), v_owner.clone()])?;
+    v_constraints = CoreValue::new_list();
+    core_append(
+        &v_constraints,
+        CoreValue::from("Preserve node names, dependencies, and return contract."),
+    )?;
+    v_validation = CoreValue::new_map();
+    core_set(
+        &v_validation,
+        CoreValue::from("schema"),
+        CoreValue::from("axflow-plan-v1"),
+    )?;
+    v_graph = _optimization_component(&[
+        v_graph_id.clone(),
+        v_owner.clone(),
+        CoreValue::from("flow-graph"),
+        v_current_plan.clone(),
+        CoreValue::from("AxFlow execution graph and planner barrier metadata."),
+        v_constraints.clone(),
+        v_empty_list.clone(),
+        CoreValue::Bool(false),
+        CoreValue::from("json"),
+        v_validation.clone(),
+    ])?;
+    core_append(&v_components, v_graph.clone())?;
+    v_steps = core_get(&v_flow, &CoreValue::from("steps"), v_empty_list.clone());
+    for v_step in core_iter(&v_steps)? {
+        let mut v_step = v_step;
+        v_program = core_get(&v_step, &CoreValue::from("program"), CoreValue::Null);
+        v_name = core_get(&v_step, &CoreValue::from("name"), CoreValue::from(""));
+        v_child_components = core_program_components(&[v_program.clone()])?;
+        for v_component in core_iter(&v_child_components)? {
+            let mut v_component = v_component;
+            v_child =
+                _program_prefix_component(&[v_component.clone(), v_owner.clone(), v_name.clone()])?;
+            core_append(&v_components, v_child.clone())?;
+        }
+    }
+    return Ok(v_components.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_apply_optimized_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_component_map = core_arg(args, 1);
+    let mut v_bad_graph = CoreValue::Null;
+    let mut v_child_updates = CoreValue::Null;
+    let mut v_components = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_err = CoreValue::Null;
+    let mut v_graph_id = CoreValue::Null;
+    let mut v_graph_is_object = CoreValue::Null;
+    let mut v_graph_update = CoreValue::Null;
+    let mut v_has_child_updates = CoreValue::Null;
+    let mut v_has_graph_update = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_owner = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
+    let mut v_program = CoreValue::Null;
+    let mut v_step = CoreValue::Null;
+    let mut v_steps = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    let mut v_updates_missing = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_updates_missing = core_is_none(&[v_component_map.clone()])?;
+    v_updates = v_component_map.clone();
+    if core_truthy(&v_updates_missing) {
+        v_updates = v_empty_map.clone();
+    }
+    v_components = _flow_get_optimizable_components(&[v_flow.clone()])?;
+    _validate_optimization_component_map(&[v_components.clone(), v_updates.clone()])?;
+    v_owner = core_get(
+        &v_flow,
+        &CoreValue::from("program_id"),
+        CoreValue::from("root.flow"),
+    );
+    v_graph_id = core_string_format(&[CoreValue::from("{}::graph-plan"), v_owner.clone()])?;
+    v_graph_update = core_get(&v_updates, &v_graph_id.clone(), CoreValue::Null);
+    v_has_graph_update = core_is_not_none(&[v_graph_update.clone()])?;
+    if core_truthy(&v_has_graph_update) {
+        v_graph_is_object = core_type_is(&v_graph_update, CoreValue::from("object"));
+        v_bad_graph = core_not(&[v_graph_is_object.clone()])?;
+        if core_truthy(&v_bad_graph) {
+            v_err = core_runtime_error(&[CoreValue::from(
+                "optimized flow graph-plan component must be an object",
+            )])?;
+            return Err(core_as_error(&v_err));
+        }
+        core_set(
+            &v_flow,
+            CoreValue::from("optimized_graph_plan"),
+            v_graph_update.clone(),
+        )?;
+    }
+    v_steps = core_get(&v_flow, &CoreValue::from("steps"), v_empty_list.clone());
+    for v_step in core_iter(&v_steps)? {
+        let mut v_step = v_step;
+        v_program = core_get(&v_step, &CoreValue::from("program"), CoreValue::Null);
+        v_name = core_get(&v_step, &CoreValue::from("name"), CoreValue::from(""));
+        v_prefix = _program_child_component_prefix(&[v_owner.clone(), v_name.clone()])?;
+        v_child_updates = _program_slice_component_map(&[v_updates.clone(), v_prefix.clone()])?;
+        v_has_child_updates = core_truthy_value(&[v_child_updates.clone()])?;
+        if core_truthy(&v_has_child_updates) {
+            core_program_apply_components(&[v_program.clone(), v_child_updates.clone()])?;
+        }
+    }
+    return Ok(v_flow.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_snapshot_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_components = CoreValue::Null;
+    let mut v_snapshot = CoreValue::Null;
+    v_components = _flow_get_optimizable_components(&[v_flow.clone()])?;
+    v_snapshot = _optimization_component_current_map(&[v_components.clone()])?;
+    return Ok(v_snapshot.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_restore_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_snapshot = core_arg(args, 1);
+    let mut v_restored = CoreValue::Null;
+    v_restored = _flow_apply_optimized_components(&[v_flow.clone(), v_snapshot.clone()])?;
+    return Ok(v_restored.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_evaluate_optimization(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_client = core_arg(args, 1);
+    let mut v_dataset = core_arg(args, 2);
+    let mut v_candidate_map = core_arg(args, 3);
+    let mut v_options = core_arg(args, 4);
+    let mut v_calls = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_candidate_missing = CoreValue::Null;
+    let mut v_chat_log = CoreValue::Null;
+    let mut v_completion_type = CoreValue::Null;
+    let mut v_default_score = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_err = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_error_message = CoreValue::Null;
+    let mut v_forward_error = CoreValue::Null;
+    let mut v_forward_options = CoreValue::Null;
+    let mut v_has_candidate = CoreValue::Null;
+    let mut v_input = CoreValue::Null;
+    let mut v_is_error = CoreValue::Null;
+    let mut v_max_calls = CoreValue::Null;
+    let mut v_max_calls_snake = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_next_calls = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_opts_missing = CoreValue::Null;
+    let mut v_original = CoreValue::Null;
+    let mut v_outer_error = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_phase = CoreValue::Null;
+    let mut v_prediction = CoreValue::Null;
+    let mut v_raw_scores = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_row = CoreValue::Null;
+    let mut v_rows = CoreValue::Null;
+    let mut v_scalar = CoreValue::Null;
+    let mut v_scalar_base = CoreValue::Null;
+    let mut v_score_from_score = CoreValue::Null;
+    let mut v_score_from_scores = CoreValue::Null;
+    let mut v_scores = CoreValue::Null;
+    let mut v_task = CoreValue::Null;
+    let mut v_too_many = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_trace_for_row = CoreValue::Null;
+    let mut v_traces = CoreValue::Null;
+    let mut v_train = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_opts_missing = core_is_none(&[v_options.clone()])?;
+    v_opts = v_options.clone();
+    if core_truthy(&v_opts_missing) {
+        v_opts = v_empty_map.clone();
+    }
+    v_candidate_missing = core_is_none(&[v_candidate_map.clone()])?;
+    v_candidate = v_candidate_map.clone();
+    if core_truthy(&v_candidate_missing) {
+        v_candidate = v_empty_map.clone();
+    }
+    v_normalized = _normalize_optimization_dataset(&[v_dataset.clone()])?;
+    v_train = core_get(
+        &v_normalized,
+        &CoreValue::from("train"),
+        v_empty_list.clone(),
+    );
+    v_phase = core_get(&v_opts, &CoreValue::from("phase"), CoreValue::from("train"));
+    v_max_calls_snake = core_get(
+        &v_opts,
+        &CoreValue::from("max_metric_calls"),
+        CoreValue::Num(2147483647f64),
+    );
+    v_max_calls = core_get(
+        &v_opts,
+        &CoreValue::from("maxMetricCalls"),
+        v_max_calls_snake.clone(),
+    );
+    v_forward_options = core_get(
+        &v_opts,
+        &CoreValue::from("forward_options"),
+        v_empty_map.clone(),
+    );
+    v_original = _flow_snapshot_components(&[v_flow.clone()])?;
+    v_rows = CoreValue::new_list();
+    v_calls = CoreValue::Num(0f64);
+    v_result = CoreValue::new_map();
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_has_candidate = core_truthy_value(&[v_candidate.clone()])?;
+        if core_truthy(&v_has_candidate) {
+            _flow_apply_optimized_components(&[v_flow.clone(), v_candidate.clone()])?;
+        }
+        for v_task in core_iter(&v_train)? {
+            let mut v_task = v_task;
+            v_too_many = core_gte(&[v_calls.clone(), v_max_calls.clone()])?;
+            if core_truthy(&v_too_many) {
+                v_message = core_string_format(&[
+                    CoreValue::from("max metric calls exceeded: {}"),
+                    v_max_calls.clone(),
+                ])?;
+                v_err = core_runtime_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_err));
+            }
+            v_next_calls = core_add(&[v_calls.clone(), CoreValue::Num(1f64)])?;
+            v_calls = v_next_calls.clone();
+            v_error = core_none(&[])?;
+            v_prediction = CoreValue::new_map();
+            let __core_try: Result<CoreFlow, AxError> = (|| {
+                v_input = core_get(&v_task, &CoreValue::from("input"), v_task.clone());
+                v_output = _flow_forward(&[
+                    v_flow.clone(),
+                    v_client.clone(),
+                    v_input.clone(),
+                    v_forward_options.clone(),
+                ])?;
+                v_trace = CoreValue::new_map();
+                v_traces = core_get(&v_flow, &CoreValue::from("traces"), v_empty_list.clone());
+                v_chat_log = core_get(&v_flow, &CoreValue::from("chat_log"), v_empty_list.clone());
+                v_usage = core_get(&v_flow, &CoreValue::from("usage"), v_empty_map.clone());
+                core_set(&v_trace, CoreValue::from("traces"), v_traces.clone())?;
+                core_set(&v_trace, CoreValue::from("chat_log"), v_chat_log.clone())?;
+                v_prediction = _build_agent_eval_prediction(&[
+                    v_output.clone(),
+                    v_chat_log.clone(),
+                    v_usage.clone(),
+                    v_trace.clone(),
+                ])?;
+                Ok(CoreFlow::Normal)
+            })();
+            match __core_try {
+                Ok(CoreFlow::Normal) => {}
+                Ok(CoreFlow::Return(value)) => return Ok(CoreFlow::Return(value)),
+                Ok(CoreFlow::Break) => return Ok(CoreFlow::Break),
+                Ok(CoreFlow::Continue) => return Ok(CoreFlow::Continue),
+                Err(__core_caught) => {
+                    v_forward_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                    v_error_message = core_exception_message(&[v_forward_error.clone()])?;
+                    v_error = CoreValue::new_map();
+                    core_set(
+                        &v_error,
+                        CoreValue::from("message"),
+                        v_error_message.clone(),
+                    )?;
+                    v_trace = CoreValue::new_map();
+                    v_traces = core_get(&v_flow, &CoreValue::from("traces"), v_empty_list.clone());
+                    v_chat_log =
+                        core_get(&v_flow, &CoreValue::from("chat_log"), v_empty_list.clone());
+                    v_usage = core_get(&v_flow, &CoreValue::from("usage"), v_empty_map.clone());
+                    core_set(&v_trace, CoreValue::from("traces"), v_traces.clone())?;
+                    core_set(&v_trace, CoreValue::from("chat_log"), v_chat_log.clone())?;
+                    core_set(
+                        &v_prediction,
+                        CoreValue::from("completionType"),
+                        CoreValue::from("error"),
+                    )?;
+                    core_set(&v_prediction, CoreValue::from("error"), v_error.clone())?;
+                    core_set(
+                        &v_prediction,
+                        CoreValue::from("functionCalls"),
+                        v_empty_list.clone(),
+                    )?;
+                    core_set(
+                        &v_prediction,
+                        CoreValue::from("actionLog"),
+                        v_chat_log.clone(),
+                    )?;
+                    core_set(&v_prediction, CoreValue::from("usage"), v_usage.clone())?;
+                    core_set(&v_prediction, CoreValue::from("trace"), v_trace.clone())?;
+                    core_set(
+                        &v_prediction,
+                        CoreValue::from("turnCount"),
+                        CoreValue::Num(0f64),
+                    )?;
+                }
+            }
+            v_completion_type = core_get(
+                &v_prediction,
+                &CoreValue::from("completionType"),
+                CoreValue::from("final"),
+            );
+            v_is_error = core_eq(&[v_completion_type.clone(), CoreValue::from("error")])?;
+            v_default_score = CoreValue::Num(1f64);
+            if core_truthy(&v_is_error) {
+                v_default_score = CoreValue::Num(0f64);
+            }
+            v_score_from_score =
+                core_get(&v_task, &CoreValue::from("score"), v_default_score.clone());
+            v_score_from_scores = core_get(
+                &v_task,
+                &CoreValue::from("scores"),
+                v_score_from_score.clone(),
+            );
+            v_raw_scores = core_get(
+                &v_task,
+                &CoreValue::from("metric_score"),
+                v_score_from_scores.clone(),
+            );
+            v_scores = _normalize_optimization_metric_scores(&[v_raw_scores.clone()])?;
+            v_scalar_base = _scalarize_optimization_scores(&[v_scores.clone(), v_opts.clone()])?;
+            v_scalar = _adjust_optimization_score_for_actions(&[
+                v_scalar_base.clone(),
+                v_task.clone(),
+                v_prediction.clone(),
+            ])?;
+            v_trace_for_row = core_get(&v_prediction, &CoreValue::from("trace"), CoreValue::Null);
+            v_row = _build_optimization_eval_row(&[
+                v_task.clone(),
+                v_prediction.clone(),
+                v_scores.clone(),
+                v_scalar.clone(),
+                v_trace_for_row.clone(),
+                v_error.clone(),
+            ])?;
+            core_append(&v_rows, v_row.clone())?;
+        }
+        v_result = _build_optimization_eval_result(&[
+            v_rows.clone(),
+            v_candidate.clone(),
+            v_phase.clone(),
+        ])?;
+        _flow_restore_components(&[v_flow.clone(), v_original.clone()])?;
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_outer_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            _flow_restore_components(&[v_flow.clone(), v_original.clone()])?;
+            return Err(core_as_error(&v_outer_error));
+        }
+    }
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_optimize_with(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_flow = core_arg(args, 0);
+    let mut v_dataset = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_evaluator_available = core_arg(args, 3);
+    let mut v_chat_log = CoreValue::Null;
+    let mut v_components = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_request = CoreValue::Null;
+    let mut v_run = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_traces = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_components = _flow_get_optimizable_components(&[v_flow.clone()])?;
+    v_trace = CoreValue::new_map();
+    v_traces = core_get(&v_flow, &CoreValue::from("traces"), v_empty_list.clone());
+    v_chat_log = core_get(&v_flow, &CoreValue::from("chat_log"), v_empty_list.clone());
+    core_set(&v_trace, CoreValue::from("traces"), v_traces.clone())?;
+    core_set(&v_trace, CoreValue::from("chat_log"), v_chat_log.clone())?;
+    v_run = _prepare_optimizer_run(&[
+        CoreValue::from("axflow"),
+        v_components.clone(),
+        v_dataset.clone(),
+        v_options.clone(),
+        v_trace.clone(),
+        v_evaluator_available.clone(),
+    ])?;
+    v_request = core_get(&v_run, &CoreValue::from("request"), v_empty_map.clone());
+    return Ok(v_request.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (349 of 353 core functions; remaining modules are hand-written pending migration)
