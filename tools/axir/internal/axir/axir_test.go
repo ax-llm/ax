@@ -1237,15 +1237,7 @@ func auditRustWrapperOwnedCore(t *testing.T, root string) {
 			t.Fatalf("rust generated Core audit missing emitted helper %q in src/lib.rs", required)
 		}
 	}
-	// Modules pending migration stay hand-written wrappers; their emitted
-	// helper names appearing here means enabledRustModules grew without the
-	// corresponding template surgery and audit update.
-	for _, forbidden := range []string{} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("rust generated Core audit found emitted Core helper %q for a module that has not migrated yet", forbidden)
-		}
-	}
-	t.Log("rust generated Core audit: signature module emitted; remaining modules wrapper-owned")
+	t.Log("rust generated Core audit: all modules emitted from the IR")
 }
 
 func auditGeneratedCapabilityCompleteness(t *testing.T, root, target string, manifest CapabilityManifest) {

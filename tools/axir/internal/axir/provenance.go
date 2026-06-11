@@ -25,7 +25,7 @@ var provenanceEnforced = map[string]bool{
 	"java":   true,
 	"cpp":    true,
 	"go":     true,
-	"rust":   false,
+	"rust":   true,
 }
 
 func provenanceEnforcedFor(target string) bool {
@@ -95,6 +95,13 @@ func provenanceExpectations(model AxRuntimeModel, target string, specs []CoreFun
 				name:    spec.Name,
 				inside:  "func " + spec.Name + "(",
 				outside: regexp.MustCompile(`(?m)^func ` + regexp.QuoteMeta(spec.Name) + `\(`),
+			})
+		case "rust":
+			out = append(out, provenanceExpectation{
+				file:    "src/lib.rs",
+				name:    spec.Name,
+				inside:  "fn " + spec.Name + "(",
+				outside: regexp.MustCompile(`(?m)^fn ` + regexp.QuoteMeta(spec.Name) + `\(`),
 			})
 		case "java":
 			args, err := specArgList(model, spec, "Object", javaName)
@@ -169,24 +176,6 @@ func AuditProvenance(model AxRuntimeModel, target string, files map[string]strin
 	specs, err := BuildCoreFuncRegistry(model)
 	if err != nil {
 		return report, err
-	}
-	if target == "rust" {
-		var enabledModules []string
-		seen := map[string]bool{}
-		for _, spec := range specs {
-			if enabledRustModules[spec.Module] {
-				report.EmittedFunctions++
-				if !seen[spec.Module] {
-					seen[spec.Module] = true
-					enabledModules = append(enabledModules, spec.Module)
-				}
-			}
-		}
-		sort.Strings(enabledModules)
-		report.Violations = append(report.Violations,
-			fmt.Sprintf("rust emits %d/%d core functions from the IR (modules: %s); the remainder is hand-written pending migration and fixture-verified only",
-				report.EmittedFunctions, len(specs), strings.Join(enabledModules, ", ")))
-		return report, nil
 	}
 	expectations, err := provenanceExpectations(model, target, specs)
 	if err != nil {

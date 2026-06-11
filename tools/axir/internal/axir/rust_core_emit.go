@@ -6,22 +6,6 @@ import (
 	"strings"
 )
 
-// enabledRustModules lists the emit modules whose Core functions are emitted
-// as native Rust. Modules not listed here keep their hand-written template
-// implementations until their migration PR; the provenance audit reports the
-// gap. The set must grow low-rank-first (see coreModuleRank) so emitted code
-// only calls emitted code.
-var enabledRustModules = map[string]bool{
-	"signature": true,
-	"schema":    true,
-	"prompt":    true,
-	"ai":        true,
-	"gen":       true,
-	"program":   true,
-	"flow":      true,
-	"agent":     true,
-}
-
 // coreIntrinsicRust maps intrinsic names to the Rust helper functions defined
 // in the CoreValue runtime section of the rust template. Unlike the other
 // targets, an unmapped intrinsic is a compile-time error so a module
@@ -145,9 +129,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.axgen.should_continue_steps":           "core_axgen_should_continue_steps",
 }
 
-// BuildRustCore emits the enabled modules' Core functions into the rust
-// template. Modules outside enabledRustModules remain hand-written until
-// their migration lands.
+// BuildRustCore emits every Core function into the rust template.
 func BuildRustCore(model AxRuntimeModel) (string, error) {
 	specs, err := BuildCoreFuncRegistry(model)
 	if err != nil {
@@ -158,9 +140,6 @@ func BuildRustCore(model AxRuntimeModel) (string, error) {
 	b.WriteString("// BEGIN AXIR CORE EMITTED FUNCTIONS\n")
 	emitted := 0
 	for _, spec := range specs {
-		if !enabledRustModules[spec.Module] {
-			continue
-		}
 		text, err := emitRustCoreFunction(names, model.Symbols[spec.Symbol], spec.Name)
 		if err != nil {
 			return "", err
@@ -169,7 +148,7 @@ func BuildRustCore(model AxRuntimeModel) (string, error) {
 		b.WriteByte('\n')
 		emitted++
 	}
-	fmt.Fprintf(&b, "// END AXIR CORE EMITTED FUNCTIONS (%d of %d core functions; remaining modules are hand-written pending migration)\n", emitted, len(specs))
+	fmt.Fprintf(&b, "// END AXIR CORE EMITTED FUNCTIONS (%d of %d core functions)\n", emitted, len(specs))
 	return mustInject(rustLib, "// AXIR_CORE_RUST_FUNCTIONS\n", b.String(), "rustLib")
 }
 
