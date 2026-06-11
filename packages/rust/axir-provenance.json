@@ -1,9 +1,9 @@
 {
   "target": "rust",
   "enforced": false,
-  "emitted_functions": 0,
+  "emitted_functions": 7,
   "files": {},
   "violations": [
-    "rust does not emit Core bodies yet: 0/353 registry functions emitted (hand-written template port, fixture-verified only)"
+    "rust emits 7/353 core functions from the IR (modules: signature); the remainder is hand-written pending migration and fixture-verified only"
   ]
 }
