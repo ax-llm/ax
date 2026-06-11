@@ -17,6 +17,9 @@ var enabledRustModules = map[string]bool{
 	"prompt":    true,
 	"ai":        true,
 	"gen":       true,
+	"program":   true,
+	"flow":      true,
+	"agent":     true,
 }
 
 // coreIntrinsicRust maps intrinsic names to the Rust helper functions defined
@@ -95,6 +98,28 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.ai.error.timeout":                      "core_ai_error_timeout",
 	"intrinsic.ai.error.unsupported":                  "core_ai_error_unsupported",
 	"intrinsic.stream.event_content_parts":            "core_stream_event_content_parts",
+	"intrinsic.agent.stage_chat_log":                  "core_agent_stage_chat_log",
+	"intrinsic.agent.stage_forward":                   "core_agent_stage_forward",
+	"intrinsic.agent.stage_traces":                    "core_agent_stage_traces",
+	"intrinsic.agent.stage_usage":                     "core_agent_stage_usage",
+	"intrinsic.json.stable_stringify":                 "core_json_stable_stringify",
+	"intrinsic.program.apply_components":              "core_program_apply_components",
+	"intrinsic.program.components":                    "core_program_components",
+	"intrinsic.string.split":                          "core_string_split",
+	"intrinsic.agent.callable.invoke":                 "core_agent_callable_invoke",
+	"intrinsic.agent.clarification_error":             "core_agent_clarification_error",
+	"intrinsic.agent.memory_search":                   "core_agent_memory_search",
+	"intrinsic.agent.skill_search":                    "core_agent_skill_search",
+	"intrinsic.agent.runtime.create_session":          "core_agent_runtime_create_session",
+	"intrinsic.agent.runtime.execute":                 "core_agent_runtime_execute",
+	"intrinsic.agent.runtime.inspect":                 "core_agent_runtime_inspect",
+	"intrinsic.agent.runtime.export_state":            "core_agent_runtime_export_state",
+	"intrinsic.agent.runtime.restore_state":           "core_agent_runtime_restore_state",
+	"intrinsic.agent.runtime.close":                   "core_agent_runtime_close",
+	"intrinsic.json.pretty":                           "core_json_pretty",
+	"intrinsic.regex.replace":                         "core_regex_replace",
+	"intrinsic.string.lower_camel":                    "core_string_lower_camel",
+	"intrinsic.string.title_from_camel":               "core_string_title_from_camel",
 	"intrinsic.div":                                   "core_div",
 	"intrinsic.exception.message":                     "core_exception_message",
 	"intrinsic.map.keys":                              "core_map_keys",
@@ -179,7 +204,7 @@ func emitRustCoreFunction(names map[string]string, op Operation, name string) (s
 	locals := map[string]bool{}
 	collectGoLocals(block, locals)
 	var b strings.Builder
-	b.WriteString("#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]\n")
+	b.WriteString("#[allow(unused_variables, unused_assignments, unused_mut, unreachable_code, clippy::all)]\n")
 	fmt.Fprintf(&b, "fn %s(args: &[CoreValue]) -> Result<CoreValue, AxError> {\n", name)
 	declared := map[string]bool{}
 	for i, arg := range block.Args {

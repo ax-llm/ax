@@ -1607,62 +1607,63 @@ impl AxProgram for AxAgent {
 }
 
 pub struct AxFlow {
-    id: String,
-    steps: Vec<(String, AxGen)>,
-    returns: Map<String, Value>,
-    state: Map<String, Value>,
+    state: CoreValue,
 }
 
 pub fn flow(id: &str) -> AxFlow {
-    AxFlow {
-        id: id.to_string(),
-        steps: Vec::new(),
-        returns: Map::new(),
-        state: Map::new(),
-    }
+    let options = CoreValue::new_map();
+    let _ = core_set(&options, CoreValue::from("id"), CoreValue::from(id));
+    let state = _flow_factory(&[options]).unwrap_or_else(|_| CoreValue::new_map());
+    AxFlow { state }
 }
 
 impl AxFlow {
-    pub fn execute(mut self, name: &str, program: AxGen) -> Self {
-        self.steps.push((name.to_string(), program));
+    pub fn execute(self, name: &str, program: AxGen) -> Self {
+        let step = _flow_step(&[
+            CoreValue::from("execute"),
+            CoreValue::from(name),
+            GenHost::new(program),
+            CoreValue::Null,
+        ]);
+        if let Ok(step) = step {
+            let _ = _flow_add_step(&[self.state.clone(), step]);
+        }
         self
     }
 
-    pub fn returns(mut self, mapping: Value) -> Self {
-        self.returns = mapping.as_object().cloned().unwrap_or_default();
+    pub fn returns(self, mapping: Value) -> Self {
+        let _ = _flow_set_returns(&[self.state.clone(), core_value_from_json(&mapping)]);
         self
     }
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
-        self.state = input.as_object().cloned().unwrap_or_default();
-        for (name, program) in &mut self.steps {
-            let output = program.forward(client, Value::Object(self.state.clone()))?;
-            if let Some(obj) = output.as_object() {
-                for (key, value) in obj {
-                    self.state.insert(key.clone(), value.clone());
-                }
-            }
-            self.state.insert(format!("{name}_done"), Value::Bool(true));
-        }
-        let mut out = Map::new();
-        if self.returns.is_empty() {
-            return Ok(Value::Object(self.state.clone()));
-        }
-        for (key, source) in &self.returns {
-            let source_key = source.as_str().unwrap_or(key);
-            out.insert(
-                key.clone(),
-                self.state.get(source_key).cloned().unwrap_or(Value::Null),
-            );
-        }
-        Ok(Value::Object(out))
+        let mut chat = |request: Value| client.chat(request);
+        let result = with_core_client(&mut chat, || {
+            _flow_forward(&[
+                self.state.clone(),
+                CoreValue::Null,
+                core_value_from_json(&input),
+                CoreValue::Null,
+            ])
+        })?;
+        Ok(core_value_to_json(&result))
     }
 
     pub fn get_plan(&self) -> Value {
-        json!({
-            "id": self.id,
-            "steps": self.steps.iter().map(|(name, _)| json!({"name": name})).collect::<Vec<_>>()
-        })
+        let id = core_get(
+            &core_get(&self.state, &CoreValue::from("options"), CoreValue::Null),
+            &CoreValue::from("id"),
+            CoreValue::Null,
+        );
+        let steps = core_get(&self.state, &CoreValue::from("steps"), CoreValue::Null);
+        let mut names = Vec::new();
+        if let Ok(items) = core_iter(&steps) {
+            for step in items {
+                let name = core_get(&step, &CoreValue::from("name"), CoreValue::Null);
+                names.push(json!({"name": core_value_to_json(&name)}));
+            }
+        }
+        json!({"id": core_value_to_json(&id), "steps": names})
     }
 }
 
@@ -5306,6 +5307,13 @@ fn core_get(target: &CoreValue, key: &CoreValue, default: CoreValue) -> CoreValu
         (CoreValue::Map(map), CoreValue::Num(_)) => {
             map.borrow().get(&key.text()).unwrap_or(default)
         }
+        // hosts expose python attribute reads as zero-arg methods
+        (CoreValue::Host(host), CoreValue::Str(name)) => {
+            match host.call_method(name.as_str(), &[]) {
+                Ok(value) => value,
+                Err(_) => default,
+            }
+        }
         (CoreValue::List(items), CoreValue::Num(index)) => {
             let items = items.borrow();
             let index = *index as i64;
@@ -8830,6 +8838,951 @@ fn core_tool_args_fields(args: &Map<String, Value>) -> Result<CoreValue, AxError
     }
     Ok(fields)
 }
+
+
+struct RawScopedClient(*mut dyn FnMut(Value) -> AxResult<Value>);
+
+impl AxAIClient for RawScopedClient {
+    fn chat(&mut self, request: Value) -> AxResult<Value> {
+        // SAFETY: the pointer was captured from the client stack inside the
+        // enclosing with_core_client scope, which outlives this call.
+        let chat = unsafe { &mut *self.0 };
+        chat(request)
+    }
+}
+
+fn core_scoped_client() -> AxResult<RawScopedClient> {
+    let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
+    match top {
+        Some(ptr) => Ok(RawScopedClient(ptr)),
+        None => Err(AxError::runtime("no AI client in scope")),
+    }
+}
+
+pub(crate) struct GenHost {
+    gen: RefCell<AxGen>,
+}
+
+impl GenHost {
+    pub(crate) fn new(gen: AxGen) -> CoreValue {
+        CoreValue::Host(Rc::new(GenHost { gen: RefCell::new(gen) }))
+    }
+}
+
+impl CoreHost for GenHost {
+    fn host_type(&self) -> &'static str {
+        "AxGen"
+    }
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "forward" => {
+                let values = core_value_to_json(&core_arg(args, 1));
+                let mut client = core_scoped_client()?;
+                let output = self.gen.borrow_mut().forward(&mut client, values)?;
+                Ok(core_value_from_json(&output))
+            }
+            "get_chat_log" => Ok(core_value_from_json(&Value::Array(self.gen.borrow().chat_log.clone()))),
+            "get_traces" => Ok(core_value_from_json(&Value::Array(self.gen.borrow().traces.clone()))),
+            other => Err(AxError::runtime(format!(
+                "object of type AxGen has no callable method '{other}'"
+            ))),
+        }
+    }
+}
+
+fn core_host_try(value: &CoreValue, method: &str, args: &[CoreValue]) -> Option<Result<CoreValue, AxError>> {
+    if let CoreValue::Host(host) = value {
+        match host.call_method(method, args) {
+            Err(err) if err.message.contains("no callable method") => None,
+            other => Some(other),
+        }
+    } else {
+        None
+    }
+}
+
+fn core_agent_stage_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_host_try(&core_arg(args, 0), "get_chat_log", &[]) {
+        Some(result) => result,
+        None => Ok(CoreValue::new_list()),
+    }
+}
+
+fn core_agent_stage_traces(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_host_try(&core_arg(args, 0), "get_traces", &[]) {
+        Some(result) => result,
+        None => Ok(CoreValue::new_list()),
+    }
+}
+
+fn core_agent_stage_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let stage = core_arg(args, 0);
+    if let Some(result) = core_host_try(&stage, "get_usage", &[]) {
+        let usage = result?;
+        if core_truthy(&usage) {
+            return Ok(usage);
+        }
+    }
+    if let Some(result) = core_host_try(&stage, "get_chat_log", &[]) {
+        let items = CoreValue::new_list();
+        for entry in core_iter(&result?)? {
+            let usage = core_get(&entry, &CoreValue::from("usage"), CoreValue::Null);
+            if core_truthy(&usage) {
+                core_append(&items, usage)?;
+            }
+        }
+        return Ok(items);
+    }
+    Ok(CoreValue::new_list())
+}
+
+fn core_agent_stage_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let stage = core_arg(args, 0);
+    let client = core_arg(args, 1);
+    let values = core_arg(args, 2);
+    let values = if values.is_null() { CoreValue::new_map() } else { values };
+    let options = core_arg(args, 3);
+    let options = if options.is_null() { CoreValue::new_map() } else { options };
+    match &stage {
+        CoreValue::Host(host) => host.call_method("forward", &[client, values, options]),
+        _ => Err(AxError::runtime("flow stage is not a runnable program")),
+    }
+}
+
+fn core_json_stable_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let value = core_arg(args, 0);
+    let json = if value.is_null() { json!({}) } else { core_value_to_json(&value) };
+    Ok(CoreValue::from_string(stable_stringify(&json)))
+}
+
+fn core_string_split(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let value = core_arg(args, 0).text();
+    let sep = core_arg(args, 1).text();
+    Ok(CoreValue::list_from(value.split(sep.as_str()).map(CoreValue::from).collect()))
+}
+
+fn core_program_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_host_try(&core_arg(args, 0), "get_optimizable_components", &[]) {
+        Some(result) => result,
+        None => Ok(CoreValue::new_list()),
+    }
+}
+
+fn core_program_apply_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let program = core_arg(args, 0);
+    let component_map = core_arg(args, 1);
+    let component_map = if component_map.is_null() { CoreValue::new_map() } else { component_map };
+    if let Some(result) = core_host_try(&program, "apply_optimized_components", &[component_map]) {
+        result?;
+    }
+    Ok(CoreValue::new_map())
+}
+
+// ----- AXIR CORE AGENT ENGINE (host boundary) -----
+// Port of the Python reference helpers for the AxAgent module
+// (_core_agent_* family plus the string/regex/json intrinsics the agent IR
+// leans on) onto the AxIR CoreValue runtime. The AxCodeRuntime and
+// AxCodeSession trait objects ride inside CoreValue::Host wrappers;
+// python's hasattr fallback chains are mirrored with core_host_try, where
+// the "no callable method" sentinel stands in for a missing attribute.
+//
+// Conventions:
+// - state/options/request values are CoreValue maps keyed by the python
+//   attribute names (callable_inventory, qualified_name, runtime_state, ...).
+// - callable(x) in the python sense means x is CoreValue::Host; invoking it
+//   dispatches call_method("call", args).
+// - The AxCodeRuntime/AxCodeSession bridge is JSON-typed (the trait methods
+//   take and return serde_json::Value), so CoreValue::Host values do not
+//   survive the crossing; runtime options and snapshots are plain data.
+
+// python: AxAgentClarificationError. core.raise turns the returned
+// CoreValue::Error into Err(AxError) via core_as_error, so the structured
+// payload must ride inside AxError itself: category marks the error as a
+// clarification, message carries str(question or message or clarification)
+// for expected_error_contains style checks, and code carries the stable
+// JSON of {clarification, payload, state} so catch sites can recover the
+// python exception attributes.
+#[allow(dead_code)]
+pub(crate) const CORE_AGENT_CLARIFICATION_CATEGORY: &str = "agent_clarification";
+
+#[allow(dead_code)]
+const CORE_AGENT_INSPECT_UNAVAILABLE: &str =
+    "[runtime state inspection unavailable: runtime session does not implement inspect_globals()]";
+
+// Recovers the python exception attributes from a clarification AxError:
+// Some({"clarification": ..., "payload": ..., "state": ...}) when the error
+// was produced by core_agent_clarification_error, None otherwise.
+#[allow(dead_code)]
+pub(crate) fn core_agent_clarification_detail(error: &AxError) -> Option<Value> {
+    if error.category != CORE_AGENT_CLARIFICATION_CATEGORY {
+        return None;
+    }
+    error
+        .code
+        .as_deref()
+        .and_then(|raw| serde_json::from_str(raw).ok())
+}
+
+// python:
+//   args = _core_get(payload, "args", []) or []
+//   clarification = args[0] if args else payload
+//   AxAgentClarificationError(clarification, state=state.get("runtime_state", {}), payload=payload)
+// where the exception message is str(question or message or clarification)
+// for dict clarifications and str(clarification) otherwise. RETURNS the
+// error value (the IR raises it separately via core.raise).
+#[allow(dead_code)]
+fn core_agent_clarification_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let payload = core_arg(args, 0);
+    let state = core_arg(args, 1);
+    let payload_args = core_get(&payload, &CoreValue::from("args"), CoreValue::Null);
+    let clarification = match &payload_args {
+        CoreValue::List(items) if !items.borrow().is_empty() => items.borrow()[0].clone(),
+        _ => payload.clone(),
+    };
+    let message = match &clarification {
+        CoreValue::Map(_) => {
+            let question = core_get(&clarification, &CoreValue::from("question"), CoreValue::Null);
+            let fallback = core_get(&clarification, &CoreValue::from("message"), CoreValue::Null);
+            if core_truthy(&question) {
+                question.text()
+            } else if core_truthy(&fallback) {
+                fallback.text()
+            } else {
+                clarification.text()
+            }
+        }
+        other => other.text(),
+    };
+    let runtime_state = core_get(&state, &CoreValue::from("runtime_state"), CoreValue::new_map());
+    let detail = json!({
+        "clarification": core_value_to_json(&clarification),
+        "payload": core_value_to_json(&payload),
+        "state": core_value_to_json(&runtime_state),
+    });
+    let mut error = AxError::new(CORE_AGENT_CLARIFICATION_CATEGORY, message);
+    error.error_type = Some("AxAgentClarificationError".to_string());
+    error.code = Some(stable_stringify(&detail));
+    Ok(CoreValue::Error(Rc::new(error)))
+}
+
+// ----- AxCodeRuntime / AxCodeSession hosts -----
+// RuntimeCapabilities plays the role of python's override detection: the
+// reference checks type(session).snapshot_globals is not
+// AxCodeSession.snapshot_globals (and the scripted session consults
+// runtime.capabilities). Rust trait objects cannot observe overrides, so the
+// wiring states the capabilities up front; a disabled capability reproduces
+// the python behaviour for a session that never implemented the method.
+
+#[allow(dead_code)]
+pub(crate) fn core_runtime_capabilities_full() -> RuntimeCapabilities {
+    RuntimeCapabilities {
+        inspect_globals: true,
+        snapshot_globals: true,
+        patch_globals: true,
+    }
+}
+
+#[allow(dead_code)]
+struct CodeRuntimeHost {
+    runtime: Rc<RefCell<Box<dyn AxCodeRuntime>>>,
+    capabilities: RuntimeCapabilities,
+}
+
+#[allow(dead_code)]
+pub(crate) fn core_code_runtime_host(runtime: Box<dyn AxCodeRuntime>) -> CoreValue {
+    core_code_runtime_host_shared(
+        Rc::new(RefCell::new(runtime)),
+        core_runtime_capabilities_full(),
+    )
+}
+
+#[allow(dead_code)]
+pub(crate) fn core_code_runtime_host_with_capabilities(
+    runtime: Box<dyn AxCodeRuntime>,
+    capabilities: RuntimeCapabilities,
+) -> CoreValue {
+    core_code_runtime_host_shared(Rc::new(RefCell::new(runtime)), capabilities)
+}
+
+// Shared form for wiring that needs to keep a handle on the runtime (for
+// example a scripted conformance runtime whose call log is asserted after
+// the forward pass).
+#[allow(dead_code)]
+pub(crate) fn core_code_runtime_host_shared(
+    runtime: Rc<RefCell<Box<dyn AxCodeRuntime>>>,
+    capabilities: RuntimeCapabilities,
+) -> CoreValue {
+    CoreValue::Host(Rc::new(CodeRuntimeHost {
+        runtime,
+        capabilities,
+    }))
+}
+
+impl CoreHost for CodeRuntimeHost {
+    fn host_type(&self) -> &'static str {
+        "AxCodeRuntime"
+    }
+
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "create_session" => {
+                let globals = core_value_to_json(&core_arg(args, 0));
+                let options = core_value_to_json(&core_arg(args, 1));
+                let session = self.runtime.borrow_mut().create_session(globals, options)?;
+                Ok(core_code_session_host_with_capabilities(
+                    session,
+                    self.capabilities.clone(),
+                ))
+            }
+            // python attribute access (runtime.language, runtime.get_usage_instructions())
+            "language" => Ok(CoreValue::from_string(
+                self.runtime.borrow().language().to_string(),
+            )),
+            "usage_instructions" | "get_usage_instructions" | "usageInstructions" => {
+                Ok(CoreValue::from_string(
+                    self.runtime.borrow().usage_instructions().to_string(),
+                ))
+            }
+            other => Err(AxError::runtime(format!(
+                "object of type AxCodeRuntime has no callable method '{other}'"
+            ))),
+        }
+    }
+}
+
+#[allow(dead_code)]
+struct CodeSessionHost {
+    session: Rc<RefCell<Box<dyn AxCodeSession>>>,
+    capabilities: RuntimeCapabilities,
+}
+
+#[allow(dead_code)]
+pub(crate) fn core_code_session_host(session: Box<dyn AxCodeSession>) -> CoreValue {
+    core_code_session_host_with_capabilities(session, core_runtime_capabilities_full())
+}
+
+#[allow(dead_code)]
+pub(crate) fn core_code_session_host_with_capabilities(
+    session: Box<dyn AxCodeSession>,
+    capabilities: RuntimeCapabilities,
+) -> CoreValue {
+    CoreValue::Host(Rc::new(CodeSessionHost {
+        session: Rc::new(RefCell::new(session)),
+        capabilities,
+    }))
+}
+
+impl CoreHost for CodeSessionHost {
+    fn host_type(&self) -> &'static str {
+        "AxCodeSession"
+    }
+
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "execute" => {
+                let code = core_arg(args, 0).text();
+                let options = core_value_to_json(&core_arg(args, 1));
+                let envelope = self.session.borrow_mut().execute(&code, options)?;
+                Ok(core_value_from_json(&envelope.payload))
+            }
+            "inspect_globals" => {
+                // python base AxCodeSession.inspect_globals (and the scripted
+                // session with the inspect capability off) returns the
+                // unavailable notice instead of raising.
+                if !self.capabilities.inspect_globals {
+                    return Ok(CoreValue::from(CORE_AGENT_INSPECT_UNAVAILABLE));
+                }
+                let options = core_value_to_json(&core_arg(args, 0));
+                let result = self.session.borrow_mut().inspect_globals(options)?;
+                Ok(core_value_from_json(&result))
+            }
+            "snapshot_globals" => {
+                if !self.capabilities.snapshot_globals {
+                    return Err(AxError::runtime(
+                        "AxCodeSession.snapshot_globals() is required to export AxAgent state",
+                    ));
+                }
+                let options = core_value_to_json(&core_arg(args, 0));
+                let result = self.session.borrow_mut().snapshot_globals(options)?;
+                Ok(core_value_from_json(&result))
+            }
+            "patch_globals" => {
+                if !self.capabilities.patch_globals {
+                    return Err(AxError::runtime(
+                        "AxCodeSession.patch_globals() is required to restore AxAgent state",
+                    ));
+                }
+                let snapshot = core_value_to_json(&core_arg(args, 0));
+                let options = core_value_to_json(&core_arg(args, 1));
+                let result = self.session.borrow_mut().patch_globals(snapshot, options)?;
+                Ok(core_value_from_json(&result))
+            }
+            "close" => {
+                let result = self.session.borrow_mut().close()?;
+                Ok(core_value_from_json(&result))
+            }
+            other => Err(AxError::runtime(format!(
+                "object of type AxCodeSession has no callable method '{other}'"
+            ))),
+        }
+    }
+}
+
+// ----- shared small helpers -----
+
+// python: value or {}
+#[allow(dead_code)]
+fn core_agent_or_empty_map(value: CoreValue) -> CoreValue {
+    if core_truthy(&value) {
+        value
+    } else {
+        CoreValue::new_map()
+    }
+}
+
+// python: _core_get(state, "options", {}) or {}
+#[allow(dead_code)]
+fn core_agent_state_options(state: &CoreValue) -> CoreValue {
+    core_agent_or_empty_map(core_get(
+        state,
+        &CoreValue::from("options"),
+        CoreValue::Null,
+    ))
+}
+
+// python: options.get(snake) or options.get(camel)
+#[allow(dead_code)]
+fn core_agent_option(options: &CoreValue, snake: &str, camel: &str) -> CoreValue {
+    let value = core_get(options, &CoreValue::from(snake), CoreValue::Null);
+    if core_truthy(&value) {
+        return value;
+    }
+    core_get(options, &CoreValue::from(camel), CoreValue::Null)
+}
+
+// python: list(value or []) (shallow copy; dicts iterate keys, like list())
+#[allow(dead_code)]
+fn core_agent_list_copy(value: &CoreValue) -> Result<CoreValue, AxError> {
+    if !core_truthy(value) {
+        return Ok(CoreValue::new_list());
+    }
+    Ok(CoreValue::list_from(core_iter(value)?))
+}
+
+// python: copy.deepcopy(value) for the plain-data values scripted fixtures
+// hold; implemented as a JSON round trip (Host values do not occur in
+// scripted results).
+#[allow(dead_code)]
+fn core_agent_deep_copy(value: &CoreValue) -> CoreValue {
+    core_value_from_json(&core_value_to_json(value))
+}
+
+#[allow(dead_code)]
+fn core_agent_map(entries: &[(&str, CoreValue)]) -> Result<CoreValue, AxError> {
+    let out = CoreValue::new_map();
+    for (key, value) in entries {
+        core_set(&out, CoreValue::from(key), value.clone())?;
+    }
+    Ok(out)
+}
+
+// ----- runtime lifecycle intrinsics -----
+
+// python: _core_agent_runtime_create_session(runtime, globals_, options)
+#[allow(dead_code)]
+fn core_agent_runtime_create_session(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let runtime = core_arg(args, 0);
+    let globals = core_agent_or_empty_map(core_arg(args, 1));
+    let options = core_agent_or_empty_map(core_arg(args, 2));
+    match core_host_try(&runtime, "create_session", &[globals, options]) {
+        Some(result) => {
+            let session = result?;
+            if session.is_null() {
+                return Err(AxError::runtime("agent runtime returned no session"));
+            }
+            Ok(session)
+        }
+        None => Err(AxError::runtime(
+            "agent runtime does not implement AxCodeRuntime",
+        )),
+    }
+}
+
+// python: _core_agent_runtime_execute(session, code, options)
+#[allow(dead_code)]
+fn core_agent_runtime_execute(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let session = core_arg(args, 0);
+    let code = CoreValue::from_string(core_arg(args, 1).text());
+    let options = core_agent_or_empty_map(core_arg(args, 2));
+    match core_host_try(&session, "execute", &[code, options]) {
+        Some(result) => result,
+        None => Err(AxError::runtime("agent code session is not active")),
+    }
+}
+
+// python: _core_agent_runtime_inspect(session, options) with the
+// inspect_globals -> inspect -> notice fallback chain.
+#[allow(dead_code)]
+fn core_agent_runtime_inspect(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let session = core_arg(args, 0);
+    let options = core_agent_or_empty_map(core_arg(args, 1));
+    if let Some(result) = core_host_try(&session, "inspect_globals", &[options.clone()]) {
+        return result;
+    }
+    if let Some(result) = core_host_try(&session, "inspect", &[options]) {
+        return result;
+    }
+    Ok(CoreValue::from(CORE_AGENT_INSPECT_UNAVAILABLE))
+}
+
+// python: _core_agent_runtime_export_state(session, options) with the
+// snapshot_globals -> export_state -> raise fallback chain.
+#[allow(dead_code)]
+fn core_agent_runtime_export_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let session = core_arg(args, 0);
+    let options = core_agent_or_empty_map(core_arg(args, 1));
+    if let Some(result) = core_host_try(&session, "snapshot_globals", &[options.clone()]) {
+        return result;
+    }
+    if let Some(result) = core_host_try(&session, "export_state", &[options]) {
+        return result;
+    }
+    Err(AxError::runtime(
+        "AxCodeSession.snapshot_globals() is required to export AxAgent state",
+    ))
+}
+
+// python: _core_agent_runtime_restore_state(session, snapshot, options) with
+// the patch_globals -> restore_state -> raise fallback chain.
+#[allow(dead_code)]
+fn core_agent_runtime_restore_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let session = core_arg(args, 0);
+    let snapshot = core_agent_or_empty_map(core_arg(args, 1));
+    let options = core_agent_or_empty_map(core_arg(args, 2));
+    if let Some(result) = core_host_try(
+        &session,
+        "patch_globals",
+        &[snapshot.clone(), options.clone()],
+    ) {
+        return result;
+    }
+    if let Some(result) = core_host_try(&session, "restore_state", &[snapshot, options]) {
+        return result;
+    }
+    Err(AxError::runtime(
+        "AxCodeSession.patch_globals() is required to restore AxAgent state",
+    ))
+}
+
+// python: _core_agent_runtime_close(session); None results normalize to
+// {"closed": True}.
+#[allow(dead_code)]
+fn core_agent_runtime_close(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let session = core_arg(args, 0);
+    let closed = || core_agent_map(&[("closed", CoreValue::Bool(true))]);
+    match core_host_try(&session, "close", &[]) {
+        Some(result) => {
+            let value = result?;
+            if value.is_null() {
+                closed()
+            } else {
+                Ok(value)
+            }
+        }
+        None => closed(),
+    }
+}
+
+// ----- memory / skill search intrinsics -----
+
+// python: _core_agent_memory_search(state, searches, already_loaded).
+// Callback path first (on_memories_search / onMemoriesSearch), then scripted
+// results (memory_search_results / memorySearchResults): exact joined key,
+// then per-search key (first hit wins), then the "*" fallback.
+#[allow(dead_code)]
+fn core_agent_memory_search(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let state = core_arg(args, 0);
+    let searches = core_arg(args, 1);
+    let already_loaded = core_arg(args, 2);
+    let options = core_agent_state_options(&state);
+    let callback = core_agent_option(&options, "on_memories_search", "onMemoriesSearch");
+    if let Some(result) = core_host_try(
+        &callback,
+        "call",
+        &[
+            core_agent_list_copy(&searches)?,
+            core_agent_list_copy(&already_loaded)?,
+        ],
+    ) {
+        let value = result?;
+        return Ok(if core_truthy(&value) {
+            value
+        } else {
+            CoreValue::new_list()
+        });
+    }
+    let scripted = core_agent_or_empty_map(core_agent_option(
+        &options,
+        "memory_search_results",
+        "memorySearchResults",
+    ));
+    match &scripted {
+        CoreValue::Map(map) => {
+            let items = if core_truthy(&searches) {
+                core_iter(&searches)?
+            } else {
+                Vec::new()
+            };
+            let joined = items
+                .iter()
+                .map(|item| item.text())
+                .collect::<Vec<_>>()
+                .join("|");
+            if map.borrow().contains(&joined) {
+                return Ok(core_agent_deep_copy(&core_get(
+                    &scripted,
+                    &CoreValue::from(joined.as_str()),
+                    CoreValue::Null,
+                )));
+            }
+            for item in &items {
+                let key = item.text();
+                if map.borrow().contains(&key) {
+                    return Ok(core_agent_deep_copy(&core_get(
+                        &scripted,
+                        &CoreValue::from(key.as_str()),
+                        CoreValue::Null,
+                    )));
+                }
+            }
+            Ok(core_agent_deep_copy(&core_get(
+                &scripted,
+                &CoreValue::from("*"),
+                CoreValue::new_list(),
+            )))
+        }
+        CoreValue::List(_) => Ok(core_agent_deep_copy(&scripted)),
+        _ => Ok(CoreValue::new_list()),
+    }
+}
+
+// python: _core_agent_skill_search(state, searches). Callback path first
+// (on_skills_search / onSkillsSearch), then scripted results
+// (skill_search_results / skillSearchResults): exact joined key, then the
+// concatenation of every per-search hit, then the "*" fallback.
+#[allow(dead_code)]
+fn core_agent_skill_search(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let state = core_arg(args, 0);
+    let searches = core_arg(args, 1);
+    let options = core_agent_state_options(&state);
+    let callback = core_agent_option(&options, "on_skills_search", "onSkillsSearch");
+    if let Some(result) = core_host_try(&callback, "call", &[core_agent_list_copy(&searches)?]) {
+        let value = result?;
+        return Ok(if core_truthy(&value) {
+            value
+        } else {
+            CoreValue::new_list()
+        });
+    }
+    let scripted = core_agent_or_empty_map(core_agent_option(
+        &options,
+        "skill_search_results",
+        "skillSearchResults",
+    ));
+    match &scripted {
+        CoreValue::Map(map) => {
+            let items = if core_truthy(&searches) {
+                core_iter(&searches)?
+            } else {
+                Vec::new()
+            };
+            let joined = items
+                .iter()
+                .map(|item| item.text())
+                .collect::<Vec<_>>()
+                .join("|");
+            if map.borrow().contains(&joined) {
+                return Ok(core_agent_deep_copy(&core_get(
+                    &scripted,
+                    &CoreValue::from(joined.as_str()),
+                    CoreValue::Null,
+                )));
+            }
+            let out = CoreValue::new_list();
+            for item in &items {
+                let key = item.text();
+                let entry = core_agent_deep_copy(&core_get(
+                    &scripted,
+                    &CoreValue::from(key.as_str()),
+                    CoreValue::new_list(),
+                ));
+                for hit in core_iter(&entry)? {
+                    core_append(&out, hit)?;
+                }
+            }
+            if core_truthy(&out) {
+                return Ok(out);
+            }
+            Ok(core_agent_deep_copy(&core_get(
+                &scripted,
+                &CoreValue::from("*"),
+                CoreValue::new_list(),
+            )))
+        }
+        CoreValue::List(_) => Ok(core_agent_deep_copy(&scripted)),
+        _ => Ok(CoreValue::new_list()),
+    }
+}
+
+// ----- callable invocation intrinsic -----
+
+// python: _core_agent_callable_invoke(state, request, options). Walks
+// state["callable_inventory"] groups for a callable whose qualified_name
+// matches and invokes its handler when callable; otherwise consults
+// scripted callable_results / callableResults (qualified name, plain name,
+// then "*"); otherwise reports the unknown callable. The third argument is
+// accepted and ignored, mirroring the reference.
+#[allow(dead_code)]
+fn core_agent_callable_invoke(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let state = core_arg(args, 0);
+    let request = core_arg(args, 1);
+    let agent_options = core_agent_state_options(&state);
+    let name = core_get(&request, &CoreValue::from("name"), CoreValue::from(""));
+    let qualified = core_get(&request, &CoreValue::from("qualified_name"), name.clone());
+    let call_args = core_get(&request, &CoreValue::from("args"), CoreValue::new_map());
+    let inventory = core_get(
+        &state,
+        &CoreValue::from("callable_inventory"),
+        CoreValue::Null,
+    );
+    for group in core_axgen_iter_or_empty(&inventory)? {
+        let callables = core_get(&group, &CoreValue::from("callables"), CoreValue::Null);
+        for callable_meta in core_axgen_iter_or_empty(&callables)? {
+            let meta_qualified = core_get(
+                &callable_meta,
+                &CoreValue::from("qualified_name"),
+                CoreValue::Null,
+            );
+            if meta_qualified != qualified {
+                continue;
+            }
+            let handler = core_get(&callable_meta, &CoreValue::from("handler"), CoreValue::Null);
+            if let CoreValue::Host(host) = &handler {
+                let value = host.call_method("call", &[call_args.clone()])?;
+                return core_agent_map(&[("status", CoreValue::from("ok")), ("value", value)]);
+            }
+        }
+    }
+    let scripted = core_agent_or_empty_map(core_agent_option(
+        &agent_options,
+        "callable_results",
+        "callableResults",
+    ));
+    if let CoreValue::Map(_) = &scripted {
+        let mut result = core_get(&scripted, &qualified, CoreValue::Null);
+        if result.is_null() {
+            result = core_get(&scripted, &name, CoreValue::Null);
+        }
+        if result.is_null() {
+            result = core_get(&scripted, &CoreValue::from("*"), CoreValue::Null);
+        }
+        if !result.is_null() {
+            let copied = core_agent_deep_copy(&result);
+            if let CoreValue::Map(map) = &copied {
+                let error = core_get(&copied, &CoreValue::from("error"), CoreValue::Null);
+                if core_truthy(&error) {
+                    return core_agent_map(&[
+                        ("status", CoreValue::from("error")),
+                        ("error", error),
+                    ]);
+                }
+                // python: copied.setdefault("status", "ok")
+                if !map.borrow().contains("status") {
+                    core_set(&copied, CoreValue::from("status"), CoreValue::from("ok"))?;
+                }
+                return Ok(copied);
+            }
+            return core_agent_map(&[("status", CoreValue::from("ok")), ("value", copied)]);
+        }
+    }
+    core_agent_map(&[
+        ("status", CoreValue::from("error")),
+        (
+            "error",
+            CoreValue::from_string(format!("unknown callable: {}", qualified.text())),
+        ),
+    ])
+}
+
+// ----- string / regex / json intrinsics -----
+
+// Translates a python re.sub replacement template into the regex crate's
+// replacement syntax: literal dollars are escaped, backreferences become
+// brace-delimited group references (group numbers cap at two digits, like
+// python), the named \g<name> form maps across, doubled backslashes
+// collapse, and the common control escapes are decoded.
+#[allow(dead_code)]
+fn core_regex_python_replacement(repl: &str) -> String {
+    let mut out = String::new();
+    let mut chars = repl.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '$' {
+            out.push_str("$$");
+            continue;
+        }
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.peek().copied() {
+            Some('\\') => {
+                chars.next();
+                out.push('\\');
+            }
+            Some('n') => {
+                chars.next();
+                out.push('\n');
+            }
+            Some('t') => {
+                chars.next();
+                out.push('\t');
+            }
+            Some('r') => {
+                chars.next();
+                out.push('\r');
+            }
+            Some('g') => {
+                chars.next();
+                if chars.peek().copied() == Some('<') {
+                    chars.next();
+                    let mut group = String::new();
+                    let mut closed = false;
+                    for next in chars.by_ref() {
+                        if next == '>' {
+                            closed = true;
+                            break;
+                        }
+                        group.push(next);
+                    }
+                    if closed && !group.is_empty() {
+                        out.push_str("${");
+                        out.push_str(&group);
+                        out.push('}');
+                    } else {
+                        out.push_str("\\g<");
+                        out.push_str(&group);
+                    }
+                } else {
+                    out.push('\\');
+                    out.push('g');
+                }
+            }
+            Some(digit) if digit.is_ascii_digit() => {
+                let mut group = String::new();
+                while group.len() < 2 {
+                    match chars.peek().copied() {
+                        Some(next) if next.is_ascii_digit() => {
+                            group.push(next);
+                            chars.next();
+                        }
+                        _ => break,
+                    }
+                }
+                out.push_str("${");
+                out.push_str(&group);
+                out.push('}');
+            }
+            _ => out.push('\\'),
+        }
+    }
+    out
+}
+
+// python: re.sub(str(pattern), str(repl), str(value))
+#[allow(dead_code)]
+fn core_regex_replace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let pattern = core_arg(args, 0).text();
+    let repl = core_arg(args, 1).text();
+    let value = core_arg(args, 2).text();
+    let compiled = regex::Regex::new(&pattern)
+        .map_err(|err| AxError::runtime(format!("invalid regex pattern: {err}")))?;
+    let replacement = core_regex_python_replacement(&repl);
+    Ok(CoreValue::from_string(
+        compiled
+            .replace_all(&value, replacement.as_str())
+            .into_owned(),
+    ))
+}
+
+// python: json.dumps(value, indent=2)
+#[allow(dead_code)]
+fn core_json_pretty(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let json = core_value_to_json(&core_arg(args, 0));
+    let text = serde_json::to_string_pretty(&json)
+        .map_err(|err| AxError::runtime(format!("json pretty error: {err}")))?;
+    Ok(CoreValue::from_string(text))
+}
+
+// python: word.lower().capitalize() (first char upper, remainder lower)
+#[allow(dead_code)]
+fn core_string_capitalize_lower(word: &str) -> String {
+    let lowered = word.to_lowercase();
+    let mut chars = lowered.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+// python: _core_string_lower_camel(words)
+#[allow(dead_code)]
+fn core_string_lower_camel(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let words = core_arg(args, 0);
+    let mut items: Vec<String> = Vec::new();
+    if core_truthy(&words) {
+        for item in core_iter(&words)? {
+            let text = item.text();
+            if !text.is_empty() {
+                items.push(text);
+            }
+        }
+    }
+    if items.is_empty() {
+        return Ok(CoreValue::from(""));
+    }
+    let mut out = items[0].to_lowercase();
+    for item in &items[1..] {
+        out.push_str(&core_string_capitalize_lower(item));
+    }
+    Ok(CoreValue::from_string(out))
+}
+
+// python: _core_string_title_from_camel(value)
+//   text = re.sub("Code$", " Code", str(value))
+//   text = re.sub("([a-z0-9])([A-Z])", "\\1 \\2", text).strip()
+//   return text[:1].upper() + text[1:]
+#[allow(dead_code)]
+fn core_string_title_from_camel(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let value = core_arg(args, 0).text();
+    let code_suffix = regex::Regex::new("Code$")
+        .map_err(|err| AxError::runtime(format!("invalid regex pattern: {err}")))?;
+    let spaced_code = code_suffix.replace_all(&value, " Code");
+    let boundary = regex::Regex::new("([a-z0-9])([A-Z])")
+        .map_err(|err| AxError::runtime(format!("invalid regex pattern: {err}")))?;
+    let spaced = boundary
+        .replace_all(spaced_code.as_ref(), "${1} ${2}")
+        .trim()
+        .to_string();
+    let mut chars = spaced.chars();
+    Ok(match chars.next() {
+        Some(first) => {
+            CoreValue::from_string(first.to_uppercase().chain(chars).collect::<String>())
+        }
+        None => CoreValue::from(""),
+    })
+}
+
+// ----- END AXIR CORE AGENT ENGINE -----
 
 // ----- END AXIR CORE VALUE RUNTIME -----
 
