@@ -40673,4 +40673,125 @@ fn _flow_optimize_with(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_request.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (349 of 353 core functions; remaining modules are hand-written pending migration)
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_protocol_constants(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_out = CoreValue::Null;
+    let mut v_versions = CoreValue::Null;
+    v_versions = CoreValue::new_list();
+    core_append(&v_versions, CoreValue::from("2025-11-25"))?;
+    core_append(&v_versions, CoreValue::from("2025-06-18"))?;
+    core_append(&v_versions, CoreValue::from("2025-03-26"))?;
+    core_append(&v_versions, CoreValue::from("2024-11-05"))?;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("protocolVersion"),
+        CoreValue::from("2025-11-25"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("supportedProtocolVersions"),
+        v_versions.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_jsonrpc_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_id = core_arg(args, 0);
+    let mut v_method = core_arg(args, 1);
+    let mut v_params = core_arg(args, 2);
+    let mut v_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("jsonrpc"), CoreValue::from("2.0"))?;
+    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_out, CoreValue::from("method"), v_method.clone())?;
+    v_missing = core_is_none(&[v_params.clone()])?;
+    if core_truthy(&v_missing) {
+    } else {
+        core_set(&v_out, CoreValue::from("params"), v_params.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_jsonrpc_notification(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_method = core_arg(args, 0);
+    let mut v_params = core_arg(args, 1);
+    let mut v_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("jsonrpc"), CoreValue::from("2.0"))?;
+    core_set(&v_out, CoreValue::from("method"), v_method.clone())?;
+    v_missing = core_is_none(&[v_params.clone()])?;
+    if core_truthy(&v_missing) {
+    } else {
+        core_set(&v_out, CoreValue::from("params"), v_params.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_response = core_arg(args, 0);
+    let mut v_code = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_err = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_ok = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    v_err = core_get(&v_response, &CoreValue::from("error"), CoreValue::Null);
+    v_missing = core_is_none(&[v_err.clone()])?;
+    if core_truthy(&v_missing) {
+        v_ok = CoreValue::new_map();
+        v_result = core_get(&v_response, &CoreValue::from("result"), CoreValue::Null);
+        core_set(&v_ok, CoreValue::from("ok"), CoreValue::Bool(true))?;
+        core_set(&v_ok, CoreValue::from("result"), v_result.clone())?;
+        return Ok(v_ok.clone());
+    } else {
+        v_code = core_get(&v_err, &CoreValue::from("code"), CoreValue::Num(0f64));
+        v_message = core_get(
+            &v_err,
+            &CoreValue::from("message"),
+            CoreValue::from("MCP JSON-RPC error"),
+        );
+        v_data = core_get(&v_err, &CoreValue::from("data"), CoreValue::Null);
+        v_out = CoreValue::new_map();
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(&v_out, CoreValue::from("category"), CoreValue::from("mcp"))?;
+        core_set(&v_out, CoreValue::from("code"), v_code.clone())?;
+        core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        core_set(&v_out, CoreValue::from("data"), v_data.clone())?;
+        return Ok(v_out.clone());
+    }
+    return Ok(v_response.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (353 of 353 core functions)

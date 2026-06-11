@@ -1,9 +1,11 @@
 {
   "target": "rust",
-  "enforced": false,
-  "emitted_functions": 349,
-  "files": {},
-  "violations": [
-    "rust emits 349/353 core functions from the IR (modules: agent, ai, flow, gen, program, prompt, schema, signature); the remainder is hand-written pending migration and fixture-verified only"
-  ]
+  "enforced": true,
+  "emitted_functions": 353,
+  "files": {
+    "src/lib.rs": {
+      "emitted_lines": 29940,
+      "total_lines": 40798
+    }
+  }
 }
