@@ -14,6 +14,7 @@ import (
 var enabledRustModules = map[string]bool{
 	"signature": true,
 	"schema":    true,
+	"prompt":    true,
 }
 
 // coreIntrinsicRust maps intrinsic names to the Rust helper functions defined
@@ -68,6 +69,12 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.media.valid_file":                      "core_media_valid_file",
 	"intrinsic.media.valid_url_shape":                 "core_media_valid_url_shape",
 	"intrinsic.url.valid":                             "core_url_valid",
+	"intrinsic.template.parse":                        "core_template_parse",
+	"intrinsic.template.render_tree":                  "core_template_render_tree",
+	"intrinsic.template.collect_vars":                 "core_template_collect_vars",
+	"intrinsic.template.validate":                     "core_template_validate",
+	"intrinsic.prompt.structured":                     "core_prompt_structured",
+	"intrinsic.prompt.user_content":                   "core_prompt_user_content",
 }
 
 // BuildRustCore emits the enabled modules' Core functions into the rust
