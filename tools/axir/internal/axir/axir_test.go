@@ -1228,6 +1228,8 @@ func auditRustWrapperOwnedCore(t *testing.T, root string) {
 		"fn validate_output(args: &[CoreValue])",
 		"fn provider_normalize_chat_response(args: &[CoreValue])",
 		"fn render_prompt(args: &[CoreValue])",
+		"fn _forward_impl(args: &[CoreValue])",
+		"fn _build_optimizer_request(args: &[CoreValue])",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("rust generated Core audit missing emitted helper %q in src/lib.rs", required)
@@ -1240,7 +1242,6 @@ func auditRustWrapperOwnedCore(t *testing.T, root string) {
 		"fn _build_agent_actor_prompt_policy",
 		"fn _agent_runtime_build_globals",
 		"fn _flow_forward",
-		"fn _build_optimizer_request",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("rust generated Core audit found emitted Core helper %q for a module that has not migrated yet", forbidden)

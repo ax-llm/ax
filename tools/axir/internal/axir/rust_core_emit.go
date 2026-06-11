@@ -16,6 +16,7 @@ var enabledRustModules = map[string]bool{
 	"schema":    true,
 	"prompt":    true,
 	"ai":        true,
+	"gen":       true,
 }
 
 // coreIntrinsicRust maps intrinsic names to the Rust helper functions defined
@@ -94,6 +95,29 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.ai.error.timeout":                      "core_ai_error_timeout",
 	"intrinsic.ai.error.unsupported":                  "core_ai_error_unsupported",
 	"intrinsic.stream.event_content_parts":            "core_stream_event_content_parts",
+	"intrinsic.div":                                   "core_div",
+	"intrinsic.exception.message":                     "core_exception_message",
+	"intrinsic.map.keys":                              "core_map_keys",
+	"intrinsic.map.values":                            "core_map_values",
+	"intrinsic.retry.sleep":                           "core_retry_sleep",
+	"intrinsic.object.call_method":                    "core_object_call_method",
+	"intrinsic.tool.invoke":                           "core_tool_invoke",
+	"intrinsic.ai.complete_once":                      "core_ai_complete_once",
+	"intrinsic.axgen.apply_context_cache":             "core_axgen_apply_context_cache",
+	"intrinsic.axgen.apply_field_processors":          "core_axgen_apply_field_processors",
+	"intrinsic.axgen.memory_add_correction":           "core_axgen_memory_add_correction",
+	"intrinsic.axgen.memory_add_function_result":      "core_axgen_memory_add_function_result",
+	"intrinsic.axgen.memory_add_request":              "core_axgen_memory_add_request",
+	"intrinsic.axgen.memory_add_response":             "core_axgen_memory_add_response",
+	"intrinsic.axgen.memory_cleanup_corrections":      "core_axgen_memory_cleanup_corrections",
+	"intrinsic.axgen.record_chat_log":                 "core_axgen_record_chat_log",
+	"intrinsic.axgen.record_function_call":            "core_axgen_record_function_call",
+	"intrinsic.axgen.record_trace":                    "core_axgen_record_trace",
+	"intrinsic.axgen.render_demos":                    "core_axgen_render_demos",
+	"intrinsic.axgen.render_examples":                 "core_axgen_render_examples",
+	"intrinsic.axgen.run_assertions":                  "core_axgen_run_assertions",
+	"intrinsic.axgen.run_streaming_assertions":        "core_axgen_run_streaming_assertions",
+	"intrinsic.axgen.should_continue_steps":           "core_axgen_should_continue_steps",
 }
 
 // BuildRustCore emits the enabled modules' Core functions into the rust
