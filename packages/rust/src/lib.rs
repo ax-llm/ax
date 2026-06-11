@@ -986,36 +986,49 @@ impl OpenAICompatibleClient {
     }
 
     pub fn realtime(&self, event: Value) -> AxResult<Value> {
-        Ok(normalize_realtime_event(&self.profile, &self.model, &event))
+        let normalized = provider_normalize_realtime_event(&[
+            CoreValue::from(self.profile.as_str()),
+            core_value_from_json(&event),
+            CoreValue::new_map(),
+            provider_ai_display_name(&self.profile),
+            CoreValue::from(self.model.as_str()),
+        ])?;
+        Ok(core_value_to_json(&normalized))
     }
 
     pub fn realtime_events(&self, events: Value) -> AxResult<Vec<Value>> {
-        Ok(events
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-            .iter()
-            .map(|event| normalize_realtime_event(&self.profile, &self.model, event))
-            .collect())
+        let state = CoreValue::new_map();
+        let ai_name = provider_ai_display_name(&self.profile);
+        let mut out = Vec::new();
+        for event in events.as_array().cloned().unwrap_or_default() {
+            let normalized = provider_normalize_realtime_event(&[
+                CoreValue::from(self.profile.as_str()),
+                core_value_from_json(&event),
+                state.clone(),
+                ai_name.clone(),
+                CoreValue::from(self.model.as_str()),
+            ])?;
+            if !normalized.is_null() {
+                out.push(core_value_to_json(&normalized));
+            }
+        }
+        Ok(out)
     }
 
     pub fn realtime_audio_setup(&self, request: Value) -> AxResult<Value> {
-        Ok(json!({
-            "type": "session.update",
-            "session": {
-                "modalities": ["text", "audio"],
-                "input_audio_format": request.get("input_audio_format").cloned().unwrap_or_else(|| json!("pcm16")),
-                "output_audio_format": request.get("output_audio_format").cloned().unwrap_or_else(|| json!("pcm16")),
-                "turn_detection": request.get("turn_detection").cloned().unwrap_or_else(|| json!({"type": "server_vad"}))
-            }
-        }))
+        let built = provider_build_realtime_audio_setup(&[
+            CoreValue::from(self.profile.as_str()),
+            core_value_from_json(&request),
+        ])?;
+        Ok(core_value_to_json(&built))
     }
 
     pub fn realtime_audio_input(&self, audio: Value) -> AxResult<Value> {
-        Ok(json!({
-            "type": "input_audio_buffer.append",
-            "audio": audio
-        }))
+        let built = provider_build_realtime_audio_input(&[
+            CoreValue::from(self.profile.as_str()),
+            core_value_from_json(&audio),
+        ])?;
+        Ok(core_value_to_json(&built))
     }
 }
 
