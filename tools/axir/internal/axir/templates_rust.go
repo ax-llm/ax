@@ -733,7 +733,7 @@ impl OpenAICompatibleClient {
         });
         merge_object(&mut body, &self.model_config);
         if let Some(config) = request.get("model_config").or_else(|| request.get("modelConfig")) {
-            merge_model_config(&mut body, config);
+            merge_model_config_wire(&mut body, config);
         }
         if body.get("temperature").is_none() {
             body["temperature"] = json!(0);
@@ -891,13 +891,13 @@ impl OpenAICompatibleClient {
                 "https://generativelanguage.googleapis.com/v1beta/models/{model}:batchEmbedContents?key={}",
                 self.api_key
             );
-            return normalize_embed_response(
+            return normalize_embed_response_native(
                 self.post_json(&path, json!({"requests": requests}))?,
                 &self.profile,
             );
         }
         let body = json!({"model": model, "input": input});
-        normalize_embed_response(self.post_json("/embeddings", body)?, &self.profile)
+        normalize_embed_response_native(self.post_json("/embeddings", body)?, &self.profile)
     }
 
     pub fn transcribe(&mut self, request: Value) -> AxResult<Value> {
@@ -1305,40 +1305,6 @@ fn normalize_gemini_speak_response(response: Value, request: &Value) -> AxResult
     Ok(json!({
         "audio": audio.unwrap_or(payload),
         "format": request.get("format").cloned().unwrap_or_else(|| json!("wav"))
-    }))
-}
-
-fn normalize_embed_response(response: Value, ai_name: &str) -> AxResult<Value> {
-    let payload = normalize_passthrough_response(response)?;
-    if ai_name == "google-gemini" {
-        let embeddings = payload
-            .get("embeddings")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|item| item.get("values").cloned().unwrap_or_else(|| json!([])))
-            .collect::<Vec<_>>();
-        return Ok(json!({"embeddings": embeddings}));
-    }
-    let usage_ai_name = if ai_name == "openai-compatible" {
-        "openai"
-    } else {
-        ai_name
-    };
-    let embeddings = payload
-        .get("data")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|item| item.get("embedding").cloned().unwrap_or_else(|| json!([])))
-        .collect::<Vec<_>>();
-    let model = payload.get("model").cloned().unwrap_or(Value::Null);
-    Ok(json!({
-        "embeddings": embeddings,
-        "remote_id": payload.get("id").cloned().unwrap_or(Value::Null),
-        "model_usage": normalize_model_usage(usage_ai_name, model.as_str().unwrap_or_default(), payload.get("usage"))
     }))
 }
 
@@ -6010,22 +5976,6 @@ fn merge_object(target: &mut Value, source: &Value) {
     }
 }
 
-fn merge_model_config(target: &mut Value, source: &Value) {
-    if let Some(source) = source.as_object() {
-        for (key, value) in source {
-            let out_key = match key.as_str() {
-                "maxTokens" | "max_tokens" => "max_completion_tokens",
-                "topP" | "top_p" => "top_p",
-                "presencePenalty" | "presence_penalty" => "presence_penalty",
-                "frequencyPenalty" | "frequency_penalty" => "frequency_penalty",
-                "stopSequences" | "stop_sequences" => "stop",
-                other => other,
-            };
-            target[out_key] = value.clone();
-        }
-    }
-}
-
 fn string_at(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(ToString::to_string)
 }
@@ -8149,6 +8099,199 @@ fn core_prompt_user_content(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_prompt_combine_consecutive_text(&parts, "\n")
 }
 // ----- END AXIR CORE PROMPT/TEMPLATE ENGINE -----
+
+
+fn core_python_dumps(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => serde_json::to_string(s).unwrap_or_default(),
+        Value::Array(items) => {
+            let parts: Vec<String> = items.iter().map(core_python_dumps).collect();
+            format!("[{}]", parts.join(", "))
+        }
+        Value::Object(map) => {
+            let parts: Vec<String> = map
+                .iter()
+                .map(|(k, v)| format!("{}: {}", serde_json::to_string(k).unwrap_or_default(), core_python_dumps(v)))
+                .collect();
+            format!("{{{}}}", parts.join(", "))
+        }
+    }
+}
+
+fn core_json_parse(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text = core_arg(args, 0).text();
+    let parsed: Value = serde_json::from_str(&text)
+        .map_err(|err| AxError::runtime(format!("json parse error: {err}")))?;
+    Ok(core_value_from_json(&parsed))
+}
+
+fn core_json_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let value = core_arg(args, 0);
+    let json = if value.is_null() { json!({}) } else { core_value_to_json(&value) };
+    Ok(CoreValue::from_string(core_python_dumps(&json)))
+}
+
+fn core_map_delete(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let target = core_arg(args, 0);
+    let key = core_arg(args, 1).text();
+    if let CoreValue::Map(map) = &target {
+        map.borrow_mut().entries.retain(|(k, _)| k != &key);
+    }
+    Ok(target)
+}
+
+fn core_map_merge(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let out = CoreValue::new_map();
+    for index in [0usize, 1] {
+        if let CoreValue::Map(map) = core_arg(args, index) {
+            for (k, v) in map.borrow().entries.clone() {
+                core_set(&out, CoreValue::from(k.as_str()), v)?;
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn core_mul(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    core_number_pair(args).map(|(a, b)| CoreValue::Num(a * b))
+}
+
+fn core_string_lower(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::from_string(core_arg(args, 0).text().to_lowercase()))
+}
+
+fn core_string_starts_with(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(core_arg(args, 0).text().starts_with(&core_arg(args, 1).text())))
+}
+
+fn core_string_ends_with(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(core_arg(args, 0).text().ends_with(&core_arg(args, 1).text())))
+}
+
+fn core_string_str(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::from_string(core_arg(args, 0).text()))
+}
+
+fn core_string_join_intrinsic(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let sep = core_arg(args, 0);
+    core_string_join(&sep, &core_arg(args, 1))
+}
+
+fn core_ai_error(class_name: &str, args: &[CoreValue], default_retryable: bool, retry_index: Option<usize>) -> Result<CoreValue, AxError> {
+    let status = match core_arg(args, 1) {
+        CoreValue::Num(n) => Some(n as u16),
+        _ => None,
+    };
+    let code = core_arg(args, 2);
+    let retryable = match retry_index.map(|i| core_arg(args, i)) {
+        Some(CoreValue::Null) | None => default_retryable,
+        Some(value) => core_truthy(&value),
+    };
+    Ok(CoreValue::Error(Rc::new(AxError {
+        category: "ai_service".to_string(),
+        error_type: Some(class_name.to_string()),
+        message: core_arg(args, 0).text(),
+        status,
+        code: code.as_str().map(str::to_string),
+        retryable,
+    })))
+}
+
+fn core_ai_error_auth(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    core_ai_error("AxAIServiceAuthenticationError", args, false, None)
+}
+
+fn core_ai_error_refusal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    core_ai_error("AxAIRefusalError", args, false, None)
+}
+
+fn core_ai_error_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    core_ai_error("AxAIServiceResponseError", args, false, None)
+}
+
+fn core_ai_error_status(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    core_ai_error("AxAIServiceStatusError", args, false, Some(5))
+}
+
+fn core_ai_error_stream(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    core_ai_error("AxAIServiceStreamTerminatedError", args, true, Some(2))
+}
+
+fn core_ai_error_timeout(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    core_ai_error("AxAIServiceTimeoutError", args, true, Some(5))
+}
+
+fn core_ai_error_unsupported(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    core_ai_error("AxUnsupportedCapabilityError", args, false, None)
+}
+
+fn core_stream_event_content_parts(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let event = core_arg(args, 0);
+    if let Some(text) = event.as_str() {
+        return Ok(CoreValue::list_from(vec![CoreValue::from(text)]));
+    }
+    if !matches!(event, CoreValue::Map(_)) {
+        return Ok(CoreValue::new_list());
+    }
+    let inner = core_get(&event, &CoreValue::from("data"), CoreValue::Null);
+    let data = if matches!(inner, CoreValue::Map(_)) { inner } else { event };
+    let kind = core_get(&data, &CoreValue::from("type"), CoreValue::Null).text();
+    if kind == "done" || kind == "message_stop" {
+        return Ok(CoreValue::new_list());
+    }
+    let results = core_get(&data, &CoreValue::from("results"), CoreValue::Null);
+    if core_truthy(&results) {
+        let out = CoreValue::new_list();
+        for result in core_iter(&results)? {
+            let content = core_get(&result, &CoreValue::from("content"), CoreValue::Null);
+            core_append(&out, if content.is_null() { CoreValue::from("") } else { content })?;
+        }
+        return Ok(out);
+    }
+    for key in ["delta", "content_delta", "contentDelta", "text", "content"] {
+        let value = core_get(&data, &CoreValue::from(key), CoreValue::Null);
+        if core_truthy(&value) {
+            return Ok(CoreValue::list_from(vec![value]));
+        }
+    }
+    Ok(CoreValue::list_from(vec![CoreValue::from("")]))
+}
+
+
+// Wire-format key translation for the openai-compatible chat body; the
+// Core-level AxModelConfig merge is the emitted merge_model_config.
+fn merge_model_config_wire(target: &mut Value, source: &Value) {
+    if let Some(source) = source.as_object() {
+        for (key, value) in source {
+            let out_key = match key.as_str() {
+                "maxTokens" | "max_tokens" => "max_completion_tokens",
+                "topP" | "top_p" => "top_p",
+                "presencePenalty" | "presence_penalty" => "presence_penalty",
+                "frequencyPenalty" | "frequency_penalty" => "frequency_penalty",
+                "stopSequences" | "stop_sequences" => "stop",
+                other => other,
+            };
+            target[out_key] = value.clone();
+        }
+    }
+}
+
+fn normalize_embed_response_native(response: Value, ai_name: &str) -> AxResult<Value> {
+    let payload = normalize_passthrough_response(response)?;
+    if ai_name == "google-gemini" {
+        let normalized = _gemini_normalize_embed_response(&[core_value_from_json(&payload)])?;
+        return Ok(core_value_to_json(&normalized));
+    }
+    let usage_ai_name = if ai_name == "openai-compatible" { "openai" } else { ai_name };
+    let normalized = openai_normalize_embed_response(&[
+        core_value_from_json(&payload),
+        CoreValue::from(usage_ai_name),
+    ])?;
+    Ok(core_value_to_json(&normalized))
+}
 
 // ----- END AXIR CORE VALUE RUNTIME -----
 

@@ -15,6 +15,7 @@ var enabledRustModules = map[string]bool{
 	"signature": true,
 	"schema":    true,
 	"prompt":    true,
+	"ai":        true,
 }
 
 // coreIntrinsicRust maps intrinsic names to the Rust helper functions defined
@@ -75,6 +76,24 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.template.validate":                     "core_template_validate",
 	"intrinsic.prompt.structured":                     "core_prompt_structured",
 	"intrinsic.prompt.user_content":                   "core_prompt_user_content",
+	"intrinsic.json.parse":                            "core_json_parse",
+	"intrinsic.json.stringify":                        "core_json_stringify",
+	"intrinsic.map.delete":                            "core_map_delete",
+	"intrinsic.map.merge":                             "core_map_merge",
+	"intrinsic.mul":                                   "core_mul",
+	"intrinsic.string.lower":                          "core_string_lower",
+	"intrinsic.string.starts_with":                    "core_string_starts_with",
+	"intrinsic.string.ends_with":                      "core_string_ends_with",
+	"intrinsic.string.str":                            "core_string_str",
+	"intrinsic.string.join":                           "core_string_join_intrinsic",
+	"intrinsic.ai.error.auth":                         "core_ai_error_auth",
+	"intrinsic.ai.error.refusal":                      "core_ai_error_refusal",
+	"intrinsic.ai.error.response":                     "core_ai_error_response",
+	"intrinsic.ai.error.status":                       "core_ai_error_status",
+	"intrinsic.ai.error.stream":                       "core_ai_error_stream",
+	"intrinsic.ai.error.timeout":                      "core_ai_error_timeout",
+	"intrinsic.ai.error.unsupported":                  "core_ai_error_unsupported",
+	"intrinsic.stream.event_content_parts":            "core_stream_event_content_parts",
 }
 
 // BuildRustCore emits the enabled modules' Core functions into the rust

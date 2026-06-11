@@ -927,7 +927,8 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "Cargo.toml", `name = "axllm"`, "reqwest", "rustls-tls", "rquickjs", "runtime-quickjs", `required-features = ["runtime-quickjs"]`)
 				checkGeneratedFileContains(t, dir, "src/lib.rs", "pub fn s(", "pub fn ax(", "pub fn agent(", "pub fn flow(", "pub fn ai(", "pub fn tool(", "pub trait AxCodeRuntime", "pub struct ProcessCodeRuntime", "pub mod runtime")
 				checkGeneratedFileContains(t, dir, "src/lib.rs", "BEGIN AXIR CORE EMITTED FUNCTIONS", "fn parse_signature(args: &[CoreValue])", "fn _schema_flexible_json_as_string_impl(args: &[CoreValue])", "enum CoreValue")
-				checkGeneratedFileDoesNotContain(t, dir, "src/lib.rs", "fn provider_normalize_chat_response")
+				checkGeneratedFileContains(t, dir, "src/lib.rs", "fn provider_normalize_chat_response(args: &[CoreValue])")
+				checkGeneratedFileDoesNotContain(t, dir, "src/lib.rs", "fn _build_agent_actor_prompt_policy")
 				checkGeneratedFileContains(t, dir, "src/runtime/quickjs.rs", "pub struct QuickJsCodeRuntime", "pub struct QuickJsCodeSession", "pub type HostCallable", "rquickjs", "set_interrupt_handler", "allowFilesystem", "allowNetwork", "allowProcess", "allowNativeHostAccess")
 				checkGeneratedFileContains(t, dir, "src/bin/axllm-conformance.rs", "run_conformance_fixture")
 				checkGeneratedFileContains(t, dir, "examples/runtime_protocol.rs", "ProcessCodeRuntime", "rust-runtime-protocol-ok")
@@ -1225,6 +1226,8 @@ func auditRustWrapperOwnedCore(t *testing.T, root string) {
 		"fn _signature_parse_impl(args: &[CoreValue])",
 		"fn _schema_flexible_json_as_string_impl(args: &[CoreValue])",
 		"fn validate_output(args: &[CoreValue])",
+		"fn provider_normalize_chat_response(args: &[CoreValue])",
+		"fn render_prompt(args: &[CoreValue])",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("rust generated Core audit missing emitted helper %q in src/lib.rs", required)
@@ -1234,7 +1237,6 @@ func auditRustWrapperOwnedCore(t *testing.T, root string) {
 	// helper names appearing here means enabledRustModules grew without the
 	// corresponding template surgery and audit update.
 	for _, forbidden := range []string{
-		"fn provider_normalize_chat_response",
 		"fn _build_agent_actor_prompt_policy",
 		"fn _agent_runtime_build_globals",
 		"fn _flow_forward",
