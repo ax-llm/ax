@@ -302,24 +302,16 @@ impl AxSignature {
         } else {
             &self.outputs
         };
-        let mut properties = Map::new();
-        let mut required = Vec::new();
-        for field in fields {
-            if field.is_internal {
-                continue;
-            }
-            properties.insert(field.name.clone(), field_schema(field, options));
-            if !field.is_optional || strict_structured_outputs(options) {
-                required.push(Value::String(field.name.clone()));
-            }
-        }
-        json!({
-            "type": "object",
-            "title": "Schema",
-            "properties": properties,
-            "required": required,
-            "additionalProperties": false
-        })
+        core_fields_value(fields)
+            .and_then(|fields_value| {
+                to_json_schema(&[
+                    fields_value,
+                    CoreValue::from("Schema"),
+                    core_value_from_json(options),
+                ])
+            })
+            .map(|schema| core_value_to_json(&schema))
+            .unwrap_or(Value::Null)
     }
 }
 
@@ -385,181 +377,6 @@ fn title_case(name: &str) -> String {
         }
     }
     out
-}
-
-fn flexible_json_fields_as_string(options: &Value) -> bool {
-    options
-        .get("flexibleJsonFieldsAsString")
-        .or_else(|| options.get("flexible_json_fields_as_string"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-}
-
-fn strict_structured_outputs(options: &Value) -> bool {
-    options
-        .get("strictStructuredOutputs")
-        .or_else(|| options.get("strict_structured_outputs"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-}
-
-fn apply_nullable_optional(schema: &mut Value, field: &Field, options: &Value) {
-    if !field.is_optional || !strict_structured_outputs(options) {
-        return;
-    }
-    match schema.get("type").cloned() {
-        Some(Value::String(value)) => {
-            schema["type"] = Value::Array(vec![
-                Value::String(value),
-                Value::String("null".to_string()),
-            ]);
-        }
-        Some(Value::Array(mut values)) => {
-            if !values.iter().any(|value| value.as_str() == Some("null")) {
-                values.push(Value::String("null".to_string()));
-            }
-            schema["type"] = Value::Array(values);
-        }
-        _ => {}
-    }
-}
-
-fn append_json_string_guidance(description: &str) -> String {
-    append_description_sentence(
-        description,
-        "Return this field as a JSON-encoded string that can be parsed with JSON.parse.",
-    )
-}
-
-fn append_description_sentence(description: &str, sentence: &str) -> String {
-    if description.is_empty() {
-        sentence.to_string()
-    } else {
-        format!("{description}. {sentence}")
-    }
-}
-
-fn field_schema(field: &Field, options: &Value) -> Value {
-    let flexible_as_string = flexible_json_fields_as_string(options);
-    let mut schema = match field.field_type.name.as_str() {
-        "number" | "float" => json!({"type": "number"}),
-        "integer" | "int" => json!({"type": "integer"}),
-        "boolean" | "bool" => json!({"type": "boolean"}),
-        "class" => {
-            json!({"type": "string", "enum": field.field_type.options.clone().unwrap_or_default()})
-        }
-        "url" => json!({"type": "string", "format": "uri"}),
-        "date" => json!({"type": "string", "format": "date"}),
-        "datetime" => json!({"type": "string", "format": "date-time"}),
-        "dateRange" | "datetimeRange" => json!({"type": "string"}),
-        "audio" => json!({"type": "string"}),
-        "object" => {
-            let mut properties = Map::new();
-            let mut required = Vec::new();
-            if let Some(fields) = &field.field_type.fields {
-                for (name, raw) in fields {
-                    let child = field_from_payload(name, raw);
-                    if child.is_internal {
-                        continue;
-                    }
-                    properties.insert(name.clone(), field_schema(&child, options));
-                    if !child.is_optional || strict_structured_outputs(options) {
-                        required.push(Value::String(name.clone()));
-                    }
-                }
-            }
-            if properties.is_empty() {
-                if flexible_as_string {
-                    json!({"type": "string"})
-                } else {
-                    json!({"type": ["object", "array", "string", "number", "boolean", "null"]})
-                }
-            } else {
-                json!({"type": "object", "properties": properties, "required": required, "additionalProperties": false})
-            }
-        }
-        "file" => json!({"type": "object"}),
-        "json" => {
-            if flexible_as_string {
-                json!({"type": "string"})
-            } else {
-                json!({"type": ["object", "array", "string", "number", "boolean", "null"]})
-            }
-        }
-        _ => json!({"type": "string"}),
-    };
-    let explicit_description = if field.field_type.is_array {
-        field
-            .field_type
-            .description
-            .as_ref()
-            .or(field.description.as_ref())
-    } else {
-        field
-            .description
-            .as_ref()
-            .or(field.field_type.description.as_ref())
-    };
-    if let Some(description) = explicit_description {
-        schema["description"] = Value::String(enhance_description(description, &field.field_type));
-    } else {
-        let description = enhance_description("", &field.field_type);
-        if !description.is_empty() {
-            schema["description"] = Value::String(description);
-        }
-    }
-    if let Some(value) = field.field_type.min_length {
-        schema["minLength"] = json_number(value);
-    }
-    if let Some(value) = field.field_type.max_length {
-        schema["maxLength"] = json_number(value);
-    }
-    if let Some(value) = field.field_type.minimum {
-        schema["minimum"] = json_number(value);
-    }
-    if let Some(value) = field.field_type.maximum {
-        schema["maximum"] = json_number(value);
-    }
-    if let Some(value) = &field.field_type.pattern {
-        schema["pattern"] = Value::String(value.clone());
-    }
-    if let Some(value) = &field.field_type.format {
-        schema["format"] = Value::String(value.clone());
-    }
-    if field.field_type.is_array {
-        let array_description = field.description.clone().or_else(|| {
-            schema
-                .get("description")
-                .and_then(Value::as_str)
-                .map(ToString::to_string)
-        });
-        schema = json!({"type": "array", "items": schema});
-        if let Some(description) = array_description {
-            schema["description"] = Value::String(description);
-        }
-    }
-    if flexible_as_string
-        && matches!(field.field_type.name.as_str(), "json" | "object")
-        && schema.get("type").and_then(Value::as_str) == Some("string")
-    {
-        let base = schema
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        schema["description"] = Value::String(append_json_string_guidance(base));
-    }
-    if field.field_type.name == "audio" {
-        let base = schema
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        schema["description"] = Value::String(append_description_sentence(
-            base,
-            "Return plain text to synthesize as speech; do not return audio bytes or JSON audio objects.",
-        ));
-    }
-    apply_nullable_optional(&mut schema, field, options);
-    schema
 }
 
 fn field_from_payload(name: &str, raw: &Value) -> Field {
@@ -800,55 +617,6 @@ fn build_fixture_signature(fixture: &Value) -> AxResult<AxSignature> {
         .get("signature")
         .and_then(Value::as_str)
         .unwrap_or("question:string -> answer:string"))
-}
-
-fn enhance_description(base: &str, field_type: &FieldType) -> String {
-    let mut parts = Vec::new();
-    if !base.is_empty() {
-        parts.push(base.to_string());
-    }
-    match (field_type.min_length, field_type.max_length) {
-        (Some(min), Some(max)) => parts.push(format!(
-            "Minimum length: {} characters, maximum length: {} characters",
-            trim_num(min),
-            trim_num(max)
-        )),
-        (Some(min), None) => parts.push(format!("Minimum length: {} characters", trim_num(min))),
-        (None, Some(max)) => parts.push(format!("Maximum length: {} characters", trim_num(max))),
-        _ => {}
-    }
-    match (field_type.minimum, field_type.maximum) {
-        (Some(min), Some(max)) => parts.push(format!(
-            "Minimum value: {}, maximum value: {}",
-            trim_num(min),
-            trim_num(max)
-        )),
-        (Some(min), None) => parts.push(format!("Minimum value: {}", trim_num(min))),
-        (None, Some(max)) => parts.push(format!("Maximum value: {}", trim_num(max))),
-        _ => {}
-    }
-    if let Some(pattern_description) = &field_type.pattern_description {
-        parts.push(pattern_description.clone());
-    }
-    match field_type.name.as_str() {
-        "date" => parts.push("Format: YYYY-MM-DD".to_string()),
-        "datetime" => parts.push("Format: ISO 8601 date-time".to_string()),
-        "dateRange" => parts.push(
-            "Format: JSON object with start and end dates, or YYYY-MM-DD/YYYY-MM-DD".to_string(),
-        ),
-        "datetimeRange" => parts.push(
-            "Format: JSON object with start and end ISO 8601 date-times, or ISO interval start/end"
-                .to_string(),
-        ),
-        _ => {}
-    }
-    if field_type.format.as_deref() == Some("email") {
-        parts.push("Must be a valid email address format".to_string());
-    }
-    if field_type.format.as_deref() == Some("uri") || field_type.name == "url" {
-        parts.push("Must be a valid URL format".to_string());
-    }
-    parts.join(", ")
 }
 
 fn trim_num(value: f64) -> String {
@@ -2445,7 +2213,7 @@ fn validate_tool_args(tool: &Tool, args: &Value) -> AxResult<()> {
         .iter()
         .map(|(name, raw)| field_from_payload(name, raw))
         .collect::<Vec<_>>();
-    validate_fields(&fields, args)
+    validate_fields_native(&fields, args)
 }
 
 pub struct AxGen {
@@ -2606,7 +2374,7 @@ impl AxGen {
                             .and_then(|call| call.get("output"))
                             .cloned()
                             .unwrap_or_else(|| json!({}));
-                        validate_fields(&self.signature.outputs, &output)?;
+                        validate_fields_native(&self.signature.outputs, &output)?;
                         self.apply_field_processors(&mut output);
                         strip_internal_fields(&self.signature.outputs, &mut output);
                         self.traces.push(
@@ -2647,7 +2415,7 @@ impl AxGen {
                     continue;
                 }
             };
-            if let Err(err) = validate_fields(&self.signature.outputs, &output) {
+            if let Err(err) = validate_fields_native(&self.signature.outputs, &output) {
                 if attempt == 2 {
                     return Err(err);
                 }
@@ -3848,7 +3616,7 @@ fn run_json_schema_fixture(fixture: &Value) -> AxResult<()> {
 fn run_validate_output_fixture(fixture: &Value) -> AxResult<()> {
     let sig = build_fixture_signature(fixture)?;
     let values = fixture.get("values").cloned().unwrap_or_else(|| json!({}));
-    let result = validate_fields(&sig.outputs, &values);
+    let result = validate_fields_native(&sig.outputs, &values);
     expect_validation_result(result, fixture)
 }
 
@@ -3863,7 +3631,7 @@ fn run_validate_value_fixture(fixture: &Value) -> AxResult<()> {
         })
         .unwrap_or_else(|| Field::new("value", FieldType::string()));
     let value = fixture.get("value").cloned().unwrap_or(Value::Null);
-    let result = validate_field_value(&field, &value);
+    let result = validate_field_value_native(&field, &value);
     expect_validation_result(result, fixture)
 }
 
@@ -6327,149 +6095,6 @@ fn normalized_program_kind(fixture: &Value) -> &'static str {
     }
 }
 
-fn validate_fields(fields: &[Field], values: &Value) -> AxResult<()> {
-    let values = values
-        .as_object()
-        .ok_or_else(|| AxError::validation("Expected output values to be an object"))?;
-    for field in fields {
-        let value = values.get(&field.name).unwrap_or(&Value::Null);
-        if !field.is_optional && value.is_null() {
-            return Err(AxError::validation(format!(
-                "Required field is missing: '{}'",
-                field.name
-            )));
-        }
-        validate_field_value(field, value)?;
-    }
-    Ok(())
-}
-
-fn validate_field_value(field: &Field, value: &Value) -> AxResult<()> {
-    if value.is_null() && field.is_optional {
-        return Ok(());
-    }
-    if field.field_type.is_array {
-        let items = value.as_array().ok_or_else(|| {
-            AxError::validation(format!("Expected '{}' to be an array", field.name))
-        })?;
-        let mut item_field = field.clone();
-        item_field.field_type.is_array = false;
-        for item in items {
-            validate_field_value(&item_field, item)?;
-        }
-        return Ok(());
-    }
-    match field.field_type.name.as_str() {
-        "string" | "code" | "date" | "dateRange" | "datetime" | "datetimeRange" | "url" => {
-            let text = value.as_str().ok_or_else(|| {
-                AxError::validation(format!("Expected '{}' to be a string", field.name))
-            })?;
-            if let Some(min) = field.field_type.min_length {
-                if text.chars().count() < min as usize {
-                    return Err(AxError::validation(format!(
-                        "'{}' must be at least {} characters",
-                        field.name,
-                        trim_num(min)
-                    )));
-                }
-            }
-            if let Some(max) = field.field_type.max_length {
-                if text.chars().count() > max as usize {
-                    return Err(AxError::validation(format!(
-                        "'{}' must be at most {} characters",
-                        field.name,
-                        trim_num(max)
-                    )));
-                }
-            }
-            if field.field_type.format.as_deref() == Some("email") && !text.contains('@') {
-                return Err(AxError::validation(format!(
-                    "'{}' must be a valid email address",
-                    field.name
-                )));
-            }
-        }
-        "number" => {
-            let number = value.as_f64().ok_or_else(|| {
-                AxError::validation(format!("Expected '{}' to be a number", field.name))
-            })?;
-            if let Some(min) = field.field_type.minimum {
-                if number < min {
-                    return Err(AxError::validation(format!(
-                        "'{}' must be at least {}",
-                        field.name,
-                        trim_num(min)
-                    )));
-                }
-            }
-            if let Some(max) = field.field_type.maximum {
-                if number > max {
-                    return Err(AxError::validation(format!(
-                        "'{}' must be at most {}",
-                        field.name,
-                        trim_num(max)
-                    )));
-                }
-            }
-        }
-        "boolean" => {
-            if !value.is_boolean() {
-                return Err(AxError::validation(format!(
-                    "Expected '{}' to be a boolean",
-                    field.name
-                )));
-            }
-        }
-        "class" => {
-            let text = value.as_str().ok_or_else(|| {
-                AxError::validation(format!("Expected '{}' to be a string", field.name))
-            })?;
-            let options = field.field_type.options.clone().unwrap_or_default();
-            if !options.iter().any(|option| option == text) {
-                return Err(AxError::validation(format!(
-                    "Expected '{}' to be one of: {}",
-                    field.name,
-                    options.join(", ")
-                )));
-            }
-        }
-        "object" => {
-            if !value.is_object() {
-                return Err(AxError::validation(format!(
-                    "Expected '{}' to be an object",
-                    field.name
-                )));
-            }
-            if let Some(fields) = &field.field_type.fields {
-                let nested = fields
-                    .iter()
-                    .map(|(name, raw)| field_from_payload(name, raw))
-                    .collect::<Vec<_>>();
-                validate_fields(&nested, value)?;
-            }
-        }
-        "file" => {
-            let object = value
-                .as_object()
-                .ok_or_else(|| AxError::validation(format!(
-                    "Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'",
-                    field.name
-                )))?;
-            let has_mime = object.contains_key("mimeType");
-            let has_data = object.contains_key("data");
-            let has_file_uri = object.contains_key("fileUri");
-            if !has_mime || has_data == has_file_uri {
-                return Err(AxError::validation(format!(
-                    "Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'",
-                    field.name
-                )));
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
 fn strip_internal_fields(fields: &[Field], values: &mut Value) {
     let Some(values) = values.as_object_mut() else {
         return;
@@ -7519,24 +7144,9 @@ fn core_regex_match(pattern: CoreValue, value: &CoreValue) -> Result<CoreValue, 
         Some(text) => text,
         None => return Ok(CoreValue::Bool(false)),
     };
-    let matched = match pattern.text().as_str() {
-        "^[A-Za-z_][A-Za-z0-9_]*$" => {
-            let mut chars = text.chars();
-            match chars.next() {
-                Some(first) if first.is_ascii_alphabetic() || first == '_' => {
-                    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-                }
-                _ => false,
-            }
-        }
-        "^[0-9]" => text.chars().next().map_or(false, |c| c.is_ascii_digit()),
-        other => {
-            return Err(AxError::runtime(format!(
-                "unsupported regex pattern in rust core: {other}"
-            )))
-        }
-    };
-    Ok(CoreValue::Bool(matched))
+    let compiled = regex::Regex::new(&pattern.text())
+        .map_err(|err| AxError::runtime(format!("invalid regex pattern: {err}")))?;
+    Ok(CoreValue::Bool(compiled.is_match(text)))
 }
 
 fn core_not(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -8068,6 +7678,255 @@ fn core_string_extract_quoted_suffix(args: &[CoreValue]) -> Result<CoreValue, Ax
     core_set(&out, CoreValue::from("head"), CoreValue::from_string(text))?;
     Ok(out)
 }
+
+fn core_description_append(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let base = core_arg(args, 0);
+    let hint = core_arg(args, 1);
+    let hint_text = hint.text();
+    if hint.is_null() || hint_text.trim().is_empty() {
+        return Ok(base);
+    }
+    let base_text = base.text();
+    if base.is_null() || base_text.trim().is_empty() {
+        return Ok(CoreValue::from_string(hint_text));
+    }
+    let mut text = base_text.trim().to_string();
+    if !text.ends_with('.') {
+        text.push('.');
+    }
+    Ok(CoreValue::from_string(format!("{text} {hint_text}")))
+}
+
+fn core_deep_clone(value: &CoreValue) -> CoreValue {
+    match value {
+        CoreValue::List(items) => {
+            CoreValue::list_from(items.borrow().iter().map(core_deep_clone).collect())
+        }
+        CoreValue::Map(map) => {
+            let mut out = CoreMap::default();
+            for (k, v) in &map.borrow().entries {
+                out.set(k, core_deep_clone(v));
+            }
+            CoreValue::Map(Rc::new(RefCell::new(out)))
+        }
+        other => other.clone(),
+    }
+}
+
+fn core_field_item(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let field = core_arg(args, 0);
+    let item_type = core_deep_clone(&core_get(&field, &CoreValue::from("type"), CoreValue::Null));
+    core_set(
+        &item_type,
+        CoreValue::from("is_array"),
+        CoreValue::Bool(false),
+    )?;
+    let values = CoreValue::new_map();
+    core_set(
+        &values,
+        CoreValue::from("name"),
+        core_get(&field, &CoreValue::from("name"), CoreValue::Null),
+    )?;
+    core_set(&values, CoreValue::from("type"), item_type)?;
+    core_set(
+        &values,
+        CoreValue::from("description"),
+        core_get(&field, &CoreValue::from("description"), CoreValue::Null),
+    )?;
+    core_record_new(&[CoreValue::from("Field"), values])
+}
+
+fn core_map_contains(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let values = core_arg(args, 0);
+    let key = core_arg(args, 1).text();
+    Ok(CoreValue::Bool(
+        matches!(&values, CoreValue::Map(m) if m.borrow().contains(&key)),
+    ))
+}
+
+fn core_map_get(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let values = core_arg(args, 0);
+    let key = core_arg(args, 1);
+    let result = core_get(&values, &key, CoreValue::Null);
+    if result.is_null() && !matches!(&values, CoreValue::Map(m) if m.borrow().contains(&key.text()))
+    {
+        return Err(AxError::runtime(format!("missing key {}", key.text())));
+    }
+    Ok(result)
+}
+
+fn core_map_update(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let target = core_arg(args, 0);
+    let values = core_arg(args, 1);
+    if let (CoreValue::Map(dst), CoreValue::Map(src)) = (&target, &values) {
+        for (k, v) in src.borrow().entries.clone() {
+            dst.borrow_mut().set(&k, v);
+        }
+    }
+    Ok(target)
+}
+
+fn core_media_valid_image(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let v = core_arg(args, 0);
+    Ok(CoreValue::Bool(
+        matches!(&v, CoreValue::Map(m) if m.borrow().contains("mimeType") && m.borrow().contains("data")),
+    ))
+}
+
+fn core_media_valid_audio(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let v = core_arg(args, 0);
+    let ok = v.as_str().is_some()
+        || matches!(&v, CoreValue::Map(m) if m.borrow().contains("data") || m.borrow().contains("id"));
+    Ok(CoreValue::Bool(ok))
+}
+
+fn core_media_valid_file(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let v = core_arg(args, 0);
+    let ok = matches!(&v, CoreValue::Map(m) if m.borrow().contains("mimeType")
+        && (m.borrow().contains("data") != m.borrow().contains("fileUri")));
+    Ok(CoreValue::Bool(ok))
+}
+
+fn core_media_valid_url_shape(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let v = core_arg(args, 0);
+    let ok = v.as_str().is_some() || matches!(&v, CoreValue::Map(m) if m.borrow().contains("url"));
+    Ok(CoreValue::Bool(ok))
+}
+
+fn core_url_valid(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let ok = match core_arg(args, 0).as_str() {
+        Some(text) => regex::Regex::new("^[a-zA-Z][a-zA-Z0-9+.-]*://")
+            .unwrap()
+            .is_match(text),
+        None => false,
+    };
+    Ok(CoreValue::Bool(ok))
+}
+
+fn core_field_type_value(ft: &FieldType) -> Result<CoreValue, AxError> {
+    let values = CoreValue::new_map();
+    core_set(
+        &values,
+        CoreValue::from("name"),
+        CoreValue::from(ft.name.as_str()),
+    )?;
+    core_set(
+        &values,
+        CoreValue::from("is_array"),
+        CoreValue::Bool(ft.is_array),
+    )?;
+    if let Some(options) = &ft.options {
+        core_set(
+            &values,
+            CoreValue::from("options"),
+            CoreValue::list_from(
+                options
+                    .iter()
+                    .map(|o| CoreValue::from(o.as_str()))
+                    .collect(),
+            ),
+        )?;
+    }
+    if let Some(fields) = &ft.fields {
+        // nested spec values are raw JSON; convert them to Field records the
+        // way the python runtime stores parsed nested fields
+        let nested = CoreValue::new_map();
+        for (name, raw) in fields {
+            let nested_field = field_from_payload(name, raw);
+            core_set(
+                &nested,
+                CoreValue::from(name.as_str()),
+                core_field_value(&nested_field)?,
+            )?;
+        }
+        core_set(&values, CoreValue::from("fields"), nested)?;
+    }
+    let record = core_record_new(&[CoreValue::from("FieldType"), values])?;
+    for (key, val) in [
+        ("min_length", ft.min_length),
+        ("max_length", ft.max_length),
+        ("minimum", ft.minimum),
+        ("maximum", ft.maximum),
+    ] {
+        if let Some(number) = val {
+            core_set(&record, CoreValue::from(key), CoreValue::Num(number))?;
+        }
+    }
+    for (key, val) in [
+        ("pattern", ft.pattern.as_deref()),
+        ("pattern_description", ft.pattern_description.as_deref()),
+        ("format", ft.format.as_deref()),
+        ("description", ft.description.as_deref()),
+    ] {
+        if let Some(text) = val {
+            core_set(&record, CoreValue::from(key), CoreValue::from(text))?;
+        }
+    }
+    Ok(record)
+}
+
+fn core_field_value(field: &Field) -> Result<CoreValue, AxError> {
+    let values = CoreValue::new_map();
+    core_set(
+        &values,
+        CoreValue::from("name"),
+        CoreValue::from(field.name.as_str()),
+    )?;
+    core_set(
+        &values,
+        CoreValue::from("type"),
+        core_field_type_value(&field.field_type)?,
+    )?;
+    if let Some(text) = field.description.as_deref() {
+        core_set(
+            &values,
+            CoreValue::from("description"),
+            CoreValue::from(text),
+        )?;
+    }
+    if !field.title.is_empty() {
+        core_set(
+            &values,
+            CoreValue::from("title"),
+            CoreValue::from(field.title.as_str()),
+        )?;
+    }
+    core_set(
+        &values,
+        CoreValue::from("is_optional"),
+        CoreValue::Bool(field.is_optional),
+    )?;
+    core_set(
+        &values,
+        CoreValue::from("is_internal"),
+        CoreValue::Bool(field.is_internal),
+    )?;
+    core_set(
+        &values,
+        CoreValue::from("is_cached"),
+        CoreValue::Bool(field.is_cached),
+    )?;
+    core_record_new(&[CoreValue::from("Field"), values])
+}
+
+fn core_fields_value(fields: &[Field]) -> Result<CoreValue, AxError> {
+    let out = CoreValue::new_list();
+    for field in fields {
+        core_append(&out, core_field_value(field)?)?;
+    }
+    Ok(out)
+}
+
+fn validate_fields_native(fields: &[Field], values: &Value) -> AxResult<()> {
+    validate_fields(&[core_fields_value(fields)?, core_value_from_json(values)])?;
+    Ok(())
+}
+
+fn validate_field_value_native(field: &Field, value: &Value) -> AxResult<()> {
+    validate_value(&[core_field_value(field)?, core_value_from_json(value)])?;
+    Ok(())
+}
+
 // ----- END AXIR CORE VALUE RUNTIME -----
 
 // BEGIN AXIR CORE EMITTED FUNCTIONS
@@ -8642,4 +8501,1435 @@ fn _signature_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(CoreValue::Null);
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (7 of 353 core functions; remaining modules are hand-written pending migration)
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn validate_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_fields = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_context = core_arg(args, 2);
+    _validate_fields_impl(&[v_fields.clone(), v_values.clone(), v_context.clone()])?;
+    return Ok(CoreValue::Null);
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn to_json_schema(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_fields = core_arg(args, 0);
+    let mut v_schema_title = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_schema = CoreValue::Null;
+    v_schema = _schema_to_json_schema_impl(&[
+        v_fields.clone(),
+        v_schema_title.clone(),
+        v_options.clone(),
+    ])?;
+    return Ok(v_schema.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn validate_output(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_fields = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_validated = CoreValue::Null;
+    v_validated = _validate_output_impl(&[v_fields.clone(), v_values.clone()])?;
+    return Ok(v_validated.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _schema_required_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_field = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_is_optional = CoreValue::Null;
+    let mut v_not_optional = CoreValue::Null;
+    let mut v_required = CoreValue::Null;
+    let mut v_strict = CoreValue::Null;
+    let mut v_strict_camel = CoreValue::Null;
+    let mut v_strict_snake = CoreValue::Null;
+    v_strict_camel = core_get(
+        &v_options,
+        &CoreValue::from("strictStructuredOutputs"),
+        CoreValue::Bool(false),
+    );
+    v_strict_snake = core_get(
+        &v_options,
+        &CoreValue::from("strict_structured_outputs"),
+        CoreValue::Bool(false),
+    );
+    v_strict = core_or(&[v_strict_camel.clone(), v_strict_snake.clone()])?;
+    v_is_optional = core_get(
+        &v_field,
+        &CoreValue::from("is_optional"),
+        CoreValue::Bool(false),
+    );
+    v_not_optional = core_not(&[v_is_optional.clone()])?;
+    v_required = core_or(&[v_strict.clone(), v_not_optional.clone()])?;
+    return Ok(v_required.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn validate_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_field = core_arg(args, 0);
+    let mut v_value = core_arg(args, 1);
+    let mut v_path = core_arg(args, 2);
+    _validate_value_impl(&[v_field.clone(), v_value.clone(), v_path.clone()])?;
+    return Ok(CoreValue::Null);
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn strip_internal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_fields = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_public_values = CoreValue::Null;
+    v_public_values = _strip_internal_fields_impl(&[v_fields.clone(), v_values.clone()])?;
+    return Ok(v_public_values.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _schema_flexible_json_as_string_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_typ = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_as_string = CoreValue::Null;
+    let mut v_camel = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_flexible_type = CoreValue::Null;
+    let mut v_has_fields = CoreValue::Null;
+    let mut v_is_json = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_snake = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    let mut v_unshaped = CoreValue::Null;
+    let mut v_unshaped_object = CoreValue::Null;
+    v_camel = core_get(
+        &v_options,
+        &CoreValue::from("flexibleJsonFieldsAsString"),
+        CoreValue::Bool(false),
+    );
+    v_snake = core_get(
+        &v_options,
+        &CoreValue::from("flexible_json_fields_as_string"),
+        CoreValue::Bool(false),
+    );
+    v_enabled = core_or(&[v_camel.clone(), v_snake.clone()])?;
+    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_is_json = core_eq(&[v_type_name.clone(), CoreValue::from("json")])?;
+    v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
+    v_fields = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
+    v_has_fields = core_truthy_value(&[v_fields.clone()])?;
+    v_unshaped = core_not(&[v_has_fields.clone()])?;
+    v_unshaped_object = core_and(&[v_is_object.clone(), v_unshaped.clone()])?;
+    v_flexible_type = core_or(&[v_is_json.clone(), v_unshaped_object.clone()])?;
+    v_as_string = core_and(&[v_enabled.clone(), v_flexible_type.clone()])?;
+    return Ok(v_as_string.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _validate_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_fields = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_context = core_arg(args, 2);
+    let mut v_child_path = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_field_title = CoreValue::Null;
+    let mut v_field_value = CoreValue::Null;
+    let mut v_has_value = CoreValue::Null;
+    let mut v_is_null = CoreValue::Null;
+    let mut v_is_optional = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_missing_or_null = CoreValue::Null;
+    let mut v_required_missing = CoreValue::Null;
+    let mut v_values_is_object = CoreValue::Null;
+    let mut v_values_not_object = CoreValue::Null;
+    v_values_is_object = core_type_is(&v_values, CoreValue::from("object"));
+    v_values_not_object = core_not(&[v_values_is_object.clone()])?;
+    if core_truthy(&v_values_not_object) {
+        v_message =
+            core_string_format(&[CoreValue::from("{} must be an object"), v_context.clone()])?;
+        v_error = core_validation_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    for v_field in core_iter(&v_fields)? {
+        let mut v_field = v_field;
+        v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+        v_field_title = core_get(&v_field, &CoreValue::from("title"), CoreValue::Null);
+        v_is_optional = core_get(
+            &v_field,
+            &CoreValue::from("is_optional"),
+            CoreValue::Bool(false),
+        );
+        v_has_value = core_map_contains(&[v_values.clone(), v_field_name.clone()])?;
+        v_missing = core_not(&[v_has_value.clone()])?;
+        v_field_value = core_get(&v_values, &v_field_name.clone(), CoreValue::Null);
+        v_is_null = core_is_none(&[v_field_value.clone()])?;
+        v_missing_or_null = core_or(&[v_missing.clone(), v_is_null.clone()])?;
+        if core_truthy(&v_missing_or_null) {
+            v_required_missing = core_not(&[v_is_optional.clone()])?;
+            if core_truthy(&v_required_missing) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Required field is missing: '{}'"),
+                    v_field_title.clone(),
+                ])?;
+                v_error = core_validation_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+        } else {
+            v_child_path = core_string_format(&[
+                CoreValue::from("{}.{}"),
+                v_context.clone(),
+                v_field_name.clone(),
+            ])?;
+            _validate_value_impl(&[v_field.clone(), v_field_value.clone(), v_child_path.clone()])?;
+        }
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _schema_json_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_type_name = core_arg(args, 0);
+    let mut v_flexible_names = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_is_flexible = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_json_types = CoreValue::Null;
+    let mut v_string_types = CoreValue::Null;
+    v_string_types = CoreValue::new_list();
+    core_append(&v_string_types, CoreValue::from("string"))?;
+    core_append(&v_string_types, CoreValue::from("code"))?;
+    core_append(&v_string_types, CoreValue::from("url"))?;
+    core_append(&v_string_types, CoreValue::from("date"))?;
+    core_append(&v_string_types, CoreValue::from("datetime"))?;
+    core_append(&v_string_types, CoreValue::from("dateRange"))?;
+    core_append(&v_string_types, CoreValue::from("datetimeRange"))?;
+    core_append(&v_string_types, CoreValue::from("image"))?;
+    core_append(&v_string_types, CoreValue::from("audio"))?;
+    core_append(&v_string_types, CoreValue::from("file"))?;
+    v_is_string = core_contains(&[v_string_types.clone(), v_type_name.clone()])?;
+    if core_truthy(&v_is_string) {
+        return Ok(CoreValue::from("string"));
+    }
+    v_is_number = core_eq(&[v_type_name.clone(), CoreValue::from("number")])?;
+    if core_truthy(&v_is_number) {
+        return Ok(CoreValue::from("number"));
+    }
+    v_is_boolean = core_eq(&[v_type_name.clone(), CoreValue::from("boolean")])?;
+    if core_truthy(&v_is_boolean) {
+        return Ok(CoreValue::from("boolean"));
+    }
+    v_json_types = CoreValue::new_list();
+    core_append(&v_json_types, CoreValue::from("object"))?;
+    core_append(&v_json_types, CoreValue::from("array"))?;
+    core_append(&v_json_types, CoreValue::from("string"))?;
+    core_append(&v_json_types, CoreValue::from("number"))?;
+    core_append(&v_json_types, CoreValue::from("boolean"))?;
+    core_append(&v_json_types, CoreValue::from("null"))?;
+    v_flexible_names = CoreValue::new_list();
+    core_append(&v_flexible_names, CoreValue::from("json"))?;
+    core_append(&v_flexible_names, CoreValue::from("object"))?;
+    v_is_flexible = core_contains(&[v_flexible_names.clone(), v_type_name.clone()])?;
+    if core_truthy(&v_is_flexible) {
+        return Ok(v_json_types.clone());
+    }
+    return Ok(CoreValue::from("string"));
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _validate_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_fields = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_alias_title = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_field_title = CoreValue::Null;
+    let mut v_has_name = CoreValue::Null;
+    let mut v_has_title = CoreValue::Null;
+    let mut v_missing_name = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_title_value = CoreValue::Null;
+    v_normalized = v_values.clone();
+    for v_field in core_iter(&v_fields)? {
+        let mut v_field = v_field;
+        v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+        v_field_title = core_get(&v_field, &CoreValue::from("title"), CoreValue::Null);
+        v_has_name = core_map_contains(&[v_normalized.clone(), v_field_name.clone()])?;
+        v_missing_name = core_not(&[v_has_name.clone()])?;
+        v_has_title = core_map_contains(&[v_normalized.clone(), v_field_title.clone()])?;
+        v_alias_title = core_and(&[v_missing_name.clone(), v_has_title.clone()])?;
+        if core_truthy(&v_alias_title) {
+            v_title_value = core_get(&v_normalized, &v_field_title.clone(), CoreValue::Null);
+            core_set(&v_normalized, v_field_name.clone(), v_title_value.clone())?;
+        }
+    }
+    _validate_fields_impl(&[
+        v_fields.clone(),
+        v_normalized.clone(),
+        CoreValue::from("output"),
+    ])?;
+    return Ok(v_normalized.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _validate_string_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_value = core_arg(args, 0);
+    let mut v_field = core_arg(args, 1);
+    let mut v_error = CoreValue::Null;
+    let mut v_format = CoreValue::Null;
+    let mut v_has_max = CoreValue::Null;
+    let mut v_has_min = CoreValue::Null;
+    let mut v_has_pattern = CoreValue::Null;
+    let mut v_invalid_email = CoreValue::Null;
+    let mut v_invalid_url = CoreValue::Null;
+    let mut v_is_email = CoreValue::Null;
+    let mut v_is_url_format = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_max_length = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_min_length = CoreValue::Null;
+    let mut v_pattern = CoreValue::Null;
+    let mut v_pattern_failed = CoreValue::Null;
+    let mut v_title = CoreValue::Null;
+    let mut v_too_long = CoreValue::Null;
+    let mut v_too_short = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_url_formats = CoreValue::Null;
+    let mut v_valid_email = CoreValue::Null;
+    let mut v_valid_url = CoreValue::Null;
+    v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+    v_title = core_get(&v_field, &CoreValue::from("title"), CoreValue::Null);
+    v_min_length = core_get(&v_typ, &CoreValue::from("min_length"), CoreValue::Null);
+    v_has_min = core_is_not_none(&[v_min_length.clone()])?;
+    if core_truthy(&v_has_min) {
+        v_length = core_len(&[v_value.clone()])?;
+        v_too_short = core_lt(&[v_length.clone(), v_min_length.clone()])?;
+        if core_truthy(&v_too_short) {
+            v_message = core_string_format(&[
+                CoreValue::from(
+                    "Field '{}' failed validation: String must be at least {} characters long.",
+                ),
+                v_title.clone(),
+                v_min_length.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    v_max_length = core_get(&v_typ, &CoreValue::from("max_length"), CoreValue::Null);
+    v_has_max = core_is_not_none(&[v_max_length.clone()])?;
+    if core_truthy(&v_has_max) {
+        v_length = core_len(&[v_value.clone()])?;
+        v_too_long = core_gt(&[v_length.clone(), v_max_length.clone()])?;
+        if core_truthy(&v_too_long) {
+            v_message = core_string_format(&[
+                CoreValue::from(
+                    "Field '{}' failed validation: String must be at most {} characters long.",
+                ),
+                v_title.clone(),
+                v_max_length.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    v_pattern = core_get(&v_typ, &CoreValue::from("pattern"), CoreValue::Null);
+    v_has_pattern = core_is_not_none(&[v_pattern.clone()])?;
+    if core_truthy(&v_has_pattern) {
+        v_matches = core_regex_match(v_pattern.clone(), &v_value)?;
+        v_pattern_failed = core_not(&[v_matches.clone()])?;
+        if core_truthy(&v_pattern_failed) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field '{}' failed validation: String must match pattern /{}/."),
+                v_title.clone(),
+                v_pattern.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    v_format = core_get(&v_typ, &CoreValue::from("format"), CoreValue::Null);
+    v_is_email = core_eq(&[v_format.clone(), CoreValue::from("email")])?;
+    if core_truthy(&v_is_email) {
+        v_valid_email =
+            core_regex_match(CoreValue::from("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"), &v_value)?;
+        v_invalid_email = core_not(&[v_valid_email.clone()])?;
+        if core_truthy(&v_invalid_email) {
+            v_message = core_string_format(&[
+                CoreValue::from(
+                    "Field '{}' failed validation: String must be a valid email address.",
+                ),
+                v_title.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    v_url_formats = CoreValue::new_list();
+    core_append(&v_url_formats, CoreValue::from("uri"))?;
+    core_append(&v_url_formats, CoreValue::from("url"))?;
+    v_is_url_format = core_contains(&[v_url_formats.clone(), v_format.clone()])?;
+    if core_truthy(&v_is_url_format) {
+        v_valid_url = core_url_valid(&[v_value.clone()])?;
+        v_invalid_url = core_not(&[v_valid_url.clone()])?;
+        if core_truthy(&v_invalid_url) {
+            v_message = core_string_format(&[
+                CoreValue::from("Invalid URL for '{}': Invalid URL format."),
+                v_title.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _schema_enhance_description_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_base = core_arg(args, 0);
+    let mut v_typ = core_arg(args, 1);
+    let mut v_constraint_count = CoreValue::Null;
+    let mut v_constraint_text = CoreValue::Null;
+    let mut v_constraints = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_format = CoreValue::Null;
+    let mut v_format_url = CoreValue::Null;
+    let mut v_has_both = CoreValue::Null;
+    let mut v_has_constraints = CoreValue::Null;
+    let mut v_has_length_constraints = CoreValue::Null;
+    let mut v_has_max = CoreValue::Null;
+    let mut v_has_maximum = CoreValue::Null;
+    let mut v_has_min = CoreValue::Null;
+    let mut v_has_minimum = CoreValue::Null;
+    let mut v_has_pattern = CoreValue::Null;
+    let mut v_is_date = CoreValue::Null;
+    let mut v_is_date_range = CoreValue::Null;
+    let mut v_is_datetime = CoreValue::Null;
+    let mut v_is_datetime_range = CoreValue::Null;
+    let mut v_is_email = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    let mut v_is_url = CoreValue::Null;
+    let mut v_length_types = CoreValue::Null;
+    let mut v_max_length = CoreValue::Null;
+    let mut v_maximum = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_min_length = CoreValue::Null;
+    let mut v_minimum = CoreValue::Null;
+    let mut v_missing_pattern_description = CoreValue::Null;
+    let mut v_pattern = CoreValue::Null;
+    let mut v_pattern_description = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    let mut v_type_url = CoreValue::Null;
+    let mut v_url_formats = CoreValue::Null;
+    v_constraints = CoreValue::new_list();
+    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_format = core_get(&v_typ, &CoreValue::from("format"), CoreValue::Null);
+    v_is_email = core_eq(&[v_format.clone(), CoreValue::from("email")])?;
+    if core_truthy(&v_is_email) {
+        core_append(
+            &v_constraints,
+            CoreValue::from("Must be a valid email address format"),
+        )?;
+    }
+    v_url_formats = CoreValue::new_list();
+    core_append(&v_url_formats, CoreValue::from("uri"))?;
+    core_append(&v_url_formats, CoreValue::from("url"))?;
+    v_format_url = core_contains(&[v_url_formats.clone(), v_format.clone()])?;
+    v_type_url = core_eq(&[v_type_name.clone(), CoreValue::from("url")])?;
+    v_is_url = core_or(&[v_format_url.clone(), v_type_url.clone()])?;
+    if core_truthy(&v_is_url) {
+        core_append(
+            &v_constraints,
+            CoreValue::from("Must be a valid URL format"),
+        )?;
+    }
+    v_length_types = CoreValue::new_list();
+    core_append(&v_length_types, CoreValue::from("string"))?;
+    core_append(&v_length_types, CoreValue::from("code"))?;
+    core_append(&v_length_types, CoreValue::from("url"))?;
+    core_append(&v_length_types, CoreValue::from("date"))?;
+    core_append(&v_length_types, CoreValue::from("dateRange"))?;
+    core_append(&v_length_types, CoreValue::from("datetime"))?;
+    core_append(&v_length_types, CoreValue::from("datetimeRange"))?;
+    v_has_length_constraints = core_contains(&[v_length_types.clone(), v_type_name.clone()])?;
+    if core_truthy(&v_has_length_constraints) {
+        v_min_length = core_get(&v_typ, &CoreValue::from("min_length"), CoreValue::Null);
+        v_max_length = core_get(&v_typ, &CoreValue::from("max_length"), CoreValue::Null);
+        v_has_min = core_is_not_none(&[v_min_length.clone()])?;
+        v_has_max = core_is_not_none(&[v_max_length.clone()])?;
+        v_has_both = core_and(&[v_has_min.clone(), v_has_max.clone()])?;
+        if core_truthy(&v_has_both) {
+            v_text = core_string_format(&[
+                CoreValue::from("Minimum length: {} characters, maximum length: {} characters"),
+                v_min_length.clone(),
+                v_max_length.clone(),
+            ])?;
+            core_append(&v_constraints, v_text.clone())?;
+        } else {
+            if core_truthy(&v_has_min) {
+                v_text = core_string_format(&[
+                    CoreValue::from("Minimum length: {} characters"),
+                    v_min_length.clone(),
+                ])?;
+                core_append(&v_constraints, v_text.clone())?;
+            } else {
+                if core_truthy(&v_has_max) {
+                    v_text = core_string_format(&[
+                        CoreValue::from("Maximum length: {} characters"),
+                        v_max_length.clone(),
+                    ])?;
+                    core_append(&v_constraints, v_text.clone())?;
+                }
+            }
+        }
+    }
+    v_is_number = core_eq(&[v_type_name.clone(), CoreValue::from("number")])?;
+    if core_truthy(&v_is_number) {
+        v_minimum = core_get(&v_typ, &CoreValue::from("minimum"), CoreValue::Null);
+        v_maximum = core_get(&v_typ, &CoreValue::from("maximum"), CoreValue::Null);
+        v_has_minimum = core_is_not_none(&[v_minimum.clone()])?;
+        v_has_maximum = core_is_not_none(&[v_maximum.clone()])?;
+        v_has_both = core_and(&[v_has_minimum.clone(), v_has_maximum.clone()])?;
+        if core_truthy(&v_has_both) {
+            v_text = core_string_format(&[
+                CoreValue::from("Minimum value: {}, maximum value: {}"),
+                v_minimum.clone(),
+                v_maximum.clone(),
+            ])?;
+            core_append(&v_constraints, v_text.clone())?;
+        } else {
+            if core_truthy(&v_has_minimum) {
+                v_text =
+                    core_string_format(&[CoreValue::from("Minimum value: {}"), v_minimum.clone()])?;
+                core_append(&v_constraints, v_text.clone())?;
+            } else {
+                if core_truthy(&v_has_maximum) {
+                    v_text = core_string_format(&[
+                        CoreValue::from("Maximum value: {}"),
+                        v_maximum.clone(),
+                    ])?;
+                    core_append(&v_constraints, v_text.clone())?;
+                }
+            }
+        }
+    }
+    v_pattern = core_get(&v_typ, &CoreValue::from("pattern"), CoreValue::Null);
+    v_has_pattern = core_is_not_none(&[v_pattern.clone()])?;
+    if core_truthy(&v_has_pattern) {
+        v_pattern_description = core_get(
+            &v_typ,
+            &CoreValue::from("pattern_description"),
+            CoreValue::Null,
+        );
+        v_missing_pattern_description = core_is_none(&[v_pattern_description.clone()])?;
+        if core_truthy(&v_missing_pattern_description) {
+            v_message = core_string_format(&[CoreValue::from("Field with pattern '{}' must include a patternDescription to explain the pattern to the LLM"), v_pattern.clone()])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        } else {
+            core_append(&v_constraints, v_pattern_description.clone())?;
+        }
+    }
+    v_is_date = core_eq(&[v_type_name.clone(), CoreValue::from("date")])?;
+    if core_truthy(&v_is_date) {
+        core_append(&v_constraints, CoreValue::from("Format: YYYY-MM-DD"))?;
+    }
+    v_is_date_range = core_eq(&[v_type_name.clone(), CoreValue::from("dateRange")])?;
+    if core_truthy(&v_is_date_range) {
+        core_append(
+            &v_constraints,
+            CoreValue::from(
+                "Format: JSON object with start and end dates, or YYYY-MM-DD/YYYY-MM-DD",
+            ),
+        )?;
+    }
+    v_is_datetime = core_eq(&[v_type_name.clone(), CoreValue::from("datetime")])?;
+    if core_truthy(&v_is_datetime) {
+        core_append(
+            &v_constraints,
+            CoreValue::from("Format: ISO 8601 date-time"),
+        )?;
+    }
+    v_is_datetime_range = core_eq(&[v_type_name.clone(), CoreValue::from("datetimeRange")])?;
+    if core_truthy(&v_is_datetime_range) {
+        core_append(&v_constraints, CoreValue::from("Format: JSON object with start and end ISO 8601 date-times, or ISO interval start/end"))?;
+    }
+    v_constraint_count = core_len(&[v_constraints.clone()])?;
+    v_has_constraints = core_gt(&[v_constraint_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_constraints) {
+        v_constraint_text = core_string_join(&CoreValue::from(". "), &v_constraints)?;
+        v_description = core_description_append(&[v_base.clone(), v_constraint_text.clone()])?;
+        return Ok(v_description.clone());
+    }
+    return Ok(v_base.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _validate_number_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_value = core_arg(args, 0);
+    let mut v_field = core_arg(args, 1);
+    let mut v_error = CoreValue::Null;
+    let mut v_has_maximum = CoreValue::Null;
+    let mut v_has_minimum = CoreValue::Null;
+    let mut v_maximum = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_minimum = CoreValue::Null;
+    let mut v_title = CoreValue::Null;
+    let mut v_too_large = CoreValue::Null;
+    let mut v_too_small = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+    v_title = core_get(&v_field, &CoreValue::from("title"), CoreValue::Null);
+    v_minimum = core_get(&v_typ, &CoreValue::from("minimum"), CoreValue::Null);
+    v_has_minimum = core_is_not_none(&[v_minimum.clone()])?;
+    if core_truthy(&v_has_minimum) {
+        v_too_small = core_lt(&[v_value.clone(), v_minimum.clone()])?;
+        if core_truthy(&v_too_small) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field '{}' failed validation: Number must be at least {}."),
+                v_title.clone(),
+                v_minimum.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    v_maximum = core_get(&v_typ, &CoreValue::from("maximum"), CoreValue::Null);
+    v_has_maximum = core_is_not_none(&[v_maximum.clone()])?;
+    if core_truthy(&v_has_maximum) {
+        v_too_large = core_gt(&[v_value.clone(), v_maximum.clone()])?;
+        if core_truthy(&v_too_large) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field '{}' failed validation: Number must be at most {}."),
+                v_title.clone(),
+                v_maximum.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_field = core_arg(args, 0);
+    let mut v_value = core_arg(args, 1);
+    let mut v_path = core_arg(args, 2);
+    let mut v_error = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_field_title = CoreValue::Null;
+    let mut v_has_nested = CoreValue::Null;
+    let mut v_has_options = CoreValue::Null;
+    let mut v_invalid_audio = CoreValue::Null;
+    let mut v_invalid_file = CoreValue::Null;
+    let mut v_invalid_image = CoreValue::Null;
+    let mut v_invalid_url = CoreValue::Null;
+    let mut v_invalid_url_shape = CoreValue::Null;
+    let mut v_is_array = CoreValue::Null;
+    let mut v_is_audio = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_is_boolean_type = CoreValue::Null;
+    let mut v_is_class_string = CoreValue::Null;
+    let mut v_is_class_type = CoreValue::Null;
+    let mut v_is_file = CoreValue::Null;
+    let mut v_is_image = CoreValue::Null;
+    let mut v_is_json = CoreValue::Null;
+    let mut v_is_json_type = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    let mut v_is_number_type = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_is_object_type = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_is_string_type = CoreValue::Null;
+    let mut v_is_url = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_item_field = CoreValue::Null;
+    let mut v_known_class = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_nested_fields = CoreValue::Null;
+    let mut v_nested_map = CoreValue::Null;
+    let mut v_not_boolean = CoreValue::Null;
+    let mut v_not_class_string = CoreValue::Null;
+    let mut v_not_json = CoreValue::Null;
+    let mut v_not_list = CoreValue::Null;
+    let mut v_not_number = CoreValue::Null;
+    let mut v_not_object = CoreValue::Null;
+    let mut v_not_string = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_string_types = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    let mut v_unknown_class = CoreValue::Null;
+    let mut v_url_is_string = CoreValue::Null;
+    let mut v_valid_audio = CoreValue::Null;
+    let mut v_valid_file = CoreValue::Null;
+    let mut v_valid_image = CoreValue::Null;
+    let mut v_valid_url = CoreValue::Null;
+    let mut v_valid_url_shape = CoreValue::Null;
+    v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+    v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_is_array = core_get(&v_typ, &CoreValue::from("is_array"), CoreValue::Bool(false));
+    if core_truthy(&v_is_array) {
+        v_is_list = core_type_is(&v_value, CoreValue::from("list"));
+        v_not_list = core_not(&[v_is_list.clone()])?;
+        if core_truthy(&v_not_list) {
+            v_message =
+                core_string_format(&[CoreValue::from("{} must be an array"), v_path.clone()])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_item_field = core_field_item(&[v_field.clone()])?;
+        for v_item in core_iter(&v_value)? {
+            let mut v_item = v_item;
+            _validate_value_impl(&[v_item_field.clone(), v_item.clone(), v_path.clone()])?;
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_is_image = core_eq(&[v_type_name.clone(), CoreValue::from("image")])?;
+    if core_truthy(&v_is_image) {
+        v_valid_image = core_media_valid_image(&[v_value.clone()])?;
+        v_invalid_image = core_not(&[v_valid_image.clone()])?;
+        if core_truthy(&v_invalid_image) {
+            v_message = core_string_format(&[CoreValue::from("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'"), v_field_name.clone()])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_is_audio = core_eq(&[v_type_name.clone(), CoreValue::from("audio")])?;
+    if core_truthy(&v_is_audio) {
+        v_valid_audio = core_media_valid_audio(&[v_value.clone()])?;
+        v_invalid_audio = core_not(&[v_valid_audio.clone()])?;
+        if core_truthy(&v_invalid_audio) {
+            v_message = core_string_format(&[CoreValue::from("Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'"), v_field_name.clone()])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_is_file = core_eq(&[v_type_name.clone(), CoreValue::from("file")])?;
+    if core_truthy(&v_is_file) {
+        v_valid_file = core_media_valid_file(&[v_value.clone()])?;
+        v_invalid_file = core_not(&[v_valid_file.clone()])?;
+        if core_truthy(&v_invalid_file) {
+            v_message = core_string_format(&[CoreValue::from("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'"), v_field_name.clone()])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_is_url = core_eq(&[v_type_name.clone(), CoreValue::from("url")])?;
+    if core_truthy(&v_is_url) {
+        v_valid_url_shape = core_media_valid_url_shape(&[v_value.clone()])?;
+        v_invalid_url_shape = core_not(&[v_valid_url_shape.clone()])?;
+        if core_truthy(&v_invalid_url_shape) {
+            v_message = core_string_format(&[CoreValue::from("Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'"), v_field_name.clone()])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_url_is_string = core_type_is(&v_value, CoreValue::from("string"));
+        if core_truthy(&v_url_is_string) {
+            v_valid_url = core_url_valid(&[v_value.clone()])?;
+            v_invalid_url = core_not(&[v_valid_url.clone()])?;
+            if core_truthy(&v_invalid_url) {
+                v_field_title = core_get(&v_field, &CoreValue::from("title"), CoreValue::Null);
+                v_message = core_string_format(&[
+                    CoreValue::from("Invalid URL for '{}': Invalid URL format."),
+                    v_field_title.clone(),
+                ])?;
+                v_error = core_validation_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_string_types = CoreValue::new_list();
+    core_append(&v_string_types, CoreValue::from("string"))?;
+    core_append(&v_string_types, CoreValue::from("code"))?;
+    core_append(&v_string_types, CoreValue::from("date"))?;
+    core_append(&v_string_types, CoreValue::from("datetime"))?;
+    core_append(&v_string_types, CoreValue::from("dateRange"))?;
+    core_append(&v_string_types, CoreValue::from("datetimeRange"))?;
+    v_is_string_type = core_contains(&[v_string_types.clone(), v_type_name.clone()])?;
+    if core_truthy(&v_is_string_type) {
+        v_is_string = core_type_is(&v_value, CoreValue::from("string"));
+        v_not_string = core_not(&[v_is_string.clone()])?;
+        if core_truthy(&v_not_string) {
+            v_message = core_string_format(&[
+                CoreValue::from("Validation failed: Expected '{}' to be a {}"),
+                v_field_name.clone(),
+                v_type_name.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        _validate_string_constraints_impl(&[v_value.clone(), v_field.clone()])?;
+        return Ok(CoreValue::Null);
+    }
+    v_is_number_type = core_eq(&[v_type_name.clone(), CoreValue::from("number")])?;
+    if core_truthy(&v_is_number_type) {
+        v_is_number = core_type_is(&v_value, CoreValue::from("number"));
+        v_not_number = core_not(&[v_is_number.clone()])?;
+        if core_truthy(&v_not_number) {
+            v_message = core_string_format(&[
+                CoreValue::from("Validation failed: Expected '{}' to be a number"),
+                v_field_name.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        _validate_number_constraints_impl(&[v_value.clone(), v_field.clone()])?;
+        return Ok(CoreValue::Null);
+    }
+    v_is_boolean_type = core_eq(&[v_type_name.clone(), CoreValue::from("boolean")])?;
+    if core_truthy(&v_is_boolean_type) {
+        v_is_boolean = core_type_is(&v_value, CoreValue::from("boolean"));
+        v_not_boolean = core_not(&[v_is_boolean.clone()])?;
+        if core_truthy(&v_not_boolean) {
+            v_message = core_string_format(&[
+                CoreValue::from("Validation failed: Expected '{}' to be a boolean"),
+                v_field_name.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_is_class_type = core_eq(&[v_type_name.clone(), CoreValue::from("class")])?;
+    if core_truthy(&v_is_class_type) {
+        v_is_class_string = core_type_is(&v_value, CoreValue::from("string"));
+        v_not_class_string = core_not(&[v_is_class_string.clone()])?;
+        if core_truthy(&v_not_class_string) {
+            v_message = core_string_format(&[
+                CoreValue::from("Validation failed: Expected '{}' to be a class"),
+                v_field_name.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_options = core_get(&v_typ, &CoreValue::from("options"), CoreValue::Null);
+        v_has_options = core_truthy_value(&[v_options.clone()])?;
+        if core_truthy(&v_has_options) {
+            v_known_class = core_contains(&[v_options.clone(), v_value.clone()])?;
+            v_unknown_class = core_not(&[v_known_class.clone()])?;
+            if core_truthy(&v_unknown_class) {
+                v_message = core_string_format(&[
+                    CoreValue::from("{} must be one of {}"),
+                    v_path.clone(),
+                    v_options.clone(),
+                ])?;
+                v_error = core_validation_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_is_json_type = core_eq(&[v_type_name.clone(), CoreValue::from("json")])?;
+    if core_truthy(&v_is_json_type) {
+        v_is_json = core_type_is(&v_value, CoreValue::from("json"));
+        v_not_json = core_not(&[v_is_json.clone()])?;
+        if core_truthy(&v_not_json) {
+            v_message = core_string_format(&[
+                CoreValue::from("Validation failed: Expected '{}' to be JSON"),
+                v_field_name.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_is_object_type = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
+    if core_truthy(&v_is_object_type) {
+        v_is_object = core_type_is(&v_value, CoreValue::from("object"));
+        v_not_object = core_not(&[v_is_object.clone()])?;
+        if core_truthy(&v_not_object) {
+            v_message =
+                core_string_format(&[CoreValue::from("{} must be an object"), v_path.clone()])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_nested_map = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
+        v_has_nested = core_truthy_value(&[v_nested_map.clone()])?;
+        if core_truthy(&v_has_nested) {
+            v_nested_fields = core_fields_from_map(&[v_nested_map.clone()])?;
+            _validate_fields_impl(&[v_nested_fields.clone(), v_value.clone(), v_path.clone()])?;
+        }
+        return Ok(CoreValue::Null);
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _schema_apply_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_schema = core_arg(args, 0);
+    let mut v_typ = core_arg(args, 1);
+    let mut v_default_date_format = CoreValue::Null;
+    let mut v_default_datetime_format = CoreValue::Null;
+    let mut v_default_url_format = CoreValue::Null;
+    let mut v_format = CoreValue::Null;
+    let mut v_has_format = CoreValue::Null;
+    let mut v_has_max = CoreValue::Null;
+    let mut v_has_maximum = CoreValue::Null;
+    let mut v_has_min = CoreValue::Null;
+    let mut v_has_minimum = CoreValue::Null;
+    let mut v_has_pattern = CoreValue::Null;
+    let mut v_is_date = CoreValue::Null;
+    let mut v_is_datetime = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    let mut v_is_string_type = CoreValue::Null;
+    let mut v_is_url = CoreValue::Null;
+    let mut v_max_length = CoreValue::Null;
+    let mut v_maximum = CoreValue::Null;
+    let mut v_min_length = CoreValue::Null;
+    let mut v_minimum = CoreValue::Null;
+    let mut v_missing_format = CoreValue::Null;
+    let mut v_pattern = CoreValue::Null;
+    let mut v_string_types = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_string_types = CoreValue::new_list();
+    core_append(&v_string_types, CoreValue::from("string"))?;
+    core_append(&v_string_types, CoreValue::from("code"))?;
+    core_append(&v_string_types, CoreValue::from("url"))?;
+    core_append(&v_string_types, CoreValue::from("date"))?;
+    core_append(&v_string_types, CoreValue::from("dateRange"))?;
+    core_append(&v_string_types, CoreValue::from("datetime"))?;
+    core_append(&v_string_types, CoreValue::from("datetimeRange"))?;
+    v_is_string_type = core_contains(&[v_string_types.clone(), v_type_name.clone()])?;
+    if core_truthy(&v_is_string_type) {
+        v_min_length = core_get(&v_typ, &CoreValue::from("min_length"), CoreValue::Null);
+        v_has_min = core_is_not_none(&[v_min_length.clone()])?;
+        if core_truthy(&v_has_min) {
+            core_set(
+                &v_schema,
+                CoreValue::from("minLength"),
+                v_min_length.clone(),
+            )?;
+        }
+        v_max_length = core_get(&v_typ, &CoreValue::from("max_length"), CoreValue::Null);
+        v_has_max = core_is_not_none(&[v_max_length.clone()])?;
+        if core_truthy(&v_has_max) {
+            core_set(
+                &v_schema,
+                CoreValue::from("maxLength"),
+                v_max_length.clone(),
+            )?;
+        }
+        v_pattern = core_get(&v_typ, &CoreValue::from("pattern"), CoreValue::Null);
+        v_has_pattern = core_is_not_none(&[v_pattern.clone()])?;
+        if core_truthy(&v_has_pattern) {
+            core_set(&v_schema, CoreValue::from("pattern"), v_pattern.clone())?;
+        }
+        v_format = core_get(&v_typ, &CoreValue::from("format"), CoreValue::Null);
+        v_has_format = core_is_not_none(&[v_format.clone()])?;
+        if core_truthy(&v_has_format) {
+            core_set(&v_schema, CoreValue::from("format"), v_format.clone())?;
+        }
+        v_is_url = core_eq(&[v_type_name.clone(), CoreValue::from("url")])?;
+        v_missing_format = core_not(&[v_has_format.clone()])?;
+        v_default_url_format = core_and(&[v_is_url.clone(), v_missing_format.clone()])?;
+        if core_truthy(&v_default_url_format) {
+            core_set(&v_schema, CoreValue::from("format"), CoreValue::from("uri"))?;
+        }
+        v_is_date = core_eq(&[v_type_name.clone(), CoreValue::from("date")])?;
+        v_default_date_format = core_and(&[v_is_date.clone(), v_missing_format.clone()])?;
+        if core_truthy(&v_default_date_format) {
+            core_set(
+                &v_schema,
+                CoreValue::from("format"),
+                CoreValue::from("date"),
+            )?;
+        }
+        v_is_datetime = core_eq(&[v_type_name.clone(), CoreValue::from("datetime")])?;
+        v_default_datetime_format = core_and(&[v_is_datetime.clone(), v_missing_format.clone()])?;
+        if core_truthy(&v_default_datetime_format) {
+            core_set(
+                &v_schema,
+                CoreValue::from("format"),
+                CoreValue::from("date-time"),
+            )?;
+        }
+    } else {
+        v_is_number = core_eq(&[v_type_name.clone(), CoreValue::from("number")])?;
+        if core_truthy(&v_is_number) {
+            v_minimum = core_get(&v_typ, &CoreValue::from("minimum"), CoreValue::Null);
+            v_has_minimum = core_is_not_none(&[v_minimum.clone()])?;
+            if core_truthy(&v_has_minimum) {
+                core_set(&v_schema, CoreValue::from("minimum"), v_minimum.clone())?;
+            }
+            v_maximum = core_get(&v_typ, &CoreValue::from("maximum"), CoreValue::Null);
+            v_has_maximum = core_is_not_none(&[v_maximum.clone()])?;
+            if core_truthy(&v_has_maximum) {
+                core_set(&v_schema, CoreValue::from("maximum"), v_maximum.clone())?;
+            }
+        }
+    }
+    return Ok(v_schema.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _schema_nullable_optional_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_schema = core_arg(args, 0);
+    let mut v_field = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_enum_has_null = CoreValue::Null;
+    let mut v_enum_is_list = CoreValue::Null;
+    let mut v_enum_needs_null = CoreValue::Null;
+    let mut v_enum_values = CoreValue::Null;
+    let mut v_has_null_type = CoreValue::Null;
+    let mut v_is_optional = CoreValue::Null;
+    let mut v_make_nullable = CoreValue::Null;
+    let mut v_needs_null_type = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_nullable_type = CoreValue::Null;
+    let mut v_schema_type = CoreValue::Null;
+    let mut v_strict = CoreValue::Null;
+    let mut v_strict_camel = CoreValue::Null;
+    let mut v_strict_snake = CoreValue::Null;
+    let mut v_type_is_list = CoreValue::Null;
+    v_is_optional = core_get(
+        &v_field,
+        &CoreValue::from("is_optional"),
+        CoreValue::Bool(false),
+    );
+    v_strict_camel = core_get(
+        &v_options,
+        &CoreValue::from("strictStructuredOutputs"),
+        CoreValue::Bool(false),
+    );
+    v_strict_snake = core_get(
+        &v_options,
+        &CoreValue::from("strict_structured_outputs"),
+        CoreValue::Bool(false),
+    );
+    v_strict = core_or(&[v_strict_camel.clone(), v_strict_snake.clone()])?;
+    v_make_nullable = core_and(&[v_is_optional.clone(), v_strict.clone()])?;
+    if core_truthy(&v_make_nullable) {
+        v_schema_type = core_get(&v_schema, &CoreValue::from("type"), CoreValue::Null);
+        v_type_is_list = core_type_is(&v_schema_type, CoreValue::from("list"));
+        if core_truthy(&v_type_is_list) {
+            v_has_null_type = core_contains(&[v_schema_type.clone(), CoreValue::from("null")])?;
+            v_needs_null_type = core_not(&[v_has_null_type.clone()])?;
+            if core_truthy(&v_needs_null_type) {
+                core_append(&v_schema_type, CoreValue::from("null"))?;
+            }
+        } else {
+            v_nullable_type = CoreValue::new_list();
+            core_append(&v_nullable_type, v_schema_type.clone())?;
+            core_append(&v_nullable_type, CoreValue::from("null"))?;
+            core_set(&v_schema, CoreValue::from("type"), v_nullable_type.clone())?;
+        }
+        v_enum_values = core_get(&v_schema, &CoreValue::from("enum"), CoreValue::Null);
+        v_enum_is_list = core_type_is(&v_enum_values, CoreValue::from("list"));
+        if core_truthy(&v_enum_is_list) {
+            v_none = core_none(&[])?;
+            v_enum_has_null = core_contains(&[v_enum_values.clone(), v_none.clone()])?;
+            v_enum_needs_null = core_not(&[v_enum_has_null.clone()])?;
+            if core_truthy(&v_enum_needs_null) {
+                core_append(&v_enum_values, v_none.clone())?;
+            }
+        }
+    }
+    return Ok(v_schema.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _schema_object_from_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_fields_map = core_arg(args, 0);
+    let mut v_is_nested = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_field_schema = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_include = CoreValue::Null;
+    let mut v_is_internal = CoreValue::Null;
+    let mut v_is_required = CoreValue::Null;
+    let mut v_properties = CoreValue::Null;
+    let mut v_required = CoreValue::Null;
+    let mut v_schema = CoreValue::Null;
+    v_schema = CoreValue::new_map();
+    v_properties = CoreValue::new_map();
+    v_required = CoreValue::new_list();
+    core_set(
+        &v_schema,
+        CoreValue::from("type"),
+        CoreValue::from("object"),
+    )?;
+    core_set(
+        &v_schema,
+        CoreValue::from("properties"),
+        v_properties.clone(),
+    )?;
+    core_set(&v_schema, CoreValue::from("required"), v_required.clone())?;
+    core_set(
+        &v_schema,
+        CoreValue::from("additionalProperties"),
+        CoreValue::Bool(false),
+    )?;
+    v_fields = core_fields_from_map(&[v_fields_map.clone()])?;
+    for v_field in core_iter(&v_fields)? {
+        let mut v_field = v_field;
+        v_is_internal = core_get(
+            &v_field,
+            &CoreValue::from("is_internal"),
+            CoreValue::Bool(false),
+        );
+        v_include = core_not(&[v_is_internal.clone()])?;
+        if core_truthy(&v_include) {
+            v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+            v_field_schema = _schema_field_schema_impl(&[
+                v_field.clone(),
+                v_is_nested.clone(),
+                v_options.clone(),
+            ])?;
+            core_set(&v_properties, v_field_name.clone(), v_field_schema.clone())?;
+            v_is_required = _schema_required_impl(&[v_field.clone(), v_options.clone()])?;
+            if core_truthy(&v_is_required) {
+                core_append(&v_required, v_field_name.clone())?;
+            }
+        }
+    }
+    return Ok(v_schema.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _schema_field_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_field = core_arg(args, 0);
+    let mut v_is_nested = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_audio_description = CoreValue::Null;
+    let mut v_class_options = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_field_description = CoreValue::Null;
+    let mut v_fields_map = CoreValue::Null;
+    let mut v_flexible_string = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_has_fields = CoreValue::Null;
+    let mut v_has_item_description = CoreValue::Null;
+    let mut v_has_type_description = CoreValue::Null;
+    let mut v_is_array = CoreValue::Null;
+    let mut v_is_audio = CoreValue::Null;
+    let mut v_is_class = CoreValue::Null;
+    let mut v_is_media = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_is_shaped_object = CoreValue::Null;
+    let mut v_item_base_description = CoreValue::Null;
+    let mut v_item_description = CoreValue::Null;
+    let mut v_items = CoreValue::Null;
+    let mut v_items_with_constraints = CoreValue::Null;
+    let mut v_json_description = CoreValue::Null;
+    let mut v_json_type = CoreValue::Null;
+    let mut v_media_types = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_nested_media = CoreValue::Null;
+    let mut v_nullable = CoreValue::Null;
+    let mut v_object_schema = CoreValue::Null;
+    let mut v_schema = CoreValue::Null;
+    let mut v_schema_with_constraints = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_type_description = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    let mut v_updated = CoreValue::Null;
+    v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_media_types = CoreValue::new_list();
+    core_append(&v_media_types, CoreValue::from("image"))?;
+    core_append(&v_media_types, CoreValue::from("audio"))?;
+    core_append(&v_media_types, CoreValue::from("file"))?;
+    v_is_media = core_contains(&[v_media_types.clone(), v_type_name.clone()])?;
+    v_nested_media = core_and(&[v_is_nested.clone(), v_is_media.clone()])?;
+    if core_truthy(&v_nested_media) {
+        v_message = core_string_format(&[
+            CoreValue::from("Media type '{}' is not allowed in nested object fields"),
+            v_type_name.clone(),
+        ])?;
+        v_error = core_validation_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_schema = CoreValue::new_map();
+    v_field_description = core_get(&v_field, &CoreValue::from("description"), CoreValue::Null);
+    v_description =
+        _schema_enhance_description_impl(&[v_field_description.clone(), v_typ.clone()])?;
+    v_has_description = core_truthy_value(&[v_description.clone()])?;
+    if core_truthy(&v_has_description) {
+        core_set(
+            &v_schema,
+            CoreValue::from("description"),
+            v_description.clone(),
+        )?;
+    }
+    v_is_array = core_get(&v_typ, &CoreValue::from("is_array"), CoreValue::Bool(false));
+    if core_truthy(&v_is_array) {
+        core_set(&v_schema, CoreValue::from("type"), CoreValue::from("array"))?;
+        v_fields_map = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
+        v_has_fields = core_truthy_value(&[v_fields_map.clone()])?;
+        if core_truthy(&v_has_fields) {
+            v_items = _schema_object_from_fields_impl(&[
+                v_fields_map.clone(),
+                CoreValue::Bool(true),
+                v_options.clone(),
+            ])?;
+            v_type_description = core_get(&v_typ, &CoreValue::from("description"), CoreValue::Null);
+            v_has_type_description = core_truthy_value(&[v_type_description.clone()])?;
+            if core_truthy(&v_has_type_description) {
+                core_set(
+                    &v_items,
+                    CoreValue::from("description"),
+                    v_type_description.clone(),
+                )?;
+            }
+            core_set(&v_schema, CoreValue::from("items"), v_items.clone())?;
+            v_nullable = _schema_nullable_optional_impl(&[
+                v_schema.clone(),
+                v_field.clone(),
+                v_options.clone(),
+            ])?;
+            return Ok(v_nullable.clone());
+        }
+        v_is_class = core_eq(&[v_type_name.clone(), CoreValue::from("class")])?;
+        if core_truthy(&v_is_class) {
+            v_items = CoreValue::new_map();
+            core_set(&v_items, CoreValue::from("type"), CoreValue::from("string"))?;
+            v_class_options = core_get(&v_typ, &CoreValue::from("options"), CoreValue::Null);
+            core_set(&v_items, CoreValue::from("enum"), v_class_options.clone())?;
+            core_set(&v_schema, CoreValue::from("items"), v_items.clone())?;
+            v_nullable = _schema_nullable_optional_impl(&[
+                v_schema.clone(),
+                v_field.clone(),
+                v_options.clone(),
+            ])?;
+            return Ok(v_nullable.clone());
+        }
+        v_items = CoreValue::new_map();
+        v_flexible_string =
+            _schema_flexible_json_as_string_impl(&[v_typ.clone(), v_options.clone()])?;
+        if core_truthy(&v_flexible_string) {
+            core_set(&v_items, CoreValue::from("type"), CoreValue::from("string"))?;
+            v_type_description = core_get(&v_typ, &CoreValue::from("description"), CoreValue::Null);
+            v_item_base_description =
+                core_coalesce(&[v_type_description.clone(), v_field_description.clone()])?;
+            v_item_description = _schema_enhance_description_impl(&[
+                v_item_base_description.clone(),
+                v_typ.clone(),
+            ])?;
+            v_json_description = core_description_append(&[v_item_description.clone(), CoreValue::from("Return this field as a JSON-encoded string that can be parsed with JSON.parse.")])?;
+            core_set(
+                &v_items,
+                CoreValue::from("description"),
+                v_json_description.clone(),
+            )?;
+        } else {
+            v_json_type = _schema_json_type_impl(&[v_type_name.clone()])?;
+            core_set(&v_items, CoreValue::from("type"), v_json_type.clone())?;
+            v_type_description = core_get(&v_typ, &CoreValue::from("description"), CoreValue::Null);
+            v_item_base_description =
+                core_coalesce(&[v_type_description.clone(), v_field_description.clone()])?;
+            v_item_description = _schema_enhance_description_impl(&[
+                v_item_base_description.clone(),
+                v_typ.clone(),
+            ])?;
+            v_has_item_description = core_truthy_value(&[v_item_description.clone()])?;
+            if core_truthy(&v_has_item_description) {
+                core_set(
+                    &v_items,
+                    CoreValue::from("description"),
+                    v_item_description.clone(),
+                )?;
+            }
+        }
+        v_items_with_constraints =
+            _schema_apply_constraints_impl(&[v_items.clone(), v_typ.clone()])?;
+        core_set(
+            &v_schema,
+            CoreValue::from("items"),
+            v_items_with_constraints.clone(),
+        )?;
+        v_nullable = _schema_nullable_optional_impl(&[
+            v_schema.clone(),
+            v_field.clone(),
+            v_options.clone(),
+        ])?;
+        return Ok(v_nullable.clone());
+    }
+    v_fields_map = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
+    v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
+    v_has_fields = core_truthy_value(&[v_fields_map.clone()])?;
+    v_is_shaped_object = core_and(&[v_is_object.clone(), v_has_fields.clone()])?;
+    if core_truthy(&v_is_shaped_object) {
+        v_object_schema = _schema_object_from_fields_impl(&[
+            v_fields_map.clone(),
+            CoreValue::Bool(true),
+            v_options.clone(),
+        ])?;
+        v_updated = core_map_update(&[v_schema.clone(), v_object_schema.clone()])?;
+        v_nullable = _schema_nullable_optional_impl(&[
+            v_updated.clone(),
+            v_field.clone(),
+            v_options.clone(),
+        ])?;
+        return Ok(v_nullable.clone());
+    }
+    v_is_class = core_eq(&[v_type_name.clone(), CoreValue::from("class")])?;
+    if core_truthy(&v_is_class) {
+        core_set(
+            &v_schema,
+            CoreValue::from("type"),
+            CoreValue::from("string"),
+        )?;
+        v_class_options = core_get(&v_typ, &CoreValue::from("options"), CoreValue::Null);
+        core_set(&v_schema, CoreValue::from("enum"), v_class_options.clone())?;
+        v_nullable = _schema_nullable_optional_impl(&[
+            v_schema.clone(),
+            v_field.clone(),
+            v_options.clone(),
+        ])?;
+        return Ok(v_nullable.clone());
+    }
+    v_flexible_string = _schema_flexible_json_as_string_impl(&[v_typ.clone(), v_options.clone()])?;
+    if core_truthy(&v_flexible_string) {
+        core_set(
+            &v_schema,
+            CoreValue::from("type"),
+            CoreValue::from("string"),
+        )?;
+        v_json_description = core_description_append(&[
+            v_description.clone(),
+            CoreValue::from(
+                "Return this field as a JSON-encoded string that can be parsed with JSON.parse.",
+            ),
+        ])?;
+        core_set(
+            &v_schema,
+            CoreValue::from("description"),
+            v_json_description.clone(),
+        )?;
+        v_nullable = _schema_nullable_optional_impl(&[
+            v_schema.clone(),
+            v_field.clone(),
+            v_options.clone(),
+        ])?;
+        return Ok(v_nullable.clone());
+    }
+    v_json_type = _schema_json_type_impl(&[v_type_name.clone()])?;
+    core_set(&v_schema, CoreValue::from("type"), v_json_type.clone())?;
+    v_is_audio = core_eq(&[v_type_name.clone(), CoreValue::from("audio")])?;
+    if core_truthy(&v_is_audio) {
+        v_audio_description = core_description_append(&[v_description.clone(), CoreValue::from("Return plain text to synthesize as speech; do not return audio bytes or JSON audio objects.")])?;
+        core_set(
+            &v_schema,
+            CoreValue::from("description"),
+            v_audio_description.clone(),
+        )?;
+    }
+    v_schema_with_constraints = _schema_apply_constraints_impl(&[v_schema.clone(), v_typ.clone()])?;
+    v_nullable = _schema_nullable_optional_impl(&[
+        v_schema_with_constraints.clone(),
+        v_field.clone(),
+        v_options.clone(),
+    ])?;
+    return Ok(v_nullable.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _strip_internal_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_fields = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_field_value = CoreValue::Null;
+    let mut v_has_value = CoreValue::Null;
+    let mut v_is_internal = CoreValue::Null;
+    let mut v_is_public = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
+    let mut v_public_values = CoreValue::Null;
+    v_public_values = CoreValue::new_map();
+    for v_field in core_iter(&v_fields)? {
+        let mut v_field = v_field;
+        v_is_internal = core_get(
+            &v_field,
+            &CoreValue::from("is_internal"),
+            CoreValue::Bool(false),
+        );
+        v_is_public = core_not(&[v_is_internal.clone()])?;
+        v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+        v_has_value = core_map_contains(&[v_values.clone(), v_field_name.clone()])?;
+        v_keep = core_and(&[v_is_public.clone(), v_has_value.clone()])?;
+        if core_truthy(&v_keep) {
+            v_field_value = core_map_get(&[v_values.clone(), v_field_name.clone()])?;
+            core_set(
+                &v_public_values,
+                v_field_name.clone(),
+                v_field_value.clone(),
+            )?;
+        }
+    }
+    return Ok(v_public_values.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _schema_to_json_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_fields = core_arg(args, 0);
+    let mut v_schema_title = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_field_schema = CoreValue::Null;
+    let mut v_include = CoreValue::Null;
+    let mut v_is_internal = CoreValue::Null;
+    let mut v_is_required = CoreValue::Null;
+    let mut v_properties = CoreValue::Null;
+    let mut v_required = CoreValue::Null;
+    let mut v_schema = CoreValue::Null;
+    v_schema = CoreValue::new_map();
+    v_properties = CoreValue::new_map();
+    v_required = CoreValue::new_list();
+    core_set(
+        &v_schema,
+        CoreValue::from("type"),
+        CoreValue::from("object"),
+    )?;
+    core_set(&v_schema, CoreValue::from("title"), v_schema_title.clone())?;
+    core_set(
+        &v_schema,
+        CoreValue::from("properties"),
+        v_properties.clone(),
+    )?;
+    core_set(&v_schema, CoreValue::from("required"), v_required.clone())?;
+    core_set(
+        &v_schema,
+        CoreValue::from("additionalProperties"),
+        CoreValue::Bool(false),
+    )?;
+    for v_field in core_iter(&v_fields)? {
+        let mut v_field = v_field;
+        v_is_internal = core_get(
+            &v_field,
+            &CoreValue::from("is_internal"),
+            CoreValue::Bool(false),
+        );
+        v_include = core_not(&[v_is_internal.clone()])?;
+        if core_truthy(&v_include) {
+            v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+            v_field_schema = _schema_field_schema_impl(&[
+                v_field.clone(),
+                CoreValue::Bool(false),
+                v_options.clone(),
+            ])?;
+            core_set(&v_properties, v_field_name.clone(), v_field_schema.clone())?;
+            v_is_required = _schema_required_impl(&[v_field.clone(), v_options.clone()])?;
+            if core_truthy(&v_is_required) {
+                core_append(&v_required, v_field_name.clone())?;
+            }
+        }
+    }
+    return Ok(v_schema.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (27 of 353 core functions; remaining modules are hand-written pending migration)
