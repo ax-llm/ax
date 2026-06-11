@@ -1205,11 +1205,10 @@ fn voice_id(request: &Value, default_voice: &str) -> Value {
 
 fn normalize_openai_response(profile: &str, model: &str, response: Value) -> AxResult<Value> {
     let payload = normalize_passthrough_response(response)?;
-    let ai_name = if profile == "openai-compatible" { "openai" } else { profile };
     let normalized = provider_normalize_chat_response(&[
         CoreValue::from(profile),
         core_value_from_json(&payload),
-        CoreValue::from(ai_name),
+        provider_ai_display_name(profile),
         CoreValue::from(model),
     ])?;
     Ok(core_value_to_json(&normalized))
@@ -1304,16 +1303,22 @@ fn normalize_stream_response(profile: &str, model: &str, response: Value) -> AxR
         let body = response.get("body").and_then(Value::as_str).unwrap_or_default();
         parse_sse_events(body)?
     };
-    if profile == "anthropic" {
-        return Ok(normalize_anthropic_stream_events(&events));
+    let ai_name = provider_ai_display_name(profile);
+    let state = CoreValue::new_map();
+    let mut out = Vec::new();
+    for event in &events {
+        let normalized = provider_normalize_stream_delta(&[
+            CoreValue::from(profile),
+            core_value_from_json(event),
+            state.clone(),
+            ai_name.clone(),
+            CoreValue::from(model),
+        ])?;
+        if !normalized.is_null() {
+            out.push(core_value_to_json(&normalized));
+        }
     }
-    if profile == "openai-compatible" || profile == "openai" || profile == "grok" {
-        return Ok(normalize_openai_stream_events(&events));
-    }
-    Ok(events
-        .iter()
-        .map(|event| normalize_stream_event(profile, model, event))
-        .collect())
+    Ok(out)
 }
 
 fn parse_sse_events(body: &str) -> AxResult<Vec<Value>> {
@@ -6204,6 +6209,10 @@ fn core_get(target: &CoreValue, key: &CoreValue, default: CoreValue) -> CoreValu
         (CoreValue::Map(map), CoreValue::Str(key)) => {
             map.borrow().get(key.as_str()).unwrap_or(default)
         }
+        // python dicts accept numeric keys; CoreMap normalizes them to text
+        (CoreValue::Map(map), CoreValue::Num(_)) => {
+            map.borrow().get(&key.text()).unwrap_or(default)
+        }
         (CoreValue::List(items), CoreValue::Num(index)) => {
             let items = items.borrow();
             let index = *index as i64;
@@ -6221,6 +6230,10 @@ fn core_set(target: &CoreValue, key: CoreValue, value: CoreValue) -> Result<Core
     match (target, &key) {
         (CoreValue::Map(map), CoreValue::Str(key)) => {
             map.borrow_mut().set(key.as_str(), value);
+            Ok(CoreValue::Null)
+        }
+        (CoreValue::Map(map), CoreValue::Num(_)) => {
+            map.borrow_mut().set(&key.text(), value);
             Ok(CoreValue::Null)
         }
         (CoreValue::List(items), CoreValue::Num(index)) => {
@@ -8269,6 +8282,13 @@ fn normalize_embed_response_native(response: Value, ai_name: &str) -> AxResult<V
         CoreValue::from(usage_ai_name),
     ])?;
     Ok(core_value_to_json(&normalized))
+}
+
+
+fn provider_ai_display_name(profile: &str) -> CoreValue {
+    provider_descriptor(&[CoreValue::from(profile)])
+        .map(|descriptor| core_get(&descriptor, &CoreValue::from("name"), CoreValue::from(profile)))
+        .unwrap_or_else(|_| CoreValue::from(profile))
 }
 
 // ----- END AXIR CORE VALUE RUNTIME -----
