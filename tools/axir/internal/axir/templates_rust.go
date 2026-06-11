@@ -990,7 +990,9 @@ impl AxAIClient for OpenAICompatibleClient {
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         let body = self.request_body(&request);
         let path = self.chat_path().to_string();
-        normalize_openai_response(self.post_json(&path, body)?)
+        let profile = self.profile.clone();
+        let model = self.model.clone();
+        normalize_openai_response(&profile, &model, self.post_json(&path, body)?)
     }
 
     fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
@@ -1201,40 +1203,16 @@ fn voice_id(request: &Value, default_voice: &str) -> Value {
     voice.get("id").cloned().unwrap_or(voice)
 }
 
-fn normalize_openai_response(response: Value) -> AxResult<Value> {
-    let status = response.get("status").and_then(Value::as_u64).unwrap_or(200);
-    if status >= 400 {
-        return Err(AxError {
-            category: "ai_service".to_string(),
-            error_type: None,
-            message: response.to_string(),
-            status: Some(status as u16),
-            code: None,
-            retryable: status >= 500,
-        });
-    }
-    let payload = response.get("json").cloned().unwrap_or(response);
-    let choices = payload
-        .get("choices")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let mut results = Vec::new();
-    for choice in choices {
-        let message = choice.get("message").cloned().unwrap_or_else(|| json!({}));
-        results.push(json!({
-            "index": choice.get("index").cloned().unwrap_or_else(|| json!(0)),
-            "id": choice.get("id").cloned().unwrap_or_else(|| json!(choice.get("index").and_then(Value::as_i64).unwrap_or(0).to_string())),
-            "content": message.get("content").cloned().unwrap_or_else(|| json!("")),
-            "finish_reason": choice.get("finish_reason").cloned().unwrap_or_else(|| json!("stop")),
-            "function_calls": normalize_function_calls(&message)
-        }));
-    }
-    Ok(json!({
-        "results": results,
-        "remote_id": payload.get("id").cloned().unwrap_or(Value::Null),
-        "model_usage": normalize_model_usage("openai", payload.get("model").and_then(Value::as_str).unwrap_or_default(), payload.get("usage"))
-    }))
+fn normalize_openai_response(profile: &str, model: &str, response: Value) -> AxResult<Value> {
+    let payload = normalize_passthrough_response(response)?;
+    let ai_name = if profile == "openai-compatible" { "openai" } else { profile };
+    let normalized = provider_normalize_chat_response(&[
+        CoreValue::from(profile),
+        core_value_from_json(&payload),
+        CoreValue::from(ai_name),
+        CoreValue::from(model),
+    ])?;
+    Ok(core_value_to_json(&normalized))
 }
 
 fn normalize_passthrough_response(response: Value) -> AxResult<Value> {
