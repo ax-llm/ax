@@ -3647,17 +3647,45 @@ fn run_strip_internal_fixture(fixture: &Value) -> AxResult<()> {
 
 fn run_prompt_fixture(fixture: &Value) -> AxResult<()> {
     let sig = build_fixture_signature(fixture)?;
-    let prompt_text = if let Some(expected) = fixture.get("expected_messages") {
-        if !expected.is_array() {
-            return Err(AxError::new(
-                "fixture",
-                "prompt expected_messages must be an array",
-            ));
+    let options = CoreValue::new_map();
+    for (key, names) in [
+        ("custom_template", vec!["custom_template", "customTemplate"]),
+        (
+            "structured_output_function_name",
+            vec![
+                "structured_output_function_name",
+                "structuredOutputFunctionName",
+            ],
+        ),
+        ("instruction", vec!["instruction"]),
+    ] {
+        for name in names {
+            let value = fixture
+                .get(name)
+                .or_else(|| fixture.get("options").and_then(|o| o.get(name)));
+            if let Some(value) = value {
+                core_set(&options, CoreValue::from(key), core_value_from_json(value))?;
+                break;
+            }
         }
-        stable_stringify(expected)
-    } else {
-        render_default_prompt_fixture(&sig, fixture.get("input").unwrap_or(&Value::Null))
-    };
+    }
+    let values = fixture
+        .get("input")
+        .or_else(|| fixture.get("values"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let tools = fixture.get("tools").cloned().unwrap_or_else(|| json!([]));
+    let messages = render_prompt(&[
+        core_signature_value(&sig)?,
+        core_value_from_json(&values),
+        core_value_from_json(&tools),
+        options,
+    ])?;
+    let messages_json = core_value_to_json(&messages);
+    if let Some(expected) = fixture.get("expected_messages") {
+        expect_json_equal("messages", &messages_json, expected)?;
+    }
+    let prompt_text = stable_stringify(&messages_json);
     for item in fixture
         .get("expected_prompt_contains")
         .and_then(Value::as_array)
@@ -6141,44 +6169,9 @@ fn expect_validation_result(result: AxResult<()>, fixture: &Value) -> AxResult<(
 }
 
 fn render_fixture_template(template: &str, vars: &Value) -> AxResult<String> {
-    let mut out = template.to_string();
-    while let Some(start) = out.find("{{") {
-        let Some(end_rel) = out[start + 2..].find("}}") else {
-            return Err(AxError::validation("Unclosed template tag"));
-        };
-        let end = start + 2 + end_rel;
-        let tag = out[start + 2..end].trim();
-        let replacement = if tag.starts_with('!') {
-            String::new()
-        } else if let Some(condition) = tag.strip_prefix("if ") {
-            let close = out[end + 2..]
-                .find("{{ /if }}")
-                .ok_or_else(|| AxError::validation("Missing {{ /if }}"))?
-                + end
-                + 2;
-            let body = &out[end + 2..close];
-            let (truthy_body, false_body) = body
-                .split_once("{{ else }}")
-                .map(|(left, right)| (left, right))
-                .unwrap_or((body, ""));
-            let truthy = eval_template_condition(condition.trim(), vars)?;
-            let replacement = if truthy { truthy_body } else { false_body }.to_string();
-            out.replace_range(start..close + "{{ /if }}".len(), &replacement);
-            continue;
-        } else {
-            if !tag
-                .chars()
-                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.')
-            {
-                return Err(AxError::validation(format!("Invalid tag '{tag}'")));
-            }
-            let value = get_path(vars, tag)
-                .ok_or_else(|| AxError::validation(format!("Missing template variable '{tag}'")))?;
-            display_template_value(value)
-        };
-        out.replace_range(start..end + 2, &replacement);
-    }
-    Ok(out)
+    let rendered =
+        render_template_content(&[CoreValue::from(template), core_value_from_json(vars)])?;
+    Ok(rendered.text())
 }
 
 fn eval_template_condition(condition: &str, vars: &Value) -> AxResult<bool> {
@@ -6197,19 +6190,16 @@ fn eval_template_condition(condition: &str, vars: &Value) -> AxResult<bool> {
 }
 
 fn validate_fixture_template(template: &str, required: Vec<Value>) -> AxResult<()> {
-    for raw in required {
-        let Some(name) = raw.as_str() else {
-            continue;
-        };
-        let needle = format!("{{{{ {name} }}}}");
-        let compact = format!("{{{{{name}}}}}");
-        if !template.contains(&needle) && !template.contains(&compact) {
-            return Err(AxError::validation(format!(
-                "must preserve template variable {{{{{name}}}}}"
-            )));
-        }
+    let message = validate_prompt_template_syntax(&[
+        CoreValue::from(template),
+        CoreValue::from("template"),
+        core_value_from_json(&Value::Array(required)),
+    ])?;
+    if message.is_null() {
+        Ok(())
+    } else {
+        Err(AxError::new("template", message.text()))
     }
-    Ok(())
 }
 
 fn fold_fixture_stream(events: Vec<Value>) -> String {
@@ -7304,7 +7294,15 @@ fn core_record_new(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 },
             );
             out.set("description", read("description", "description"));
-            out.set("title", read("title", "title"));
+            let title = read("title", "title");
+            out.set(
+                "title",
+                if title.is_null() {
+                    CoreValue::from_string(title_case(&read("name", "name").text()))
+                } else {
+                    title
+                },
+            );
             out.set(
                 "is_optional",
                 CoreValue::Bool(core_truthy(&read("is_optional", "isOptional"))),
@@ -7926,6 +7924,1265 @@ fn validate_field_value_native(field: &Field, value: &Value) -> AxResult<()> {
     validate_value(&[core_field_value(field)?, core_value_from_json(value)])?;
     Ok(())
 }
+
+fn core_signature_value(sig: &AxSignature) -> Result<CoreValue, AxError> {
+    let values = CoreValue::new_map();
+    core_set(
+        &values,
+        CoreValue::from("inputs"),
+        core_fields_value(&sig.inputs)?,
+    )?;
+    core_set(
+        &values,
+        CoreValue::from("outputs"),
+        core_fields_value(&sig.outputs)?,
+    )?;
+    if let Some(text) = sig.description.as_deref() {
+        core_set(
+            &values,
+            CoreValue::from("description"),
+            CoreValue::from(text),
+        )?;
+    }
+    core_record_new(&[CoreValue::from("AxSignature"), values])
+}
+
+// ----- AXIR CORE PROMPT/TEMPLATE ENGINE -----
+// Port of the Python reference implementations (_core_template_* and
+// _core_prompt_*) onto the AxIR CoreValue runtime. Node maps, error messages,
+// and rendering output mirror the Python engine exactly; TemplateError maps
+// to AxError::new("template", ...).
+
+#[allow(dead_code)]
+const BT: &str = "\u{60}";
+
+#[allow(dead_code)]
+const DEFAULT_DSPY_TEMPLATE: &str = "<identity>\n{{ identityText }}\n</identity>{{ if hasFunctions }}\n\n<available_functions>\n**Available Functions**: You can call the following functions to complete the task:\n\n{{ functionsList }}\n\n## Function Call Instructions\n- Complete the task, using the functions defined earlier in this prompt.\n- Output fields should only be generated after all functions have been called.\n- Use the function results to generate the output fields.\n</available_functions>{{ /if }}\n\n<input_fields>\n{{ inputFieldsSection }}\n</input_fields>{{ if hasOutputFields }}\n\n<output_fields>\n{{ outputFieldsSection }}\n</output_fields>{{ /if }}\n{{ if hasTaskDefinition }}\n\n<task_definition>\n{{ taskDefinitionText }}\n</task_definition>{{ /if }}\n\n<formatting_rules>\n{{ if hasStructuredOutputFunction }}\nReturn the complete output by calling \u{60}{{ structuredOutputFunctionName }}\u{60}.\n{{ else }}{{ if hasComplexFields }}\nReturn valid JSON matching <output_fields>.\n{{ else }}\nReturn one \u{60}field name: value\u{60} pair per line for the required output fields only.\n{{ /if }}{{ /if }}Above rules override later instructions.\n\n</formatting_rules>\n{{ if hasExampleDemonstrations }}\n\n## Example Demonstrations\nThe following User/Assistant turns are examples only until --- END OF EXAMPLES ---, not context for the current task.\n{{ /if }}\n";
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+struct CoreTemplateToken {
+    is_tag: bool,
+    value: String,
+    // Character offset of the token in the source template (tags only; text
+    // tokens carry the offset where the text run starts).
+    index: usize,
+}
+
+#[allow(dead_code)]
+struct CoreTemplateParseRange {
+    nodes: CoreValue,
+    index: usize,
+    terminator: Option<String>,
+}
+
+#[allow(dead_code)]
+fn core_template_error(message: String) -> AxError {
+    AxError::new("template", message)
+}
+
+// IDENTIFIER_PATTERN: ^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$
+#[allow(dead_code)]
+fn core_template_is_identifier(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    for part in text.split('.') {
+        let mut chars = part.chars();
+        match chars.next() {
+            Some(first) if first.is_ascii_alphabetic() || first == '_' => {}
+            _ => return false,
+        }
+        if !chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
+            return false;
+        }
+    }
+    true
+}
+
+// STRING_EQUALITY_PATTERN:
+// ^(identifier)\s*===\s*(?:'([^']*)'|"([^"]*)")$  -> Some((path, expected))
+#[allow(dead_code)]
+fn core_template_match_string_equality(text: &str) -> Option<(String, String)> {
+    let eq = text.find("===")?;
+    let path = text[..eq].trim_end();
+    if !core_template_is_identifier(path) {
+        return None;
+    }
+    let rest = text[eq + 3..].trim_start();
+    if rest.len() < 2 {
+        return None;
+    }
+    let quote = rest.chars().next()?;
+    if quote != '\'' && quote != '"' {
+        return None;
+    }
+    if !rest.ends_with(quote) {
+        return None;
+    }
+    let inner = &rest[1..rest.len() - 1];
+    if inner.contains(quote) {
+        return None;
+    }
+    Some((path.to_string(), inner.to_string()))
+}
+
+// TAG_PATTERN tokenizer: {{\s*([^}]+?)\s*}} scanned by character so token
+// indices match Python string offsets.
+#[allow(dead_code)]
+fn core_template_tokenize(template: &str) -> Vec<CoreTemplateToken> {
+    let chars: Vec<char> = template.chars().collect();
+    let len = chars.len();
+    let mut tokens: Vec<CoreTemplateToken> = Vec::new();
+    let mut last_index = 0usize;
+    let mut i = 0usize;
+    while i + 5 <= len {
+        if chars[i] != '{' || chars[i + 1] != '{' {
+            i += 1;
+            continue;
+        }
+        // Tag content cannot contain '}', so the closing braces must sit at
+        // the first '}' after the opener.
+        let mut close = i + 2;
+        while close < len && chars[close] != '}' {
+            close += 1;
+        }
+        if close >= len {
+            break;
+        }
+        if close + 1 >= len || chars[close + 1] != '}' || close < i + 3 {
+            i += 1;
+            continue;
+        }
+        if i > last_index {
+            tokens.push(CoreTemplateToken {
+                is_tag: false,
+                value: chars[last_index..i].iter().collect(),
+                index: last_index,
+            });
+        }
+        let raw: String = chars[i + 2..close].iter().collect();
+        tokens.push(CoreTemplateToken {
+            is_tag: true,
+            value: raw.trim().to_string(),
+            index: i,
+        });
+        last_index = close + 2;
+        i = close + 2;
+    }
+    if last_index < len {
+        tokens.push(CoreTemplateToken {
+            is_tag: false,
+            value: chars[last_index..].iter().collect(),
+            index: last_index,
+        });
+    }
+    tokens
+}
+
+#[allow(dead_code)]
+fn core_template_error_message(context: &str, source: &str, index: usize, message: &str) -> String {
+    let snippet: String = source.chars().take(index).collect();
+    let lines: Vec<&str> = snippet.split('\n').collect();
+    let line = lines.len();
+    let column = lines
+        .last()
+        .map(|last| last.chars().count() + 1)
+        .unwrap_or(1);
+    format!("{context}:{line}:{column} {message}")
+}
+
+#[allow(dead_code)]
+fn core_template_parse_range(
+    tokens: &[CoreTemplateToken],
+    source: &str,
+    context: &str,
+    start_index: usize,
+    terminators: &[&str],
+) -> Result<CoreTemplateParseRange, AxError> {
+    let nodes = CoreValue::new_list();
+    let mut i = start_index;
+    while i < tokens.len() {
+        let token = &tokens[i];
+        if !token.is_tag {
+            let node = CoreValue::new_map();
+            core_set(&node, CoreValue::from("type"), CoreValue::from("text"))?;
+            core_set(
+                &node,
+                CoreValue::from("value"),
+                CoreValue::from(token.value.as_str()),
+            )?;
+            core_append(&nodes, node)?;
+            i += 1;
+            continue;
+        }
+
+        let tag = token.value.as_str();
+        if terminators.contains(&tag) {
+            return Ok(CoreTemplateParseRange {
+                nodes,
+                index: i,
+                terminator: Some(tag.to_string()),
+            });
+        }
+
+        if let Some(rest) = tag.strip_prefix("if ") {
+            let condition = rest.trim();
+            if !core_template_is_identifier(condition)
+                && core_template_match_string_equality(condition).is_none()
+            {
+                return Err(core_template_error(core_template_error_message(
+                    context,
+                    source,
+                    token.index,
+                    &format!("Invalid if condition '{condition}'"),
+                )));
+            }
+            let then_result =
+                core_template_parse_range(tokens, source, context, i + 1, &["else", "/if"])?;
+            let Some(terminator) = then_result.terminator else {
+                return Err(core_template_error(core_template_error_message(
+                    context,
+                    source,
+                    token.index,
+                    "Unclosed 'if' block",
+                )));
+            };
+            let mut else_nodes = CoreValue::new_list();
+            let mut next_index = then_result.index;
+            if terminator == "else" {
+                let else_result =
+                    core_template_parse_range(tokens, source, context, next_index + 1, &["/if"])?;
+                if else_result.terminator.as_deref() != Some("/if") {
+                    return Err(core_template_error(core_template_error_message(
+                        context,
+                        source,
+                        token.index,
+                        "Unclosed 'if' block",
+                    )));
+                }
+                else_nodes = else_result.nodes;
+                next_index = else_result.index;
+            }
+            let node = CoreValue::new_map();
+            core_set(&node, CoreValue::from("type"), CoreValue::from("if"))?;
+            core_set(
+                &node,
+                CoreValue::from("condition"),
+                CoreValue::from(condition),
+            )?;
+            core_set(&node, CoreValue::from("then"), then_result.nodes)?;
+            core_set(&node, CoreValue::from("else"), else_nodes)?;
+            core_set(
+                &node,
+                CoreValue::from("index"),
+                CoreValue::Num(token.index as f64),
+            )?;
+            core_append(&nodes, node)?;
+            i = next_index + 1;
+            continue;
+        }
+
+        if tag == "else" {
+            return Err(core_template_error(core_template_error_message(
+                context,
+                source,
+                token.index,
+                "Unexpected 'else'",
+            )));
+        }
+        if tag == "/if" {
+            return Err(core_template_error(core_template_error_message(
+                context,
+                source,
+                token.index,
+                "Unexpected '/if'",
+            )));
+        }
+        if tag.starts_with('!') {
+            i += 1;
+            continue;
+        }
+        if tag.starts_with("include ") {
+            return Err(core_template_error(core_template_error_message(
+                context,
+                source,
+                token.index,
+                "Unexpected 'include' directive at runtime (includes must be compiled)",
+            )));
+        }
+        if !core_template_is_identifier(tag) {
+            return Err(core_template_error(core_template_error_message(
+                context,
+                source,
+                token.index,
+                &format!("Invalid tag '{tag}'"),
+            )));
+        }
+        let node = CoreValue::new_map();
+        core_set(&node, CoreValue::from("type"), CoreValue::from("var"))?;
+        core_set(&node, CoreValue::from("name"), CoreValue::from(tag))?;
+        core_set(
+            &node,
+            CoreValue::from("index"),
+            CoreValue::Num(token.index as f64),
+        )?;
+        core_append(&nodes, node)?;
+        i += 1;
+    }
+    Ok(CoreTemplateParseRange {
+        nodes,
+        index: i,
+        terminator: None,
+    })
+}
+
+#[allow(dead_code)]
+fn core_template_parse_source(template: &str, context: &str) -> Result<CoreValue, AxError> {
+    let tokens = core_template_tokenize(template);
+    let result = core_template_parse_range(&tokens, template, context, 0, &[])?;
+    if let Some(terminator) = result.terminator {
+        return Err(core_template_error(format!(
+            "Unexpected template terminator '{terminator}' in {context}"
+        )));
+    }
+    Ok(result.nodes)
+}
+
+#[allow(dead_code)]
+fn core_template_resolve_var(
+    vars: &CoreValue,
+    path: &str,
+    source: &str,
+    context: &str,
+    index: usize,
+) -> Result<CoreValue, AxError> {
+    let mut current = vars.clone();
+    for part in path.split('.') {
+        let has_key = matches!(&current, CoreValue::Map(map) if map.borrow().contains(part));
+        if !has_key {
+            return Err(core_template_error(core_template_error_message(
+                context,
+                source,
+                index,
+                &format!("Missing template variable '{path}'"),
+            )));
+        }
+        current = core_get(&current, &CoreValue::from(part), CoreValue::Null);
+    }
+    Ok(current)
+}
+
+#[allow(dead_code)]
+fn core_template_node_index(node: &CoreValue) -> usize {
+    match core_get(node, &CoreValue::from("index"), CoreValue::Null) {
+        CoreValue::Num(n) => n as usize,
+        _ => 0,
+    }
+}
+
+#[allow(dead_code)]
+fn core_template_render_tree_nodes(
+    nodes: &CoreValue,
+    vars: &CoreValue,
+    source: &str,
+    context: &str,
+) -> Result<String, AxError> {
+    let mut out = String::new();
+    for node in core_iter(nodes)? {
+        let node_type = core_get(&node, &CoreValue::from("type"), CoreValue::Null);
+        if node_type.as_str() == Some("text") {
+            out.push_str(&core_get(&node, &CoreValue::from("value"), CoreValue::from("")).text());
+            continue;
+        }
+        if node_type.as_str() == Some("var") {
+            let name = core_get(&node, &CoreValue::from("name"), CoreValue::Null).text();
+            let index = core_template_node_index(&node);
+            let value = core_template_resolve_var(vars, &name, source, context, index)?;
+            if !matches!(
+                value,
+                CoreValue::Str(_) | CoreValue::Num(_) | CoreValue::Bool(_)
+            ) {
+                return Err(core_template_error(core_template_error_message(
+                    context,
+                    source,
+                    index,
+                    &format!("Variable '{name}' must be string, number, or boolean"),
+                )));
+            }
+            out.push_str(&value.text());
+            continue;
+        }
+        let condition = core_get(&node, &CoreValue::from("condition"), CoreValue::Null).text();
+        let index = core_template_node_index(&node);
+        let condition_value =
+            if let Some((path, expected)) = core_template_match_string_equality(&condition) {
+                core_template_resolve_var(vars, &path, source, context, index)?
+                    == CoreValue::from(expected.as_str())
+            } else {
+                let resolved = core_template_resolve_var(vars, &condition, source, context, index)?;
+                match resolved {
+                    CoreValue::Bool(flag) => flag,
+                    _ => {
+                        return Err(core_template_error(core_template_error_message(
+                            context,
+                            source,
+                            index,
+                            &format!("Condition '{condition}' must be boolean"),
+                        )))
+                    }
+                }
+            };
+        let branch_key = if condition_value { "then" } else { "else" };
+        let branch = core_get(&node, &CoreValue::from(branch_key), CoreValue::Null);
+        out.push_str(&core_template_render_tree_nodes(
+            &branch, vars, source, context,
+        )?);
+    }
+    Ok(out)
+}
+
+#[allow(dead_code)]
+fn core_template_collect_vars_from_tree(
+    nodes: &CoreValue,
+    out: &mut Vec<String>,
+) -> Result<(), AxError> {
+    for node in core_iter(nodes)? {
+        let node_type = core_get(&node, &CoreValue::from("type"), CoreValue::Null);
+        if node_type.as_str() == Some("var") {
+            let name = core_get(&node, &CoreValue::from("name"), CoreValue::Null).text();
+            if !out.contains(&name) {
+                out.push(name);
+            }
+        } else if node_type.as_str() == Some("if") {
+            let condition = core_get(&node, &CoreValue::from("condition"), CoreValue::Null).text();
+            let name = match core_template_match_string_equality(&condition) {
+                Some((path, _)) => path,
+                None => condition,
+            };
+            if !out.contains(&name) {
+                out.push(name);
+            }
+            core_template_collect_vars_from_tree(
+                &core_get(&node, &CoreValue::from("then"), CoreValue::Null),
+                out,
+            )?;
+            core_template_collect_vars_from_tree(
+                &core_get(&node, &CoreValue::from("else"), CoreValue::Null),
+                out,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+// ENTRY: (template, context) -> nodes
+#[allow(dead_code)]
+fn core_template_parse(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let template = core_arg(args, 0).text();
+    let context = core_arg(args, 1).text();
+    core_template_parse_source(&template, &context)
+}
+
+// ENTRY: (nodes, vars, source, context) -> rendered string
+#[allow(dead_code)]
+fn core_template_render_tree(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let nodes = core_arg(args, 0);
+    let vars = core_arg(args, 1);
+    let source = core_arg(args, 2).text();
+    let context = core_arg(args, 3).text();
+    let rendered = core_template_render_tree_nodes(&nodes, &vars, &source, &context)?;
+    Ok(CoreValue::from_string(rendered))
+}
+
+// ENTRY: (nodes) -> sorted list of unique variable names
+#[allow(dead_code)]
+fn core_template_collect_vars(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let nodes = core_arg(args, 0);
+    let mut out: Vec<String> = Vec::new();
+    core_template_collect_vars_from_tree(&nodes, &mut out)?;
+    out.sort();
+    Ok(CoreValue::list_from(
+        out.into_iter().map(CoreValue::from_string).collect(),
+    ))
+}
+
+// ENTRY: (source, context, required_variables?) -> error message string or Null
+#[allow(dead_code)]
+fn core_template_validate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let source = core_arg(args, 0).text();
+    let context = core_arg(args, 1).text();
+    let required_variables = core_arg(args, 2);
+    let outcome = (|| -> Result<CoreValue, AxError> {
+        let nodes = core_template_parse_source(&source, &context)?;
+        let mut present: Vec<String> = Vec::new();
+        core_template_collect_vars_from_tree(&nodes, &mut present)?;
+        let required = if core_truthy(&required_variables) {
+            core_iter(&required_variables)?
+        } else {
+            Vec::new()
+        };
+        for variable in required {
+            let name = variable.text();
+            if !present.contains(&name) {
+                return Ok(CoreValue::from_string(format!(
+                    "must preserve template variable {{{{{name}}}}}"
+                )));
+            }
+        }
+        Ok(CoreValue::Null)
+    })();
+    match outcome {
+        Ok(value) => Ok(value),
+        Err(err) => Ok(CoreValue::from_string(err.message)),
+    }
+}
+
+// ----- prompt helpers -----
+
+#[allow(dead_code)]
+fn core_prompt_combine_consecutive_text(
+    parts: &CoreValue,
+    separator: &str,
+) -> Result<CoreValue, AxError> {
+    let out = CoreValue::new_list();
+    for part in core_iter(parts)? {
+        let is_text =
+            core_get(&part, &CoreValue::from("type"), CoreValue::Null).as_str() == Some("text");
+        let last = match &out {
+            CoreValue::List(items) => items.borrow().last().cloned(),
+            _ => None,
+        };
+        let merge_target = match last {
+            Some(prev)
+                if is_text
+                    && core_get(&prev, &CoreValue::from("type"), CoreValue::Null).as_str()
+                        == Some("text") =>
+            {
+                Some(prev)
+            }
+            _ => None,
+        };
+        if let Some(prev) = merge_target {
+            let prev_text = core_get(&prev, &CoreValue::from("text"), CoreValue::from("")).text();
+            let part_text = core_get(&part, &CoreValue::from("text"), CoreValue::from("")).text();
+            core_set(
+                &prev,
+                CoreValue::from("text"),
+                CoreValue::from_string(format!("{prev_text}{separator}{part_text}")),
+            )?;
+        } else {
+            core_append(&out, part)?;
+        }
+    }
+    Ok(out)
+}
+
+#[allow(dead_code)]
+fn core_prompt_default_render_in_field(
+    field: &CoreValue,
+    value: &CoreValue,
+) -> Result<CoreValue, AxError> {
+    let field_type = core_get(field, &CoreValue::from("type"), CoreValue::Null);
+    let typ = if core_truthy(&field_type) {
+        core_get(&field_type, &CoreValue::from("name"), CoreValue::Null).text()
+    } else {
+        "string".to_string()
+    };
+    let title = core_get(field, &CoreValue::from("title"), CoreValue::Null).text();
+    if matches!(typ.as_str(), "image" | "audio" | "file" | "url") {
+        if matches!(value, CoreValue::List(_)) {
+            let parts = CoreValue::new_list();
+            let text_part = CoreValue::new_map();
+            core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
+            core_set(
+                &text_part,
+                CoreValue::from("text"),
+                CoreValue::from_string(format!("{title}: ")),
+            )?;
+            core_append(&parts, text_part)?;
+            for item in core_iter(value)? {
+                core_append(&parts, item)?;
+            }
+            return Ok(parts);
+        }
+        if let CoreValue::Map(map) = value {
+            let part = CoreValue::new_map();
+            for (key, item) in map.borrow().entries.clone() {
+                core_set(&part, CoreValue::from(key.as_str()), item)?;
+            }
+            let has_type = matches!(&part, CoreValue::Map(m) if m.borrow().contains("type"));
+            if !has_type {
+                core_set(
+                    &part,
+                    CoreValue::from("type"),
+                    CoreValue::from_string(typ.clone()),
+                )?;
+            }
+            let text_part = CoreValue::new_map();
+            core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
+            core_set(
+                &text_part,
+                CoreValue::from("text"),
+                CoreValue::from_string(format!("{title}: ")),
+            )?;
+            return Ok(CoreValue::list_from(vec![text_part, part]));
+        }
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("text"))?;
+    core_set(
+        &part,
+        CoreValue::from("text"),
+        CoreValue::from_string(format!("{}: {}", title, value.text())),
+    )?;
+    if core_truthy(&core_get(
+        field,
+        &CoreValue::from("is_cached"),
+        CoreValue::Null,
+    )) {
+        core_set(&part, CoreValue::from("cache"), CoreValue::Bool(true))?;
+    }
+    Ok(CoreValue::list_from(vec![part]))
+}
+
+#[allow(dead_code)]
+fn core_prompt_field_name_to_title(
+    signature: &CoreValue,
+) -> Result<Vec<(String, String)>, AxError> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut fields = core_prompt_get_input_fields(signature)?;
+    fields.extend(core_prompt_get_output_fields(signature)?);
+    for field in fields {
+        let name = core_get(&field, &CoreValue::from("name"), CoreValue::Null).text();
+        let title = core_get(&field, &CoreValue::from("title"), CoreValue::Null).text();
+        if let Some(entry) = out.iter_mut().find(|(key, _)| *key == name) {
+            entry.1 = title;
+        } else {
+            out.push((name, title));
+        }
+    }
+    Ok(out)
+}
+
+#[allow(dead_code)]
+fn core_prompt_field_type_text(field_type: &CoreValue) -> String {
+    let name_value = core_get(field_type, &CoreValue::from("name"), CoreValue::Null);
+    let name = name_value.as_str().unwrap_or("string");
+    let base = match name {
+        "string" => "string".to_string(),
+        "number" => "number".to_string(),
+        "boolean" => "boolean (true or false)".to_string(),
+        "date" => "date (YYYY-MM-DD, e.g. 2024-05-09)".to_string(),
+        "dateRange" => "date range ({ \"start\": \"YYYY-MM-DD\", \"end\": \"YYYY-MM-DD\" }, e.g. {\"start\":\"2024-05-09\",\"end\":\"2024-05-12\"})".to_string(),
+        "datetime" => "datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00)".to_string(),
+        "datetimeRange" => "datetime range ({ \"start\": ISO datetime, \"end\": ISO datetime }, e.g. {\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00Z\"})".to_string(),
+        "json" => "JSON object".to_string(),
+        "class" => "classification class".to_string(),
+        "code" => "code".to_string(),
+        "file" => "file (with filename, mimeType, and data)".to_string(),
+        "audio" => "speech script (plain text to synthesize as audio)".to_string(),
+        "url" => "URL (string or object with url, title, description)".to_string(),
+        "object" => {
+            let fields = core_get(field_type, &CoreValue::from("fields"), CoreValue::Null);
+            if core_truthy(&fields) {
+                format!("object {}", core_prompt_format_object_structure(&fields))
+            } else {
+                "object".to_string()
+            }
+        }
+        _ => "string".to_string(),
+    };
+    if core_truthy(&core_get(
+        field_type,
+        &CoreValue::from("is_array"),
+        CoreValue::Null,
+    )) {
+        format!("json array of {base} items")
+    } else {
+        base
+    }
+}
+
+#[allow(dead_code)]
+fn core_prompt_format_description(text: &CoreValue) -> String {
+    let raw = if core_truthy(text) {
+        text.text()
+    } else {
+        String::new()
+    };
+    let value = raw.trim();
+    if value.is_empty() {
+        return String::new();
+    }
+    let suffix = if value.ends_with('.') { "" } else { "." };
+    let chars: Vec<char> = value.chars().collect();
+    let first_upper: String = chars[0].to_uppercase().collect();
+    let rest: String = chars[1..].iter().collect();
+    format!("{first_upper}{rest}{suffix}")
+}
+
+#[allow(dead_code)]
+fn core_prompt_format_field_references(
+    description: &str,
+    field_map: &[(String, String)],
+) -> String {
+    let mut result = description.to_string();
+    let mut ordered: Vec<&(String, String)> = field_map.iter().collect();
+    // sorted(keys, key=len, reverse=True) -- stable, longest first
+    ordered.sort_by(|a, b| b.0.chars().count().cmp(&a.0.chars().count()));
+    for (field_name, title) in ordered {
+        result = result.replace(
+            &format!("{BT}{field_name}{BT}"),
+            &format!("{BT}{title}{BT}"),
+        );
+        result = result.replace(&format!("\"{field_name}\""), &format!("\"{title}\""));
+        result = result.replace(&format!("'{field_name}'"), &format!("'{title}'"));
+        result = result.replace(&format!("[{field_name}]"), &format!("[{title}]"));
+        result = result.replace(&format!("({field_name})"), &format!("({title})"));
+        let pattern = format!(r"\${}\b", regex::escape(field_name));
+        if let Ok(compiled) = regex::Regex::new(&pattern) {
+            let replacement = format!("{BT}{title}{BT}");
+            result = compiled
+                .replace_all(&result, regex::NoExpand(replacement.as_str()))
+                .into_owned();
+        }
+    }
+    result
+}
+
+#[allow(dead_code)]
+fn core_prompt_format_object_structure(fields: &CoreValue) -> String {
+    let mut entries: Vec<String> = Vec::new();
+    if let CoreValue::Map(map) = fields {
+        for (key, item) in map.borrow().entries.clone() {
+            let nested_type = if matches!(&item, CoreValue::Map(m) if m.borrow().contains("type")) {
+                core_get(&item, &CoreValue::from("type"), CoreValue::Null)
+            } else {
+                item.clone()
+            };
+            let optional = if core_truthy(&core_get(
+                &item,
+                &CoreValue::from("is_optional"),
+                CoreValue::Null,
+            )) {
+                "?"
+            } else {
+                ""
+            };
+            entries.push(format!(
+                "{}{}: {}",
+                key,
+                optional,
+                core_prompt_field_type_text(&nested_type)
+            ));
+        }
+    }
+    format!("{{ {} }}", entries.join(", "))
+}
+
+#[allow(dead_code)]
+fn core_prompt_function_descriptors(
+    functions: &CoreValue,
+) -> Result<Vec<(CoreValue, CoreValue)>, AxError> {
+    let mut out: Vec<(CoreValue, CoreValue)> = Vec::new();
+    let items = if core_truthy(functions) {
+        core_iter(functions)?
+    } else {
+        Vec::new()
+    };
+    for item in items {
+        let (name, description) = match &item {
+            CoreValue::Map(map) => (
+                map.borrow().get("name").unwrap_or(CoreValue::Null),
+                map.borrow()
+                    .get("description")
+                    .unwrap_or(CoreValue::from("")),
+            ),
+            _ => (CoreValue::Null, CoreValue::from("")),
+        };
+        if core_truthy(&name) {
+            out.push((name, description));
+        }
+    }
+    Ok(out)
+}
+
+#[allow(dead_code)]
+fn core_prompt_get_description(signature: &CoreValue) -> CoreValue {
+    core_get(signature, &CoreValue::from("description"), CoreValue::Null)
+}
+
+#[allow(dead_code)]
+fn core_prompt_get_input_fields(signature: &CoreValue) -> Result<Vec<CoreValue>, AxError> {
+    let fields = core_get(signature, &CoreValue::from("input_fields"), CoreValue::Null);
+    if fields.is_null() {
+        return Ok(Vec::new());
+    }
+    core_iter(&fields)
+}
+
+#[allow(dead_code)]
+fn core_prompt_get_output_fields(signature: &CoreValue) -> Result<Vec<CoreValue>, AxError> {
+    let fields = core_get(
+        signature,
+        &CoreValue::from("output_fields"),
+        CoreValue::Null,
+    );
+    if fields.is_null() {
+        return Ok(Vec::new());
+    }
+    core_iter(&fields)
+}
+
+#[allow(dead_code)]
+fn core_prompt_has_complex_fields(signature: &CoreValue) -> Result<bool, AxError> {
+    if core_truthy(&core_get(
+        signature,
+        &CoreValue::from("force_structured"),
+        CoreValue::Null,
+    )) {
+        return Ok(true);
+    }
+    for field in core_prompt_get_output_fields(signature)? {
+        let field_type = core_get(&field, &CoreValue::from("type"), CoreValue::Null);
+        if core_get(&field_type, &CoreValue::from("name"), CoreValue::Null).as_str()
+            == Some("object")
+            || core_truthy(&core_get(
+                &field_type,
+                &CoreValue::from("fields"),
+                CoreValue::Null,
+            ))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+#[allow(dead_code)]
+fn core_prompt_identity_section(
+    signature: &CoreValue,
+    values: &CoreValue,
+) -> Result<String, AxError> {
+    let in_args =
+        core_prompt_render_desc_fields(&core_prompt_input_fields_for_values(signature, values)?);
+    let out_args = core_prompt_render_desc_fields(&core_prompt_get_output_fields(signature)?);
+    Ok(format!(
+        "You will be provided with the following fields: {in_args}. Your task is to generate new fields: {out_args}."
+    ))
+}
+
+#[allow(dead_code)]
+fn core_prompt_input_fields_for_values(
+    signature: &CoreValue,
+    values: &CoreValue,
+) -> Result<Vec<CoreValue>, AxError> {
+    let mut fields = core_prompt_get_input_fields(signature)?;
+    fields.sort_by_key(|field| {
+        if core_truthy(&core_get(
+            field,
+            &CoreValue::from("is_cached"),
+            CoreValue::Null,
+        )) {
+            0
+        } else {
+            1
+        }
+    });
+    if !matches!(values, CoreValue::Map(_)) {
+        return Ok(fields);
+    }
+    Ok(fields
+        .into_iter()
+        .filter(|field| {
+            if !core_truthy(&core_get(
+                field,
+                &CoreValue::from("is_optional"),
+                CoreValue::Null,
+            )) {
+                return true;
+            }
+            let name = core_get(field, &CoreValue::from("name"), CoreValue::Null);
+            core_prompt_is_provided_value(&core_get(values, &name, CoreValue::Null))
+        })
+        .collect())
+}
+
+#[allow(dead_code)]
+fn core_prompt_input_fields_section(
+    signature: &CoreValue,
+    values: &CoreValue,
+) -> Result<String, AxError> {
+    let fields = core_prompt_render_input_fields(
+        &core_prompt_input_fields_for_values(signature, values)?,
+        &core_prompt_field_name_to_title(signature)?,
+    );
+    Ok(format!(
+        "**Input Fields**: The following fields will be provided to you:\n\n{fields}"
+    ))
+}
+
+#[allow(dead_code)]
+fn core_prompt_is_provided_value(value: &CoreValue) -> bool {
+    match value {
+        CoreValue::Null => false,
+        CoreValue::Str(text) => !text.is_empty(),
+        CoreValue::List(items) => !items.borrow().is_empty(),
+        _ => true,
+    }
+}
+
+#[allow(dead_code)]
+fn core_prompt_output_fields_section(signature: &CoreValue) -> Result<String, AxError> {
+    let fields = core_prompt_render_output_fields(
+        &core_prompt_get_output_fields(signature)?,
+        &core_prompt_field_name_to_title(signature)?,
+    )?;
+    Ok(format!(
+        "**Output Fields**: You must generate the following fields:\n\n{fields}"
+    ))
+}
+
+#[allow(dead_code)]
+fn core_prompt_process_value(field: &CoreValue, value: &CoreValue) -> Result<CoreValue, AxError> {
+    if matches!(value, CoreValue::Str(_)) {
+        return Ok(value.clone());
+    }
+    let field_type = core_get(field, &CoreValue::from("type"), CoreValue::Null);
+    if core_truthy(&field_type) {
+        let name = core_get(&field_type, &CoreValue::from("name"), CoreValue::Null);
+        if matches!(
+            name.as_str(),
+            Some("image") | Some("audio") | Some("file") | Some("url")
+        ) && matches!(value, CoreValue::Map(_))
+        {
+            return Ok(value.clone());
+        }
+    }
+    // json.dumps(value, indent=2)
+    let dumped = serde_json::to_string_pretty(&core_value_to_json(value))
+        .map_err(|err| AxError::runtime(err.to_string()))?;
+    Ok(CoreValue::from_string(dumped))
+}
+
+#[allow(dead_code)]
+fn core_prompt_render_desc_fields(fields: &[CoreValue]) -> String {
+    fields
+        .iter()
+        .map(|field| {
+            let title = core_get(field, &CoreValue::from("title"), CoreValue::Null).text();
+            format!("{BT}{title}{BT}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+#[allow(dead_code)]
+fn core_prompt_render_functions_section(funcs: &[(CoreValue, CoreValue)]) -> String {
+    funcs
+        .iter()
+        .map(|(name, description)| {
+            format!(
+                "- {BT}{}{BT}: {}",
+                name.text(),
+                core_prompt_format_description(description)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[allow(dead_code)]
+fn core_prompt_render_in_field(
+    field: &CoreValue,
+    values: &CoreValue,
+) -> Result<Option<CoreValue>, AxError> {
+    let name = core_get(field, &CoreValue::from("name"), CoreValue::Null);
+    let value = core_get(values, &name, CoreValue::Null);
+    if !core_prompt_is_provided_value(&value) {
+        if core_truthy(&core_get(
+            field,
+            &CoreValue::from("is_optional"),
+            CoreValue::Null,
+        )) || core_truthy(&core_get(
+            field,
+            &CoreValue::from("is_internal"),
+            CoreValue::Null,
+        )) {
+            return Ok(None);
+        }
+        return Err(AxError::runtime(format!(
+            "Value for input field '{}' is required.",
+            name.text()
+        )));
+    }
+    let processed = core_prompt_process_value(field, &value)?;
+    Ok(Some(core_prompt_default_render_in_field(
+        field, &processed,
+    )?))
+}
+
+#[allow(dead_code)]
+fn core_prompt_render_input_fields(fields: &[CoreValue], field_map: &[(String, String)]) -> String {
+    let mut rows: Vec<String> = Vec::new();
+    for field in fields {
+        let description_value = core_get(field, &CoreValue::from("description"), CoreValue::Null);
+        let mut description = String::new();
+        if core_truthy(&description_value) {
+            description = format!(
+                " {}",
+                core_prompt_format_field_references(
+                    &core_prompt_format_description(&description_value),
+                    field_map
+                )
+            );
+        }
+        let title = core_get(field, &CoreValue::from("title"), CoreValue::Null).text();
+        rows.push(format!("{title}:{description}").trim().to_string());
+    }
+    rows.join("\n")
+}
+
+#[allow(dead_code)]
+fn core_prompt_render_output_fields(
+    fields: &[CoreValue],
+    field_map: &[(String, String)],
+) -> Result<String, AxError> {
+    let mut rows: Vec<String> = Vec::new();
+    for field in fields {
+        let field_type = core_get(field, &CoreValue::from("type"), CoreValue::Null);
+        let type_text = if core_truthy(&field_type) {
+            core_prompt_field_type_text(&field_type)
+        } else {
+            "string".to_string()
+        };
+        let required = if core_truthy(&core_get(
+            field,
+            &CoreValue::from("is_optional"),
+            CoreValue::Null,
+        )) {
+            format!("Only include this {type_text} field if its value is available")
+        } else {
+            format!("This {type_text} field must be included")
+        };
+        let description_value = core_get(field, &CoreValue::from("description"), CoreValue::Null);
+        let mut description = String::new();
+        if core_truthy(&description_value) {
+            let is_class = core_truthy(&field_type)
+                && core_get(&field_type, &CoreValue::from("name"), CoreValue::Null).as_str()
+                    == Some("class");
+            let value = if is_class {
+                description_value.text()
+            } else {
+                core_prompt_format_description(&description_value)
+            };
+            description = format!(
+                " {}",
+                core_prompt_format_field_references(&value, field_map)
+            );
+        }
+        let options = core_get(&field_type, &CoreValue::from("options"), CoreValue::Null);
+        if core_truthy(&field_type) && core_truthy(&options) {
+            if !description.is_empty() {
+                description.push_str(". ");
+            }
+            let joined = core_iter(&options)?
+                .iter()
+                .map(|option| option.text())
+                .collect::<Vec<_>>()
+                .join(", ");
+            description.push_str(&format!("Allowed values: {joined}"));
+        }
+        let title = core_get(field, &CoreValue::from("title"), CoreValue::Null).text();
+        rows.push(
+            format!("{title}: ({required}){description}")
+                .trim()
+                .to_string(),
+        );
+    }
+    Ok(rows.join("\n"))
+}
+
+#[allow(dead_code)]
+fn core_prompt_task_definition_section(signature: &CoreValue) -> Result<String, AxError> {
+    let desc = core_prompt_get_description(signature);
+    if !core_truthy(&desc) {
+        return Ok(String::new());
+    }
+    Ok(core_prompt_format_field_references(
+        &core_prompt_format_description(&desc),
+        &core_prompt_field_name_to_title(signature)?,
+    ))
+}
+
+#[allow(dead_code)]
+fn core_prompt_user_parts(signature: &CoreValue, values: &CoreValue) -> Result<CoreValue, AxError> {
+    let out = CoreValue::new_list();
+    for field in core_prompt_input_fields_for_values(signature, values)? {
+        if let Some(rendered) = core_prompt_render_in_field(&field, values)? {
+            for part in core_iter(&rendered)? {
+                core_append(&out, part)?;
+            }
+        }
+    }
+    for part in core_iter(&out)? {
+        if core_get(&part, &CoreValue::from("type"), CoreValue::Null).as_str() == Some("text") {
+            let text = core_get(&part, &CoreValue::from("text"), CoreValue::from("")).text();
+            core_set(
+                &part,
+                CoreValue::from("text"),
+                CoreValue::from_string(format!("{text}\n")),
+            )?;
+        }
+    }
+    Ok(out)
+}
+
+// ENTRY: (signature, values, functions, options) -> rendered system prompt
+#[allow(dead_code)]
+fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let signature = core_arg(args, 0);
+    let mut values = core_arg(args, 1);
+    let functions = core_arg(args, 2);
+    let mut options = core_arg(args, 3);
+    if !core_truthy(&values) {
+        values = CoreValue::new_map();
+    }
+    if !core_truthy(&options) {
+        options = CoreValue::new_map();
+    }
+    let has_complex_fields = core_prompt_has_complex_fields(&signature)?;
+    let task_definition = core_prompt_task_definition_section(&signature)?;
+    let funcs = core_prompt_function_descriptors(&functions)?;
+    let has_examples_default = core_get(
+        &options,
+        &CoreValue::from("hasExampleDemonstrations"),
+        CoreValue::Bool(false),
+    );
+    let has_example_demonstrations = core_truthy(&core_get(
+        &options,
+        &CoreValue::from("has_example_demonstrations"),
+        has_examples_default,
+    ));
+    let structured_fn = core_get(
+        &options,
+        &CoreValue::from("structured_output_function_name"),
+        CoreValue::Null,
+    );
+    let template_vars = CoreValue::new_map();
+    core_set(
+        &template_vars,
+        CoreValue::from("hasFunctions"),
+        CoreValue::Bool(!funcs.is_empty()),
+    )?;
+    core_set(
+        &template_vars,
+        CoreValue::from("hasTaskDefinition"),
+        CoreValue::Bool(!task_definition.is_empty()),
+    )?;
+    core_set(
+        &template_vars,
+        CoreValue::from("hasExampleDemonstrations"),
+        CoreValue::Bool(has_example_demonstrations),
+    )?;
+    core_set(
+        &template_vars,
+        CoreValue::from("hasOutputFields"),
+        CoreValue::Bool(!has_complex_fields),
+    )?;
+    core_set(
+        &template_vars,
+        CoreValue::from("hasComplexFields"),
+        CoreValue::Bool(has_complex_fields),
+    )?;
+    core_set(
+        &template_vars,
+        CoreValue::from("hasStructuredOutputFunction"),
+        CoreValue::Bool(has_complex_fields && core_truthy(&structured_fn)),
+    )?;
+    core_set(
+        &template_vars,
+        CoreValue::from("identityText"),
+        CoreValue::from_string(core_prompt_identity_section(&signature, &values)?),
+    )?;
+    core_set(
+        &template_vars,
+        CoreValue::from("taskDefinitionText"),
+        CoreValue::from_string(task_definition.clone()),
+    )?;
+    core_set(
+        &template_vars,
+        CoreValue::from("functionsList"),
+        if !funcs.is_empty() {
+            CoreValue::from_string(core_prompt_render_functions_section(&funcs))
+        } else {
+            CoreValue::from("")
+        },
+    )?;
+    core_set(
+        &template_vars,
+        CoreValue::from("inputFieldsSection"),
+        CoreValue::from_string(core_prompt_input_fields_section(&signature, &values)?),
+    )?;
+    core_set(
+        &template_vars,
+        CoreValue::from("outputFieldsSection"),
+        if !has_complex_fields {
+            CoreValue::from_string(core_prompt_output_fields_section(&signature)?)
+        } else {
+            CoreValue::from("")
+        },
+    )?;
+    core_set(
+        &template_vars,
+        CoreValue::from("structuredOutputFunctionName"),
+        if core_truthy(&structured_fn) {
+            structured_fn.clone()
+        } else {
+            CoreValue::from("")
+        },
+    )?;
+    let custom_template = core_get(
+        &options,
+        &CoreValue::from("custom_template"),
+        CoreValue::Null,
+    );
+    let (source, context) = if custom_template.is_null() {
+        (DEFAULT_DSPY_TEMPLATE.to_string(), "template:dsp/dspy.md")
+    } else {
+        (custom_template.text(), "inline-template")
+    };
+    let nodes = core_template_parse_source(&source, context)?;
+    let rendered = core_template_render_tree_nodes(&nodes, &template_vars, &source, context)?;
+    Ok(CoreValue::from_string(rendered.trim().to_string()))
+}
+
+// ENTRY: (signature, values) -> joined string, or list of content part maps
+#[allow(dead_code)]
+fn core_prompt_user_content(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let signature = core_arg(args, 0);
+    let mut values = core_arg(args, 1);
+    if !core_truthy(&values) {
+        values = CoreValue::new_map();
+    }
+    let parts = core_prompt_user_parts(&signature, &values)?;
+    let items = core_iter(&parts)?;
+    let all_plain_text = items.iter().all(|part| {
+        core_get(part, &CoreValue::from("type"), CoreValue::Null).as_str() == Some("text")
+            && !core_truthy(&core_get(part, &CoreValue::from("cache"), CoreValue::Null))
+    });
+    if all_plain_text {
+        let joined = items
+            .iter()
+            .map(|part| core_get(part, &CoreValue::from("text"), CoreValue::from("")).text())
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Ok(CoreValue::from_string(joined));
+    }
+    core_prompt_combine_consecutive_text(&parts, "\n")
+}
+// ----- END AXIR CORE PROMPT/TEMPLATE ENGINE -----
 
 // ----- END AXIR CORE VALUE RUNTIME -----
 
@@ -9932,4 +11189,185 @@ fn _schema_to_json_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     return Ok(v_schema.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (27 of 353 core functions; remaining modules are hand-written pending migration)
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn render_template_content(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_template = core_arg(args, 0);
+    let mut v_vars = core_arg(args, 1);
+    let mut v_context = core_arg(args, 2);
+    let mut v_nodes = CoreValue::Null;
+    let mut v_rendered = CoreValue::Null;
+    v_nodes = _template_parse_impl(&[v_template.clone(), v_context.clone()])?;
+    v_rendered = _template_render_tree_impl(&[
+        v_nodes.clone(),
+        v_vars.clone(),
+        v_template.clone(),
+        v_context.clone(),
+    ])?;
+    return Ok(v_rendered.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn collect_template_variable_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_source = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_names = CoreValue::Null;
+    let mut v_nodes = CoreValue::Null;
+    v_nodes = _template_parse_impl(&[v_source.clone(), v_context.clone()])?;
+    v_names = _template_collect_vars_impl(&[v_nodes.clone()])?;
+    return Ok(v_names.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn validate_prompt_template_syntax(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_source = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_required_variables = core_arg(args, 2);
+    let mut v_result = CoreValue::Null;
+    v_result = _template_validate_impl(&[
+        v_source.clone(),
+        v_context.clone(),
+        v_required_variables.clone(),
+    ])?;
+    return Ok(v_result.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _template_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_template = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_nodes = CoreValue::Null;
+    v_nodes = core_template_parse(&[v_template.clone(), v_context.clone()])?;
+    return Ok(v_nodes.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _template_render_tree_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_nodes = core_arg(args, 0);
+    let mut v_vars = core_arg(args, 1);
+    let mut v_source = core_arg(args, 2);
+    let mut v_context = core_arg(args, 3);
+    let mut v_rendered = CoreValue::Null;
+    v_rendered = core_template_render_tree(&[
+        v_nodes.clone(),
+        v_vars.clone(),
+        v_source.clone(),
+        v_context.clone(),
+    ])?;
+    return Ok(v_rendered.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _template_collect_vars_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_nodes = core_arg(args, 0);
+    let mut v_names = CoreValue::Null;
+    v_names = core_template_collect_vars(&[v_nodes.clone()])?;
+    return Ok(v_names.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _template_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_source = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_required_variables = core_arg(args, 2);
+    let mut v_result = CoreValue::Null;
+    v_result = core_template_validate(&[
+        v_source.clone(),
+        v_context.clone(),
+        v_required_variables.clone(),
+    ])?;
+    return Ok(v_result.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn render_prompt(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_signature = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_functions = core_arg(args, 2);
+    let mut v_options = core_arg(args, 3);
+    let mut v_has_instruction = CoreValue::Null;
+    let mut v_instruction = CoreValue::Null;
+    let mut v_messages = CoreValue::Null;
+    let mut v_system_content = CoreValue::Null;
+    let mut v_user_content = CoreValue::Null;
+    v_instruction = core_get(&v_options, &CoreValue::from("instruction"), CoreValue::Null);
+    v_has_instruction = core_is_not_none(&[v_instruction.clone()])?;
+    if core_truthy(&v_has_instruction) {
+        v_user_content = _prompt_user_content_impl(&[v_signature.clone(), v_values.clone()])?;
+        v_messages = _prompt_messages_impl(&[v_instruction.clone(), v_user_content.clone()])?;
+        return Ok(v_messages.clone());
+    } else {
+        v_system_content = _prompt_structured_impl(&[
+            v_signature.clone(),
+            v_values.clone(),
+            v_functions.clone(),
+            v_options.clone(),
+        ])?;
+        v_user_content = _prompt_user_content_impl(&[v_signature.clone(), v_values.clone()])?;
+        v_messages = _prompt_messages_impl(&[v_system_content.clone(), v_user_content.clone()])?;
+        return Ok(v_messages.clone());
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _prompt_structured_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_signature = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_functions = core_arg(args, 2);
+    let mut v_options = core_arg(args, 3);
+    let mut v_content = CoreValue::Null;
+    v_content = core_prompt_structured(&[
+        v_signature.clone(),
+        v_values.clone(),
+        v_functions.clone(),
+        v_options.clone(),
+    ])?;
+    return Ok(v_content.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _prompt_user_content_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_signature = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_content = CoreValue::Null;
+    v_content = core_prompt_user_content(&[v_signature.clone(), v_values.clone()])?;
+    return Ok(v_content.clone());
+}
+
+#[allow(unused_variables, unused_assignments, unused_mut, clippy::all)]
+fn _prompt_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut v_system = core_arg(args, 0);
+    let mut v_user = core_arg(args, 1);
+    let mut v_messages = CoreValue::Null;
+    let mut v_system_message = CoreValue::Null;
+    let mut v_user_message = CoreValue::Null;
+    v_system_message = CoreValue::new_map();
+    core_set(
+        &v_system_message,
+        CoreValue::from("role"),
+        CoreValue::from("system"),
+    )?;
+    core_set(
+        &v_system_message,
+        CoreValue::from("content"),
+        v_system.clone(),
+    )?;
+    core_set(
+        &v_system_message,
+        CoreValue::from("cache"),
+        CoreValue::Bool(false),
+    )?;
+    v_user_message = CoreValue::new_map();
+    core_set(
+        &v_user_message,
+        CoreValue::from("role"),
+        CoreValue::from("user"),
+    )?;
+    core_set(&v_user_message, CoreValue::from("content"), v_user.clone())?;
+    v_messages = CoreValue::new_list();
+    core_append(&v_messages, v_system_message.clone())?;
+    core_append(&v_messages, v_user_message.clone())?;
+    return Ok(v_messages.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (38 of 353 core functions; remaining modules are hand-written pending migration)
