@@ -291,7 +291,31 @@ pub struct AxSignature {
 
 impl AxSignature {
     pub fn parse(spec: &str) -> AxResult<Self> {
-        parse_signature(spec)
+        let parsed = parse_signature(&[CoreValue::from(spec)])?;
+        validate_signature(&[parsed.clone()])?;
+        let payload = core_value_to_json(&parsed);
+        let mut inputs = Vec::new();
+        if let Some(items) = payload.get("inputs").and_then(Value::as_array) {
+            for item in items {
+                let name = item.get("name").and_then(Value::as_str).unwrap_or_default();
+                inputs.push(field_from_payload(name, item));
+            }
+        }
+        let mut outputs = Vec::new();
+        if let Some(items) = payload.get("outputs").and_then(Value::as_array) {
+            for item in items {
+                let name = item.get("name").and_then(Value::as_str).unwrap_or_default();
+                outputs.push(field_from_payload(name, item));
+            }
+        }
+        Ok(AxSignature {
+            description: payload
+                .get("description")
+                .and_then(Value::as_str)
+                .map(ToString::to_string),
+            inputs,
+            outputs,
+        })
     }
 
     pub fn get_output_fields(&self) -> &[Field] {
@@ -363,263 +387,6 @@ impl SignatureBuilder {
             outputs: self.outputs,
         }
     }
-}
-
-fn parse_signature(spec: &str) -> AxResult<AxSignature> {
-    let (description, body) = split_signature_description(spec);
-    let parts: Vec<&str> = body.splitn(2, "->").collect();
-    if parts.len() != 2 {
-        return Err(AxError::new("signature", "Expected \"->\""));
-    }
-    let inputs = parse_fields(parts[0], true)?;
-    let outputs = parse_fields(parts[1], false)?;
-    validate_signature_fields(&inputs, &outputs)?;
-    Ok(AxSignature {
-        description,
-        inputs,
-        outputs,
-    })
-}
-
-fn parse_fields(text: &str, inputs: bool) -> AxResult<Vec<Field>> {
-    let mut fields = Vec::new();
-    for raw in split_top_level(text) {
-        let raw = raw.trim();
-        if raw.is_empty() {
-            continue;
-        }
-        let colon = raw.find(':');
-        let (name_text, type_text) = if let Some(colon) = colon {
-            (&raw[..colon], raw[colon + 1..].trim())
-        } else {
-            (raw, "string")
-        };
-        let mut name_text = name_text.trim();
-        let mut is_optional = false;
-        let mut is_internal = false;
-        loop {
-            if let Some(stripped) = name_text.strip_suffix('?') {
-                is_optional = true;
-                name_text = stripped.trim_end();
-                continue;
-            }
-            if let Some(stripped) = name_text.strip_suffix('!') {
-                is_internal = true;
-                name_text = stripped.trim_end();
-                continue;
-            }
-            break;
-        }
-        if name_text.starts_with('!') {
-            is_internal = true;
-            name_text = name_text.trim_start_matches('!').trim_start();
-        }
-        if inputs && is_internal {
-            return Err(AxError::new(
-                "signature",
-                "Input field cannot use the internal marker",
-            ));
-        }
-        let name = name_text.to_string();
-        if name.is_empty() {
-            return Err(AxError::new("signature", "field name is empty"));
-        }
-        if name.chars().next().map(|ch| ch.is_ascii_digit()).unwrap_or(false) {
-            return Err(AxError::new("signature", "field name cannot start with a number"));
-        }
-        let (type_text, description) = if type_text.trim_start().starts_with("class") {
-            (type_text.trim().to_string(), None)
-        } else {
-            split_field_description(type_text)?
-        };
-        if type_text.contains(' ') && !type_text.starts_with("class") {
-            return Err(AxError::new("signature", "Unexpected content after signature"));
-        }
-        let mut field = Field::new(name, parse_field_type(type_text.trim(), inputs)?);
-        field.description = description;
-        if let Some(description) = &field.description {
-            if field.field_type.description.is_none() {
-                field.field_type.description = Some(description.clone());
-            }
-        }
-        field.is_optional = is_optional;
-        field.is_internal = is_internal;
-        fields.push(field);
-    }
-    if !inputs && fields.is_empty() {
-        return Err(AxError::new(
-            "signature",
-            "Incomplete signature: No output fields specified after \"->\"",
-        ));
-    }
-    Ok(fields)
-}
-
-fn parse_field_type(text: &str, inputs: bool) -> AxResult<FieldType> {
-    let mut type_text = text.trim();
-    let mut is_array = false;
-    if type_text.ends_with("[]") {
-        is_array = true;
-        type_text = type_text[..type_text.len() - 2].trim();
-    }
-    let mut field_type = if type_text.starts_with("class") {
-        if inputs {
-            return Err(AxError::new("signature", "Input field cannot use the \"class\" type"));
-        }
-        let mut options_text = type_text.trim_start_matches("class").trim();
-        if let Some(stripped) = options_text.strip_prefix("[]") {
-            is_array = true;
-            options_text = stripped.trim();
-        }
-        let options = options_text
-            .trim_matches('"')
-            .split(|ch| ch == ',' || ch == '|')
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-            .map(ToString::to_string)
-            .collect::<Vec<_>>();
-        if options.is_empty() {
-            return Err(AxError::new(
-                "signature",
-                "Missing class options after \"class\" type",
-            ));
-        }
-        FieldType::class(options)
-    } else {
-        let normalized = if type_text.is_empty() { "string" } else { type_text };
-        if !matches!(
-            normalized,
-            "audio"
-                | "boolean"
-                | "bool"
-                | "code"
-                | "date"
-                | "dateRange"
-                | "datetime"
-                | "datetimeRange"
-                | "file"
-                | "image"
-                | "json"
-                | "number"
-                | "object"
-                | "string"
-                | "url"
-        ) {
-            return Err(AxError::new(
-                "signature",
-                format!("Invalid type \"{normalized}\""),
-            ));
-        }
-        if !inputs && is_array && matches!(normalized, "audio" | "image") {
-            return Err(AxError::new(
-                "signature",
-                "Arrays of audio are not supported",
-            ));
-        }
-        if !inputs && normalized == "image" {
-            return Err(AxError::new(
-                "signature",
-                "Image type is not supported in output fields",
-            ));
-        }
-        FieldType::new(if normalized == "bool" { "boolean" } else { normalized })
-    };
-    field_type.is_array = is_array;
-    Ok(field_type)
-}
-
-fn split_signature_description(spec: &str) -> (Option<String>, String) {
-    let trimmed = spec.trim();
-    if !trimmed.starts_with('"') {
-        return (None, trimmed.to_string());
-    }
-    if let Some(end) = trimmed[1..].find('"') {
-        let end = end + 1;
-        return (
-            Some(trimmed[1..end].to_string()),
-            trimmed[end + 1..].trim().to_string(),
-        );
-    }
-    (None, trimmed.to_string())
-}
-
-fn split_field_description(text: &str) -> AxResult<(String, Option<String>)> {
-    let trimmed = text.trim();
-    for quote in ['"', '\''] {
-        if let Some(start) = trimmed.find(quote) {
-            let before = trimmed[..start].trim().to_string();
-            let rest = &trimmed[start + 1..];
-            if let Some(end) = rest.find(quote) {
-                let description = rest[..end].to_string();
-                if !rest[end + 1..].trim().is_empty() {
-                    return Err(AxError::new("signature", "unexpected content after field description"));
-                }
-                return Ok((before, Some(description)));
-            }
-            return Err(AxError::new("signature", "Unterminated string"));
-        }
-    }
-    Ok((trimmed.to_string(), None))
-}
-
-fn validate_signature_fields(inputs: &[Field], outputs: &[Field]) -> AxResult<()> {
-    let mut seen_inputs = BTreeMap::new();
-    for field in inputs {
-        if seen_inputs.insert(field.name.clone(), true).is_some() {
-            return Err(AxError::new(
-                "signature",
-                format!("Duplicate input field name: \"{}\"", field.name),
-            ));
-        }
-    }
-    let mut seen_outputs = BTreeMap::new();
-    for field in outputs {
-        if seen_inputs.contains_key(&field.name) {
-            return Err(AxError::new(
-                "signature",
-                format!("Field name \"{}\" appears in both inputs and outputs", field.name),
-            ));
-        }
-        if seen_outputs.insert(field.name.clone(), true).is_some() {
-            return Err(AxError::new(
-                "signature",
-                format!("Duplicate output field name: \"{}\"", field.name),
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn split_top_level(text: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut current = String::new();
-    let mut quote = false;
-    let mut depth = 0i32;
-    for ch in text.chars() {
-        match ch {
-            '"' => {
-                quote = !quote;
-                current.push(ch);
-            }
-            '{' | '[' | '(' if !quote => {
-                depth += 1;
-                current.push(ch);
-            }
-            '}' | ']' | ')' if !quote => {
-                depth -= 1;
-                current.push(ch);
-            }
-            ',' if !quote && depth == 0 => {
-                out.push(current.trim().to_string());
-                current.clear();
-            }
-            _ => current.push(ch),
-        }
-    }
-    if !current.trim().is_empty() {
-        out.push(current.trim().to_string());
-    }
-    out
 }
 
 fn title_case(name: &str) -> String {
@@ -979,7 +746,12 @@ pub fn signature_from_spec(spec: &Value) -> AxResult<AxSignature> {
             outputs.push(field_from_spec(name, raw));
         }
     }
-    validate_signature_fields(&inputs, &outputs)?;
+    let values = core_value_from_json(&json!({
+        "inputs": inputs.iter().map(field_payload).collect::<Vec<_>>(),
+        "outputs": outputs.iter().map(field_payload).collect::<Vec<_>>(),
+    }));
+    let record = core_record_new(&[CoreValue::from("AxSignature"), values])?;
+    validate_signature(&[record])?;
     Ok(AxSignature {
         description: spec.get("description").and_then(Value::as_str).map(ToString::to_string),
         inputs,
@@ -6628,6 +6400,830 @@ fn merge_model_config(target: &mut Value, source: &Value) {
 fn string_at(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(ToString::to_string)
 }
+
+
+// ----- AXIR CORE VALUE RUNTIME -----
+// Dynamic value model for IR-emitted Core functions. Lists and maps are
+// reference-shared (Rc<RefCell<...>>) so child values obtained via core_get
+// alias their parent, matching the Go and Python runtimes. Single-threaded
+// by design, like the blocking HTTP scaffold.
+
+use std::cell::RefCell;
+use std::rc::Rc;
+
+#[derive(Clone, Debug)]
+pub(crate) enum CoreValue {
+    Null,
+    Bool(bool),
+    Num(f64),
+    Str(Rc<String>),
+    List(Rc<RefCell<Vec<CoreValue>>>),
+    Map(Rc<RefCell<CoreMap>>),
+    Error(Rc<AxError>),
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CoreMap {
+    entries: Vec<(String, CoreValue)>,
+}
+
+impl CoreMap {
+    fn get(&self, key: &str) -> Option<CoreValue> {
+        self.entries.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+    }
+    fn set(&mut self, key: &str, value: CoreValue) {
+        for entry in self.entries.iter_mut() {
+            if entry.0 == key {
+                entry.1 = value;
+                return;
+            }
+        }
+        self.entries.push((key.to_string(), value));
+    }
+    fn contains(&self, key: &str) -> bool {
+        self.entries.iter().any(|(k, _)| k == key)
+    }
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum CoreFlow {
+    Normal,
+    Break,
+    Continue,
+    Return(CoreValue),
+}
+
+impl CoreValue {
+    pub(crate) fn from(text: &str) -> CoreValue {
+        CoreValue::Str(Rc::new(text.to_string()))
+    }
+    fn from_string(text: String) -> CoreValue {
+        CoreValue::Str(Rc::new(text))
+    }
+    fn new_map() -> CoreValue {
+        CoreValue::Map(Rc::new(RefCell::new(CoreMap::default())))
+    }
+    fn new_list() -> CoreValue {
+        CoreValue::List(Rc::new(RefCell::new(Vec::new())))
+    }
+    fn list_from(items: Vec<CoreValue>) -> CoreValue {
+        CoreValue::List(Rc::new(RefCell::new(items)))
+    }
+    fn as_str(&self) -> Option<&str> {
+        match self {
+            CoreValue::Str(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+    fn is_null(&self) -> bool {
+        matches!(self, CoreValue::Null)
+    }
+    fn text(&self) -> String {
+        match self {
+            CoreValue::Str(s) => s.as_str().to_string(),
+            CoreValue::Null => "None".to_string(),
+            CoreValue::Bool(b) => if *b { "True".to_string() } else { "False".to_string() },
+            CoreValue::Num(n) => trim_num(*n),
+            CoreValue::Error(e) => e.message.clone(),
+            other => core_value_to_json(other).to_string(),
+        }
+    }
+}
+
+impl PartialEq for CoreValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (CoreValue::Null, CoreValue::Null) => true,
+            (CoreValue::Bool(a), CoreValue::Bool(b)) => a == b,
+            (CoreValue::Num(a), CoreValue::Num(b)) => a == b,
+            (CoreValue::Str(a), CoreValue::Str(b)) => a == b,
+            (CoreValue::List(a), CoreValue::List(b)) => *a.borrow() == *b.borrow(),
+            (CoreValue::Map(a), CoreValue::Map(b)) => {
+                let a = a.borrow();
+                let b = b.borrow();
+                a.len() == b.len()
+                    && a.entries.iter().all(|(k, v)| b.get(k).map_or(false, |bv| *v == bv))
+            }
+            (CoreValue::Error(a), CoreValue::Error(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+fn core_arg(args: &[CoreValue], index: usize) -> CoreValue {
+    args.get(index).cloned().unwrap_or(CoreValue::Null)
+}
+
+pub(crate) fn core_value_from_json(value: &Value) -> CoreValue {
+    match value {
+        Value::Null => CoreValue::Null,
+        Value::Bool(b) => CoreValue::Bool(*b),
+        Value::Number(n) => CoreValue::Num(n.as_f64().unwrap_or(0.0)),
+        Value::String(s) => CoreValue::from(s),
+        Value::Array(items) => {
+            CoreValue::list_from(items.iter().map(core_value_from_json).collect())
+        }
+        Value::Object(map) => {
+            let mut out = CoreMap::default();
+            for (k, v) in map {
+                out.set(k, core_value_from_json(v));
+            }
+            CoreValue::Map(Rc::new(RefCell::new(out)))
+        }
+    }
+}
+
+pub(crate) fn core_value_to_json(value: &CoreValue) -> Value {
+    match value {
+        CoreValue::Null => Value::Null,
+        CoreValue::Bool(b) => Value::Bool(*b),
+        CoreValue::Num(n) => json_number(*n),
+        CoreValue::Str(s) => Value::String(s.as_str().to_string()),
+        CoreValue::List(items) => {
+            Value::Array(items.borrow().iter().map(core_value_to_json).collect())
+        }
+        CoreValue::Map(map) => {
+            let map = map.borrow();
+            if let Some(kind) = map.get("__record").and_then(|v| v.as_str().map(str::to_string)) {
+                return core_record_to_json(&kind, &map);
+            }
+            let mut out = Map::new();
+            for (k, v) in &map.entries {
+                out.insert(k.clone(), core_value_to_json(v));
+            }
+            Value::Object(out)
+        }
+        CoreValue::Error(e) => json!({
+            "category": e.category,
+            "message": e.message,
+        }),
+    }
+}
+
+// core_record_to_json renders intrinsic.record.new records into the JSON
+// spec shape the typed-struct bridges (field_from_spec / signature_from_spec)
+// consume, mirroring the payload the other targets produce.
+fn core_record_to_json(kind: &str, map: &CoreMap) -> Value {
+    let field = |name: &str| map.get(name).map(|v| core_value_to_json(&v)).unwrap_or(Value::Null);
+    match kind {
+        "FieldType" => {
+            let mut out = Map::new();
+            out.insert("name".to_string(), field("name"));
+            out.insert("isArray".to_string(), field("is_array"));
+            if !matches!(field("options"), Value::Null) {
+                out.insert("options".to_string(), field("options"));
+            }
+            if !matches!(field("fields"), Value::Null) {
+                out.insert("fields".to_string(), field("fields"));
+            }
+            Value::Object(out)
+        }
+        "Field" => {
+            let mut out = Map::new();
+            out.insert("name".to_string(), field("name"));
+            out.insert("type".to_string(), field("type"));
+            for (json_key, map_key) in [
+                ("description", "description"),
+                ("title", "title"),
+            ] {
+                if !matches!(field(map_key), Value::Null) {
+                    out.insert(json_key.to_string(), field(map_key));
+                }
+            }
+            out.insert("isOptional".to_string(), field("is_optional"));
+            out.insert("isInternal".to_string(), field("is_internal"));
+            out.insert("isCached".to_string(), field("is_cached"));
+            Value::Object(out)
+        }
+        "AxSignature" => {
+            let mut out = Map::new();
+            if !matches!(field("description"), Value::Null) {
+                out.insert("description".to_string(), field("description"));
+            }
+            out.insert("inputs".to_string(), field("input_fields"));
+            out.insert("outputs".to_string(), field("output_fields"));
+            Value::Object(out)
+        }
+        _ => {
+            let mut out = Map::new();
+            for (k, v) in &map.entries {
+                if k != "__record" {
+                    out.insert(k.clone(), core_value_to_json(v));
+                }
+            }
+            Value::Object(out)
+        }
+    }
+}
+
+fn core_truthy(value: &CoreValue) -> bool {
+    match value {
+        CoreValue::Null => false,
+        CoreValue::Bool(b) => *b,
+        CoreValue::Num(n) => *n != 0.0,
+        CoreValue::Str(s) => !s.is_empty(),
+        CoreValue::List(items) => !items.borrow().is_empty(),
+        CoreValue::Map(map) => map.borrow().len() > 0,
+        CoreValue::Error(_) => true,
+    }
+}
+
+fn core_truthy_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(core_truthy(&core_arg(args, 0))))
+}
+
+fn core_as_error(value: &CoreValue) -> AxError {
+    match value {
+        CoreValue::Error(e) => (**e).clone(),
+        other => AxError::runtime(other.text()),
+    }
+}
+
+fn core_get(target: &CoreValue, key: &CoreValue, default: CoreValue) -> CoreValue {
+    match (target, key) {
+        (CoreValue::Map(map), CoreValue::Str(key)) => {
+            map.borrow().get(key.as_str()).unwrap_or(default)
+        }
+        (CoreValue::List(items), CoreValue::Num(index)) => {
+            let items = items.borrow();
+            let index = *index as i64;
+            if index >= 0 && (index as usize) < items.len() {
+                items[index as usize].clone()
+            } else {
+                default
+            }
+        }
+        _ => default,
+    }
+}
+
+fn core_set(target: &CoreValue, key: CoreValue, value: CoreValue) -> Result<CoreValue, AxError> {
+    match (target, &key) {
+        (CoreValue::Map(map), CoreValue::Str(key)) => {
+            map.borrow_mut().set(key.as_str(), value);
+            Ok(CoreValue::Null)
+        }
+        (CoreValue::List(items), CoreValue::Num(index)) => {
+            let mut items = items.borrow_mut();
+            let index = *index as usize;
+            if index < items.len() {
+                items[index] = value;
+            }
+            Ok(CoreValue::Null)
+        }
+        _ => Err(AxError::runtime("core.set target is not a map or list")),
+    }
+}
+
+fn core_append(target: &CoreValue, value: CoreValue) -> Result<CoreValue, AxError> {
+    match target {
+        CoreValue::List(items) => {
+            items.borrow_mut().push(value);
+            Ok(CoreValue::Null)
+        }
+        _ => Err(AxError::runtime("core.append target is not a list")),
+    }
+}
+
+fn core_iter(value: &CoreValue) -> Result<Vec<CoreValue>, AxError> {
+    match value {
+        CoreValue::List(items) => Ok(items.borrow().clone()),
+        CoreValue::Map(map) => Ok(map
+            .borrow()
+            .entries
+            .iter()
+            .map(|(k, _)| CoreValue::from(k))
+            .collect()),
+        CoreValue::Null => Ok(Vec::new()),
+        _ => Err(AxError::runtime("core.for target is not iterable")),
+    }
+}
+
+fn core_string_trim(value: &CoreValue) -> CoreValue {
+    CoreValue::from_string(value.text().trim().to_string())
+}
+
+fn core_string_join(sep: &CoreValue, values: &CoreValue) -> Result<CoreValue, AxError> {
+    let sep = sep.text();
+    match values {
+        CoreValue::List(items) => Ok(CoreValue::from_string(
+            items
+                .borrow()
+                .iter()
+                .map(|item| item.text())
+                .collect::<Vec<_>>()
+                .join(&sep),
+        )),
+        _ => Err(AxError::runtime("core.string_join value is not a list")),
+    }
+}
+
+fn core_type_is(value: &CoreValue, type_name: CoreValue) -> CoreValue {
+    let name = type_name.text();
+    let matched = match name.as_str() {
+        "object" => matches!(value, CoreValue::Map(_)),
+        "list" => matches!(value, CoreValue::List(_)),
+        "string" => matches!(value, CoreValue::Str(_)),
+        "number" => matches!(value, CoreValue::Num(_)),
+        "boolean" => matches!(value, CoreValue::Bool(_)),
+        "null" => value.is_null(),
+        "json" => !matches!(value, CoreValue::Error(_)),
+        _ => false,
+    };
+    CoreValue::Bool(matched)
+}
+
+fn core_regex_match(pattern: CoreValue, value: &CoreValue) -> Result<CoreValue, AxError> {
+    let text = match value.as_str() {
+        Some(text) => text,
+        None => return Ok(CoreValue::Bool(false)),
+    };
+    let matched = match pattern.text().as_str() {
+        "^[A-Za-z_][A-Za-z0-9_]*$" => {
+            let mut chars = text.chars();
+            match chars.next() {
+                Some(first) if first.is_ascii_alphabetic() || first == '_' => {
+                    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+                }
+                _ => false,
+            }
+        }
+        "^[0-9]" => text.chars().next().map_or(false, |c| c.is_ascii_digit()),
+        other => {
+            return Err(AxError::runtime(format!(
+                "unsupported regex pattern in rust core: {other}"
+            )))
+        }
+    };
+    Ok(CoreValue::Bool(matched))
+}
+
+fn core_not(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(!core_truthy(&core_arg(args, 0))))
+}
+
+fn core_and(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(core_truthy(&core_arg(args, 0)) && core_truthy(&core_arg(args, 1))))
+}
+
+fn core_or(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(core_truthy(&core_arg(args, 0)) || core_truthy(&core_arg(args, 1))))
+}
+
+fn core_eq(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(core_arg(args, 0) == core_arg(args, 1)))
+}
+
+fn core_ne(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(core_arg(args, 0) != core_arg(args, 1)))
+}
+
+fn core_number_pair(args: &[CoreValue]) -> Result<(f64, f64), AxError> {
+    match (core_arg(args, 0), core_arg(args, 1)) {
+        (CoreValue::Num(a), CoreValue::Num(b)) => Ok((a, b)),
+        _ => Err(AxError::runtime("expected numeric operands")),
+    }
+}
+
+fn core_lt(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match (core_arg(args, 0), core_arg(args, 1)) {
+        (CoreValue::Str(a), CoreValue::Str(b)) => Ok(CoreValue::Bool(a < b)),
+        _ => core_number_pair(args).map(|(a, b)| CoreValue::Bool(a < b)),
+    }
+}
+
+fn core_lte(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    core_number_pair(args).map(|(a, b)| CoreValue::Bool(a <= b))
+}
+
+fn core_gt(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match (core_arg(args, 0), core_arg(args, 1)) {
+        (CoreValue::Str(a), CoreValue::Str(b)) => Ok(CoreValue::Bool(a > b)),
+        _ => core_number_pair(args).map(|(a, b)| CoreValue::Bool(a > b)),
+    }
+}
+
+fn core_gte(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    core_number_pair(args).map(|(a, b)| CoreValue::Bool(a >= b))
+}
+
+fn core_add(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match (core_arg(args, 0), core_arg(args, 1)) {
+        (CoreValue::Num(a), CoreValue::Num(b)) => Ok(CoreValue::Num(a + b)),
+        (CoreValue::Str(a), CoreValue::Str(b)) => {
+            Ok(CoreValue::from_string(format!("{}{}", a, b)))
+        }
+        _ => Err(AxError::runtime("unsupported operands for intrinsic.add")),
+    }
+}
+
+fn core_len(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let len = match core_arg(args, 0) {
+        CoreValue::Str(s) => s.chars().count(),
+        CoreValue::List(items) => items.borrow().len(),
+        CoreValue::Map(map) => map.borrow().len(),
+        _ => return Err(AxError::runtime("intrinsic.len target has no length")),
+    };
+    Ok(CoreValue::Num(len as f64))
+}
+
+fn core_is_none(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(core_arg(args, 0).is_null()))
+}
+
+fn core_is_not_none(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(!core_arg(args, 0).is_null()))
+}
+
+fn core_none(_args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Null)
+}
+
+fn core_coalesce(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let value = core_arg(args, 0);
+    if value.is_null() {
+        Ok(core_arg(args, 1))
+    } else {
+        Ok(value)
+    }
+}
+
+fn core_contains(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let container = core_arg(args, 0);
+    let item = core_arg(args, 1);
+    let contains = match &container {
+        CoreValue::Null => false,
+        CoreValue::Str(s) => s.contains(&item.text()),
+        CoreValue::List(items) => items.borrow().iter().any(|entry| *entry == item),
+        CoreValue::Map(map) => map.borrow().contains(&item.text()),
+        _ => false,
+    };
+    Ok(CoreValue::Bool(contains))
+}
+
+fn core_list_get(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let values = core_arg(args, 0);
+    let index = core_arg(args, 1);
+    let default = core_arg(args, 2);
+    Ok(core_get(&values, &index, default))
+}
+
+fn core_record_new(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let kind = core_arg(args, 0).text();
+    let values = core_arg(args, 1);
+    let read = |snake: &str, camel: &str| -> CoreValue {
+        let direct = core_get(&values, &CoreValue::from(snake), CoreValue::Null);
+        if direct.is_null() {
+            core_get(&values, &CoreValue::from(camel), CoreValue::Null)
+        } else {
+            direct
+        }
+    };
+    let mut out = CoreMap::default();
+    out.set("__record", CoreValue::from(kind.as_str()));
+    match kind.as_str() {
+        "FieldType" => {
+            let name = read("name", "name");
+            out.set("name", if name.is_null() { CoreValue::from("string") } else { name });
+            out.set("is_array", CoreValue::Bool(core_truthy(&read("is_array", "isArray"))));
+            out.set("options", read("options", "options"));
+            out.set("fields", read("fields", "fields"));
+        }
+        "Field" => {
+            out.set("name", read("name", "name"));
+            let field_type = read("type", "type");
+            out.set("type", if field_type.is_null() {
+                core_record_new(&[CoreValue::from("FieldType"), CoreValue::new_map()])?
+            } else {
+                field_type
+            });
+            out.set("description", read("description", "description"));
+            out.set("title", read("title", "title"));
+            out.set("is_optional", CoreValue::Bool(core_truthy(&read("is_optional", "isOptional"))));
+            out.set("is_internal", CoreValue::Bool(core_truthy(&read("is_internal", "isInternal"))));
+            out.set("is_cached", CoreValue::Bool(core_truthy(&read("is_cached", "isCached"))));
+        }
+        "AxSignature" => {
+            // The constructor accepts inputs/outputs; the record exposes the
+            // python instance-attribute names that IR code reads.
+            let inputs = read("input_fields", "inputs");
+            let outputs = read("output_fields", "outputs");
+            out.set("input_fields", if inputs.is_null() { CoreValue::new_list() } else { inputs });
+            out.set("output_fields", if outputs.is_null() { CoreValue::new_list() } else { outputs });
+            out.set("description", read("description", "description"));
+        }
+        other => return Err(AxError::new("signature", format!("Unknown record type: {other}"))),
+    }
+    Ok(CoreValue::Map(Rc::new(RefCell::new(out))))
+}
+
+fn core_fields_from_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let fields = core_arg(args, 0);
+    let out = CoreValue::new_list();
+    if let CoreValue::Map(map) = &fields {
+        for (name, item) in map.borrow().entries.clone() {
+            // In-IR records carry the __record tag; values that crossed a
+            // JSON boundary lose it, so a map with a "type" key is already a
+            // Field payload (FieldType payloads have no "type" key).
+            let is_field_record = matches!(
+                core_get(&item, &CoreValue::from("__record"), CoreValue::Null).as_str(),
+                Some("Field")
+            ) || !core_get(&item, &CoreValue::from("type"), CoreValue::Null).is_null();
+            if is_field_record {
+                core_append(&out, item)?;
+            } else {
+                let values = CoreValue::new_map();
+                core_set(&values, CoreValue::from("name"), CoreValue::from(name.as_str()))?;
+                core_set(&values, CoreValue::from("type"), item)?;
+                core_append(&out, core_record_new(&[CoreValue::from("Field"), values])?)?;
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn core_signature_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Error(Rc::new(AxError::new("signature", core_arg(args, 0).text()))))
+}
+
+fn core_runtime_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Error(Rc::new(AxError::runtime(core_arg(args, 0).text()))))
+}
+
+fn core_validation_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Error(Rc::new(AxError::validation(core_arg(args, 0).text()))))
+}
+
+fn core_string_format(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let template = core_arg(args, 0).text();
+    let mut out = String::new();
+    let mut rest = template.as_str();
+    let mut index = 1;
+    while let Some(pos) = rest.find("{}") {
+        out.push_str(&rest[..pos]);
+        out.push_str(&core_arg(args, index).text());
+        index += 1;
+        rest = &rest[pos + 2..];
+    }
+    out.push_str(rest);
+    Ok(CoreValue::from_string(out))
+}
+
+fn core_string_replace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let value = core_arg(args, 0).text();
+    let old = core_arg(args, 1).text();
+    let new = core_arg(args, 2).text();
+    Ok(CoreValue::from_string(value.replace(&old, &new)))
+}
+
+fn core_string_slice(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let chars: Vec<char> = core_arg(args, 0).text().chars().collect();
+    let len = chars.len() as i64;
+    let clamp = |raw: i64| -> usize {
+        let adjusted = if raw < 0 { raw + len } else { raw };
+        adjusted.clamp(0, len) as usize
+    };
+    let start = match core_arg(args, 1) {
+        CoreValue::Num(n) => clamp(n as i64),
+        _ => 0,
+    };
+    let end = match core_arg(args, 2) {
+        CoreValue::Num(n) => clamp(n as i64),
+        _ => len as usize,
+    };
+    if start >= end {
+        return Ok(CoreValue::from(""));
+    }
+    Ok(CoreValue::from_string(chars[start..end].iter().collect()))
+}
+
+fn core_string_default_if_empty(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text = core_arg(args, 0).text();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        Ok(core_arg(args, 1))
+    } else {
+        Ok(CoreValue::from_string(trimmed.to_string()))
+    }
+}
+
+fn core_string_words(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::list_from(
+        core_arg(args, 0)
+            .text()
+            .split_whitespace()
+            .map(CoreValue::from)
+            .collect(),
+    ))
+}
+
+fn core_string_split_trim_nonempty(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let value = core_arg(args, 0).text();
+    let sep = core_arg(args, 1).text();
+    Ok(CoreValue::list_from(
+        value
+            .split(sep.as_str())
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(CoreValue::from)
+            .collect(),
+    ))
+}
+
+fn core_string_split_outside_quotes(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text = core_arg(args, 0).text();
+    let sep = core_arg(args, 1).text().chars().next().unwrap_or(',');
+    let mut items: Vec<CoreValue> = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for ch in text.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            current.push(ch);
+            escaped = true;
+            continue;
+        }
+        if let Some(active) = quote {
+            current.push(ch);
+            if ch == active {
+                quote = None;
+            }
+            continue;
+        }
+        if ch == '\'' || ch == '"' {
+            current.push(ch);
+            quote = Some(ch);
+            continue;
+        }
+        if ch == sep {
+            let item = current.trim().to_string();
+            if !item.is_empty() {
+                items.push(CoreValue::from_string(item));
+            }
+            current = String::new();
+            continue;
+        }
+        current.push(ch);
+    }
+    if quote.is_some() {
+        return Err(AxError::new("signature", "Unterminated string"));
+    }
+    let item = current.trim().to_string();
+    if !item.is_empty() {
+        items.push(CoreValue::from_string(item));
+    }
+    Ok(CoreValue::list_from(items))
+}
+
+fn core_string_split_once(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text = core_arg(args, 0).text();
+    let sep = core_arg(args, 1).text();
+    let out = CoreValue::new_map();
+    match text.split_once(sep.as_str()) {
+        Some((left, right)) => {
+            core_set(&out, CoreValue::from("left"), CoreValue::from(left))?;
+            core_set(&out, CoreValue::from("right"), CoreValue::from(right))?;
+            core_set(&out, CoreValue::from("found"), CoreValue::Bool(true))?;
+        }
+        None => {
+            core_set(&out, CoreValue::from("left"), CoreValue::from_string(text))?;
+            core_set(&out, CoreValue::from("right"), CoreValue::from(""))?;
+            core_set(&out, CoreValue::from("found"), CoreValue::Bool(false))?;
+        }
+    }
+    Ok(out)
+}
+
+fn core_string_remove_suffix(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text = core_arg(args, 0).text();
+    let suffix = core_arg(args, 1).text();
+    let out = CoreValue::new_map();
+    if !suffix.is_empty() && text.ends_with(suffix.as_str()) {
+        let trimmed = text[..text.len() - suffix.len()].to_string();
+        core_set(&out, CoreValue::from("value"), CoreValue::from_string(trimmed))?;
+        core_set(&out, CoreValue::from("removed"), CoreValue::Bool(true))?;
+    } else {
+        core_set(&out, CoreValue::from("value"), CoreValue::from_string(text))?;
+        core_set(&out, CoreValue::from("removed"), CoreValue::Bool(false))?;
+    }
+    Ok(out)
+}
+
+fn core_string_find_outside_quotes(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text = core_arg(args, 0).text();
+    let needle = core_arg(args, 1).text();
+    let chars: Vec<char> = text.chars().collect();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for (i, ch) in chars.iter().enumerate() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if *ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if let Some(active) = quote {
+            if *ch == active {
+                quote = None;
+            }
+            continue;
+        }
+        if *ch == '\'' || *ch == '"' {
+            quote = Some(*ch);
+            continue;
+        }
+        let rest: String = chars[i..].iter().collect();
+        if rest.starts_with(needle.as_str()) {
+            return Ok(CoreValue::Num(i as f64));
+        }
+    }
+    if quote.is_some() {
+        return Err(AxError::new("signature", "Unterminated string"));
+    }
+    Ok(CoreValue::Num(-1.0))
+}
+
+fn core_consume_quoted_prefix(text: &str) -> Result<(Option<String>, String, bool), AxError> {
+    let chars: Vec<char> = text.chars().collect();
+    let first = chars.first().copied();
+    if first != Some('\'') && first != Some('"') {
+        return Ok((None, text.to_string(), false));
+    }
+    let quote = first.unwrap();
+    let mut escaped = false;
+    let mut out = String::new();
+    for (i, ch) in chars.iter().enumerate().skip(1) {
+        if escaped {
+            out.push(*ch);
+            escaped = false;
+        } else if *ch == '\\' {
+            escaped = true;
+        } else if *ch == quote {
+            let rest: String = chars[i + 1..].iter().collect();
+            return Ok((Some(out), rest, true));
+        } else {
+            out.push(*ch);
+        }
+    }
+    Err(AxError::new("signature", "Unterminated string"))
+}
+
+fn quoted_prefix_result(value: Option<String>, rest: String, found: bool) -> Result<CoreValue, AxError> {
+    let out = CoreValue::new_map();
+    core_set(&out, CoreValue::from("value"), match value {
+        Some(text) => CoreValue::from_string(text),
+        None => CoreValue::Null,
+    })?;
+    core_set(&out, CoreValue::from("rest"), CoreValue::from_string(rest))?;
+    core_set(&out, CoreValue::from("found"), CoreValue::Bool(found))?;
+    Ok(out)
+}
+
+fn core_string_consume_optional_quoted_prefix(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text = core_arg(args, 0).text();
+    let (value, rest, found) = core_consume_quoted_prefix(&text)?;
+    quoted_prefix_result(value, rest, found)
+}
+
+fn core_string_extract_quoted_suffix(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text = core_arg(args, 0).text();
+    let chars: Vec<char> = text.chars().collect();
+    let mut escaped = false;
+    for (i, ch) in chars.iter().enumerate() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if *ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if *ch == '\'' || *ch == '"' {
+            let tail: String = chars[i..].iter().collect();
+            let (value, rest, _) = core_consume_quoted_prefix(&tail)?;
+            let head: String = chars[..i].iter().collect();
+            let out = quoted_prefix_result(value, rest, true)?;
+            core_set(&out, CoreValue::from("index"), CoreValue::Num(i as f64))?;
+            core_set(&out, CoreValue::from("head"), CoreValue::from_string(head))?;
+            return Ok(out);
+        }
+    }
+    let out = quoted_prefix_result(None, String::new(), false)?;
+    core_set(&out, CoreValue::from("index"), CoreValue::Null)?;
+    core_set(&out, CoreValue::from("head"), CoreValue::from_string(text))?;
+    Ok(out)
+}
+// ----- END AXIR CORE VALUE RUNTIME -----
 
 // AXIR_CORE_RUST_FUNCTIONS
 `

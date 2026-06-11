@@ -171,8 +171,21 @@ func AuditProvenance(model AxRuntimeModel, target string, files map[string]strin
 		return report, err
 	}
 	if target == "rust" {
+		var enabledModules []string
+		seen := map[string]bool{}
+		for _, spec := range specs {
+			if enabledRustModules[spec.Module] {
+				report.EmittedFunctions++
+				if !seen[spec.Module] {
+					seen[spec.Module] = true
+					enabledModules = append(enabledModules, spec.Module)
+				}
+			}
+		}
+		sort.Strings(enabledModules)
 		report.Violations = append(report.Violations,
-			fmt.Sprintf("rust does not emit Core bodies yet: 0/%d registry functions emitted (hand-written template port, fixture-verified only)", len(specs)))
+			fmt.Sprintf("rust emits %d/%d core functions from the IR (modules: %s); the remainder is hand-written pending migration and fixture-verified only",
+				report.EmittedFunctions, len(specs), strings.Join(enabledModules, ", ")))
 		return report, nil
 	}
 	expectations, err := provenanceExpectations(model, target, specs)
