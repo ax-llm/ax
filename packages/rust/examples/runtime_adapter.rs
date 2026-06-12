@@ -57,11 +57,19 @@ impl AxCodeRuntime for DemoRuntime {
 fn main() -> AxResult<()> {
     let mut runtime = DemoRuntime;
     let mut runner = agent("question:string -> answer:string")?;
-    let step =
-        runner.execute_actor_step(&mut runtime, "final()", json!({"question": "adapter"}))?;
+    let step = runner.execute_actor_step(
+        &mut runtime,
+        "final()",
+        json!({"question": "adapter"}),
+        json!({}),
+    )?;
     let snapshot = runner.export_session_state()?;
-    let timeout =
-        runner.execute_actor_step(&mut runtime, "timeout()", json!({"question": "adapter"}))?;
+    let timeout = runner.execute_actor_step(
+        &mut runtime,
+        "timeout()",
+        json!({"question": "adapter"}),
+        json!({}),
+    )?;
     let closed = runner.close_runtime_session()?;
     println!(
         "{}",

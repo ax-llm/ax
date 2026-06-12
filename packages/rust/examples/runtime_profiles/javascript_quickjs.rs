@@ -17,6 +17,7 @@ fn main() -> AxResult<()> {
         &mut runtime,
         "answer = inputs.question; final({ answer })",
         json!({"question": "quickjs"}),
+        json!({}),
     )?;
     assert_eq!(step.payload["kind"], "final");
     assert_eq!(step.payload["result"]["args"][0]["answer"], "quickjs");
@@ -25,6 +26,7 @@ fn main() -> AxResult<()> {
         &mut runtime,
         "answer = inputs.question; final({ answer })",
         json!({"question": "quickjs"}),
+        json!({}),
     )?;
     assert_eq!(actor_step.payload["kind"], "final");
     assert_eq!(runner.inspect_runtime()?["answer"], "quickjs");

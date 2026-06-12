@@ -79,6 +79,7 @@ fn main() -> AxResult<()> {
         &mut runtime,
         "final({answer: 'runtime'})",
         json!({"question": "runtime?"}),
+        json!({}),
     )?;
     assert_eq!(runtime_out.payload["kind"], json!("final"));
     println!("rust-axagent-ok");

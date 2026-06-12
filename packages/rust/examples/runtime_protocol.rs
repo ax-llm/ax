@@ -15,6 +15,7 @@ fn main() -> AxResult<()> {
         &mut runtime,
         "answer = inputs.question; await final({ answer })",
         json!({"question": "protocol"}),
+        json!({}),
     )?;
     assert_eq!(step.payload["kind"], "final");
     runtime.shutdown()?;
