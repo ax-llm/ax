@@ -16,7 +16,7 @@ fn main() -> AxResult<()> {
         "answer = inputs.question; await final({ answer })",
         json!({"question": "protocol"}),
     )?;
-    assert_eq!(step.payload["type"], "final");
+    assert_eq!(step.payload["kind"], "final");
     runtime.shutdown()?;
     println!("rust-runtime-protocol-ok");
     Ok(())
