@@ -1455,6 +1455,10 @@ func runCommandMessage(dir string, env []string, command string, args ...string)
 		env = scrubbedEnviron()
 	}
 	cmd.Env = env
+	// A grandchild that inherits the pipes (for example a leaked runtime
+	// subprocess) must not wedge verification forever after the direct
+	// child exits.
+	cmd.WaitDelay = 30 * time.Second
 	out, err := cmd.CombinedOutput()
 	message := strings.TrimSpace(string(out))
 	if err != nil {

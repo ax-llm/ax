@@ -585,8 +585,15 @@ fn main() -> AxResult<()> {
         "answer = inputs.question; final({ answer })",
         json!({"question": "quickjs"}),
     )?;
-    assert_eq!(step.payload["type"], "final");
-    assert_eq!(step.payload["args"][0]["answer"], "quickjs");
+    assert_eq!(step.payload["kind"], "final");
+    assert_eq!(step.payload["result"]["args"][0]["answer"], "quickjs");
+
+    let actor_step = runner.execute_actor_step(
+        &mut runtime,
+        "answer = inputs.question; final({ answer })",
+        json!({"question": "quickjs"}),
+    )?;
+    assert_eq!(actor_step.payload["kind"], "final");
     assert_eq!(runner.inspect_runtime()?["answer"], "quickjs");
 
     let snapshot = runner.export_session_state()?;

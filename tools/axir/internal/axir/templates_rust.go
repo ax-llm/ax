@@ -1515,25 +1515,68 @@ impl AxProgram for AxGen {
 }
 
 pub struct AxAgent {
-    pub program: AxGen,
-    pub action_log: Vec<Value>,
-    runtime_session: Option<Box<dyn AxCodeSession>>,
+    state: CoreValue,
+    distiller: CoreValue,
+    executor: CoreValue,
+    responder: CoreValue,
 }
 
 pub fn agent(spec: &str) -> AxResult<AxAgent> {
+    agent_with_options(spec, json!({}))
+}
+
+pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
+    let signature = s(spec)?;
+    let state = _agent_factory(&[
+        core_signature_value(&signature)?,
+        core_value_from_json(&options),
+    ])?;
+    let distiller_signature = signature_from_record(&core_get(
+        &state,
+        &CoreValue::from("distiller_signature"),
+        CoreValue::Null,
+    ))?;
+    let executor_signature = signature_from_record(&core_get(
+        &state,
+        &CoreValue::from("executor_signature"),
+        CoreValue::Null,
+    ))?;
+    let validation_retries = options
+        .get("validation_retries")
+        .cloned()
+        .unwrap_or_else(|| json!(2));
     Ok(AxAgent {
-        program: AxGen::new(spec)?,
-        action_log: Vec::new(),
-        runtime_session: None,
+        state,
+        distiller: agent_stage_gen(
+            distiller_signature,
+            json!({"validation_retries": 0, "id": "ctx.root.actor"}),
+        ),
+        executor: agent_stage_gen(
+            executor_signature,
+            json!({"validation_retries": 0, "id": "task.root.actor"}),
+        ),
+        responder: agent_stage_gen(
+            signature,
+            json!({"validation_retries": validation_retries, "id": "task.root.responder"}),
+        ),
     })
 }
 
 impl AxAgent {
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
-        self.action_log.push(json!({"type": "forward_started"}));
-        let output = self.program.forward(client, input)?;
-        self.action_log.push(json!({"type": "forward_completed", "output": output.clone()}));
-        Ok(output)
+        let mut chat = |request: Value| client.chat(request);
+        let result = with_core_client(&mut chat, || {
+            _agent_forward(&[
+                self.state.clone(),
+                self.distiller.clone(),
+                self.executor.clone(),
+                self.responder.clone(),
+                CoreValue::Null,
+                core_value_from_json(&input),
+                CoreValue::new_map(),
+            ])
+        })?;
+        Ok(core_value_to_json(&result))
     }
 
     pub fn execute_actor_step(
@@ -1542,16 +1585,22 @@ impl AxAgent {
         code: &str,
         input: Value,
     ) -> AxResult<RuntimeEnvelope> {
-        if self.runtime_session.is_none() {
-            self.runtime_session = Some(runtime.create_session(
-                json!({"inputs": input}),
-                json!({"reservedNames": ["inputs", "final"]}),
-            )?);
-        }
-        let session = self.runtime_session.as_mut().expect("session initialized");
-        let result = session.execute(code, json!({"reservedNames": ["inputs", "final"]}))?;
-        self.action_log.push(json!({"type": "runtime_execute", "result": result.payload.clone()}));
-        Ok(result)
+        _agent_runtime_build_globals(&[self.state.clone(), core_value_from_json(&input)])?;
+        // SAFETY: lifetime-only erasure; the host never outlives this call.
+        let runtime_ptr: *mut (dyn AxCodeRuntime + 'static) =
+            unsafe { std::mem::transmute(runtime as *mut dyn AxCodeRuntime) };
+        let runtime_host = CoreValue::Host(Rc::new(ScopedRuntimeHost(runtime_ptr)));
+        let session = core_get(&self.state, &CoreValue::from("runtime_session"), CoreValue::Null);
+        let result = _agent_runtime_execute_step(&[
+            self.state.clone(),
+            runtime_host,
+            session,
+            CoreValue::from(code),
+            CoreValue::new_map(),
+        ])?;
+        Ok(RuntimeEnvelope {
+            payload: core_value_to_json(&result),
+        })
     }
 
     pub fn test(
@@ -1560,43 +1609,86 @@ impl AxAgent {
         code: &str,
         input: Value,
     ) -> AxResult<RuntimeEnvelope> {
-        self.execute_actor_step(runtime, code, input)
+        // SAFETY: lifetime-only erasure; the host never outlives this call.
+        let runtime_ptr: *mut (dyn AxCodeRuntime + 'static) =
+            unsafe { std::mem::transmute(runtime as *mut dyn AxCodeRuntime) };
+        let runtime_host = CoreValue::Host(Rc::new(ScopedRuntimeHost(runtime_ptr)));
+        let result = _agent_runtime_test(&[
+            self.state.clone(),
+            runtime_host,
+            CoreValue::from(code),
+            core_value_from_json(&input),
+            CoreValue::new_map(),
+        ])?;
+        Ok(RuntimeEnvelope {
+            payload: core_value_to_json(&result),
+        })
     }
 
     pub fn inspect_runtime(&mut self) -> AxResult<Value> {
-        match self.runtime_session.as_mut() {
-            Some(session) => session.inspect_globals(json!({})),
-            None => Ok(json!({})),
-        }
+        let session = core_get(&self.state, &CoreValue::from("runtime_session"), CoreValue::Null);
+        let result = _agent_runtime_inspect_state(&[
+            self.state.clone(),
+            session,
+            CoreValue::new_map(),
+        ])?;
+        Ok(core_value_to_json(&result))
     }
 
     pub fn export_session_state(&mut self) -> AxResult<Value> {
-        match self.runtime_session.as_mut() {
-            Some(session) => session.snapshot_globals(json!({})),
-            None => Ok(json!({})),
-        }
+        let session = core_get(&self.state, &CoreValue::from("runtime_session"), CoreValue::Null);
+        let result = _agent_runtime_export_session_state(&[
+            self.state.clone(),
+            session,
+            CoreValue::new_map(),
+        ])?;
+        Ok(core_value_to_json(&result))
     }
 
     pub fn restore_session_state(&mut self, snapshot: Value) -> AxResult<Value> {
-        match self.runtime_session.as_mut() {
-            Some(session) => session.patch_globals(snapshot, json!({})),
-            None => Ok(snapshot),
-        }
+        let session = core_get(&self.state, &CoreValue::from("runtime_session"), CoreValue::Null);
+        let result = _agent_runtime_restore_session_state(&[
+            self.state.clone(),
+            session,
+            core_value_from_json(&snapshot),
+            CoreValue::new_map(),
+        ])?;
+        Ok(core_value_to_json(&result))
     }
 
     pub fn close_runtime_session(&mut self) -> AxResult<Value> {
-        match self.runtime_session.as_mut() {
-            Some(session) => session.close(),
-            None => Ok(json!({"closed": true})),
+        let session = core_get(&self.state, &CoreValue::from("runtime_session"), CoreValue::Null);
+        let result = _agent_runtime_close_session(&[self.state.clone(), session])?;
+        Ok(core_value_to_json(&result))
+    }
+
+    pub fn get_state(&self) -> AxResult<Value> {
+        Ok(core_value_to_json(&_agent_get_state(&[self.state.clone()])?))
+    }
+
+    pub fn set_state(&mut self, state: Value) -> AxResult<Value> {
+        Ok(core_value_to_json(&_agent_set_state(&[
+            self.state.clone(),
+            core_value_from_json(&state),
+        ])?))
+    }
+
+    pub fn export_trace(&self) -> AxResult<Value> {
+        Ok(core_value_to_json(&_agent_export_trace(&[self.state.clone()])?))
+    }
+
+    pub fn get_chat_log(&self) -> Vec<Value> {
+        match core_value_to_json(&core_get(&self.state, &CoreValue::from("chat_log"), CoreValue::Null)) {
+            Value::Array(items) => items,
+            _ => Vec::new(),
         }
     }
 
-    pub fn get_chat_log(&self) -> &[Value] {
-        self.program.get_chat_log()
-    }
-
-    pub fn get_action_log(&self) -> &[Value] {
-        &self.action_log
+    pub fn get_action_log(&self) -> Vec<Value> {
+        match core_value_to_json(&core_get(&self.state, &CoreValue::from("action_log"), CoreValue::Null)) {
+            Value::Array(items) => items,
+            _ => Vec::new(),
+        }
     }
 }
 
@@ -2180,6 +2272,18 @@ pub struct ProcessCodeRuntime {
     command: Vec<String>,
     child: Option<Arc<Mutex<ProtocolChild>>>,
     language: String,
+}
+
+impl Drop for ProcessCodeRuntime {
+    fn drop(&mut self) {
+        // A leaked runtime subprocess holds the inherited stdio pipes open,
+        // wedging any harness that waits on them; kill it unconditionally.
+        if let Some(child) = &self.child {
+            if let Ok(mut child) = child.lock() {
+                let _ = child.child.kill();
+            }
+        }
+    }
 }
 
 pub type RuntimeProtocolClient = ProcessCodeRuntime;
@@ -9784,6 +9888,75 @@ fn core_string_title_from_camel(args: &[CoreValue]) -> Result<CoreValue, AxError
 
 // ----- END AXIR CORE AGENT ENGINE -----
 
+
+fn signature_from_record(record: &CoreValue) -> AxResult<AxSignature> {
+    if let CoreValue::Str(text) = record {
+        return s(text.as_str());
+    }
+    let payload = core_value_to_json(record);
+    let mut inputs = Vec::new();
+    let mut outputs = Vec::new();
+    for (key, out) in [("inputFields", &mut inputs), ("outputFields", &mut outputs)] {
+        for raw in payload.get(key).and_then(Value::as_array).into_iter().flatten() {
+            let name = raw.get("name").and_then(Value::as_str).unwrap_or("");
+            out.push(field_from_payload(name, raw));
+        }
+    }
+    Ok(AxSignature {
+        description: payload
+            .get("description")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        inputs,
+        outputs,
+    })
+}
+
+fn agent_stage_gen(signature: AxSignature, options: Value) -> CoreValue {
+    GenHost::new(AxGen {
+        signature,
+        options,
+        function_call_traces: Vec::new(),
+        tools: Vec::new(),
+        assertions: Vec::new(),
+        examples: Vec::new(),
+        demos: Vec::new(),
+        field_processors: Vec::new(),
+        stop_functions: Vec::new(),
+        memory: Vec::new(),
+        traces: Vec::new(),
+        chat_log: Vec::new(),
+    })
+}
+
+struct ScopedRuntimeHost(*mut dyn AxCodeRuntime);
+
+impl CoreHost for ScopedRuntimeHost {
+    fn host_type(&self) -> &'static str {
+        "AxCodeRuntime"
+    }
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        // SAFETY: the pointer is valid for the duration of the agent method
+        // that constructed this host; emitted code uses it synchronously.
+        let runtime = unsafe { &mut *self.0 };
+        match name {
+            "create_session" => {
+                let globals = core_value_to_json(&core_arg(args, 0));
+                let options = core_value_to_json(&core_arg(args, 1));
+                let session = runtime.create_session(globals, options)?;
+                Ok(core_code_session_host(session))
+            }
+            "language" => Ok(CoreValue::from_string(runtime.language().to_string())),
+            "usage_instructions" | "get_usage_instructions" | "usageInstructions" => {
+                Ok(CoreValue::from_string(runtime.usage_instructions().to_string()))
+            }
+            other => Err(AxError::runtime(format!(
+                "object of type AxCodeRuntime has no callable method '{other}'"
+            ))),
+        }
+    }
+}
+
 // ----- END AXIR CORE VALUE RUNTIME -----
 
 // AXIR_CORE_RUST_FUNCTIONS
@@ -9940,7 +10113,7 @@ fn main() -> AxResult<()> {
 }
 `
 
-const rustAxAgentPipelineExample = `use axllm::{agent, AxAIClient, AxResult};
+const rustAxAgentPipelineExample = `use axllm::{agent_with_options, AxAIClient, AxCodeRuntime, AxCodeSession, AxResult, RuntimeEnvelope};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 
@@ -9950,20 +10123,66 @@ struct ScriptedService {
 
 impl AxAIClient for ScriptedService {
     fn chat(&mut self, _request: Value) -> AxResult<Value> {
-        let content = self.responses.pop_front().ok_or_else(|| axllm::AxError::runtime("scripted service exhausted"))?;
+        let content = self
+            .responses
+            .pop_front()
+            .ok_or_else(|| axllm::AxError::runtime("scripted service exhausted"))?;
         Ok(json!({"results": [{"content": content["content"], "function_calls": []}]}))
+    }
+}
+
+struct ScriptedSession;
+
+impl AxCodeSession for ScriptedSession {
+    fn execute(&mut self, _code: &str, _options: Value) -> AxResult<RuntimeEnvelope> {
+        Ok(RuntimeEnvelope {
+            payload: json!({"type": "final", "args": [{"answer": "runtime"}]}),
+        })
+    }
+    fn inspect_globals(&mut self, _options: Value) -> AxResult<Value> {
+        Ok(json!({}))
+    }
+    fn snapshot_globals(&mut self, _options: Value) -> AxResult<Value> {
+        Ok(json!({"globals": {}}))
+    }
+    fn patch_globals(&mut self, snapshot: Value, _options: Value) -> AxResult<Value> {
+        Ok(snapshot)
+    }
+    fn close(&mut self) -> AxResult<Value> {
+        Ok(json!({"closed": true}))
+    }
+}
+
+struct ScriptedRuntime;
+
+impl AxCodeRuntime for ScriptedRuntime {
+    fn language(&self) -> &str {
+        "javascript"
+    }
+    fn create_session(&mut self, _globals: Value, _options: Value) -> AxResult<Box<dyn AxCodeSession>> {
+        Ok(Box::new(ScriptedSession))
     }
 }
 
 fn main() -> AxResult<()> {
     let mut service = ScriptedService {
         responses: VecDeque::from(vec![
+            json!({"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"}),
+            json!({"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"}),
             json!({"content": "{\"answer\":\"Paris\"}"}),
         ]),
     };
-    let mut qa = agent("question:string -> answer:string")?;
+    let mut qa = agent_with_options("question:string -> answer:string", json!({"contextFields": []}))?;
     let output = qa.forward(&mut service, json!({"question": "Capital of France?"}))?;
-    assert_eq!(output["answer"], "Paris");
+    assert_eq!(output, json!({"answer": "Paris"}));
+    let chat_log = qa.get_chat_log();
+    assert_eq!(
+        chat_log.last().and_then(|entry| entry.get("name")).cloned(),
+        Some(json!("responder"))
+    );
+    let mut runtime = ScriptedRuntime;
+    let runtime_out = qa.test(&mut runtime, "final({answer: 'runtime'})", json!({"question": "runtime?"}))?;
+    assert_eq!(runtime_out.payload["kind"], json!("final"));
     println!("rust-axagent-ok");
     Ok(())
 }
@@ -10066,7 +10285,7 @@ fn main() -> AxResult<()> {
         "answer = inputs.question; await final({ answer })",
         json!({"question": "protocol"}),
     )?;
-    assert_eq!(step.payload["type"], "final");
+    assert_eq!(step.payload["kind"], "final");
     runtime.shutdown()?;
     println!("rust-runtime-protocol-ok");
     Ok(())
