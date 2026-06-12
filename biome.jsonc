@@ -6,7 +6,10 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignoreUnknown": false
+    "ignoreUnknown": false,
+    // AxIR data blobs must stay byte-identical to their original embedded
+    // form; formatting them changes the generated packages.
+    "includes": ["**", "!ir/axcore/data/**"]
   },
   "formatter": {
     "enabled": true,
