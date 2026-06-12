@@ -6,7 +6,7 @@ module @ax.provider version "0.1" {
     attr public = true
     ref interface = @AxAIService
     tag "openai-compatible"
-    type default_base_url = "https://api.openai.com/v1"
+    attr default_base_url = "https://api.openai.com/v1"
   }
 
   op ax.provider.class @OpenAIResponsesClient {
@@ -14,7 +14,7 @@ module @ax.provider version "0.1" {
     attr public = true
     ref interface = @AxAIService
     tag "openai-responses"
-    type default_base_url = "https://api.openai.com/v1"
+    attr default_base_url = "https://api.openai.com/v1"
   }
 
   op ax.provider.class @GoogleGeminiClient {
@@ -22,7 +22,7 @@ module @ax.provider version "0.1" {
     attr public = true
     ref interface = @AxAIService
     tag "google-gemini"
-    type default_base_url = "https://generativelanguage.googleapis.com/v1beta"
+    attr default_base_url = "https://generativelanguage.googleapis.com/v1beta"
   }
 
   op ax.provider.class @AnthropicClient {
@@ -30,7 +30,7 @@ module @ax.provider version "0.1" {
     attr public = true
     ref interface = @AxAIService
     tag "anthropic"
-    type default_base_url = "https://api.anthropic.com/v1"
+    attr default_base_url = "https://api.anthropic.com/v1"
   }
 
   op ax.provider.class @AzureOpenAIClient {
@@ -38,7 +38,7 @@ module @ax.provider version "0.1" {
     attr public = true
     ref interface = @AxAIService
     tag "azure-openai"
-    type default_base_url = "https://{resource}.openai.azure.com/openai/deployments/{deployment}"
+    attr default_base_url = "https://{resource}.openai.azure.com/openai/deployments/{deployment}"
   }
 
   op ax.provider.class @DeepSeekClient {
@@ -46,7 +46,7 @@ module @ax.provider version "0.1" {
     attr public = true
     ref interface = @AxAIService
     tag "deepseek"
-    type default_base_url = "https://api.deepseek.com"
+    attr default_base_url = "https://api.deepseek.com"
   }
 
   op ax.provider.class @MistralClient {
@@ -54,7 +54,7 @@ module @ax.provider version "0.1" {
     attr public = true
     ref interface = @AxAIService
     tag "mistral"
-    type default_base_url = "https://api.mistral.ai/v1"
+    attr default_base_url = "https://api.mistral.ai/v1"
   }
 
   op ax.provider.class @RekaClient {
@@ -62,7 +62,7 @@ module @ax.provider version "0.1" {
     attr public = true
     ref interface = @AxAIService
     tag "reka"
-    type default_base_url = "https://api.reka.ai/v1"
+    attr default_base_url = "https://api.reka.ai/v1"
   }
 
   op ax.provider.class @CohereClient {
@@ -70,7 +70,7 @@ module @ax.provider version "0.1" {
     attr public = true
     ref interface = @AxAIService
     tag "cohere"
-    type default_base_url = "https://api.cohere.ai/compatibility/v1"
+    attr default_base_url = "https://api.cohere.ai/compatibility/v1"
   }
 
   op ax.provider.class @GrokClient {
@@ -78,7 +78,7 @@ module @ax.provider version "0.1" {
     attr public = true
     ref interface = @AxAIService
     tag "grok"
-    type default_base_url = "https://api.x.ai/v1"
+    attr default_base_url = "https://api.x.ai/v1"
   }
 
   op ax.provider.semantic @openai_build_chat_request {

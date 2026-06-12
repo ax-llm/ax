@@ -5,15 +5,6 @@ import (
 	"strings"
 )
 
-// typeAttrValueAllowlist names type-slot attributes whose values are known
-// config-value abuses ("type default_base_url = ..."), tolerated until the
-// planned migration to attr slots. Everything else in a type slot must parse
-// as a type expression, a field list, or a function signature.
-var typeAttrValueAllowlist = map[string]bool{
-	"default_base_url": true,
-	"value":            true,
-}
-
 // knownTypeNames collects the symbols usable as named types in signature and
 // fields strings: declared records, enums, interfaces, and error shapes,
 // whether marked via core_kind or via the operation name itself.
@@ -87,8 +78,6 @@ func checkOpTypeAttrs(file string, op Operation, known map[string]bool) Diagnost
 			for _, field := range fields {
 				named = append(named, field.Type.NamedTypes()...)
 			}
-		case typeAttrValueAllowlist[attr.Name]:
-			continue
 		default:
 			expr, err := ParseTypeExpr(value)
 			if err != nil {

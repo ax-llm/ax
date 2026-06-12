@@ -13,7 +13,7 @@ module @ax.template version "0.1" {
   op ax.template.semantic @default_dspy_template {
     attr core_kind = "semantic"
     tag "src/ax/dsp/prompt.ts"
-    type value = "DEFAULT_DSPY_TEMPLATE"
+    attr value = "DEFAULT_DSPY_TEMPLATE"
   }
 
   op ax.template.record @AxPromptTemplate {
