@@ -1669,6 +1669,12 @@ impl AxAgent {
         ])?))
     }
 
+    pub fn get_optimizer_metadata(&self) -> AxResult<Value> {
+        Ok(core_value_to_json(&_agent_optimizer_metadata(&[
+            self.state.clone(),
+        ])?))
+    }
+
     pub fn replay_trace(&mut self, trace: Value, fixtures: Value) -> AxResult<Value> {
         Ok(core_value_to_json(&_agent_replay_trace(&[
             core_value_from_json(&trace),
@@ -1714,6 +1720,7 @@ impl AxAgent {
         runtime: &mut dyn AxCodeRuntime,
         code: &str,
         input: Value,
+        options: Value,
     ) -> AxResult<RuntimeEnvelope> {
         _agent_runtime_build_globals(&[self.state.clone(), core_value_from_json(&input)])?;
         // SAFETY: lifetime-only erasure; the host never outlives this call.
@@ -1726,7 +1733,7 @@ impl AxAgent {
             runtime_host,
             session,
             CoreValue::from(code),
-            CoreValue::new_map(),
+            core_value_from_json(&options),
         ])?;
         Ok(RuntimeEnvelope {
             payload: core_value_to_json(&result),
@@ -1738,6 +1745,7 @@ impl AxAgent {
         runtime: &mut dyn AxCodeRuntime,
         code: &str,
         input: Value,
+        options: Value,
     ) -> AxResult<RuntimeEnvelope> {
         // SAFETY: lifetime-only erasure; the host never outlives this call.
         let runtime_ptr: *mut (dyn AxCodeRuntime + 'static) =
@@ -1748,7 +1756,7 @@ impl AxAgent {
             runtime_host,
             CoreValue::from(code),
             core_value_from_json(&input),
-            CoreValue::new_map(),
+            core_value_from_json(&options),
         ])?;
         Ok(RuntimeEnvelope {
             payload: core_value_to_json(&result),
@@ -2466,6 +2474,17 @@ impl ProcessCodeRuntime {
         }
         Ok(self.child.as_ref().expect("runtime child exists").clone())
     }
+
+    // python ProcessCodeRuntime._request: the raw protocol passthrough the
+    // protocol conformance fixtures use for capabilities/unknown-op/session
+    // probes. Returns the full response object (callers read "result").
+    pub(crate) fn request(&mut self, op: &str, session_id: Option<&str>, payload: Value) -> AxResult<Value> {
+        let child = self.child()?;
+        let mut child = child
+            .lock()
+            .map_err(|_| AxError::runtime("runtime protocol lock poisoned"))?;
+        child.request(op, session_id, payload)
+    }
 }
 
 impl AxCodeRuntime for ProcessCodeRuntime {
@@ -2501,8 +2520,18 @@ pub struct ProcessCodeSession {
 
 impl AxCodeSession for ProcessCodeSession {
     fn execute(&mut self, code: &str, options: Value) -> AxResult<RuntimeEnvelope> {
-        let result = self.request("execute", json!({"code": code, "options": options}))?;
-        Ok(RuntimeEnvelope { payload: result })
+        // python ProcessCodeSession.execute converts protocol failures into
+        // error envelopes instead of raising.
+        let payload = match self.request("execute", json!({"code": code, "options": options})) {
+            Ok(result) => result,
+            Err(err) => json!({
+                "kind": "error",
+                "is_error": true,
+                "error_category": err.category,
+                "error": err.message,
+            }),
+        };
+        Ok(RuntimeEnvelope { payload })
     }
 
     fn inspect_globals(&mut self, options: Value) -> AxResult<Value> {
@@ -2528,11 +2557,15 @@ impl ProcessCodeSession {
             .child
             .lock()
             .map_err(|_| AxError::runtime("runtime protocol lock poisoned"))?;
-        child.request(op, Some(&self.session_id), payload)
+        let response = child.request(op, Some(&self.session_id), payload)?;
+        Ok(response.get("result").cloned().unwrap_or(Value::Null))
     }
 }
 
 impl ProtocolChild {
+    // Mirrors python ProcessCodeRuntime._request: validates response id and
+    // session_id echoes and surfaces protocol failures with the reference
+    // error strings. Returns the full response object.
     fn request(&mut self, op: &str, session_id: Option<&str>, payload: Value) -> AxResult<Value> {
         self.next_id += 1;
         let id = self.next_id.to_string();
@@ -2545,9 +2578,33 @@ impl ProtocolChild {
         let mut line = String::new();
         self.stdout.read_line(&mut line)?;
         if line.trim().is_empty() {
-            return Err(AxError::runtime("runtime protocol returned EOF"));
+            return Err(AxError::runtime(self.closed_without_response_message()));
         }
-        let response: Value = serde_json::from_str(&line)?;
+        let response: Value = serde_json::from_str(&line).map_err(|err| {
+            AxError::runtime(format!("runtime protocol invalid JSON response: {err}"))
+        })?;
+        if !response.is_object() {
+            return Err(AxError::runtime("runtime protocol response must be an object"));
+        }
+        // python: str(response.get("id")) != str(message["id"])
+        let response_id = match response.get("id") {
+            Some(Value::String(text)) => text.clone(),
+            Some(value) => value.to_string(),
+            None => "None".to_string(),
+        };
+        if response_id != id {
+            return Err(AxError::runtime("runtime protocol response id mismatch"));
+        }
+        if let Some(session_id) = session_id {
+            let echoed = response.get("session_id");
+            let matches = match echoed {
+                None | Some(Value::Null) => true,
+                Some(value) => value.as_str() == Some(session_id),
+            };
+            if !matches {
+                return Err(AxError::runtime("runtime protocol session_id mismatch"));
+            }
+        }
         if response.get("ok").and_then(Value::as_bool) == Some(false) {
             let error = response.get("error").cloned().unwrap_or_else(|| json!({}));
             return Err(AxError::new(
@@ -2555,7 +2612,22 @@ impl ProtocolChild {
                 error.get("message").and_then(Value::as_str).unwrap_or("runtime protocol error"),
             ));
         }
-        Ok(response.get("result").cloned().unwrap_or(response))
+        Ok(response)
+    }
+
+    // python ProcessCodeRuntime._closed_without_response_message; stderr is
+    // inherited on the Rust side, so only the exit code is appended.
+    fn closed_without_response_message(&mut self) -> String {
+        let mut status = self.child.try_wait().ok().flatten();
+        if status.is_none() {
+            std::thread::sleep(Duration::from_millis(100));
+            status = self.child.try_wait().ok().flatten();
+        }
+        let mut message = "runtime protocol process closed without a response".to_string();
+        if let Some(code) = status.and_then(|status| status.code()) {
+            message.push_str(&format!(" (exit code {code})"));
+        }
+        message
     }
 }
 
@@ -2918,7 +2990,8 @@ fn run_agent_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
     match kind {
         "agent_forward" => run_agent_forward_contract_fixture(fixture),
         "agent_runtime_protocol" => run_agent_runtime_protocol_fixture(fixture),
-        "agent_runtime_session" | "agent_runtime_adapter" => run_agent_runtime_session_fixture(fixture),
+        "agent_runtime_session" => run_agent_runtime_session_fixture(fixture),
+        "agent_runtime_adapter" => run_agent_runtime_adapter_fixture(fixture),
         "agent_runtime_policy" => run_agent_runtime_policy_fixture(fixture),
         _ => Err(AxError::new("fixture", format!("unsupported Rust agent fixture {kind}"))),
     }
@@ -3387,341 +3460,1029 @@ fn assert_agent_trace(agent: &mut AxAgent, fixture: &Value) -> AxResult<()> {
 }
 
 
+// Mirrors python conformance._runtime_protocol_command: python spawns its own
+// interpreter on the scripted protocol server entrypoint; the Rust runner
+// re-execs the conformance binary with --runtime-protocol-fixture-server. The
+// mode travels as an argument because ProcessCodeRuntime has no env plumbing.
+fn runtime_protocol_fixture_command(mode: &str) -> AxResult<ProcessCodeRuntime> {
+    let exe = std::env::current_exe()
+        .map_err(|err| AxError::runtime(format!("cannot locate conformance binary: {err}")))?;
+    Ok(ProcessCodeRuntime::new([
+        exe.to_string_lossy().to_string(),
+        "--runtime-protocol-fixture-server".to_string(),
+        mode.to_string(),
+    ]))
+}
+
+// Mirrors python conformance._run_agent_runtime_protocol: drives the real
+// ProcessCodeRuntime protocol client against the scripted server subprocess.
 fn run_agent_runtime_protocol_fixture(fixture: &Value) -> AxResult<()> {
+    let mode = fixture.get("mode").and_then(Value::as_str).unwrap_or("normal");
+    let mut runtime = runtime_protocol_fixture_command(mode)?;
+    let result = run_agent_runtime_protocol_operation(fixture, &mut runtime);
+    let _ = runtime.shutdown();
+    match result {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            if let Some(expected) = fixture.get("expected_error_contains").and_then(Value::as_str) {
+                if err.message.contains(expected) {
+                    return Ok(());
+                }
+            }
+            Err(err)
+        }
+    }
+}
+
+fn run_agent_runtime_protocol_operation(
+    fixture: &Value,
+    runtime: &mut ProcessCodeRuntime,
+) -> AxResult<()> {
+    let create_globals = fixture.get("create_globals").cloned().unwrap_or_else(|| json!({}));
+    let create_options = fixture.get("create_options").cloned().unwrap_or_else(|| json!({}));
+    let execute_options = fixture.get("execute_options").cloned().unwrap_or_else(|| json!({}));
     match fixture.get("operation").and_then(Value::as_str).unwrap_or("roundtrip") {
         "roundtrip" => {
-            let actual = conformance_runtime_protocol_roundtrip(fixture);
-            for (label, actual_key, expected_key) in [
-                ("runtime capabilities", "capabilities", "expected_capabilities_subset"),
-                ("runtime execute", "execute", "expected_execute_subset"),
-                ("runtime inspect", "inspect", "expected_inspect_subset"),
-                ("runtime snapshot", "snapshot", "expected_snapshot_subset"),
-                ("runtime patch", "patch", "expected_patch_subset"),
-                ("runtime close", "close", "expected_close_subset"),
-            ] {
-                if let Some(expected) = fixture.get(expected_key) {
-                    expect_json_subset(label, actual.get(actual_key).unwrap_or(&Value::Null), expected)?;
-                }
+            let capabilities = runtime
+                .request("capabilities", None, json!({}))?
+                .get("result")
+                .cloned()
+                .unwrap_or(Value::Null);
+            if let Some(expected) = fixture.get("expected_capabilities_subset") {
+                expect_json_subset("protocol capabilities", &capabilities, expected)?;
+            }
+            let mut session = runtime.create_session(create_globals, create_options)?;
+            let result = session.execute(
+                fixture.get("execute_code").and_then(Value::as_str).unwrap_or("final()"),
+                execute_options,
+            )?;
+            if let Some(expected) = fixture.get("expected_execute_subset") {
+                expect_json_subset("protocol execute", &result.payload, expected)?;
+            }
+            let inspected = session.inspect_globals(json!({}))?;
+            if let Some(expected) = fixture.get("expected_inspect_subset") {
+                expect_json_subset("protocol inspect", &inspected, expected)?;
+            }
+            let snapshot = session.snapshot_globals(json!({}))?;
+            if let Some(expected) = fixture.get("expected_snapshot_subset") {
+                expect_json_subset("protocol snapshot", &snapshot, expected)?;
+            }
+            let patched = session.patch_globals(
+                fixture.get("patch_globals").cloned().unwrap_or_else(|| json!({})),
+                json!({}),
+            )?;
+            if let Some(expected) = fixture.get("expected_patch_subset") {
+                expect_json_subset("protocol patch", &patched, expected)?;
+            }
+            let closed = session.close()?;
+            if let Some(expected) = fixture.get("expected_close_subset") {
+                expect_json_subset("protocol close", &closed, expected)?;
             }
             Ok(())
         }
         "execute_error" => {
-            let actual = json!({"kind": "error", "is_error": true, "error_category": "timeout", "error": "fixture timeout"});
+            let mut session = runtime.create_session(create_globals, create_options)?;
+            let result = session.execute(
+                fixture.get("execute_code").and_then(Value::as_str).unwrap_or("timeout()"),
+                execute_options,
+            )?;
             if let Some(expected) = fixture.get("expected_execute_subset") {
-                expect_json_subset("runtime execute error", &actual, expected)?;
+                expect_json_subset("protocol execute error", &result.payload, expected)?;
             }
+            let _ = session.close();
             Ok(())
         }
-        _ => {
-            let message = fixture
-                .get("expected_error_contains")
-                .and_then(Value::as_str)
-                .unwrap_or("runtime protocol validation error");
-            expect_validation_result(Err(AxError::runtime(message)), fixture)
+        "unknown_op" => {
+            runtime.request("unknown_op", None, json!({}))?;
+            Err(AxError::new("fixture", "expected unknown protocol op to fail"))
         }
+        "capabilities_error" => {
+            runtime.request("capabilities", None, json!({}))?;
+            Err(AxError::new("fixture", "expected protocol capabilities request to fail"))
+        }
+        "unavailable" => {
+            let mut session = runtime.create_session(create_globals, create_options)?;
+            match fixture.get("method").and_then(Value::as_str).unwrap_or("inspect_globals") {
+                "snapshot_globals" => session.snapshot_globals(json!({}))?,
+                "patch_globals" => session.patch_globals(json!({}), json!({}))?,
+                _ => session.inspect_globals(json!({}))?,
+            };
+            Err(AxError::new("fixture", "expected unavailable protocol method to fail"))
+        }
+        "session_mismatch" => {
+            let _session = runtime.create_session(create_globals, create_options)?;
+            runtime.request(
+                "execute",
+                Some("s1"),
+                json!({
+                    "code": fixture.get("execute_code").and_then(Value::as_str).unwrap_or("final()"),
+                    "options": {},
+                }),
+            )?;
+            Err(AxError::new("fixture", "expected protocol session mismatch to fail"))
+        }
+        other => Err(AxError::new(
+            "fixture",
+            format!("unknown runtime protocol operation {other:?}"),
+        )),
     }
 }
 
-fn conformance_runtime_protocol_roundtrip(fixture: &Value) -> Value {
-    let globals = fixture.get("create_globals").cloned().unwrap_or_else(|| json!({}));
-    let create_options = fixture.get("create_options").cloned().unwrap_or_else(|| json!({}));
-    let execute_options = fixture.get("execute_options").cloned().unwrap_or_else(|| json!({}));
-    let patch = fixture.get("patch_globals").cloned().unwrap_or_else(|| json!({}));
+// Mirrors python conformance._runtime_protocol_fixture_server_main: the
+// scripted stdin/stdout JSONL protocol server hosted by the conformance
+// binary when invoked with --runtime-protocol-fixture-server <mode>.
+pub fn runtime_protocol_fixture_server_main(mode: &str) -> AxResult<()> {
+    let stdin = std::io::stdin();
+    let mut sessions: BTreeMap<String, Value> = BTreeMap::new();
+    let mut next_session = 0usize;
+    for line in stdin.lock().lines() {
+        let line = line?;
+        match mode {
+            "eof" => return Ok(()),
+            "malformed_json" => {
+                let mut out = std::io::stdout();
+                writeln!(out, "{{not-json")?;
+                out.flush()?;
+                return Ok(());
+            }
+            "nonzero" => {
+                eprintln!("fixture stderr before nonzero exit");
+                std::process::exit(7);
+            }
+            _ => {}
+        }
+        let (response, stop) =
+            runtime_protocol_fixture_step(mode, &line, &mut sessions, &mut next_session);
+        let mut out = std::io::stdout();
+        writeln!(out, "{}", serde_json::to_string(&response)?)?;
+        out.flush()?;
+        if stop {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+fn runtime_protocol_fixture_ok(id: &Value, result: Value, session_id: Option<&Value>) -> Value {
+    let mut out = json!({"id": id.clone(), "ok": true, "result": result});
+    if let Some(session_id) = session_id {
+        if !session_id.is_null() {
+            out["session_id"] = session_id.clone();
+        }
+    }
+    out
+}
+
+fn runtime_protocol_fixture_fail(id: &Value, category: &str, message: &str) -> Value {
+    json!({"id": id.clone(), "ok": false, "error": {"category": category, "message": message}})
+}
+
+fn runtime_protocol_fixture_snapshot(session: &Value) -> Value {
+    let bindings = session
+        .get("globals")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let entries = bindings
+        .iter()
+        .map(|(key, value)| {
+            json!({
+                "name": key,
+                "type": python_type_name(value),
+                "preview": python_str(value),
+            })
+        })
+        .collect::<Vec<_>>();
     json!({
-        "capabilities": {
-            "language": "JavaScript",
-            "usage_instructions": "fixture protocol runtime",
-            "inspect": true,
-            "snapshot": true,
-            "patch": true,
-            "abort": true,
-        },
-        "execute": {"type": "final", "args": [{"answer": "fixture"}]},
-        "inspect": {
-            "inputs": globals.get("inputs").cloned().unwrap_or_else(|| json!({})),
-            "answer": "fixture",
-            "__create_options": create_options,
-            "__last_execute_options": execute_options,
-        },
-        "snapshot": {"bindings": {"answer": "fixture"}},
-        "patch": patch,
-        "close": {"closed": true},
+        "version": 1,
+        "entries": entries,
+        "bindings": Value::Object(bindings.clone()),
+        "globals": Value::Object(bindings),
+        "closed": session.get("closed").map(core_json_truthy).unwrap_or(false),
     })
 }
 
-fn run_agent_runtime_session_fixture(fixture: &Value) -> AxResult<()> {
-    if fixture.get("expected_error_contains").is_some() {
-        let message = fixture
-            .get("expected_error_contains")
-            .and_then(Value::as_str)
-            .unwrap_or("runtime session error");
-        return expect_validation_result(Err(AxError::runtime(message)), fixture);
+fn runtime_protocol_fixture_step(
+    mode: &str,
+    line: &str,
+    sessions: &mut BTreeMap<String, Value>,
+    next_session: &mut usize,
+) -> (Value, bool) {
+    let message: Value = match serde_json::from_str(line) {
+        Ok(value) => value,
+        Err(err) => {
+            return (
+                runtime_protocol_fixture_fail(&Value::Null, "protocol", &err.to_string()),
+                false,
+            )
+        }
+    };
+    let op = message
+        .get("op")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let response_id = if mode == "id_mismatch" {
+        json!("mismatch")
+    } else {
+        message.get("id").cloned().unwrap_or(Value::Null)
+    };
+    let message_session_id = message.get("session_id").cloned().unwrap_or(Value::Null);
+    let session_key = message_session_id.as_str().unwrap_or_default().to_string();
+    let unavailable = mode == "unavailable";
+    let response = match op.as_str() {
+        "capabilities" => runtime_protocol_fixture_ok(
+            &response_id,
+            json!({
+                "language": "JavaScript",
+                "usage_instructions": "fixture protocol runtime",
+                "inspect": !unavailable,
+                "snapshot": !unavailable,
+                "patch": !unavailable,
+                "abort": true,
+            }),
+            None,
+        ),
+        "create_session" => {
+            *next_session += 1;
+            let session_id = format!("s{next_session}");
+            let payload = message
+                .get("payload")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            let mut globals = payload
+                .get("globals")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            globals.insert(
+                "__create_options".to_string(),
+                payload
+                    .get("options")
+                    .filter(|options| options.is_object())
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            );
+            sessions.insert(
+                session_id.clone(),
+                json!({"globals": globals, "closed": false}),
+            );
+            let mut out = runtime_protocol_fixture_ok(
+                &response_id,
+                json!({"session_id": session_id}),
+                None,
+            );
+            out["session_id"] = json!(session_id);
+            out
+        }
+        "execute" => {
+            let closed_or_missing = sessions
+                .get(&session_key)
+                .map(|session| session.get("closed").map(core_json_truthy).unwrap_or(false))
+                .unwrap_or(true);
+            let mut response = if closed_or_missing {
+                runtime_protocol_fixture_fail(&response_id, "session_closed", "session closed or unknown")
+            } else {
+                let payload = message
+                    .get("payload")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                let code = payload
+                    .get("code")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if let Some(session) = sessions.get_mut(&session_key) {
+                    session["globals"]["__last_execute_options"] = payload
+                        .get("options")
+                        .filter(|options| options.is_object())
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                }
+                match code.as_str() {
+                    "timeout()" => runtime_protocol_fixture_fail(&response_id, "timeout", "fixture timeout"),
+                    "sessionClosed()" => runtime_protocol_fixture_fail(
+                        &response_id,
+                        "session_closed",
+                        "fixture session closed",
+                    ),
+                    "abort()" => runtime_protocol_fixture_fail(&response_id, "abort", "fixture abort"),
+                    "userError()" => {
+                        runtime_protocol_fixture_fail(&response_id, "user_error", "fixture user error")
+                    }
+                    _ => {
+                        if let Some(session) = sessions.get_mut(&session_key) {
+                            session["globals"]["answer"] = json!("fixture");
+                        }
+                        runtime_protocol_fixture_ok(
+                            &response_id,
+                            json!({"type": "final", "args": [{"answer": "fixture"}]}),
+                            Some(&message_session_id),
+                        )
+                    }
+                }
+            };
+            if mode == "session_mismatch"
+                && response.get("ok").and_then(Value::as_bool).unwrap_or(false)
+            {
+                response["session_id"] = json!("wrong-session");
+            }
+            response
+        }
+        "inspect_globals" => {
+            if unavailable {
+                runtime_protocol_fixture_fail(&response_id, "unavailable", "inspectGlobals unavailable")
+            } else {
+                let globals = sessions
+                    .get(&session_key)
+                    .and_then(|session| session.get("globals"))
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                runtime_protocol_fixture_ok(&response_id, globals, Some(&message_session_id))
+            }
+        }
+        "snapshot_globals" => {
+            if unavailable {
+                runtime_protocol_fixture_fail(&response_id, "unavailable", "snapshotGlobals unavailable")
+            } else {
+                let snapshot = runtime_protocol_fixture_snapshot(
+                    sessions.get(&session_key).unwrap_or(&json!({})),
+                );
+                runtime_protocol_fixture_ok(&response_id, snapshot, Some(&message_session_id))
+            }
+        }
+        "patch_globals" => {
+            if unavailable {
+                runtime_protocol_fixture_fail(&response_id, "unavailable", "patchGlobals unavailable")
+            } else {
+                let payload = message
+                    .get("payload")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                let raw = payload
+                    .get("globals")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                let bindings = raw
+                    .get("bindings")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or(raw);
+                if let Some(session) = sessions.get_mut(&session_key) {
+                    session["globals"] = Value::Object(bindings);
+                }
+                let snapshot = runtime_protocol_fixture_snapshot(
+                    sessions.get(&session_key).unwrap_or(&json!({})),
+                );
+                runtime_protocol_fixture_ok(&response_id, snapshot, Some(&message_session_id))
+            }
+        }
+        "close" => {
+            if let Some(session) = sessions.get_mut(&session_key) {
+                session["closed"] = json!(true);
+            }
+            runtime_protocol_fixture_ok(&response_id, json!({"closed": true}), Some(&message_session_id))
+        }
+        "shutdown" => runtime_protocol_fixture_ok(&response_id, json!({"shutdown": true}), None),
+        other => runtime_protocol_fixture_fail(
+            &response_id,
+            "protocol",
+            &format!("unknown runtime protocol op: {other}"),
+        ),
+    };
+    (response, op == "shutdown")
+}
+
+// python: a or b or ... or {} (falls through falsy candidates).
+fn conformance_first_truthy(candidates: &[Option<&Value>]) -> Value {
+    for candidate in candidates.iter().flatten() {
+        if core_json_truthy(candidate) {
+            return (*candidate).clone();
+        }
     }
-    let actual = conformance_runtime_session_actual(fixture);
+    json!({})
+}
+
+// Mirrors python conformance._run_agent_runtime_session: drives a real
+// AxAgent against a ScriptedCodeRuntime and asserts on the observable state.
+fn run_agent_runtime_session_fixture(fixture: &Value) -> AxResult<()> {
+    let signature = fixture
+        .get("signature")
+        .and_then(Value::as_str)
+        .unwrap_or("question:string -> answer:string");
+    let agent_options =
+        core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
+    let mut agent = agent_with_core_options(signature, agent_options)?;
+    let mut runtime = ScriptedCodeRuntime::new(
+        fixture
+            .get("runtime_script")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        "JavaScript".to_string(),
+        String::new(),
+    )
+    .with_fixture_capabilities(fixture.get("runtime_capabilities"));
+    let shared = runtime.executed_handle();
+    let mut result = Value::Null;
+    let mut caught_expected_error = false;
+    if let Err(err) =
+        run_agent_runtime_session_operations(fixture, &mut agent, &mut runtime, &mut result)
+    {
+        match fixture.get("expected_error_contains").and_then(Value::as_str) {
+            Some(expected) if err.message.contains(expected) => {
+                caught_expected_error = true;
+                result = Value::Null;
+            }
+            _ => return Err(err),
+        }
+    }
+    if fixture.get("expected_error_contains").is_some() && !caught_expected_error {
+        return Err(AxError::new(
+            "fixture",
+            "expected agent runtime session fixture to fail",
+        ));
+    }
     if let Some(expected) = fixture.get("expected_result_subset") {
-        expect_json_subset("runtime session result", actual.get("result").unwrap_or(&Value::Null), expected)?;
+        expect_json_subset("runtime result", &result, expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_result") {
+        expect_json_equal("runtime result", &result, expected)?;
+    }
+    let exported = agent.export_runtime_state()?;
+    if let Some(expected) = fixture.get("expected_exported_state_subset") {
+        expect_json_subset("runtime state", &exported, expected)?;
     }
     if let Some(expected) = fixture.get("expected_action_log_subset").and_then(Value::as_array) {
-        expect_json_list_subset("runtime action log", actual.get("action_log").unwrap_or(&json!([])), expected)?;
-    }
-    if let Some(expected) = fixture.get("expected_executed").and_then(Value::as_array) {
-        expect_json_equal("runtime executed", actual.get("executed").unwrap_or(&json!([])), &Value::Array(expected.clone()))?;
-    }
-    if let Some(expected) = fixture.get("expected_create_globals_subset") {
-        expect_json_subset("runtime create globals", actual.get("create_globals").unwrap_or(&Value::Null), expected)?;
-    }
-    if let Some(expected) = fixture.get("expected_create_options_subset") {
-        expect_json_subset("runtime create options", actual.get("create_options").unwrap_or(&Value::Null), expected)?;
-    }
-    if let Some(expected) = fixture.get("expected_execute_options_subset") {
-        expect_json_subset("runtime execute options", actual.get("execute_options").unwrap_or(&Value::Null), expected)?;
-    }
-    if let Some(expected) = fixture.get("expected_exported_state_subset") {
-        expect_json_subset("runtime exported state", actual.get("exported_state").unwrap_or(&Value::Null), expected)?;
+        expect_json_list_subset(
+            "action log",
+            exported.get("action_log").unwrap_or(&json!([])),
+            expected,
+        )?;
     }
     if let Some(expected) = fixture.get("expected_status_log_subset").and_then(Value::as_array) {
-        expect_json_list_subset("runtime status log", actual.get("status_log").unwrap_or(&json!([])), expected)?;
-    }
-    if let Some(expected) = fixture.get("expected_trace_event_kinds") {
-        expect_json_equal("runtime trace event kinds", actual.get("trace_event_kinds").unwrap_or(&json!([])), expected)?;
+        expect_json_list_subset(
+            "status log",
+            exported.get("status_log").unwrap_or(&json!([])),
+            expected,
+        )?;
     }
     if let Some(expected) = fixture.get("expected_session_count").and_then(Value::as_u64) {
-        if actual.get("session_count").and_then(Value::as_u64).unwrap_or(0) != expected {
-            return Err(AxError::new("fixture", "runtime session count mismatch"));
+        let actual = shared.borrow().session_closed.len() as u64;
+        if actual != expected {
+            return Err(AxError::new(
+                "fixture",
+                format!("expected {expected} sessions, got {actual}"),
+            ));
         }
     }
     if let Some(expected) = fixture.get("expected_closed_session_count").and_then(Value::as_u64) {
-        if actual.get("closed_session_count").and_then(Value::as_u64).unwrap_or(0) != expected {
-            return Err(AxError::new("fixture", "runtime closed session count mismatch"));
+        let actual = shared
+            .borrow()
+            .session_closed
+            .iter()
+            .filter(|closed| **closed)
+            .count() as u64;
+        if actual != expected {
+            return Err(AxError::new(
+                "fixture",
+                format!("expected {expected} closed sessions, got {actual}"),
+            ));
+        }
+    }
+    if let Some(expected) = fixture.get("expected_executed").and_then(Value::as_array) {
+        let executed = shared
+            .borrow()
+            .executed
+            .iter()
+            .map(|code| Value::String(code.clone()))
+            .collect::<Vec<_>>();
+        expect_json_equal(
+            "executed code",
+            &Value::Array(executed),
+            &Value::Array(expected.clone()),
+        )?;
+    }
+    if let Some(expected) = fixture.get("expected_create_globals_subset") {
+        let last = shared.borrow().create_requests.last().cloned().ok_or_else(|| {
+            AxError::new("fixture", "expected at least one runtime create_session request")
+        })?;
+        expect_json_subset(
+            "runtime create globals",
+            last.get("globals").unwrap_or(&Value::Null),
+            expected,
+        )?;
+    }
+    if let Some(expected) = fixture.get("expected_create_options_subset") {
+        let last = shared.borrow().create_requests.last().cloned().ok_or_else(|| {
+            AxError::new("fixture", "expected at least one runtime create_session request")
+        })?;
+        expect_json_subset(
+            "runtime create options",
+            last.get("options").unwrap_or(&Value::Null),
+            expected,
+        )?;
+    }
+    if let Some(expected) = fixture.get("expected_execute_options_subset") {
+        let last = shared.borrow().execute_options.last().cloned().ok_or_else(|| {
+            AxError::new("fixture", "expected at least one runtime execute request")
+        })?;
+        expect_json_subset("runtime execute options", &last, expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_runtime_inspection") {
+        expect_json_equal(
+            "runtime inspection",
+            exported.get("runtime_inspection").unwrap_or(&Value::Null),
+            expected,
+        )?;
+    }
+    if let Some(expected) = fixture
+        .get("expected_runtime_inspection_contains")
+        .and_then(Value::as_str)
+    {
+        let inspection = exported.get("runtime_inspection").cloned().unwrap_or(Value::Null);
+        let text = inspection
+            .as_str()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| stable_stringify(&inspection));
+        if !text.contains(expected) {
+            return Err(AxError::new(
+                "fixture",
+                format!("runtime inspection expected to contain {expected:?}, got {text:?}"),
+            ));
+        }
+    }
+    if let Some(keys) = fixture
+        .get("expected_absent_runtime_session_globals")
+        .and_then(Value::as_array)
+    {
+        let globals = exported
+            .get("runtime_session_state")
+            .and_then(|state| state.get("globals"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        for key in keys {
+            let key = key.as_str().unwrap_or_default();
+            if globals.get(key).is_some() {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("runtime session globals unexpectedly contained {key:?}"),
+                ));
+            }
+        }
+    }
+    assert_agent_trace(&mut agent, fixture)
+}
+
+fn run_agent_runtime_session_operations(
+    fixture: &Value,
+    agent: &mut AxAgent,
+    runtime: &mut ScriptedCodeRuntime,
+    result: &mut Value,
+) -> AxResult<()> {
+    let code = fixture.get("code").and_then(Value::as_str).unwrap_or("");
+    match fixture.get("operation").and_then(Value::as_str).unwrap_or("test") {
+        "test" => {
+            let values = conformance_first_truthy(&[
+                fixture.get("context_values"),
+                fixture.get("input"),
+            ]);
+            let options = conformance_first_truthy(&[fixture.get("runtime_options")]);
+            *result = agent.test(runtime, code, values, options)?.payload;
+        }
+        "steps" => {
+            for step in fixture.get("steps").and_then(Value::as_array).into_iter().flatten() {
+                if let Some(snapshot) = step.get("restore_session_state") {
+                    agent.restore_session_state(conformance_first_truthy(&[Some(snapshot)]))?;
+                }
+                let values = conformance_first_truthy(&[
+                    step.get("values"),
+                    fixture.get("context_values"),
+                    fixture.get("input"),
+                ]);
+                let options = conformance_first_truthy(&[step.get("options")]);
+                let step_code = step.get("code").and_then(Value::as_str).unwrap_or("");
+                *result = agent
+                    .execute_actor_step(runtime, step_code, values, options)?
+                    .payload;
+                if step.get("inspect").map(core_json_truthy).unwrap_or(false) {
+                    agent.inspect_runtime()?;
+                }
+                if step
+                    .get("export_session_state")
+                    .map(core_json_truthy)
+                    .unwrap_or(false)
+                {
+                    agent.export_session_state()?;
+                }
+            }
+            if fixture
+                .get("close_runtime_session")
+                .map(core_json_truthy)
+                .unwrap_or(false)
+            {
+                agent.close_runtime_session()?;
+            }
+        }
+        "reserved" => {
+            let values = conformance_first_truthy(&[fixture.get("context_values")]);
+            *result = agent.test(runtime, code, values, json!({}))?.payload;
+        }
+        other => {
+            return Err(AxError::new(
+                "fixture",
+                format!("unknown agent runtime session operation {other:?}"),
+            ));
         }
     }
     Ok(())
 }
 
-fn conformance_runtime_session_actual(fixture: &Value) -> Value {
-    let script = fixture
-        .get("runtime_script")
+// Mirrors python conformance._runtime_adapter_call: the raw RuntimeEnvelope
+// helper payloads exercised by the adapter fixtures.
+fn runtime_adapter_call(spec: &Value) -> AxResult<Value> {
+    let name = spec.get("name").and_then(Value::as_str).unwrap_or_default();
+    let args = spec
+        .get("args")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let context = fixture.get("context_values").cloned().unwrap_or_else(|| json!({}));
-    let mut create_globals = json!({"inputs": context.clone(), "context": context.clone()});
-    if let (Some(obj), Some(ctx)) = (create_globals.as_object_mut(), context.as_object()) {
-        for (key, value) in ctx {
-            obj.insert(key.clone(), value.clone());
+    let kwargs = spec.get("kwargs").cloned().unwrap_or_else(|| json!({}));
+    let arg = |index: usize| args.get(index).cloned();
+    let text = |value: Option<Value>, fallback: &str| -> String {
+        match value {
+            Some(Value::String(text)) => text,
+            Some(other) => stable_stringify(&other),
+            None => fallback.to_string(),
         }
-    }
-    let reserved = json!(["inputs", "final", "askClarification", "discover", "recall", "llmQuery", "inspectRuntime", "reportSuccess", "reportFailure"]);
-    let mut create_options = fixture.get("runtime_options").cloned().unwrap_or_else(|| json!({}));
-    if let Some(obj) = create_options.as_object_mut() {
-        obj.entry("reservedNames").or_insert(reserved.clone());
-    }
-    let execute_options = script
-        .first()
-        .and_then(|step| step.get("expected_options_subset"))
-        .cloned()
-        .unwrap_or_else(|| create_options.clone());
-    let executed = script
-        .iter()
-        .filter_map(|step| step.get("expected_code").or_else(|| step.get("code")).and_then(Value::as_str))
-        .map(|code| json!(code))
-        .collect::<Vec<_>>();
-    let mut action_log = vec![json!({"action": "create_session"})];
-    let mut status_log = Vec::new();
-    let mut globals = Map::new();
-    let mut result = json!({"kind": "result"});
-    let mut restarted_after_close = false;
-    for step in &script {
-        if let Some(patch) = step.get("bindings_patch").and_then(Value::as_object) {
-            for (key, value) in patch {
-                globals.insert(key.clone(), value.clone());
+    };
+    let error_envelope = |message: String, category: &str| {
+        json!({"kind": "error", "is_error": true, "error_category": category, "error": message})
+    };
+    // python RuntimeEnvelope.final/ask_clarification flatten a single list arg.
+    let completion_args = |args: &[Value]| -> Vec<Value> {
+        if args.len() == 1 {
+            if let Some(items) = args[0].as_array() {
+                return items.clone();
             }
         }
-        if let Some(raw) = step.get("result") {
-            result = normalize_runtime_fixture_result(raw);
-            if result.get("kind").and_then(Value::as_str) == Some("status") {
-                if let Some(status) = result.get("status") {
-                    status_log.push(status.clone());
+        args.to_vec()
+    };
+    match name {
+        "result" => Ok(json!({"kind": "result", "result": arg(0).unwrap_or(Value::Null)})),
+        "error" => {
+            let category = arg(1)
+                .and_then(|value| value.as_str().map(ToString::to_string))
+                .or_else(|| {
+                    kwargs
+                        .get("category")
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string)
+                })
+                .unwrap_or_else(|| "runtime".to_string());
+            Ok(error_envelope(text(arg(0), ""), &category))
+        }
+        "session_closed" => Ok(error_envelope(text(arg(0), "session closed"), "session_closed")),
+        "timeout" => Ok(error_envelope(text(arg(0), "execution timed out"), "timeout")),
+        "final" => Ok(json!({"type": "final", "args": completion_args(&args)})),
+        "ask_clarification" => {
+            Ok(json!({"type": "askClarification", "args": completion_args(&args)}))
+        }
+        "discover" => Ok(json!({"kind": "discover", "discover": arg(0).unwrap_or_else(|| json!({}))})),
+        "recall" => Ok(json!({"kind": "recall", "recall": arg(0).unwrap_or_else(|| json!([]))})),
+        "used" => {
+            let request = arg(0).unwrap_or_else(|| json!({}));
+            let mut payload = match request {
+                Value::Object(map) => map,
+                other => {
+                    let mut map = Map::new();
+                    map.insert("id".to_string(), other);
+                    map
+                }
+            };
+            for key in ["reason", "stage"] {
+                if let Some(value) = kwargs.get(key) {
+                    if !value.is_null() {
+                        payload.insert(key.to_string(), value.clone());
+                    }
                 }
             }
-            action_log.push(result.clone());
-            if result.get("error_category").and_then(Value::as_str) == Some("session_closed")
-                && !restarted_after_close
-            {
-                action_log.push(json!({"action": "restart", "reason": "session_closed"}));
-                action_log.push(json!({"action": "create_session"}));
-                restarted_after_close = true;
+            Ok(json!({"kind": "used", "used": payload}))
+        }
+        "status" => Ok(json!({
+            "kind": "status",
+            "status": {"type": text(arg(0), "success"), "message": text(arg(1), "")},
+        })),
+        "guide_agent" => {
+            let mut payload = json!({"type": "guide_agent", "guidance": text(arg(0), "")});
+            if let Some(triggered_by) = arg(1) {
+                if !triggered_by.is_null() {
+                    payload["triggeredBy"] = triggered_by;
+                }
+            }
+            Ok(payload)
+        }
+        other => Err(AxError::new(
+            "fixture",
+            format!("unknown runtime adapter helper {other:?}"),
+        )),
+    }
+}
+
+// Mirrors python conformance._run_agent_runtime_adapter.
+fn run_agent_runtime_adapter_fixture(fixture: &Value) -> AxResult<()> {
+    if let Some(raw) = fixture.get("capabilities") {
+        // python builds RuntimeCapabilities(...).to_dict(); the Rust struct
+        // only models the session-host gates, so the dict (with the python
+        // defaults) is assembled directly.
+        let capabilities = json!({
+            "inspect": raw.get("inspect").cloned().unwrap_or(json!(true)),
+            "snapshot": raw.get("snapshot").cloned().unwrap_or(json!(true)),
+            "patch": raw.get("patch").cloned().unwrap_or(json!(true)),
+            "abort": raw.get("abort").cloned().unwrap_or(json!(false)),
+            "language": raw.get("language").cloned().unwrap_or(json!("JavaScript")),
+            "usage_instructions": raw.get("usage_instructions").cloned().unwrap_or(json!("")),
+        });
+        if let Some(expected) = fixture.get("expected_capabilities") {
+            expect_json_subset("runtime capabilities", &capabilities, expected)?;
+        }
+    }
+    for spec in fixture
+        .get("helper_calls")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let name = spec.get("name").and_then(Value::as_str).unwrap_or_default();
+        let actual = runtime_adapter_call(spec)?;
+        if let Some(expected) = spec.get("expected") {
+            expect_json_equal(&format!("runtime helper {name}"), &actual, expected)?;
+        }
+        if let Some(expected) = spec.get("expected_subset") {
+            expect_json_subset(&format!("runtime helper {name}"), &actual, expected)?;
+        }
+        if spec.get("normalize").map(core_json_truthy).unwrap_or(false) {
+            let normalized = core_value_to_json(&_normalize_agent_runtime_step_result(&[
+                core_value_from_json(&actual),
+                CoreValue::from(spec.get("code").and_then(Value::as_str).unwrap_or("<adapter>")),
+            ])?);
+            if let Some(expected) = spec.get("expected_normalized_subset") {
+                expect_json_subset(
+                    &format!("runtime helper normalized {name}"),
+                    &normalized,
+                    expected,
+                )?;
             }
         }
     }
-    for step in fixture.get("steps").and_then(Value::as_array).into_iter().flatten() {
-        if step.get("inspect").and_then(Value::as_bool).unwrap_or(false) {
-            action_log.push(json!({"action": "inspect_globals"}));
-        }
-        if step
-            .get("export_session_state")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            action_log.push(json!({"action": "snapshot_globals"}));
-        }
-        if step.get("restore_session_state").is_some() {
-            action_log.push(json!({"action": "patch_globals"}));
-        }
-    }
-    if result.get("kind").and_then(Value::as_str) == Some("result") {
-        if let Some(run_session) = fixture.get("run_session") {
-            if run_session.get("name").and_then(Value::as_str) == Some("final") {
-                result = json!({
-                    "kind": "final",
-                    "completion_payload": {
-                        "type": "final",
-                        "args": run_session.get("args").cloned().unwrap_or_else(|| json!([])),
+    if let Some(run_session) = fixture.get("run_session") {
+        if core_json_truthy(run_session) {
+            let mut session_fixture = Map::new();
+            session_fixture.insert(
+                "signature".to_string(),
+                fixture
+                    .get("signature")
+                    .cloned()
+                    .unwrap_or_else(|| json!("question:string -> answer:string")),
+            );
+            session_fixture.insert("operation".to_string(), json!("test"));
+            session_fixture.insert("code".to_string(), json!("adapter()"));
+            session_fixture.insert(
+                "context_values".to_string(),
+                conformance_first_truthy(&[
+                    fixture.get("context_values"),
+                    Some(&json!({"question": "adapter"})),
+                ]),
+            );
+            session_fixture.insert(
+                "runtime_script".to_string(),
+                json!([{"expected_code": "adapter()", "result": runtime_adapter_call(run_session)?}]),
+            );
+            for key in [
+                "expected_result_subset",
+                "expected_action_log_subset",
+                "expected_trace_event_kinds",
+                "expected_closed_session_count",
+            ] {
+                if let Some(value) = fixture.get(key) {
+                    if !value.is_null() {
+                        session_fixture.insert(key.to_string(), value.clone());
                     }
-                });
-                action_log.push(result.clone());
+                }
             }
+            run_agent_runtime_session_fixture(&Value::Object(session_fixture))?;
         }
-    }
-    if fixture.get("operation").and_then(Value::as_str) == Some("test")
-        || fixture.get("run_session").is_some()
-        || fixture
-            .get("close_runtime_session")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-    {
-        action_log.push(json!({"action": "close_session"}));
-    }
-    json!({
-        "result": result,
-        "action_log": action_log,
-        "executed": executed,
-        "create_globals": create_globals,
-        "create_options": create_options,
-        "execute_options": execute_options,
-        "exported_state": fixture.get("expected_exported_state_subset").cloned().unwrap_or_else(|| json!({"runtime_session_state": {"closed": false, "globals": globals}})),
-        "status_log": status_log,
-        "trace_event_kinds": fixture.get("expected_trace_event_kinds").cloned().unwrap_or_else(|| json!([])),
-        "session_count": fixture.get("expected_session_count").cloned().unwrap_or_else(|| json!(1)),
-        "closed_session_count": fixture.get("expected_closed_session_count").cloned().unwrap_or_else(|| json!(0)),
-    })
-}
-
-fn normalize_runtime_fixture_result(raw: &Value) -> Value {
-    if let Some(kind) = raw.get("type").and_then(Value::as_str) {
-        return json!({
-            "kind": kind,
-            "completion_payload": {
-                "type": kind,
-                "args": raw.get("args").cloned().unwrap_or_else(|| json!([])),
-            }
-        });
-    }
-    if let Some(kind) = raw
-        .get("completion_payload")
-        .and_then(|payload| payload.get("type"))
-        .and_then(Value::as_str)
-    {
-        return json!({
-            "kind": kind,
-            "completion_payload": raw.get("completion_payload").cloned().unwrap_or_else(|| json!({})),
-        });
-    }
-    if raw.get("kind").and_then(Value::as_str) == Some("status") {
-        return raw.clone();
-    }
-    if !raw.is_object() {
-        return json!({"kind": "result", "result": raw});
-    }
-    raw.clone()
-}
-
-fn run_agent_runtime_policy_fixture(fixture: &Value) -> AxResult<()> {
-    if fixture.get("expected_error_contains").is_some() {
-        let message = fixture
-            .get("expected_error_contains")
-            .and_then(Value::as_str)
-            .unwrap_or("agent runtime policy error");
-        return expect_validation_result(Err(AxError::runtime(message)), fixture);
-    }
-    let actual = conformance_runtime_policy_actual(fixture);
-    for (label, expected_key, actual_key) in [
-        ("runtime contract", "expected_runtime_contract_subset", "runtime_contract"),
-        ("policy", "expected_policy_subset", "policy"),
-        ("policy registry", "expected_policy_registry_subset", "policy_registry"),
-        ("policy trace", "expected_policy_trace_subset", "policy_trace"),
-        ("exported state", "expected_exported_state_subset", "exported_state"),
-        ("callable inventory", "expected_callable_inventory_subset", "callable_inventory"),
-        ("callable result", "expected_callable_result_subset", "callable_result"),
-    ] {
-        if let Some(expected) = fixture.get(expected_key) {
-            if expected.is_array() {
-                expect_json_list_subset(label, actual.get(actual_key).unwrap_or(&json!([])), expected.as_array().unwrap())?;
-            } else {
-                expect_json_subset(label, actual.get(actual_key).unwrap_or(&Value::Null), expected)?;
-            }
-        }
-    }
-    if let Some(expected) = fixture.get("expected_trace_event_kinds") {
-        expect_json_equal("policy trace event kinds", actual.get("trace_event_kinds").unwrap_or(&json!([])), expected)?;
     }
     Ok(())
 }
 
-fn conformance_runtime_policy_actual(fixture: &Value) -> Value {
-    let language = fixture
-        .get("runtime")
-        .and_then(|runtime| runtime.get("language"))
-        .or_else(|| fixture.get("runtime_language"))
-        .and_then(Value::as_str)
-        .unwrap_or_else(|| {
-            fixture
-                .get("expected_runtime_contract_subset")
-                .and_then(|value| value.get("language"))
-                .and_then(Value::as_str)
-                .unwrap_or("JavaScript")
-        });
-    let (field, title, fence, is_js) = runtime_language_contract(language);
-    json!({
-        "runtime_contract": {
-            "language": language,
-            "code_field_name": field,
-            "code_field_title": title,
-            "code_fence_language": fence,
-            "is_javascript": is_js,
-            "usage_instructions": fixture
-                .get("runtime")
-                .and_then(|runtime| runtime.get("usageInstructions"))
-                .or_else(|| fixture.get("expected_runtime_contract_subset").and_then(|contract| contract.get("usage_instructions")))
-                .cloned()
-                .unwrap_or_else(|| json!("")),
-            "callable_format": "namespaced_runtime_call",
-        },
-        "policy": {
-            "policy_schema_version": "axir-agent-policy-v1",
-            "policy_version": "agent-runtime-decision-v1",
-            "discover_returns": "void",
-            "discovery_default": "compact_catalog_prompt_full_docs_runtime_discover",
-            "delegation_default": "child_agents_as_namespaced_tools",
-        },
-        "policy_registry": fixture.get("expected_policy_registry_subset").cloned().unwrap_or_else(|| json!({})),
-        "policy_trace": fixture.get("expected_policy_trace_subset").cloned().unwrap_or_else(|| json!([])),
-        "exported_state": fixture.get("expected_exported_state_subset").cloned().unwrap_or_else(|| json!({})),
-        "callable_inventory": fixture.get("expected_callable_inventory_subset").cloned().unwrap_or_else(|| json!([])),
-        "callable_result": fixture.get("expected_callable_result_subset").cloned().unwrap_or_else(|| json!({})),
-        "trace_event_kinds": fixture.get("expected_trace_event_kinds").cloned().unwrap_or_else(|| json!([])),
-    })
+// python: state.get(key) or [] (treats missing/None as an empty list).
+fn conformance_list_or_empty(value: Option<&Value>) -> Value {
+    match value {
+        Some(Value::Array(items)) => Value::Array(items.clone()),
+        _ => json!([]),
+    }
 }
 
-fn runtime_language_contract(language: &str) -> (&'static str, &'static str, &'static str, bool) {
-    match language.to_ascii_lowercase().as_str() {
-        "javascript" | "js" | "ecmascript" => ("javascriptCode", "Javascript Code", "js", true),
-        "typescript" | "ts" => ("typescriptCode", "Typescript Code", "typescript", false),
-        "python" | "py" => ("pythonCode", "Python Code", "python", false),
-        "c++" | "cpp" | "c-plus-plus" => ("cPlusPlusCode", "C Plus Plus Code", "cplusplus", false),
-        "c#" | "csharp" | "c-sharp" => ("cSharpCode", "C Sharp Code", "csharp", false),
-        _ => ("runtimeCode", "Runtime Code", "text", false),
+// Mirrors python conformance._run_agent_runtime_policy: builds a real AxAgent
+// and asserts on its policy/registry/exported-state surfaces.
+fn run_agent_runtime_policy_fixture(fixture: &Value) -> AxResult<()> {
+    let mut agent = match run_agent_runtime_policy_operations(fixture) {
+        Ok(agent) => agent,
+        Err(err) => {
+            if let Some(expected) = fixture.get("expected_error_contains").and_then(Value::as_str) {
+                if err.message.contains(expected) {
+                    return Ok(());
+                }
+            }
+            return Err(err);
+        }
+    };
+    if fixture.get("expected_error_contains").is_some() {
+        return Err(AxError::new(
+            "fixture",
+            "expected agent runtime policy fixture to fail",
+        ));
     }
+    if let Some(expected) = fixture.get("expected_runtime_contract_subset") {
+        expect_json_subset("runtime contract", &agent.get_runtime_contract(), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_policy_subset") {
+        expect_json_subset("agent policy", &agent.get_policy(), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_policy_registry_subset") {
+        expect_json_subset("policy registry", &agent.get_policy_registry(), expected)?;
+    }
+    let registry = agent.get_policy_registry();
+    for (label, registry_key, expected_key) in [
+        ("actor primitives", "actor_primitives", "expected_actor_primitives_subset"),
+        ("protocol actions", "protocol_actions", "expected_protocol_actions_subset"),
+        ("runtime globals", "runtime_globals", "expected_runtime_globals_subset"),
+        ("host boundaries", "host_boundaries", "expected_host_boundaries_subset"),
+    ] {
+        if let Some(expected) = fixture.get(expected_key).and_then(Value::as_array) {
+            expect_json_list_subset(
+                label,
+                &conformance_list_or_empty(registry.get(registry_key)),
+                expected,
+            )?;
+        }
+    }
+    if let Some(expected) = fixture
+        .get("expected_callable_inventory_subset")
+        .and_then(Value::as_array)
+    {
+        expect_json_list_subset("callable inventory", &agent.get_callable_inventory(), expected)?;
+    }
+    if let Some(expected) = fixture
+        .get("expected_discovery_catalog_subset")
+        .and_then(Value::as_array)
+    {
+        expect_json_list_subset("discovery catalog", &agent.get_discovery_catalog(), expected)?;
+    }
+    let state = agent.export_runtime_state()?;
+    for (label, state_key, expected_key) in [
+        ("discovered tools", "discovered_tool_docs", "expected_discovered_tool_docs_subset"),
+        ("loaded skills", "loaded_skill_docs", "expected_loaded_skill_docs_subset"),
+        ("loaded memories", "loaded_memories", "expected_loaded_memories_subset"),
+        ("used memories", "used_memories", "expected_used_memories_subset"),
+        ("used skills", "used_skills", "expected_used_skills_subset"),
+        ("guidance log", "guidance_log", "expected_guidance_log_subset"),
+        ("function call traces", "function_call_traces", "expected_function_call_traces_subset"),
+        ("policy trace", "policy_trace", "expected_policy_trace_subset"),
+        ("action log", "action_log", "expected_action_log_subset"),
+    ] {
+        if let Some(expected) = fixture.get(expected_key).and_then(Value::as_array) {
+            expect_json_list_subset(
+                label,
+                &conformance_list_or_empty(state.get(state_key)),
+                expected,
+            )?;
+        }
+    }
+    if let Some(expected) = fixture.get("expected_exported_state_subset") {
+        expect_json_subset("exported runtime state", &state, expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_optimizer_metadata_subset") {
+        expect_json_subset("optimizer metadata", &agent.get_optimizer_metadata()?, expected)?;
+    }
+    assert_agent_trace(&mut agent, fixture)
+}
+
+fn run_agent_runtime_policy_operations(fixture: &Value) -> AxResult<AxAgent> {
+    let signature = fixture
+        .get("signature")
+        .and_then(Value::as_str)
+        .unwrap_or("question:string -> answer:string");
+    let agent_options =
+        core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
+    let mut agent = agent_with_core_options(signature, agent_options)?;
+    if let Some(request) = fixture.get("discover") {
+        let request = if core_json_truthy(request) {
+            request.clone()
+        } else {
+            json!({})
+        };
+        let result = agent.discover(request)?;
+        if let Some(expected) = fixture.get("expected_discover_result") {
+            expect_json_equal("discover result", &result, expected)?;
+        }
+    }
+    if let Some(request) = fixture.get("recall") {
+        let request = if core_json_truthy(request) {
+            request.clone()
+        } else {
+            json!([])
+        };
+        let result = agent.recall(request)?;
+        if let Some(expected) = fixture.get("expected_recall_result") {
+            expect_json_equal("recall result", &result, expected)?;
+        }
+    }
+    if let Some(used) = fixture.get("used") {
+        let result = agent.used(
+            used.get("id").and_then(Value::as_str).unwrap_or(""),
+            used.get("reason").and_then(Value::as_str).unwrap_or(""),
+            used.get("stage").and_then(Value::as_str).unwrap_or("executor"),
+        )?;
+        if let Some(expected) = fixture.get("expected_used_result") {
+            expect_json_equal("used result", &result, expected)?;
+        }
+    }
+    if let Some(call) = fixture.get("invoke_callable") {
+        let qualified_name = call
+            .get("qualified_name")
+            .or_else(|| call.get("name"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let args = conformance_first_truthy(&[call.get("args")]);
+        let result = agent.invoke_callable(qualified_name, args, json!({}))?;
+        if let Some(expected) = fixture.get("expected_callable_result_subset") {
+            expect_json_subset("callable result", &result, expected)?;
+        }
+    }
+    if let Some(trace) = fixture.get("replay_trace_input") {
+        let result = agent.replay_trace(
+            conformance_first_truthy(&[Some(trace)]),
+            conformance_first_truthy(&[fixture.get("replay_fixtures")]),
+        )?;
+        if let Some(expected) = fixture.get("expected_replay_result_subset") {
+            expect_json_subset("agent replay", &result, expected)?;
+        }
+    }
+    if let Some(snapshot) = fixture.get("restore_runtime_state") {
+        agent.restore_runtime_state(conformance_first_truthy(&[Some(snapshot)]))?;
+    }
+    if fixture.get("context_operation").is_some() {
+        // python conformance calls the shared _agent_context_fixture_result
+        // helper (emitted in the core) on the agent state plus the fixture.
+        let result = core_value_to_json(&_agent_context_fixture_result(&[
+            agent.state.clone(),
+            core_value_from_json(fixture),
+        ])?);
+        if let Some(expected) = fixture.get("expected_context_result") {
+            expect_json_equal("agent context result", &result, expected)?;
+        }
+        if let Some(expected) = fixture.get("expected_context_result_subset") {
+            expect_json_subset("agent context result", &result, expected)?;
+        }
+        if let Some(expected) = fixture
+            .get("expected_context_events_subset")
+            .and_then(Value::as_array)
+        {
+            let events = result
+                .get("exported")
+                .and_then(|exported| exported.get("context_events"))
+                .cloned()
+                .unwrap_or_else(|| json!([]));
+            expect_json_list_subset("agent context events", &events, expected)?;
+        }
+    }
+    if let Some(payload) = fixture.get("final_payload") {
+        let normalized = core_value_to_json(&_normalize_agent_final_payload(&[
+            core_value_from_json(payload),
+        ])?);
+        expect_json_equal(
+            "final payload",
+            &normalized,
+            fixture.get("expected_final_payload").unwrap_or(&Value::Null),
+        )?;
+    }
+    if let Some(payload) = fixture.get("clarification_payload") {
+        let normalized = core_value_to_json(&_normalize_agent_clarification_payload(&[
+            core_value_from_json(payload),
+        ])?);
+        expect_json_equal(
+            "clarification payload",
+            &normalized,
+            fixture.get("expected_clarification_payload").unwrap_or(&Value::Null),
+        )?;
+    }
+    Ok(agent)
 }
 
 fn final_output_from_script(script: &[Value]) -> Option<Value> {
@@ -7592,9 +8353,11 @@ fn core_json_parse(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 fn core_json_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    // python _core_json_stringify: json.dumps(value, sort_keys=True,
+    // separators=(",", ":")) — compact and key-sorted.
     let value = core_arg(args, 0);
     let json = if value.is_null() { json!({}) } else { core_value_to_json(&value) };
-    Ok(CoreValue::from_string(core_python_dumps(&json)))
+    Ok(CoreValue::from_string(stable_stringify(&json)))
 }
 
 fn core_map_delete(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -10233,6 +10996,12 @@ impl CoreHost for ScopedRuntimeHost {
 struct ScriptedRuntimeShared {
     script: Vec<Value>,
     executed: Vec<String>,
+    // python ScriptedCodeRuntime bookkeeping inspected by the session
+    // conformance runner after the fact.
+    create_requests: Vec<Value>,
+    execute_options: Vec<Value>,
+    session_closed: Vec<bool>,
+    capabilities: RuntimeCapabilities,
 }
 
 pub(crate) struct ScriptedCodeRuntime {
@@ -10247,10 +11016,33 @@ impl ScriptedCodeRuntime {
             shared: Rc::new(RefCell::new(ScriptedRuntimeShared {
                 script,
                 executed: Vec::new(),
+                create_requests: Vec::new(),
+                execute_options: Vec::new(),
+                session_closed: Vec::new(),
+                capabilities: core_runtime_capabilities_full(),
             })),
             language,
             usage_instructions,
         }
+    }
+
+    // python ScriptedCodeRuntime(capabilities=...): {"inspect": True,
+    // "snapshot": True, "patch": True} updated with the fixture overrides.
+    fn with_fixture_capabilities(self, raw: Option<&Value>) -> Self {
+        {
+            let capability = |name: &str, fallback: bool| {
+                raw.and_then(|caps| caps.get(name))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(fallback)
+            };
+            let mut shared = self.shared.borrow_mut();
+            shared.capabilities = RuntimeCapabilities {
+                inspect_globals: capability("inspect", true),
+                snapshot_globals: capability("snapshot", true),
+                patch_globals: capability("patch", true),
+            };
+        }
+        self
     }
 
     fn executed_handle(&self) -> Rc<RefCell<ScriptedRuntimeShared>> {
@@ -10265,11 +11057,20 @@ impl AxCodeRuntime for ScriptedCodeRuntime {
     fn usage_instructions(&self) -> &str {
         &self.usage_instructions
     }
-    fn create_session(&mut self, globals: Value, _options: Value) -> AxResult<Box<dyn AxCodeSession>> {
+    fn create_session(&mut self, globals: Value, options: Value) -> AxResult<Box<dyn AxCodeSession>> {
+        let index = {
+            let mut shared = self.shared.borrow_mut();
+            shared
+                .create_requests
+                .push(json!({"globals": globals.clone(), "options": options}));
+            shared.session_closed.push(false);
+            shared.session_closed.len() - 1
+        };
         Ok(Box::new(ScriptedCodeSession {
             shared: Rc::clone(&self.shared),
             globals: globals.as_object().cloned().unwrap_or_default(),
             closed: false,
+            index,
         }))
     }
 }
@@ -10278,6 +11079,17 @@ struct ScriptedCodeSession {
     shared: Rc<RefCell<ScriptedRuntimeShared>>,
     globals: Map<String, Value>,
     closed: bool,
+    index: usize,
+}
+
+impl ScriptedCodeSession {
+    fn set_closed(&mut self, closed: bool) {
+        self.closed = closed;
+        let mut shared = self.shared.borrow_mut();
+        if let Some(flag) = shared.session_closed.get_mut(self.index) {
+            *flag = closed;
+        }
+    }
 }
 
 impl AxCodeSession for ScriptedCodeSession {
@@ -10292,9 +11104,7 @@ impl AxCodeSession for ScriptedCodeSession {
             if shared.script.is_empty() {
                 return Err(AxError::runtime("scripted runtime exhausted"));
             }
-            let step = shared.script.remove(0);
-            shared.executed.push(code.to_string());
-            step
+            shared.script.remove(0)
         };
         if let Some(expected) = step.get("expected_code").and_then(Value::as_str) {
             if expected != code {
@@ -10306,13 +11116,18 @@ impl AxCodeSession for ScriptedCodeSession {
         if let Some(expected) = step.get("expected_options_subset") {
             expect_json_subset("runtime execute options", &options, expected)?;
         }
+        {
+            let mut shared = self.shared.borrow_mut();
+            shared.executed.push(code.to_string());
+            shared.execute_options.push(options);
+        }
         if let Some(patch) = step.get("bindings_patch").and_then(Value::as_object) {
             for (key, value) in patch {
                 self.globals.insert(key.clone(), value.clone());
             }
         }
         if step.get("close_before_result").map(core_json_truthy).unwrap_or(false) {
-            self.closed = true;
+            self.set_closed(true);
         }
         let payload = step.get("result").cloned().unwrap_or_else(|| {
             json!({"kind": "result", "result": Value::Object(self.globals.clone())})
@@ -10320,9 +11135,19 @@ impl AxCodeSession for ScriptedCodeSession {
         Ok(RuntimeEnvelope { payload })
     }
     fn inspect_globals(&mut self, _options: Value) -> AxResult<Value> {
+        // python ScriptedCodeSession gates on runtime.capabilities and
+        // returns the bracketed unavailable notice instead of raising.
+        if !self.shared.borrow().capabilities.inspect_globals {
+            return Ok(json!(CORE_AGENT_INSPECT_UNAVAILABLE));
+        }
         Ok(Value::Object(self.globals.clone()))
     }
     fn snapshot_globals(&mut self, _options: Value) -> AxResult<Value> {
+        if !self.shared.borrow().capabilities.snapshot_globals {
+            return Err(AxError::runtime(
+                "AxCodeSession.snapshot_globals() is required to export AxAgent state",
+            ));
+        }
         let entries = self
             .globals
             .iter()
@@ -10343,6 +11168,11 @@ impl AxCodeSession for ScriptedCodeSession {
         }))
     }
     fn patch_globals(&mut self, snapshot: Value, options: Value) -> AxResult<Value> {
+        if !self.shared.borrow().capabilities.patch_globals {
+            return Err(AxError::runtime(
+                "AxCodeSession.patch_globals() is required to restore AxAgent state",
+            ));
+        }
         let snap = snapshot.as_object().cloned().unwrap_or_default();
         self.globals = snap
             .get("bindings")
@@ -10350,11 +11180,12 @@ impl AxCodeSession for ScriptedCodeSession {
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
-        self.closed = snap.get("closed").map(core_json_truthy).unwrap_or(false);
+        let closed = snap.get("closed").map(core_json_truthy).unwrap_or(false);
+        self.set_closed(closed);
         self.snapshot_globals(options)
     }
     fn close(&mut self) -> AxResult<Value> {
-        self.closed = true;
+        self.set_closed(true);
         Ok(json!({"closed": true}))
     }
 }
@@ -10372,6 +11203,14 @@ fn python_type_name(value: &Value) -> &'static str {
         Value::String(_) => "str",
         Value::Array(_) => "list",
         Value::Object(_) => "dict",
+    }
+}
+
+// python str(value): like repr but with bare strings.
+fn python_str(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        other => python_repr(other),
     }
 }
 
@@ -10401,13 +11240,21 @@ fn python_repr(value: &Value) -> String {
 // AXIR_CORE_RUST_FUNCTIONS
 `
 
-const rustConformanceMain = `use axllm::{parse_json, run_conformance_fixture, AxResult};
+const rustConformanceMain = `use axllm::{parse_json, run_conformance_fixture, runtime_protocol_fixture_server_main, AxResult};
 use std::env;
 use std::fs;
 use std::path::Path;
 
 fn main() -> AxResult<()> {
     let args = env::args().skip(1).collect::<Vec<_>>();
+    // The agent_runtime_protocol fixtures re-exec this binary as the scripted
+    // protocol server (python runs "python -m axllm.conformance
+    // --runtime-protocol-fixture-server" the same way).
+    if args.first().map(String::as_str) == Some("--runtime-protocol-fixture-server") {
+        return runtime_protocol_fixture_server_main(
+            args.get(1).map(String::as_str).unwrap_or("normal"),
+        );
+    }
     if args.is_empty() {
         println!("rust-conformance-ok");
         return Ok(());
@@ -10620,7 +11467,7 @@ fn main() -> AxResult<()> {
         Some(json!("responder"))
     );
     let mut runtime = ScriptedRuntime;
-    let runtime_out = qa.test(&mut runtime, "final({answer: 'runtime'})", json!({"question": "runtime?"}))?;
+    let runtime_out = qa.test(&mut runtime, "final({answer: 'runtime'})", json!({"question": "runtime?"}), json!({}))?;
     assert_eq!(runtime_out.payload["kind"], json!("final"));
     println!("rust-axagent-ok");
     Ok(())
@@ -10695,9 +11542,9 @@ impl AxCodeRuntime for DemoRuntime {
 fn main() -> AxResult<()> {
     let mut runtime = DemoRuntime;
     let mut runner = agent("question:string -> answer:string")?;
-    let step = runner.execute_actor_step(&mut runtime, "final()", json!({"question": "adapter"}))?;
+    let step = runner.execute_actor_step(&mut runtime, "final()", json!({"question": "adapter"}), json!({}))?;
     let snapshot = runner.export_session_state()?;
-    let timeout = runner.execute_actor_step(&mut runtime, "timeout()", json!({"question": "adapter"}))?;
+    let timeout = runner.execute_actor_step(&mut runtime, "timeout()", json!({"question": "adapter"}), json!({}))?;
     let closed = runner.close_runtime_session()?;
     println!("{}", serde_json::to_string_pretty(&json!({
         "stepKind": step.payload["kind"],
@@ -10723,6 +11570,7 @@ fn main() -> AxResult<()> {
         &mut runtime,
         "answer = inputs.question; await final({ answer })",
         json!({"question": "protocol"}),
+        json!({}),
     )?;
     assert_eq!(step.payload["kind"], "final");
     runtime.shutdown()?;
