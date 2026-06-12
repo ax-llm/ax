@@ -47,6 +47,7 @@ try {
     })
   );
   phase('check', () => runAxir(['check', '--strict-types', rootAxir], { env }));
+  phase('lint', () => runAxir(['lint', rootAxir], { env }));
   phase('audit provenance', () =>
     runAxir(['audit', 'provenance', rootAxir], { env })
   );

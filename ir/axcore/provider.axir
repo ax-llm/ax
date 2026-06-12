@@ -3,82 +3,82 @@ module @ax.provider version "0.1" {
 
   op ax.provider.class @OpenAICompatibleClient {
     attr core_kind = "record"
+    attr default_base_url = "https://api.openai.com/v1"
     attr public = true
     ref interface = @AxAIService
     tag "openai-compatible"
-    attr default_base_url = "https://api.openai.com/v1"
   }
 
   op ax.provider.class @OpenAIResponsesClient {
     attr core_kind = "record"
+    attr default_base_url = "https://api.openai.com/v1"
     attr public = true
     ref interface = @AxAIService
     tag "openai-responses"
-    attr default_base_url = "https://api.openai.com/v1"
   }
 
   op ax.provider.class @GoogleGeminiClient {
     attr core_kind = "record"
+    attr default_base_url = "https://generativelanguage.googleapis.com/v1beta"
     attr public = true
     ref interface = @AxAIService
     tag "google-gemini"
-    attr default_base_url = "https://generativelanguage.googleapis.com/v1beta"
   }
 
   op ax.provider.class @AnthropicClient {
     attr core_kind = "record"
+    attr default_base_url = "https://api.anthropic.com/v1"
     attr public = true
     ref interface = @AxAIService
     tag "anthropic"
-    attr default_base_url = "https://api.anthropic.com/v1"
   }
 
   op ax.provider.class @AzureOpenAIClient {
     attr core_kind = "record"
+    attr default_base_url = "https://{resource}.openai.azure.com/openai/deployments/{deployment}"
     attr public = true
     ref interface = @AxAIService
     tag "azure-openai"
-    attr default_base_url = "https://{resource}.openai.azure.com/openai/deployments/{deployment}"
   }
 
   op ax.provider.class @DeepSeekClient {
     attr core_kind = "record"
+    attr default_base_url = "https://api.deepseek.com"
     attr public = true
     ref interface = @AxAIService
     tag "deepseek"
-    attr default_base_url = "https://api.deepseek.com"
   }
 
   op ax.provider.class @MistralClient {
     attr core_kind = "record"
+    attr default_base_url = "https://api.mistral.ai/v1"
     attr public = true
     ref interface = @AxAIService
     tag "mistral"
-    attr default_base_url = "https://api.mistral.ai/v1"
   }
 
   op ax.provider.class @RekaClient {
     attr core_kind = "record"
+    attr default_base_url = "https://api.reka.ai/v1"
     attr public = true
     ref interface = @AxAIService
     tag "reka"
-    attr default_base_url = "https://api.reka.ai/v1"
   }
 
   op ax.provider.class @CohereClient {
     attr core_kind = "record"
+    attr default_base_url = "https://api.cohere.ai/compatibility/v1"
     attr public = true
     ref interface = @AxAIService
     tag "cohere"
-    attr default_base_url = "https://api.cohere.ai/compatibility/v1"
   }
 
   op ax.provider.class @GrokClient {
     attr core_kind = "record"
+    attr default_base_url = "https://api.x.ai/v1"
     attr public = true
     ref interface = @AxAIService
     tag "grok"
-    attr default_base_url = "https://api.x.ai/v1"
   }
 
   op ax.provider.semantic @openai_build_chat_request {

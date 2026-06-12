@@ -1,6 +1,11 @@
 package axir
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+)
 
 func Lint(bundle Bundle, profile string) Diagnostics {
 	if profile != "llm-core" {
@@ -8,9 +13,35 @@ func Lint(bundle Bundle, profile string) Diagnostics {
 	}
 	var d Diagnostics
 	for _, mod := range bundle.Modules {
+		d = append(d, lintModuleSource(mod)...)
 		for _, op := range mod.Ops {
 			d = append(d, lintOp(mod.File, op)...)
 		}
+	}
+	return d
+}
+
+var emptyElsePattern = regexp.MustCompile(`\} else \{\s*\}`)
+
+// lintModuleSource applies source-text rules: written-out empty else blocks
+// are errors (the compact form omits them), non-canonical formatting and
+// oversized modules are warnings.
+func lintModuleSource(mod Module) Diagnostics {
+	var d Diagnostics
+	raw, err := os.ReadFile(mod.File)
+	if err != nil {
+		return Diagnostics{diag("error", mod.File, 0, "cannot read module source: %v", err)}
+	}
+	text := string(raw)
+	if loc := emptyElsePattern.FindStringIndex(text); loc != nil {
+		line := strings.Count(text[:loc[0]], "\n") + 1
+		d = append(d, diag("error", mod.File, line, "empty else block; omit it (run axir fmt)"))
+	}
+	if FormatModuleCompact(mod) != text {
+		d = append(d, diag("warning", mod.File, 0, "module is not canonically formatted; run axir fmt"))
+	}
+	if lines := strings.Count(text, "\n"); lines > 4000 {
+		d = append(d, diag("warning", mod.File, 0, "module has %d lines; consider splitting or extracting data", lines))
 	}
 	return d
 }
