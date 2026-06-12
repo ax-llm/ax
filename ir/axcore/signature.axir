@@ -25,17 +25,9 @@ module @ax.signature version "0.1" {
     attr emit_module = "signature"
     tag "src/ax/dsp/parser.ts"
     type signature = "(string) -> AxSignature throws"
-    region @body {
-      block @entry(%signature: string) {
-        op core.call {
-          attr args = [%signature]
-          attr callee = @signature_parse_impl
-          attr result = %parsed
-        }
-        op core.return {
-          attr value = %parsed
-        }
-      }
+    body @entry(%signature: string) {
+      %parsed = core.call @signature_parse_impl(%signature)
+      core.return %parsed
     }
   }
 
@@ -45,15 +37,9 @@ module @ax.signature version "0.1" {
     attr emit_module = "signature"
     tag "duplicate-fields"
     type signature = "(AxSignature) -> void throws"
-    region @body {
-      block @entry(%signature: AxSignature) {
-        op core.call {
-          attr args = [%signature]
-          attr callee = @signature_validate_impl
-        }
-        op core.return {
-        }
-      }
+    body @entry(%signature: AxSignature) {
+      core.call @signature_validate_impl(%signature)
+      core.return
     }
   }
 
@@ -64,207 +50,49 @@ module @ax.signature version "0.1" {
     attr private = true
     tag "signature-parser-core-helper"
     type signature = "(string) -> AxSignature throws"
-    region @body {
-      block @entry(%signature: string) {
-        op core.string_trim {
-          attr result = %text
-          attr value = %signature
-        }
-        op core.call {
-          attr args = [%text]
-          attr callee = "intrinsic.len"
-          attr result = %text_len
-        }
-        op core.call {
-          attr args = [%text_len, 0]
-          attr callee = "intrinsic.eq"
-          attr result = %is_empty
-        }
-        op core.if {
-          attr condition = %is_empty
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["Empty signature provided"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%text]
-          attr callee = "intrinsic.string.consume_optional_quoted_prefix"
-          attr result = %prefix
-        }
-        op core.get {
-          attr key = "value"
-          attr result = %description
-          attr target = %prefix
-        }
-        op core.get {
-          attr key = "rest"
-          attr result = %rest
-          attr target = %prefix
-        }
-        op core.string_trim {
-          attr result = %body
-          attr value = %rest
-        }
-        op core.call {
-          attr args = [%body, "->"]
-          attr callee = "intrinsic.string.find_outside_quotes"
-          attr result = %arrow
-        }
-        op core.call {
-          attr args = [%arrow, 0]
-          attr callee = "intrinsic.lt"
-          attr result = %missing_arrow
-        }
-        op core.if {
-          attr condition = %missing_arrow
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["Expected \"->\""]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%body, 0, %arrow]
-          attr callee = "intrinsic.string.slice"
-          attr result = %left_raw
-        }
-        op core.string_trim {
-          attr result = %left
-          attr value = %left_raw
-        }
-        op core.call {
-          attr args = [%arrow, 2]
-          attr callee = "intrinsic.add"
-          attr result = %right_start
-        }
-        op core.call {
-          attr args = [%body, %right_start]
-          attr callee = "intrinsic.string.slice"
-          attr result = %right_raw
-        }
-        op core.string_trim {
-          attr result = %right
-          attr value = %right_raw
-        }
-        op core.call {
-          attr args = [%left]
-          attr callee = "intrinsic.len"
-          attr result = %left_len
-        }
-        op core.call {
-          attr args = [%left_len, 0]
-          attr callee = "intrinsic.eq"
-          attr result = %left_empty
-        }
-        op core.if {
-          attr condition = %left_empty
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["No input fields specified"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%right]
-          attr callee = "intrinsic.len"
-          attr result = %right_len
-        }
-        op core.call {
-          attr args = [%right_len, 0]
-          attr callee = "intrinsic.eq"
-          attr result = %right_empty
-        }
-        op core.if {
-          attr condition = %right_empty
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["No output fields specified"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%left, false]
-          attr callee = @signature_parse_fields_impl
-          attr result = %inputs
-        }
-        op core.call {
-          attr args = [%right, true]
-          attr callee = @signature_parse_fields_impl
-          attr result = %outputs
-        }
-        op core.map {
-          attr result = %attrs
-        }
-        op core.set {
-          attr key = "inputs"
-          attr target = %attrs
-          attr value = %inputs
-        }
-        op core.set {
-          attr key = "outputs"
-          attr target = %attrs
-          attr value = %outputs
-        }
-        op core.set {
-          attr key = "description"
-          attr target = %attrs
-          attr value = %description
-        }
-        op core.call {
-          attr args = ["AxSignature", %attrs]
-          attr callee = "intrinsic.record.new"
-          attr result = %parsed
-        }
-        op core.return {
-          attr value = %parsed
-        }
+    body @entry(%signature: string) {
+      %text = core.string_trim %signature
+      %text_len = core.call intrinsic.len(%text)
+      %is_empty = core.call intrinsic.eq(%text_len, 0)
+      core.if %is_empty {
+        %error = core.call intrinsic.error.signature("Empty signature provided")
+        core.raise %error
       }
+      %prefix = core.call intrinsic.string.consume_optional_quoted_prefix(%text)
+      %description = core.get %prefix["value"]
+      %rest = core.get %prefix["rest"]
+      %body = core.string_trim %rest
+      %arrow = core.call intrinsic.string.find_outside_quotes(%body, "->")
+      %missing_arrow = core.call intrinsic.lt(%arrow, 0)
+      core.if %missing_arrow {
+        %error = core.call intrinsic.error.signature("Expected \"->\"")
+        core.raise %error
+      }
+      %left_raw = core.call intrinsic.string.slice(%body, 0, %arrow)
+      %left = core.string_trim %left_raw
+      %right_start = core.call intrinsic.add(%arrow, 2)
+      %right_raw = core.call intrinsic.string.slice(%body, %right_start)
+      %right = core.string_trim %right_raw
+      %left_len = core.call intrinsic.len(%left)
+      %left_empty = core.call intrinsic.eq(%left_len, 0)
+      core.if %left_empty {
+        %error = core.call intrinsic.error.signature("No input fields specified")
+        core.raise %error
+      }
+      %right_len = core.call intrinsic.len(%right)
+      %right_empty = core.call intrinsic.eq(%right_len, 0)
+      core.if %right_empty {
+        %error = core.call intrinsic.error.signature("No output fields specified")
+        core.raise %error
+      }
+      %inputs = core.call @signature_parse_fields_impl(%left, false)
+      %outputs = core.call @signature_parse_fields_impl(%right, true)
+      %attrs = core.map
+      core.set %attrs["inputs"] = %inputs
+      core.set %attrs["outputs"] = %outputs
+      core.set %attrs["description"] = %description
+      %parsed = core.call intrinsic.record.new("AxSignature", %attrs)
+      core.return %parsed
     }
   }
 
@@ -275,37 +103,14 @@ module @ax.signature version "0.1" {
     attr private = true
     tag "signature-parser-field-list-core-helper"
     type signature = "(string, bool) -> list<Field> throws"
-    region @body {
-      block @entry(%text: string, %output: bool) {
-        op core.call {
-          attr args = [%text, ","]
-          attr callee = "intrinsic.string.split_outside_quotes"
-          attr result = %parts
-        }
-        op core.list {
-          attr result = %fields
-        }
-        op core.for {
-          attr in = %parts
-          attr item = %part
-          region @body {
-            block @each {
-              op core.call {
-                attr args = [%part, %output]
-                attr callee = @signature_parse_field_impl
-                attr result = %field
-              }
-              op core.append {
-                attr target = %fields
-                attr value = %field
-              }
-            }
-          }
-        }
-        op core.return {
-          attr value = %fields
-        }
+    body @entry(%text: string, %output: bool) {
+      %parts = core.call intrinsic.string.split_outside_quotes(%text, ",")
+      %fields = core.list
+      core.for %part in %parts {
+        %field = core.call @signature_parse_field_impl(%part, %output)
+        core.append %fields, %field
       }
+      core.return %fields
     }
   }
 
@@ -316,404 +121,91 @@ module @ax.signature version "0.1" {
     attr private = true
     tag "signature-parser-field-core-helper"
     type signature = "(string, bool) -> Field throws"
-    region @body {
-      block @entry(%raw: string, %output: bool) {
-        op core.string_trim {
-          attr result = %text
-          attr value = %raw
-        }
-        op core.call {
-          attr args = [%text]
-          attr callee = "intrinsic.string.extract_quoted_suffix"
-          attr result = %quoted_info
-        }
-        op core.get {
-          attr key = "value"
-          attr result = %quoted
-          attr target = %quoted_info
-        }
-        op core.get {
-          attr key = "rest"
-          attr result = %rest_after_quote
-          attr target = %quoted_info
-        }
-        op core.string_trim {
-          attr result = %rest_after_quote_trimmed
-          attr value = %rest_after_quote
-        }
-        op core.call {
-          attr args = [%rest_after_quote_trimmed]
-          attr callee = "intrinsic.truthy"
-          attr result = %has_extra
-        }
-        op core.if {
-          attr condition = %has_extra
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["Unexpected content after signature"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "head"
-          attr result = %head_raw
-          attr target = %quoted_info
-        }
-        op core.string_trim {
-          attr result = %head
-          attr value = %head_raw
-        }
-        op core.call {
-          attr args = [%head, ":"]
-          attr callee = "intrinsic.string.split_once"
-          attr result = %head_parts
-        }
-        op core.get {
-          attr key = "left"
-          attr result = %name_part_raw
-          attr target = %head_parts
-        }
-        op core.get {
-          attr key = "right"
-          attr result = %type_part_raw
-          attr target = %head_parts
-        }
-        op core.string_trim {
-          attr result = %name_part
-          attr value = %name_part_raw
-        }
-        op core.string_trim {
-          attr result = %type_part_trimmed
-          attr value = %type_part_raw
-        }
-        op core.call {
-          attr args = [%type_part_trimmed, "string"]
-          attr callee = "intrinsic.string.default_if_empty"
-          attr result = %type_part
-        }
-        op core.call {
-          attr args = [%name_part, "?"]
-          attr callee = "intrinsic.contains"
-          attr result = %is_optional
-        }
-        op core.call {
-          attr args = [%name_part, "!"]
-          attr callee = "intrinsic.contains"
-          attr result = %is_internal
-        }
-        op core.call {
-          attr args = [%name_part, "?", ""]
-          attr callee = "intrinsic.string.replace"
-          attr result = %name_without_optional
-        }
-        op core.call {
-          attr args = [%name_without_optional, "!", ""]
-          attr callee = "intrinsic.string.replace"
-          attr result = %name_without_markers
-        }
-        op core.string_trim {
-          attr result = %name
-          attr value = %name_without_markers
-        }
-        op core.call {
-          attr args = [%type_part]
-          attr callee = "intrinsic.string.words"
-          attr result = %type_words
-        }
-        op core.call {
-          attr args = [%type_words]
-          attr callee = "intrinsic.len"
-          attr result = %type_word_count
-        }
-        op core.call {
-          attr args = [%type_word_count, 1]
-          attr callee = "intrinsic.gt"
-          attr result = %extra_type_tokens
-        }
-        op core.if {
-          attr condition = %extra_type_tokens
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["Unexpected content after signature"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_words, 0, "string"]
-          attr callee = "intrinsic.list.get"
-          attr result = %type_token
-        }
-        op core.call {
-          attr args = [%type_token, "[]"]
-          attr callee = "intrinsic.string.remove_suffix"
-          attr result = %array_info
-        }
-        op core.get {
-          attr key = "value"
-          attr result = %type_name_raw
-          attr target = %array_info
-        }
-        op core.call {
-          attr args = [%type_name_raw, "string"]
-          attr callee = "intrinsic.string.default_if_empty"
-          attr result = %type_name
-        }
-        op core.get {
-          attr key = "removed"
-          attr result = %is_array
-          attr target = %array_info
-        }
-        op core.call {
-          attr args = [%type_name, "class"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_class
-        }
-        op core.if {
-          attr condition = %is_class
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%output]
-                attr callee = "intrinsic.not"
-                attr result = %class_input
-              }
-              op core.if {
-                attr condition = %class_input
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Input field cannot use the \"class\" type"]
-                      attr callee = "intrinsic.error.signature"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.call {
-                attr args = [%quoted]
-                attr callee = "intrinsic.is_none"
-                attr result = %missing_quoted
-              }
-              op core.if {
-                attr condition = %missing_quoted
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Missing class options after \"class\" type"]
-                      attr callee = "intrinsic.error.signature"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.call {
-                attr args = [%quoted, "|", ","]
-                attr callee = "intrinsic.string.replace"
-                attr result = %class_option_text
-              }
-              op core.call {
-                attr args = [%class_option_text, ","]
-                attr callee = "intrinsic.string.split_trim_nonempty"
-                attr result = %options
-              }
-              op core.call {
-                attr args = [%options]
-                attr callee = "intrinsic.len"
-                attr result = %option_count
-              }
-              op core.call {
-                attr args = [%option_count, 0]
-                attr callee = "intrinsic.eq"
-                attr result = %empty_options
-              }
-              op core.if {
-                attr condition = %empty_options
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Missing class options after \"class\" type"]
-                      attr callee = "intrinsic.error.signature"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.map {
-                attr result = %type_attrs
-              }
-              op core.set {
-                attr key = "name"
-                attr target = %type_attrs
-                attr value = %type_name
-              }
-              op core.set {
-                attr key = "is_array"
-                attr target = %type_attrs
-                attr value = %is_array
-              }
-              op core.set {
-                attr key = "options"
-                attr target = %type_attrs
-                attr value = %options
-              }
-              op core.call {
-                attr args = ["FieldType", %type_attrs]
-                attr callee = "intrinsic.record.new"
-                attr result = %field_type
-              }
-              op core.call {
-                attr callee = "intrinsic.none"
-                attr result = %none
-              }
-              op core.map {
-                attr result = %field_attrs
-              }
-              op core.set {
-                attr key = "name"
-                attr target = %field_attrs
-                attr value = %name
-              }
-              op core.set {
-                attr key = "type"
-                attr target = %field_attrs
-                attr value = %field_type
-              }
-              op core.set {
-                attr key = "description"
-                attr target = %field_attrs
-                attr value = %none
-              }
-              op core.set {
-                attr key = "is_optional"
-                attr target = %field_attrs
-                attr value = %is_optional
-              }
-              op core.set {
-                attr key = "is_internal"
-                attr target = %field_attrs
-                attr value = %is_internal
-              }
-              op core.call {
-                attr args = ["Field", %field_attrs]
-                attr callee = "intrinsic.record.new"
-                attr result = %field
-              }
-              op core.call {
-                attr args = [%field, %output, false]
-                attr callee = @signature_validate_field_shape_impl
-              }
-              op core.return {
-                attr value = %field
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.map {
-          attr result = %type_attrs
-        }
-        op core.set {
-          attr key = "name"
-          attr target = %type_attrs
-          attr value = %type_name
-        }
-        op core.set {
-          attr key = "is_array"
-          attr target = %type_attrs
-          attr value = %is_array
-        }
-        op core.call {
-          attr args = ["FieldType", %type_attrs]
-          attr callee = "intrinsic.record.new"
-          attr result = %field_type
-        }
-        op core.map {
-          attr result = %field_attrs
-        }
-        op core.set {
-          attr key = "name"
-          attr target = %field_attrs
-          attr value = %name
-        }
-        op core.set {
-          attr key = "type"
-          attr target = %field_attrs
-          attr value = %field_type
-        }
-        op core.set {
-          attr key = "description"
-          attr target = %field_attrs
-          attr value = %quoted
-        }
-        op core.set {
-          attr key = "is_optional"
-          attr target = %field_attrs
-          attr value = %is_optional
-        }
-        op core.set {
-          attr key = "is_internal"
-          attr target = %field_attrs
-          attr value = %is_internal
-        }
-        op core.call {
-          attr args = ["Field", %field_attrs]
-          attr callee = "intrinsic.record.new"
-          attr result = %field
-        }
-        op core.call {
-          attr args = [%field, %output, false]
-          attr callee = @signature_validate_field_shape_impl
-        }
-        op core.return {
-          attr value = %field
-        }
+    body @entry(%raw: string, %output: bool) {
+      %text = core.string_trim %raw
+      %quoted_info = core.call intrinsic.string.extract_quoted_suffix(%text)
+      %quoted = core.get %quoted_info["value"]
+      %rest_after_quote = core.get %quoted_info["rest"]
+      %rest_after_quote_trimmed = core.string_trim %rest_after_quote
+      %has_extra = core.call intrinsic.truthy(%rest_after_quote_trimmed)
+      core.if %has_extra {
+        %error = core.call intrinsic.error.signature("Unexpected content after signature")
+        core.raise %error
       }
+      %head_raw = core.get %quoted_info["head"]
+      %head = core.string_trim %head_raw
+      %head_parts = core.call intrinsic.string.split_once(%head, ":")
+      %name_part_raw = core.get %head_parts["left"]
+      %type_part_raw = core.get %head_parts["right"]
+      %name_part = core.string_trim %name_part_raw
+      %type_part_trimmed = core.string_trim %type_part_raw
+      %type_part = core.call intrinsic.string.default_if_empty(%type_part_trimmed, "string")
+      %is_optional = core.call intrinsic.contains(%name_part, "?")
+      %is_internal = core.call intrinsic.contains(%name_part, "!")
+      %name_without_optional = core.call intrinsic.string.replace(%name_part, "?", "")
+      %name_without_markers = core.call intrinsic.string.replace(%name_without_optional, "!", "")
+      %name = core.string_trim %name_without_markers
+      %type_words = core.call intrinsic.string.words(%type_part)
+      %type_word_count = core.call intrinsic.len(%type_words)
+      %extra_type_tokens = core.call intrinsic.gt(%type_word_count, 1)
+      core.if %extra_type_tokens {
+        %error = core.call intrinsic.error.signature("Unexpected content after signature")
+        core.raise %error
+      }
+      %type_token = core.call intrinsic.list.get(%type_words, 0, "string")
+      %array_info = core.call intrinsic.string.remove_suffix(%type_token, "[]")
+      %type_name_raw = core.get %array_info["value"]
+      %type_name = core.call intrinsic.string.default_if_empty(%type_name_raw, "string")
+      %is_array = core.get %array_info["removed"]
+      %is_class = core.call intrinsic.eq(%type_name, "class")
+      core.if %is_class {
+        %class_input = core.call intrinsic.not(%output)
+        core.if %class_input {
+          %error = core.call intrinsic.error.signature("Input field cannot use the \"class\" type")
+          core.raise %error
+        }
+        %missing_quoted = core.call intrinsic.is_none(%quoted)
+        core.if %missing_quoted {
+          %error = core.call intrinsic.error.signature("Missing class options after \"class\" type")
+          core.raise %error
+        }
+        %class_option_text = core.call intrinsic.string.replace(%quoted, "|", ",")
+        %options = core.call intrinsic.string.split_trim_nonempty(%class_option_text, ",")
+        %option_count = core.call intrinsic.len(%options)
+        %empty_options = core.call intrinsic.eq(%option_count, 0)
+        core.if %empty_options {
+          %error = core.call intrinsic.error.signature("Missing class options after \"class\" type")
+          core.raise %error
+        }
+        %type_attrs = core.map
+        core.set %type_attrs["name"] = %type_name
+        core.set %type_attrs["is_array"] = %is_array
+        core.set %type_attrs["options"] = %options
+        %field_type = core.call intrinsic.record.new("FieldType", %type_attrs)
+        %none = core.call intrinsic.none()
+        %field_attrs = core.map
+        core.set %field_attrs["name"] = %name
+        core.set %field_attrs["type"] = %field_type
+        core.set %field_attrs["description"] = %none
+        core.set %field_attrs["is_optional"] = %is_optional
+        core.set %field_attrs["is_internal"] = %is_internal
+        %field = core.call intrinsic.record.new("Field", %field_attrs)
+        core.call @signature_validate_field_shape_impl(%field, %output, false)
+        core.return %field
+      }
+      %type_attrs = core.map
+      core.set %type_attrs["name"] = %type_name
+      core.set %type_attrs["is_array"] = %is_array
+      %field_type = core.call intrinsic.record.new("FieldType", %type_attrs)
+      %field_attrs = core.map
+      core.set %field_attrs["name"] = %name
+      core.set %field_attrs["type"] = %field_type
+      core.set %field_attrs["description"] = %quoted
+      core.set %field_attrs["is_optional"] = %is_optional
+      core.set %field_attrs["is_internal"] = %is_internal
+      %field = core.call intrinsic.record.new("Field", %field_attrs)
+      core.call @signature_validate_field_shape_impl(%field, %output, false)
+      core.return %field
     }
   }
 
@@ -724,474 +216,108 @@ module @ax.signature version "0.1" {
     attr private = true
     tag "signature-field-validation-core-helper"
     type signature = "(Field, bool, bool) -> void throws"
-    region @body {
-      block @entry(%field: Field, %output: bool, %nested: bool) {
-        op core.get {
-          attr key = "name"
-          attr result = %name
-          attr target = %field
-        }
-        op core.regex_match {
-          attr pattern = "^[A-Za-z_][A-Za-z0-9_]*$"
-          attr result = %valid_name
-          attr value = %name
-        }
-        op core.call {
-          attr args = [%valid_name]
-          attr callee = "intrinsic.not"
-          attr result = %invalid_name
-        }
-        op core.if {
-          attr condition = %invalid_name
-          region @then {
-            block @then {
-              op core.regex_match {
-                attr pattern = "^[0-9]"
-                attr result = %starts_number
-                attr value = %name
-              }
-              op core.if {
-                attr condition = %starts_number
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Field name \"{}\" cannot start with a number", %name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.signature"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                    op core.call {
-                      attr args = ["Invalid field name: \"{}\"", %name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.signature"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "type"
-          attr result = %typ
-          attr target = %field
-        }
-        op core.get {
-          attr key = "name"
-          attr result = %type_name
-          attr target = %typ
-        }
-        op core.list {
-          attr result = %valid_types
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "audio"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "boolean"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "class"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "code"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "date"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "dateRange"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "datetime"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "datetimeRange"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "file"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "image"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "json"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "number"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "object"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "string"
-        }
-        op core.append {
-          attr target = %valid_types
-          attr value = "url"
-        }
-        op core.call {
-          attr args = [%valid_types, %type_name]
-          attr callee = "intrinsic.contains"
-          attr result = %known_type
-        }
-        op core.call {
-          attr args = [%known_type]
-          attr callee = "intrinsic.not"
-          attr result = %unknown_type
-        }
-        op core.if {
-          attr condition = %unknown_type
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["Invalid type \"{}\"", %type_name]
-                attr callee = "intrinsic.string.format"
-                attr result = %message
-              }
-              op core.call {
-                attr args = [%message]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.list {
-          attr result = %media_types
-        }
-        op core.append {
-          attr target = %media_types
-          attr value = "image"
-        }
-        op core.append {
-          attr target = %media_types
-          attr value = "audio"
-        }
-        op core.append {
-          attr target = %media_types
-          attr value = "file"
-        }
-        op core.call {
-          attr args = [%media_types, %type_name]
-          attr callee = "intrinsic.contains"
-          attr result = %is_media
-        }
-        op core.call {
-          attr args = [%nested, %is_media]
-          attr callee = "intrinsic.and"
-          attr result = %nested_media
-        }
-        op core.if {
-          attr condition = %nested_media
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["Media type '{}' is not allowed in nested object fields", %type_name]
-                attr callee = "intrinsic.string.format"
-                attr result = %message
-              }
-              op core.call {
-                attr args = [%message]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "class"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_class
-        }
-        op core.call {
-          attr args = [%output]
-          attr callee = "intrinsic.not"
-          attr result = %is_input
-        }
-        op core.call {
-          attr args = [%is_class, %is_input]
-          attr callee = "intrinsic.and"
-          attr result = %input_class
-        }
-        op core.if {
-          attr condition = %input_class
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["Input field cannot use the \"class\" type"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "options"
-          attr result = %class_options
-          attr target = %typ
-        }
-        op core.call {
-          attr args = [%class_options]
-          attr callee = "intrinsic.truthy"
-          attr result = %has_class_options
-        }
-        op core.call {
-          attr args = [%has_class_options]
-          attr callee = "intrinsic.not"
-          attr result = %missing_class_options
-        }
-        op core.call {
-          attr args = [%is_class, %missing_class_options]
-          attr callee = "intrinsic.and"
-          attr result = %class_without_options
-        }
-        op core.if {
-          attr condition = %class_without_options
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["Missing class options after \"class\" type"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr default = false
-          attr key = "is_internal"
-          attr result = %is_internal
-          attr target = %field
-        }
-        op core.call {
-          attr args = [%is_internal, %is_input]
-          attr callee = "intrinsic.and"
-          attr result = %internal_input
-        }
-        op core.if {
-          attr condition = %internal_input
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["Input field cannot use the internal marker"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "image"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_image
-        }
-        op core.call {
-          attr args = [%output, %is_image]
-          attr callee = "intrinsic.and"
-          attr result = %output_image
-        }
-        op core.if {
-          attr condition = %output_image
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["Image type is not supported in output fields"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "file"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_file
-        }
-        op core.call {
-          attr args = [%output, %is_file]
-          attr callee = "intrinsic.and"
-          attr result = %output_file
-        }
-        op core.if {
-          attr condition = %output_file
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["File type is not supported in output fields"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "audio"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_audio
-        }
-        op core.get {
-          attr default = false
-          attr key = "is_array"
-          attr result = %is_array
-          attr target = %typ
-        }
-        op core.call {
-          attr args = [%output, %is_audio]
-          attr callee = "intrinsic.and"
-          attr result = %output_audio
-        }
-        op core.call {
-          attr args = [%output_audio, %is_array]
-          attr callee = "intrinsic.and"
-          attr result = %output_audio_array
-        }
-        op core.if {
-          attr condition = %output_audio_array
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["Arrays of audio are not supported in output fields"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "fields"
-          attr result = %nested_map
-          attr target = %typ
-        }
-        op core.call {
-          attr args = [%nested_map]
-          attr callee = "intrinsic.truthy"
-          attr result = %has_nested
-        }
-        op core.if {
-          attr condition = %has_nested
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%nested_map]
-                attr callee = "intrinsic.fields.from_map"
-                attr result = %nested_fields
-              }
-              op core.for {
-                attr in = %nested_fields
-                attr item = %nested_field
-                region @body {
-                  block @each {
-                    op core.call {
-                      attr args = [%nested_field, %output, true]
-                      attr callee = @signature_validate_field_shape_impl
-                    }
-                  }
-                }
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.return {
+    body @entry(%field: Field, %output: bool, %nested: bool) {
+      %name = core.get %field["name"]
+      %valid_name = core.regex_match %name pattern "^[A-Za-z_][A-Za-z0-9_]*$"
+      %invalid_name = core.call intrinsic.not(%valid_name)
+      core.if %invalid_name {
+        %starts_number = core.regex_match %name pattern "^[0-9]"
+        core.if %starts_number {
+          %message = core.call intrinsic.string.format("Field name \"{}\" cannot start with a number", %name)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        } else {
+          %message = core.call intrinsic.string.format("Invalid field name: \"{}\"", %name)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
         }
       }
+      %typ = core.get %field["type"]
+      %type_name = core.get %typ["name"]
+      %valid_types = core.list
+      core.append %valid_types, "audio"
+      core.append %valid_types, "boolean"
+      core.append %valid_types, "class"
+      core.append %valid_types, "code"
+      core.append %valid_types, "date"
+      core.append %valid_types, "dateRange"
+      core.append %valid_types, "datetime"
+      core.append %valid_types, "datetimeRange"
+      core.append %valid_types, "file"
+      core.append %valid_types, "image"
+      core.append %valid_types, "json"
+      core.append %valid_types, "number"
+      core.append %valid_types, "object"
+      core.append %valid_types, "string"
+      core.append %valid_types, "url"
+      %known_type = core.call intrinsic.contains(%valid_types, %type_name)
+      %unknown_type = core.call intrinsic.not(%known_type)
+      core.if %unknown_type {
+        %message = core.call intrinsic.string.format("Invalid type \"{}\"", %type_name)
+        %error = core.call intrinsic.error.signature(%message)
+        core.raise %error
+      }
+      %media_types = core.list
+      core.append %media_types, "image"
+      core.append %media_types, "audio"
+      core.append %media_types, "file"
+      %is_media = core.call intrinsic.contains(%media_types, %type_name)
+      %nested_media = core.call intrinsic.and(%nested, %is_media)
+      core.if %nested_media {
+        %message = core.call intrinsic.string.format("Media type '{}' is not allowed in nested object fields", %type_name)
+        %error = core.call intrinsic.error.signature(%message)
+        core.raise %error
+      }
+      %is_class = core.call intrinsic.eq(%type_name, "class")
+      %is_input = core.call intrinsic.not(%output)
+      %input_class = core.call intrinsic.and(%is_class, %is_input)
+      core.if %input_class {
+        %error = core.call intrinsic.error.signature("Input field cannot use the \"class\" type")
+        core.raise %error
+      }
+      %class_options = core.get %typ["options"]
+      %has_class_options = core.call intrinsic.truthy(%class_options)
+      %missing_class_options = core.call intrinsic.not(%has_class_options)
+      %class_without_options = core.call intrinsic.and(%is_class, %missing_class_options)
+      core.if %class_without_options {
+        %error = core.call intrinsic.error.signature("Missing class options after \"class\" type")
+        core.raise %error
+      }
+      %is_internal = core.get %field["is_internal"] default false
+      %internal_input = core.call intrinsic.and(%is_internal, %is_input)
+      core.if %internal_input {
+        %error = core.call intrinsic.error.signature("Input field cannot use the internal marker")
+        core.raise %error
+      }
+      %is_image = core.call intrinsic.eq(%type_name, "image")
+      %output_image = core.call intrinsic.and(%output, %is_image)
+      core.if %output_image {
+        %error = core.call intrinsic.error.signature("Image type is not supported in output fields")
+        core.raise %error
+      }
+      %is_file = core.call intrinsic.eq(%type_name, "file")
+      %output_file = core.call intrinsic.and(%output, %is_file)
+      core.if %output_file {
+        %error = core.call intrinsic.error.signature("File type is not supported in output fields")
+        core.raise %error
+      }
+      %is_audio = core.call intrinsic.eq(%type_name, "audio")
+      %is_array = core.get %typ["is_array"] default false
+      %output_audio = core.call intrinsic.and(%output, %is_audio)
+      %output_audio_array = core.call intrinsic.and(%output_audio, %is_array)
+      core.if %output_audio_array {
+        %error = core.call intrinsic.error.signature("Arrays of audio are not supported in output fields")
+        core.raise %error
+      }
+      %nested_map = core.get %typ["fields"]
+      %has_nested = core.call intrinsic.truthy(%nested_map)
+      core.if %has_nested {
+        %nested_fields = core.call intrinsic.fields.from_map(%nested_map)
+        core.for %nested_field in %nested_fields {
+          core.call @signature_validate_field_shape_impl(%nested_field, %output, true)
+        }
+      }
+      core.return
     }
   }
 
@@ -1202,214 +328,52 @@ module @ax.signature version "0.1" {
     attr private = true
     tag "signature-validation-core-helper"
     type signature = "(AxSignature) -> void throws"
-    region @body {
-      block @entry(%signature: AxSignature) {
-        op core.get {
-          attr key = "input_fields"
-          attr result = %inputs
-          attr target = %signature
-        }
-        op core.get {
-          attr key = "output_fields"
-          attr result = %outputs
-          attr target = %signature
-        }
-        op core.call {
-          attr args = [%inputs]
-          attr callee = "intrinsic.len"
-          attr result = %input_count
-        }
-        op core.call {
-          attr args = [%input_count, 0]
-          attr callee = "intrinsic.eq"
-          attr result = %no_inputs
-        }
-        op core.if {
-          attr condition = %no_inputs
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["No input fields specified"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%outputs]
-          attr callee = "intrinsic.len"
-          attr result = %output_count
-        }
-        op core.call {
-          attr args = [%output_count, 0]
-          attr callee = "intrinsic.eq"
-          attr result = %no_outputs
-        }
-        op core.if {
-          attr condition = %no_outputs
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["No output fields specified"]
-                attr callee = "intrinsic.error.signature"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.list {
-          attr result = %seen_inputs
-        }
-        op core.for {
-          attr in = %inputs
-          attr item = %field
-          region @body {
-            block @each {
-              op core.call {
-                attr args = [%field, false, false]
-                attr callee = @signature_validate_field_shape_impl
-              }
-              op core.get {
-                attr key = "name"
-                attr result = %field_name
-                attr target = %field
-              }
-              op core.call {
-                attr args = [%seen_inputs, %field_name]
-                attr callee = "intrinsic.contains"
-                attr result = %duplicate
-              }
-              op core.if {
-                attr condition = %duplicate
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Duplicate input field name: \"{}\"", %field_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.signature"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.append {
-                attr target = %seen_inputs
-                attr value = %field_name
-              }
-            }
-          }
-        }
-        op core.list {
-          attr result = %seen_outputs
-        }
-        op core.for {
-          attr in = %outputs
-          attr item = %field
-          region @body {
-            block @each {
-              op core.call {
-                attr args = [%field, true, false]
-                attr callee = @signature_validate_field_shape_impl
-              }
-              op core.get {
-                attr key = "name"
-                attr result = %field_name
-                attr target = %field
-              }
-              op core.call {
-                attr args = [%seen_inputs, %field_name]
-                attr callee = "intrinsic.contains"
-                attr result = %collision
-              }
-              op core.if {
-                attr condition = %collision
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Field name \"{}\" appears in both inputs and outputs", %field_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.signature"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.call {
-                attr args = [%seen_outputs, %field_name]
-                attr callee = "intrinsic.contains"
-                attr result = %duplicate
-              }
-              op core.if {
-                attr condition = %duplicate
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Duplicate output field name: \"{}\"", %field_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.signature"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.append {
-                attr target = %seen_outputs
-                attr value = %field_name
-              }
-            }
-          }
-        }
-        op core.return {
-        }
+    body @entry(%signature: AxSignature) {
+      %inputs = core.get %signature["input_fields"]
+      %outputs = core.get %signature["output_fields"]
+      %input_count = core.call intrinsic.len(%inputs)
+      %no_inputs = core.call intrinsic.eq(%input_count, 0)
+      core.if %no_inputs {
+        %error = core.call intrinsic.error.signature("No input fields specified")
+        core.raise %error
       }
+      %output_count = core.call intrinsic.len(%outputs)
+      %no_outputs = core.call intrinsic.eq(%output_count, 0)
+      core.if %no_outputs {
+        %error = core.call intrinsic.error.signature("No output fields specified")
+        core.raise %error
+      }
+      %seen_inputs = core.list
+      core.for %field in %inputs {
+        core.call @signature_validate_field_shape_impl(%field, false, false)
+        %field_name = core.get %field["name"]
+        %duplicate = core.call intrinsic.contains(%seen_inputs, %field_name)
+        core.if %duplicate {
+          %message = core.call intrinsic.string.format("Duplicate input field name: \"{}\"", %field_name)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        core.append %seen_inputs, %field_name
+      }
+      %seen_outputs = core.list
+      core.for %field in %outputs {
+        core.call @signature_validate_field_shape_impl(%field, true, false)
+        %field_name = core.get %field["name"]
+        %collision = core.call intrinsic.contains(%seen_inputs, %field_name)
+        core.if %collision {
+          %message = core.call intrinsic.string.format("Field name \"{}\" appears in both inputs and outputs", %field_name)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        %duplicate = core.call intrinsic.contains(%seen_outputs, %field_name)
+        core.if %duplicate {
+          %message = core.call intrinsic.string.format("Duplicate output field name: \"{}\"", %field_name)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        core.append %seen_outputs, %field_name
+      }
+      core.return
     }
   }
 }

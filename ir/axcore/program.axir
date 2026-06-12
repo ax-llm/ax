@@ -2,9 +2,9 @@ module @ax.program version "0.1" {
   dialect @ax.program version "0.1"
 
   op ax.program.interface @AxProgram {
+    attr contract = "program"
     attr core_kind = "interface"
     attr public = "true"
-    attr contract = "program"
     tag "ax-program"
   }
 
@@ -19,7 +19,6 @@ module @ax.program version "0.1" {
       %meta = core.let %metadata
       core.if %meta_missing {
         %meta = core.let %empty_map
-      } else {
       }
       %out = core.map
       core.set %out["kind"] = %kind
@@ -40,7 +39,6 @@ module @ax.program version "0.1" {
       %data = core.let %payload
       core.if %payload_missing {
         %data = core.let %empty_map
-      } else {
       }
       %event = core.map
       core.set %event["programId"] = %program_id
@@ -88,12 +86,11 @@ module @ax.program version "0.1" {
       %keys = core.call intrinsic.map.keys(%component_map)
       core.for %key in %keys {
         %matches = core.call intrinsic.string.starts_with(%key, %prefix)
-      core.if %matches {
+        core.if %matches {
           %prefix_len = core.call intrinsic.len(%prefix)
           %short_key = core.call intrinsic.string.slice(%key, %prefix_len)
           %value = core.get %component_map[%key]
           core.set %out[%short_key] = %value
-        } else {
         }
       }
       core.return %out

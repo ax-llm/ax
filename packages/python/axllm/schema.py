@@ -245,11 +245,6 @@ def to_json_schema(fields: list[Any], schema_title: str = "Schema", options: Any
     return schema
 
 
-def validate_output(fields: list[Any], values: Any) -> Any:
-    validated = _validate_output_impl(fields, values)
-    return validated
-
-
 def _schema_required_impl(field: Field, options: Any) -> bool:
     strict_camel = _core_get(options, "strictStructuredOutputs", False)
     strict_snake = _core_get(options, "strict_structured_outputs", False)
@@ -260,14 +255,14 @@ def _schema_required_impl(field: Field, options: Any) -> bool:
     return required
 
 
+def validate_output(fields: list[Any], values: Any) -> Any:
+    validated = _validate_output_impl(fields, values)
+    return validated
+
+
 def validate_value(field: Field, value: Any, path: str = None) -> None:
     _validate_value_impl(field, value, path)
     return None
-
-
-def strip_internal(fields: list[Any], values: Any) -> Any:
-    public_values = _strip_internal_fields_impl(fields, values)
-    return public_values
 
 
 def _schema_flexible_json_as_string_impl(typ: FieldType, options: Any) -> bool:
@@ -284,6 +279,11 @@ def _schema_flexible_json_as_string_impl(typ: FieldType, options: Any) -> bool:
     flexible_type = _core_or(is_json, unshaped_object)
     as_string = _core_and(enabled, flexible_type)
     return as_string
+
+
+def strip_internal(fields: list[Any], values: Any) -> Any:
+    public_values = _strip_internal_fields_impl(fields, values)
+    return public_values
 
 
 def _validate_fields_impl(fields: list[Any], values: Any, context: str) -> None:
@@ -379,79 +379,6 @@ def _validate_output_impl(fields: list[Any], values: Any) -> Any:
             pass
     _validate_fields_impl(fields, normalized, "output")
     return normalized
-
-
-def _validate_string_constraints_impl(value: str, field: Field) -> None:
-    typ = _core_get(field, "type", None)
-    title = _core_get(field, "title", None)
-    min_length = _core_get(typ, "min_length", None)
-    has_min = _core_is_not_none(min_length)
-    if has_min:
-        length = _core_len(value)
-        too_short = _core_lt(length, min_length)
-        if too_short:
-            message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long.", title, min_length)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    max_length = _core_get(typ, "max_length", None)
-    has_max = _core_is_not_none(max_length)
-    if has_max:
-        length = _core_len(value)
-        too_long = _core_gt(length, max_length)
-        if too_long:
-            message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long.", title, max_length)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    pattern = _core_get(typ, "pattern", None)
-    has_pattern = _core_is_not_none(pattern)
-    if has_pattern:
-        matches = _core_regex_match(pattern, value)
-        pattern_failed = _core_not(matches)
-        if pattern_failed:
-            message = _core_string_format("Field '{}' failed validation: String must match pattern /{}/.", title, pattern)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    format = _core_get(typ, "format", None)
-    is_email = _core_eq(format, "email")
-    if is_email:
-        valid_email = _core_regex_match("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", value)
-        invalid_email = _core_not(valid_email)
-        if invalid_email:
-            message = _core_string_format("Field '{}' failed validation: String must be a valid email address.", title)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    url_formats = []
-    url_formats.append("uri")
-    url_formats.append("url")
-    is_url_format = _core_contains(url_formats, format)
-    if is_url_format:
-        valid_url = _core_url_valid(value)
-        invalid_url = _core_not(valid_url)
-        if invalid_url:
-            message = _core_string_format("Invalid URL for '{}': Invalid URL format.", title)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-    else:
-        pass
-    return None
 
 
 def _schema_enhance_description_impl(base: Any, typ: FieldType) -> Any:
@@ -569,6 +496,79 @@ def _schema_enhance_description_impl(base: Any, typ: FieldType) -> Any:
     return base
 
 
+def _validate_string_constraints_impl(value: str, field: Field) -> None:
+    typ = _core_get(field, "type", None)
+    title = _core_get(field, "title", None)
+    min_length = _core_get(typ, "min_length", None)
+    has_min = _core_is_not_none(min_length)
+    if has_min:
+        length = _core_len(value)
+        too_short = _core_lt(length, min_length)
+        if too_short:
+            message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long.", title, min_length)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    max_length = _core_get(typ, "max_length", None)
+    has_max = _core_is_not_none(max_length)
+    if has_max:
+        length = _core_len(value)
+        too_long = _core_gt(length, max_length)
+        if too_long:
+            message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long.", title, max_length)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    pattern = _core_get(typ, "pattern", None)
+    has_pattern = _core_is_not_none(pattern)
+    if has_pattern:
+        matches = _core_regex_match(pattern, value)
+        pattern_failed = _core_not(matches)
+        if pattern_failed:
+            message = _core_string_format("Field '{}' failed validation: String must match pattern /{}/.", title, pattern)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    format = _core_get(typ, "format", None)
+    is_email = _core_eq(format, "email")
+    if is_email:
+        valid_email = _core_regex_match("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", value)
+        invalid_email = _core_not(valid_email)
+        if invalid_email:
+            message = _core_string_format("Field '{}' failed validation: String must be a valid email address.", title)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    url_formats = []
+    url_formats.append("uri")
+    url_formats.append("url")
+    is_url_format = _core_contains(url_formats, format)
+    if is_url_format:
+        valid_url = _core_url_valid(value)
+        invalid_url = _core_not(valid_url)
+        if invalid_url:
+            message = _core_string_format("Invalid URL for '{}': Invalid URL format.", title)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    return None
+
+
 def _validate_number_constraints_impl(value: float, field: Field) -> None:
     typ = _core_get(field, "type", None)
     title = _core_get(field, "title", None)
@@ -597,6 +597,81 @@ def _validate_number_constraints_impl(value: float, field: Field) -> None:
     else:
         pass
     return None
+
+
+def _schema_apply_constraints_impl(schema: Any, typ: FieldType) -> Any:
+    type_name = _core_get(typ, "name", None)
+    string_types = []
+    string_types.append("string")
+    string_types.append("code")
+    string_types.append("url")
+    string_types.append("date")
+    string_types.append("dateRange")
+    string_types.append("datetime")
+    string_types.append("datetimeRange")
+    is_string_type = _core_contains(string_types, type_name)
+    if is_string_type:
+        min_length = _core_get(typ, "min_length", None)
+        has_min = _core_is_not_none(min_length)
+        if has_min:
+            schema["minLength"] = min_length
+        else:
+            pass
+        max_length = _core_get(typ, "max_length", None)
+        has_max = _core_is_not_none(max_length)
+        if has_max:
+            schema["maxLength"] = max_length
+        else:
+            pass
+        pattern = _core_get(typ, "pattern", None)
+        has_pattern = _core_is_not_none(pattern)
+        if has_pattern:
+            schema["pattern"] = pattern
+        else:
+            pass
+        format = _core_get(typ, "format", None)
+        has_format = _core_is_not_none(format)
+        if has_format:
+            schema["format"] = format
+        else:
+            pass
+        is_url = _core_eq(type_name, "url")
+        missing_format = _core_not(has_format)
+        default_url_format = _core_and(is_url, missing_format)
+        if default_url_format:
+            schema["format"] = "uri"
+        else:
+            pass
+        is_date = _core_eq(type_name, "date")
+        default_date_format = _core_and(is_date, missing_format)
+        if default_date_format:
+            schema["format"] = "date"
+        else:
+            pass
+        is_datetime = _core_eq(type_name, "datetime")
+        default_datetime_format = _core_and(is_datetime, missing_format)
+        if default_datetime_format:
+            schema["format"] = "date-time"
+        else:
+            pass
+    else:
+        is_number = _core_eq(type_name, "number")
+        if is_number:
+            minimum = _core_get(typ, "minimum", None)
+            has_minimum = _core_is_not_none(minimum)
+            if has_minimum:
+                schema["minimum"] = minimum
+            else:
+                pass
+            maximum = _core_get(typ, "maximum", None)
+            has_maximum = _core_is_not_none(maximum)
+            if has_maximum:
+                schema["maximum"] = maximum
+            else:
+                pass
+        else:
+            pass
+    return schema
 
 
 def _validate_value_impl(field: Field, value: Any, path: str) -> None:
@@ -792,81 +867,6 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
     else:
         pass
     return None
-
-
-def _schema_apply_constraints_impl(schema: Any, typ: FieldType) -> Any:
-    type_name = _core_get(typ, "name", None)
-    string_types = []
-    string_types.append("string")
-    string_types.append("code")
-    string_types.append("url")
-    string_types.append("date")
-    string_types.append("dateRange")
-    string_types.append("datetime")
-    string_types.append("datetimeRange")
-    is_string_type = _core_contains(string_types, type_name)
-    if is_string_type:
-        min_length = _core_get(typ, "min_length", None)
-        has_min = _core_is_not_none(min_length)
-        if has_min:
-            schema["minLength"] = min_length
-        else:
-            pass
-        max_length = _core_get(typ, "max_length", None)
-        has_max = _core_is_not_none(max_length)
-        if has_max:
-            schema["maxLength"] = max_length
-        else:
-            pass
-        pattern = _core_get(typ, "pattern", None)
-        has_pattern = _core_is_not_none(pattern)
-        if has_pattern:
-            schema["pattern"] = pattern
-        else:
-            pass
-        format = _core_get(typ, "format", None)
-        has_format = _core_is_not_none(format)
-        if has_format:
-            schema["format"] = format
-        else:
-            pass
-        is_url = _core_eq(type_name, "url")
-        missing_format = _core_not(has_format)
-        default_url_format = _core_and(is_url, missing_format)
-        if default_url_format:
-            schema["format"] = "uri"
-        else:
-            pass
-        is_date = _core_eq(type_name, "date")
-        default_date_format = _core_and(is_date, missing_format)
-        if default_date_format:
-            schema["format"] = "date"
-        else:
-            pass
-        is_datetime = _core_eq(type_name, "datetime")
-        default_datetime_format = _core_and(is_datetime, missing_format)
-        if default_datetime_format:
-            schema["format"] = "date-time"
-        else:
-            pass
-    else:
-        is_number = _core_eq(type_name, "number")
-        if is_number:
-            minimum = _core_get(typ, "minimum", None)
-            has_minimum = _core_is_not_none(minimum)
-            if has_minimum:
-                schema["minimum"] = minimum
-            else:
-                pass
-            maximum = _core_get(typ, "maximum", None)
-            has_maximum = _core_is_not_none(maximum)
-            if has_maximum:
-                schema["maximum"] = maximum
-            else:
-                pass
-        else:
-            pass
-    return schema
 
 
 def _schema_nullable_optional_impl(schema: Any, field: Field, options: Any) -> Any:

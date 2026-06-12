@@ -27,22 +27,10 @@ module @ax.template version "0.1" {
     attr emit_module = "prompt"
     tag "src/ax/agent/templateEngine.ts"
     type signature = "(template:string, vars:json, context:string) -> string throws"
-    region @body {
-      block @entry(%template: string, %vars: json, %context: string) {
-        op core.call {
-          attr args = [%template, %context]
-          attr callee = @template_parse_impl
-          attr result = %nodes
-        }
-        op core.call {
-          attr args = [%nodes, %vars, %template, %context]
-          attr callee = @template_render_tree_impl
-          attr result = %rendered
-        }
-        op core.return {
-          attr value = %rendered
-        }
-      }
+    body @entry(%template: string, %vars: json, %context: string) {
+      %nodes = core.call @template_parse_impl(%template, %context)
+      %rendered = core.call @template_render_tree_impl(%nodes, %vars, %template, %context)
+      core.return %rendered
     }
   }
 
@@ -51,22 +39,10 @@ module @ax.template version "0.1" {
     attr emit_module = "prompt"
     tag "src/ax/agent/templateEngine.ts"
     type signature = "(source:string, context:string) -> list<string> throws"
-    region @body {
-      block @entry(%source: string, %context: string) {
-        op core.call {
-          attr args = [%source, %context]
-          attr callee = @template_parse_impl
-          attr result = %nodes
-        }
-        op core.call {
-          attr args = [%nodes]
-          attr callee = @template_collect_vars_impl
-          attr result = %names
-        }
-        op core.return {
-          attr value = %names
-        }
-      }
+    body @entry(%source: string, %context: string) {
+      %nodes = core.call @template_parse_impl(%source, %context)
+      %names = core.call @template_collect_vars_impl(%nodes)
+      core.return %names
     }
   }
 
@@ -75,17 +51,9 @@ module @ax.template version "0.1" {
     attr emit_module = "prompt"
     tag "src/ax/agent/templateEngine.ts"
     type signature = "(source:string, context:string, requiredVariables:json) -> json"
-    region @body {
-      block @entry(%source: string, %context: string, %required_variables: json) {
-        op core.call {
-          attr args = [%source, %context, %required_variables]
-          attr callee = @template_validate_impl
-          attr result = %result
-        }
-        op core.return {
-          attr value = %result
-        }
-      }
+    body @entry(%source: string, %context: string, %required_variables: json) {
+      %result = core.call @template_validate_impl(%source, %context, %required_variables)
+      core.return %result
     }
   }
 
@@ -95,17 +63,9 @@ module @ax.template version "0.1" {
     attr private = true
     tag "template-parse-core-helper"
     type signature = "(template:string, context:string) -> json throws"
-    region @body {
-      block @entry(%template: string, %context: string) {
-        op core.call {
-          attr args = [%template, %context]
-          attr callee = "intrinsic.template.parse"
-          attr result = %nodes
-        }
-        op core.return {
-          attr value = %nodes
-        }
-      }
+    body @entry(%template: string, %context: string) {
+      %nodes = core.call intrinsic.template.parse(%template, %context)
+      core.return %nodes
     }
   }
 
@@ -115,17 +75,9 @@ module @ax.template version "0.1" {
     attr private = true
     tag "template-render-core-helper"
     type signature = "(nodes:json, vars:json, source:string, context:string) -> string throws"
-    region @body {
-      block @entry(%nodes: json, %vars: json, %source: string, %context: string) {
-        op core.call {
-          attr args = [%nodes, %vars, %source, %context]
-          attr callee = "intrinsic.template.render_tree"
-          attr result = %rendered
-        }
-        op core.return {
-          attr value = %rendered
-        }
-      }
+    body @entry(%nodes: json, %vars: json, %source: string, %context: string) {
+      %rendered = core.call intrinsic.template.render_tree(%nodes, %vars, %source, %context)
+      core.return %rendered
     }
   }
 
@@ -135,17 +87,9 @@ module @ax.template version "0.1" {
     attr private = true
     tag "template-collect-vars-core-helper"
     type signature = "(nodes:json) -> list<string>"
-    region @body {
-      block @entry(%nodes: json) {
-        op core.call {
-          attr args = [%nodes]
-          attr callee = "intrinsic.template.collect_vars"
-          attr result = %names
-        }
-        op core.return {
-          attr value = %names
-        }
-      }
+    body @entry(%nodes: json) {
+      %names = core.call intrinsic.template.collect_vars(%nodes)
+      core.return %names
     }
   }
 
@@ -155,17 +99,9 @@ module @ax.template version "0.1" {
     attr private = true
     tag "template-validate-core-helper"
     type signature = "(source:string, context:string, requiredVariables:json) -> json"
-    region @body {
-      block @entry(%source: string, %context: string, %required_variables: json) {
-        op core.call {
-          attr args = [%source, %context, %required_variables]
-          attr callee = "intrinsic.template.validate"
-          attr result = %result
-        }
-        op core.return {
-          attr value = %result
-        }
-      }
+    body @entry(%source: string, %context: string, %required_variables: json) {
+      %result = core.call intrinsic.template.validate(%source, %context, %required_variables)
+      core.return %result
     }
   }
 
@@ -174,63 +110,20 @@ module @ax.template version "0.1" {
     attr emit_module = "prompt"
     tag "prompt-render"
     type signature = "(AxSignature, json, list<Tool>, options?:json) -> list<ChatMessage> throws"
-    region @body {
-      block @entry(%signature: AxSignature, %values: json, %functions: list<Tool>, %options: json) {
-        op core.get {
-          attr key = "instruction"
-          attr result = %instruction
-          attr target = %options
-        }
-        op core.call {
-          attr args = [%instruction]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_instruction
-        }
-        op core.if {
-          attr condition = %has_instruction
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%signature, %values]
-                attr callee = @prompt_user_content_impl
-                attr result = %user_content
-              }
-              op core.call {
-                attr args = [%instruction, %user_content]
-                attr callee = @prompt_messages_impl
-                attr result = %messages
-              }
-              op core.return {
-                attr value = %messages
-              }
-            }
-          }
-          region @else {
-            block @else {
-              op core.call {
-                attr args = [%signature, %values, %functions, %options]
-                attr callee = @prompt_structured_impl
-                attr result = %system_content
-              }
-              op core.call {
-                attr args = [%signature, %values]
-                attr callee = @prompt_user_content_impl
-                attr result = %user_content
-              }
-              op core.call {
-                attr args = [%system_content, %user_content]
-                attr callee = @prompt_messages_impl
-                attr result = %messages
-              }
-              op core.return {
-                attr value = %messages
-              }
-            }
-          }
-        }
-        op core.return {
-        }
+    body @entry(%signature: AxSignature, %values: json, %functions: list<Tool>, %options: json) {
+      %instruction = core.get %options["instruction"]
+      %has_instruction = core.call intrinsic.is_not_none(%instruction)
+      core.if %has_instruction {
+        %user_content = core.call @prompt_user_content_impl(%signature, %values)
+        %messages = core.call @prompt_messages_impl(%instruction, %user_content)
+        core.return %messages
+      } else {
+        %system_content = core.call @prompt_structured_impl(%signature, %values, %functions, %options)
+        %user_content = core.call @prompt_user_content_impl(%signature, %values)
+        %messages = core.call @prompt_messages_impl(%system_content, %user_content)
+        core.return %messages
       }
+      core.return
     }
   }
 
@@ -240,17 +133,9 @@ module @ax.template version "0.1" {
     attr private = true
     tag "prompt-structured-core-helper"
     type signature = "(AxSignature, json, list<Tool>, options?:json) -> string throws"
-    region @body {
-      block @entry(%signature: AxSignature, %values: json, %functions: list<Tool>, %options: json) {
-        op core.call {
-          attr args = [%signature, %values, %functions, %options]
-          attr callee = "intrinsic.prompt.structured"
-          attr result = %content
-        }
-        op core.return {
-          attr value = %content
-        }
-      }
+    body @entry(%signature: AxSignature, %values: json, %functions: list<Tool>, %options: json) {
+      %content = core.call intrinsic.prompt.structured(%signature, %values, %functions, %options)
+      core.return %content
     }
   }
 
@@ -260,17 +145,9 @@ module @ax.template version "0.1" {
     attr private = true
     tag "prompt-user-content-core-helper"
     type signature = "(AxSignature, json) -> json throws"
-    region @body {
-      block @entry(%signature: AxSignature, %values: json) {
-        op core.call {
-          attr args = [%signature, %values]
-          attr callee = "intrinsic.prompt.user_content"
-          attr result = %content
-        }
-        op core.return {
-          attr value = %content
-        }
-      }
+    body @entry(%signature: AxSignature, %values: json) {
+      %content = core.call intrinsic.prompt.user_content(%signature, %values)
+      core.return %content
     }
   }
 
@@ -280,54 +157,18 @@ module @ax.template version "0.1" {
     attr private = true
     tag "prompt-message-core-helper"
     type signature = "(system:string, user:json) -> list<ChatMessage>"
-    region @body {
-      block @entry(%system: string, %user: json) {
-        op core.map {
-          attr result = %system_message
-        }
-        op core.set {
-          attr key = "role"
-          attr target = %system_message
-          attr value = "system"
-        }
-        op core.set {
-          attr key = "content"
-          attr target = %system_message
-          attr value = %system
-        }
-        op core.set {
-          attr key = "cache"
-          attr target = %system_message
-          attr value = false
-        }
-        op core.map {
-          attr result = %user_message
-        }
-        op core.set {
-          attr key = "role"
-          attr target = %user_message
-          attr value = "user"
-        }
-        op core.set {
-          attr key = "content"
-          attr target = %user_message
-          attr value = %user
-        }
-        op core.list {
-          attr result = %messages
-        }
-        op core.append {
-          attr target = %messages
-          attr value = %system_message
-        }
-        op core.append {
-          attr target = %messages
-          attr value = %user_message
-        }
-        op core.return {
-          attr value = %messages
-        }
-      }
+    body @entry(%system: string, %user: json) {
+      %system_message = core.map
+      core.set %system_message["role"] = "system"
+      core.set %system_message["content"] = %system
+      core.set %system_message["cache"] = false
+      %user_message = core.map
+      core.set %user_message["role"] = "user"
+      core.set %user_message["content"] = %user
+      %messages = core.list
+      core.append %messages, %system_message
+      core.append %messages, %user_message
+      core.return %messages
     }
   }
 }

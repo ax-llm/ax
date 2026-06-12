@@ -6,45 +6,16 @@ module @ax.stream version "0.1" {
     attr emit_module = "gen"
     tag "src/ax/dsp/response/streaming.ts"
     type signature = "(list<json>) -> string"
-    region @body {
-      block @entry(%events: list<json>) {
-        op core.list {
-          attr result = %chunks
-        }
-        op core.for {
-          attr item = %event
-          attr in = %events
-          region @body {
-            block @each_event {
-              op core.call {
-                attr args = [%event]
-                attr callee = @stream_event_content_parts_impl
-                attr result = %parts
-              }
-              op core.for {
-                attr item = %part
-                attr in = %parts
-                region @body {
-                  block @each_part {
-                    op core.append {
-                      attr target = %chunks
-                      attr value = %part
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-        op core.string_join {
-          attr sep = ""
-          attr value = %chunks
-          attr result = %folded
-        }
-        op core.return {
-          attr value = %folded
+    body @entry(%events: list<json>) {
+      %chunks = core.list
+      core.for %event in %events {
+        %parts = core.call @stream_event_content_parts_impl(%event)
+        core.for %part in %parts {
+          core.append %chunks, %part
         }
       }
+      %folded = core.string_join %chunks sep ""
+      core.return %folded
     }
   }
 
@@ -54,17 +25,9 @@ module @ax.stream version "0.1" {
     attr private = true
     tag "stream-event-content-parts-core-helper"
     type signature = "(json) -> list<string>"
-    region @body {
-      block @entry(%event: json) {
-        op core.call {
-          attr args = [%event]
-          attr callee = "intrinsic.stream.event_content_parts"
-          attr result = %parts
-        }
-        op core.return {
-          attr value = %parts
-        }
-      }
+    body @entry(%event: json) {
+      %parts = core.call intrinsic.stream.event_content_parts(%event)
+      core.return %parts
     }
   }
 }

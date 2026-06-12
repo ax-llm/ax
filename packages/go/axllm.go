@@ -1456,20 +1456,6 @@ func to_json_schema(args ...Value) (ret Value) {
 	panic(coreReturn{value: v_schema})
 }
 
-func validate_output(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_fields Value
-	var v_values Value
-	var v_validated Value
-	if len(args) > 0 { v_fields = args[0] }
-	_ = v_fields
-	if len(args) > 1 { v_values = args[1] }
-	_ = v_values
-	_ = v_validated
-	v_validated = _validate_output_impl(v_fields, v_values)
-	panic(coreReturn{value: v_validated})
-}
-
 func _schema_required_impl(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_field Value
@@ -1499,6 +1485,20 @@ func _schema_required_impl(args ...Value) (ret Value) {
 	panic(coreReturn{value: v_required})
 }
 
+func validate_output(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_fields Value
+	var v_values Value
+	var v_validated Value
+	if len(args) > 0 { v_fields = args[0] }
+	_ = v_fields
+	if len(args) > 1 { v_values = args[1] }
+	_ = v_values
+	_ = v_validated
+	v_validated = _validate_output_impl(v_fields, v_values)
+	panic(coreReturn{value: v_validated})
+}
+
 func validate_value(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_field Value
@@ -1512,20 +1512,6 @@ func validate_value(args ...Value) (ret Value) {
 	_ = v_path
 	_validate_value_impl(v_field, v_value, v_path)
 	panic(coreReturn{value: nil})
-}
-
-func strip_internal(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_fields Value
-	var v_values Value
-	var v_public_values Value
-	if len(args) > 0 { v_fields = args[0] }
-	_ = v_fields
-	if len(args) > 1 { v_values = args[1] }
-	_ = v_values
-	_ = v_public_values
-	v_public_values = _strip_internal_fields_impl(v_fields, v_values)
-	panic(coreReturn{value: v_public_values})
 }
 
 func _schema_flexible_json_as_string_impl(args ...Value) (ret Value) {
@@ -1573,6 +1559,20 @@ func _schema_flexible_json_as_string_impl(args ...Value) (ret Value) {
 	v_flexible_type = _core_or(v_is_json, v_unshaped_object)
 	v_as_string = _core_and(v_enabled, v_flexible_type)
 	panic(coreReturn{value: v_as_string})
+}
+
+func strip_internal(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_fields Value
+	var v_values Value
+	var v_public_values Value
+	if len(args) > 0 { v_fields = args[0] }
+	_ = v_fields
+	if len(args) > 1 { v_values = args[1] }
+	_ = v_values
+	_ = v_public_values
+	v_public_values = _strip_internal_fields_impl(v_fields, v_values)
+	panic(coreReturn{value: v_public_values})
 }
 
 func _validate_fields_impl(args ...Value) (ret Value) {
@@ -1793,142 +1793,6 @@ func _validate_output_impl(args ...Value) (ret Value) {
 	panic(coreReturn{value: v_normalized})
 }
 
-func _validate_string_constraints_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_value Value
-	var v_field Value
-	var v_error Value
-	var v_format Value
-	var v_has_max Value
-	var v_has_min Value
-	var v_has_pattern Value
-	var v_invalid_email Value
-	var v_invalid_url Value
-	var v_is_email Value
-	var v_is_url_format Value
-	var v_length Value
-	var v_matches Value
-	var v_max_length Value
-	var v_message Value
-	var v_min_length Value
-	var v_pattern Value
-	var v_pattern_failed Value
-	var v_title Value
-	var v_too_long Value
-	var v_too_short Value
-	var v_typ Value
-	var v_url_formats Value
-	var v_valid_email Value
-	var v_valid_url Value
-	if len(args) > 0 { v_value = args[0] }
-	_ = v_value
-	if len(args) > 1 { v_field = args[1] }
-	_ = v_field
-	_ = v_error
-	_ = v_format
-	_ = v_has_max
-	_ = v_has_min
-	_ = v_has_pattern
-	_ = v_invalid_email
-	_ = v_invalid_url
-	_ = v_is_email
-	_ = v_is_url_format
-	_ = v_length
-	_ = v_matches
-	_ = v_max_length
-	_ = v_message
-	_ = v_min_length
-	_ = v_pattern
-	_ = v_pattern_failed
-	_ = v_title
-	_ = v_too_long
-	_ = v_too_short
-	_ = v_typ
-	_ = v_url_formats
-	_ = v_valid_email
-	_ = v_valid_url
-	v_typ = coreGet(v_field, "type", nil)
-	v_title = coreGet(v_field, "title", nil)
-	v_min_length = coreGet(v_typ, "min_length", nil)
-	v_has_min = _core_is_not_none(v_min_length)
-	if coreTruthy(v_has_min) {
-		v_length = _core_len(v_value)
-		v_too_short = _core_lt(v_length, v_min_length)
-		if coreTruthy(v_too_short) {
-			v_message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long.", v_title, v_min_length)
-			v_error = _core_validation_error(v_message)
-			panic(asAxError(v_error))
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	v_max_length = coreGet(v_typ, "max_length", nil)
-	v_has_max = _core_is_not_none(v_max_length)
-	if coreTruthy(v_has_max) {
-		v_length = _core_len(v_value)
-		v_too_long = _core_gt(v_length, v_max_length)
-		if coreTruthy(v_too_long) {
-			v_message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long.", v_title, v_max_length)
-			v_error = _core_validation_error(v_message)
-			panic(asAxError(v_error))
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	v_pattern = coreGet(v_typ, "pattern", nil)
-	v_has_pattern = _core_is_not_none(v_pattern)
-	if coreTruthy(v_has_pattern) {
-		v_matches = coreRegexMatch(v_pattern, v_value)
-		v_pattern_failed = _core_not(v_matches)
-		if coreTruthy(v_pattern_failed) {
-			v_message = _core_string_format("Field '{}' failed validation: String must match pattern /{}/.", v_title, v_pattern)
-			v_error = _core_validation_error(v_message)
-			panic(asAxError(v_error))
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	v_format = coreGet(v_typ, "format", nil)
-	v_is_email = _core_eq(v_format, "email")
-	if coreTruthy(v_is_email) {
-		v_valid_email = coreRegexMatch("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", v_value)
-		v_invalid_email = _core_not(v_valid_email)
-		if coreTruthy(v_invalid_email) {
-			v_message = _core_string_format("Field '{}' failed validation: String must be a valid email address.", v_title)
-			v_error = _core_validation_error(v_message)
-			panic(asAxError(v_error))
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	v_url_formats = MutableArray()
-	v_url_formats = coreAppend(v_url_formats, "uri")
-	v_url_formats = coreAppend(v_url_formats, "url")
-	v_is_url_format = _core_contains(v_url_formats, v_format)
-	if coreTruthy(v_is_url_format) {
-		v_valid_url = _core_url_valid(v_value)
-		v_invalid_url = _core_not(v_valid_url)
-		if coreTruthy(v_invalid_url) {
-			v_message = _core_string_format("Invalid URL for '{}': Invalid URL format.", v_title)
-			v_error = _core_validation_error(v_message)
-			panic(asAxError(v_error))
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	panic(coreReturn{value: nil})
-}
-
 func _schema_enhance_description_impl(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_base Value
@@ -2138,6 +2002,142 @@ func _schema_enhance_description_impl(args ...Value) (ret Value) {
 	panic(coreReturn{value: v_base})
 }
 
+func _validate_string_constraints_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_value Value
+	var v_field Value
+	var v_error Value
+	var v_format Value
+	var v_has_max Value
+	var v_has_min Value
+	var v_has_pattern Value
+	var v_invalid_email Value
+	var v_invalid_url Value
+	var v_is_email Value
+	var v_is_url_format Value
+	var v_length Value
+	var v_matches Value
+	var v_max_length Value
+	var v_message Value
+	var v_min_length Value
+	var v_pattern Value
+	var v_pattern_failed Value
+	var v_title Value
+	var v_too_long Value
+	var v_too_short Value
+	var v_typ Value
+	var v_url_formats Value
+	var v_valid_email Value
+	var v_valid_url Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	if len(args) > 1 { v_field = args[1] }
+	_ = v_field
+	_ = v_error
+	_ = v_format
+	_ = v_has_max
+	_ = v_has_min
+	_ = v_has_pattern
+	_ = v_invalid_email
+	_ = v_invalid_url
+	_ = v_is_email
+	_ = v_is_url_format
+	_ = v_length
+	_ = v_matches
+	_ = v_max_length
+	_ = v_message
+	_ = v_min_length
+	_ = v_pattern
+	_ = v_pattern_failed
+	_ = v_title
+	_ = v_too_long
+	_ = v_too_short
+	_ = v_typ
+	_ = v_url_formats
+	_ = v_valid_email
+	_ = v_valid_url
+	v_typ = coreGet(v_field, "type", nil)
+	v_title = coreGet(v_field, "title", nil)
+	v_min_length = coreGet(v_typ, "min_length", nil)
+	v_has_min = _core_is_not_none(v_min_length)
+	if coreTruthy(v_has_min) {
+		v_length = _core_len(v_value)
+		v_too_short = _core_lt(v_length, v_min_length)
+		if coreTruthy(v_too_short) {
+			v_message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long.", v_title, v_min_length)
+			v_error = _core_validation_error(v_message)
+			panic(asAxError(v_error))
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_max_length = coreGet(v_typ, "max_length", nil)
+	v_has_max = _core_is_not_none(v_max_length)
+	if coreTruthy(v_has_max) {
+		v_length = _core_len(v_value)
+		v_too_long = _core_gt(v_length, v_max_length)
+		if coreTruthy(v_too_long) {
+			v_message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long.", v_title, v_max_length)
+			v_error = _core_validation_error(v_message)
+			panic(asAxError(v_error))
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_pattern = coreGet(v_typ, "pattern", nil)
+	v_has_pattern = _core_is_not_none(v_pattern)
+	if coreTruthy(v_has_pattern) {
+		v_matches = coreRegexMatch(v_pattern, v_value)
+		v_pattern_failed = _core_not(v_matches)
+		if coreTruthy(v_pattern_failed) {
+			v_message = _core_string_format("Field '{}' failed validation: String must match pattern /{}/.", v_title, v_pattern)
+			v_error = _core_validation_error(v_message)
+			panic(asAxError(v_error))
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_format = coreGet(v_typ, "format", nil)
+	v_is_email = _core_eq(v_format, "email")
+	if coreTruthy(v_is_email) {
+		v_valid_email = coreRegexMatch("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", v_value)
+		v_invalid_email = _core_not(v_valid_email)
+		if coreTruthy(v_invalid_email) {
+			v_message = _core_string_format("Field '{}' failed validation: String must be a valid email address.", v_title)
+			v_error = _core_validation_error(v_message)
+			panic(asAxError(v_error))
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_url_formats = MutableArray()
+	v_url_formats = coreAppend(v_url_formats, "uri")
+	v_url_formats = coreAppend(v_url_formats, "url")
+	v_is_url_format = _core_contains(v_url_formats, v_format)
+	if coreTruthy(v_is_url_format) {
+		v_valid_url = _core_url_valid(v_value)
+		v_invalid_url = _core_not(v_valid_url)
+		if coreTruthy(v_invalid_url) {
+			v_message = _core_string_format("Invalid URL for '{}': Invalid URL format.", v_title)
+			v_error = _core_validation_error(v_message)
+			panic(asAxError(v_error))
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	panic(coreReturn{value: nil})
+}
+
 func _validate_number_constraints_impl(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_value Value
@@ -2197,6 +2197,145 @@ func _validate_number_constraints_impl(args ...Value) (ret Value) {
 	// empty
 	}
 	panic(coreReturn{value: nil})
+}
+
+func _schema_apply_constraints_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_schema Value
+	var v_typ Value
+	var v_default_date_format Value
+	var v_default_datetime_format Value
+	var v_default_url_format Value
+	var v_format Value
+	var v_has_format Value
+	var v_has_max Value
+	var v_has_maximum Value
+	var v_has_min Value
+	var v_has_minimum Value
+	var v_has_pattern Value
+	var v_is_date Value
+	var v_is_datetime Value
+	var v_is_number Value
+	var v_is_string_type Value
+	var v_is_url Value
+	var v_max_length Value
+	var v_maximum Value
+	var v_min_length Value
+	var v_minimum Value
+	var v_missing_format Value
+	var v_pattern Value
+	var v_string_types Value
+	var v_type_name Value
+	if len(args) > 0 { v_schema = args[0] }
+	_ = v_schema
+	if len(args) > 1 { v_typ = args[1] }
+	_ = v_typ
+	_ = v_default_date_format
+	_ = v_default_datetime_format
+	_ = v_default_url_format
+	_ = v_format
+	_ = v_has_format
+	_ = v_has_max
+	_ = v_has_maximum
+	_ = v_has_min
+	_ = v_has_minimum
+	_ = v_has_pattern
+	_ = v_is_date
+	_ = v_is_datetime
+	_ = v_is_number
+	_ = v_is_string_type
+	_ = v_is_url
+	_ = v_max_length
+	_ = v_maximum
+	_ = v_min_length
+	_ = v_minimum
+	_ = v_missing_format
+	_ = v_pattern
+	_ = v_string_types
+	_ = v_type_name
+	v_type_name = coreGet(v_typ, "name", nil)
+	v_string_types = MutableArray()
+	v_string_types = coreAppend(v_string_types, "string")
+	v_string_types = coreAppend(v_string_types, "code")
+	v_string_types = coreAppend(v_string_types, "url")
+	v_string_types = coreAppend(v_string_types, "date")
+	v_string_types = coreAppend(v_string_types, "dateRange")
+	v_string_types = coreAppend(v_string_types, "datetime")
+	v_string_types = coreAppend(v_string_types, "datetimeRange")
+	v_is_string_type = _core_contains(v_string_types, v_type_name)
+	if coreTruthy(v_is_string_type) {
+		v_min_length = coreGet(v_typ, "min_length", nil)
+		v_has_min = _core_is_not_none(v_min_length)
+		if coreTruthy(v_has_min) {
+			coreSet(v_schema, "minLength", v_min_length)
+		} else {
+		// empty
+		}
+		v_max_length = coreGet(v_typ, "max_length", nil)
+		v_has_max = _core_is_not_none(v_max_length)
+		if coreTruthy(v_has_max) {
+			coreSet(v_schema, "maxLength", v_max_length)
+		} else {
+		// empty
+		}
+		v_pattern = coreGet(v_typ, "pattern", nil)
+		v_has_pattern = _core_is_not_none(v_pattern)
+		if coreTruthy(v_has_pattern) {
+			coreSet(v_schema, "pattern", v_pattern)
+		} else {
+		// empty
+		}
+		v_format = coreGet(v_typ, "format", nil)
+		v_has_format = _core_is_not_none(v_format)
+		if coreTruthy(v_has_format) {
+			coreSet(v_schema, "format", v_format)
+		} else {
+		// empty
+		}
+		v_is_url = _core_eq(v_type_name, "url")
+		v_missing_format = _core_not(v_has_format)
+		v_default_url_format = _core_and(v_is_url, v_missing_format)
+		if coreTruthy(v_default_url_format) {
+			coreSet(v_schema, "format", "uri")
+		} else {
+		// empty
+		}
+		v_is_date = _core_eq(v_type_name, "date")
+		v_default_date_format = _core_and(v_is_date, v_missing_format)
+		if coreTruthy(v_default_date_format) {
+			coreSet(v_schema, "format", "date")
+		} else {
+		// empty
+		}
+		v_is_datetime = _core_eq(v_type_name, "datetime")
+		v_default_datetime_format = _core_and(v_is_datetime, v_missing_format)
+		if coreTruthy(v_default_datetime_format) {
+			coreSet(v_schema, "format", "date-time")
+		} else {
+		// empty
+		}
+	} else {
+		v_is_number = _core_eq(v_type_name, "number")
+		if coreTruthy(v_is_number) {
+			v_minimum = coreGet(v_typ, "minimum", nil)
+			v_has_minimum = _core_is_not_none(v_minimum)
+			if coreTruthy(v_has_minimum) {
+				coreSet(v_schema, "minimum", v_minimum)
+			} else {
+			// empty
+			}
+			v_maximum = coreGet(v_typ, "maximum", nil)
+			v_has_maximum = _core_is_not_none(v_maximum)
+			if coreTruthy(v_has_maximum) {
+				coreSet(v_schema, "maximum", v_maximum)
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	panic(coreReturn{value: v_schema})
 }
 
 func _validate_value_impl(args ...Value) (ret Value) {
@@ -2549,145 +2688,6 @@ func _validate_value_impl(args ...Value) (ret Value) {
 	// empty
 	}
 	panic(coreReturn{value: nil})
-}
-
-func _schema_apply_constraints_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_schema Value
-	var v_typ Value
-	var v_default_date_format Value
-	var v_default_datetime_format Value
-	var v_default_url_format Value
-	var v_format Value
-	var v_has_format Value
-	var v_has_max Value
-	var v_has_maximum Value
-	var v_has_min Value
-	var v_has_minimum Value
-	var v_has_pattern Value
-	var v_is_date Value
-	var v_is_datetime Value
-	var v_is_number Value
-	var v_is_string_type Value
-	var v_is_url Value
-	var v_max_length Value
-	var v_maximum Value
-	var v_min_length Value
-	var v_minimum Value
-	var v_missing_format Value
-	var v_pattern Value
-	var v_string_types Value
-	var v_type_name Value
-	if len(args) > 0 { v_schema = args[0] }
-	_ = v_schema
-	if len(args) > 1 { v_typ = args[1] }
-	_ = v_typ
-	_ = v_default_date_format
-	_ = v_default_datetime_format
-	_ = v_default_url_format
-	_ = v_format
-	_ = v_has_format
-	_ = v_has_max
-	_ = v_has_maximum
-	_ = v_has_min
-	_ = v_has_minimum
-	_ = v_has_pattern
-	_ = v_is_date
-	_ = v_is_datetime
-	_ = v_is_number
-	_ = v_is_string_type
-	_ = v_is_url
-	_ = v_max_length
-	_ = v_maximum
-	_ = v_min_length
-	_ = v_minimum
-	_ = v_missing_format
-	_ = v_pattern
-	_ = v_string_types
-	_ = v_type_name
-	v_type_name = coreGet(v_typ, "name", nil)
-	v_string_types = MutableArray()
-	v_string_types = coreAppend(v_string_types, "string")
-	v_string_types = coreAppend(v_string_types, "code")
-	v_string_types = coreAppend(v_string_types, "url")
-	v_string_types = coreAppend(v_string_types, "date")
-	v_string_types = coreAppend(v_string_types, "dateRange")
-	v_string_types = coreAppend(v_string_types, "datetime")
-	v_string_types = coreAppend(v_string_types, "datetimeRange")
-	v_is_string_type = _core_contains(v_string_types, v_type_name)
-	if coreTruthy(v_is_string_type) {
-		v_min_length = coreGet(v_typ, "min_length", nil)
-		v_has_min = _core_is_not_none(v_min_length)
-		if coreTruthy(v_has_min) {
-			coreSet(v_schema, "minLength", v_min_length)
-		} else {
-		// empty
-		}
-		v_max_length = coreGet(v_typ, "max_length", nil)
-		v_has_max = _core_is_not_none(v_max_length)
-		if coreTruthy(v_has_max) {
-			coreSet(v_schema, "maxLength", v_max_length)
-		} else {
-		// empty
-		}
-		v_pattern = coreGet(v_typ, "pattern", nil)
-		v_has_pattern = _core_is_not_none(v_pattern)
-		if coreTruthy(v_has_pattern) {
-			coreSet(v_schema, "pattern", v_pattern)
-		} else {
-		// empty
-		}
-		v_format = coreGet(v_typ, "format", nil)
-		v_has_format = _core_is_not_none(v_format)
-		if coreTruthy(v_has_format) {
-			coreSet(v_schema, "format", v_format)
-		} else {
-		// empty
-		}
-		v_is_url = _core_eq(v_type_name, "url")
-		v_missing_format = _core_not(v_has_format)
-		v_default_url_format = _core_and(v_is_url, v_missing_format)
-		if coreTruthy(v_default_url_format) {
-			coreSet(v_schema, "format", "uri")
-		} else {
-		// empty
-		}
-		v_is_date = _core_eq(v_type_name, "date")
-		v_default_date_format = _core_and(v_is_date, v_missing_format)
-		if coreTruthy(v_default_date_format) {
-			coreSet(v_schema, "format", "date")
-		} else {
-		// empty
-		}
-		v_is_datetime = _core_eq(v_type_name, "datetime")
-		v_default_datetime_format = _core_and(v_is_datetime, v_missing_format)
-		if coreTruthy(v_default_datetime_format) {
-			coreSet(v_schema, "format", "date-time")
-		} else {
-		// empty
-		}
-	} else {
-		v_is_number = _core_eq(v_type_name, "number")
-		if coreTruthy(v_is_number) {
-			v_minimum = coreGet(v_typ, "minimum", nil)
-			v_has_minimum = _core_is_not_none(v_minimum)
-			if coreTruthy(v_has_minimum) {
-				coreSet(v_schema, "minimum", v_minimum)
-			} else {
-			// empty
-			}
-			v_maximum = coreGet(v_typ, "maximum", nil)
-			v_has_maximum = _core_is_not_none(v_maximum)
-			if coreTruthy(v_has_maximum) {
-				coreSet(v_schema, "maximum", v_maximum)
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-	}
-	panic(coreReturn{value: v_schema})
 }
 
 func _schema_nullable_optional_impl(args ...Value) (ret Value) {
@@ -3794,31 +3794,6 @@ func build_chat_request(args ...Value) (ret Value) {
 	panic(coreReturn{value: v_payload})
 }
 
-func normalize_chat_response(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_raw Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_response
-	v_response = openai_normalize_chat_response(v_raw)
-	panic(coreReturn{value: v_response})
-}
-
-func normalize_stream_delta(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_raw Value
-	var v_state Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_state = args[1] }
-	_ = v_state
-	_ = v_response
-	v_response = openai_normalize_stream_delta(v_raw, v_state)
-	panic(coreReturn{value: v_response})
-}
-
 func _openai_copy_config_key_impl(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_payload Value
@@ -3847,31 +3822,28 @@ func _openai_copy_config_key_impl(args ...Value) (ret Value) {
 	panic(coreReturn{value: nil})
 }
 
-func build_embed_request(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_service Value
-	var v_request Value
-	var v_options Value
-	var v_payload Value
-	if len(args) > 0 { v_service = args[0] }
-	_ = v_service
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_payload
-	v_payload = openai_build_embed_request(v_request)
-	panic(coreReturn{value: v_payload})
-}
-
-func normalize_embed_response(args ...Value) (ret Value) {
+func normalize_chat_response(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_raw Value
 	var v_response Value
 	if len(args) > 0 { v_raw = args[0] }
 	_ = v_raw
 	_ = v_response
-	v_response = openai_normalize_embed_response(v_raw)
+	v_response = openai_normalize_chat_response(v_raw)
+	panic(coreReturn{value: v_response})
+}
+
+func normalize_stream_delta(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_raw Value
+	var v_state Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	_ = v_response
+	v_response = openai_normalize_stream_delta(v_raw, v_state)
 	panic(coreReturn{value: v_response})
 }
 
@@ -4049,6 +4021,34 @@ func _openai_message_impl(args ...Value) (ret Value) {
 	panic(asAxError(v_error))
 }
 
+func build_embed_request(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_service Value
+	var v_request Value
+	var v_options Value
+	var v_payload Value
+	if len(args) > 0 { v_service = args[0] }
+	_ = v_service
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_payload
+	v_payload = openai_build_embed_request(v_request)
+	panic(coreReturn{value: v_payload})
+}
+
+func normalize_embed_response(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_raw Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	_ = v_response
+	v_response = openai_normalize_embed_response(v_raw)
+	panic(coreReturn{value: v_response})
+}
+
 func normalize_token_usage(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_usage Value
@@ -4169,6 +4169,87 @@ func _ai_model_usage_impl(args ...Value) (ret Value) {
 	panic(coreReturn{value: v_out})
 }
 
+func _openai_content_part_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_part Value
+	var v_details Value
+	var v_error Value
+	var v_image Value
+	var v_image_raw Value
+	var v_image_url Value
+	var v_image_value Value
+	var v_is_data_url Value
+	var v_is_image Value
+	var v_is_text Value
+	var v_message Value
+	var v_mime Value
+	var v_mime_raw Value
+	var v_mime_snake Value
+	var v_out Value
+	var v_text Value
+	var v_type Value
+	var v_url Value
+	if len(args) > 0 { v_part = args[0] }
+	_ = v_part
+	_ = v_details
+	_ = v_error
+	_ = v_image
+	_ = v_image_raw
+	_ = v_image_url
+	_ = v_image_value
+	_ = v_is_data_url
+	_ = v_is_image
+	_ = v_is_text
+	_ = v_message
+	_ = v_mime
+	_ = v_mime_raw
+	_ = v_mime_snake
+	_ = v_out
+	_ = v_text
+	_ = v_type
+	_ = v_url
+	v_type = coreGet(v_part, "type", nil)
+	v_is_text = _core_eq(v_type, "text")
+	if coreTruthy(v_is_text) {
+		v_text = coreGet(v_part, "text", "")
+		v_out = Object()
+		coreSet(v_out, "type", "text")
+		coreSet(v_out, "text", v_text)
+		panic(coreReturn{value: v_out})
+	} else {
+	// empty
+	}
+	v_is_image = _core_eq(v_type, "image")
+	if coreTruthy(v_is_image) {
+		v_mime_snake = coreGet(v_part, "mime_type", nil)
+		v_mime_raw = coreGet(v_part, "mimeType", v_mime_snake)
+		v_mime = _core_coalesce(v_mime_raw, "image/png")
+		v_image_value = coreGet(v_part, "image", nil)
+		v_image_raw = coreGet(v_part, "data", v_image_value)
+		v_image = _core_coalesce(v_image_raw, "")
+		v_is_data_url = _core_string_starts_with(v_image, "data:")
+		v_url = ""
+		if coreTruthy(v_is_data_url) {
+			v_url = v_image
+		} else {
+			v_url = _core_string_format("data:{};base64,{}", v_mime, v_image)
+		}
+		v_details = coreGet(v_part, "details", "auto")
+		v_image_url = Object()
+		coreSet(v_image_url, "url", v_url)
+		coreSet(v_image_url, "detail", v_details)
+		v_out = Object()
+		coreSet(v_out, "type", "image_url")
+		coreSet(v_out, "image_url", v_image_url)
+		panic(coreReturn{value: v_out})
+	} else {
+	// empty
+	}
+	v_message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", v_type)
+	v_error = _core_ai_error_unsupported(v_message)
+	panic(asAxError(v_error))
+}
+
 func chat_response_to_completion(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_response Value
@@ -4249,87 +4330,6 @@ func chat_response_to_completion(args ...Value) (ret Value) {
 	coreSet(v_out, "function_calls", v_calls)
 	coreSet(v_out, "usage", v_usage)
 	panic(coreReturn{value: v_out})
-}
-
-func _openai_content_part_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_part Value
-	var v_details Value
-	var v_error Value
-	var v_image Value
-	var v_image_raw Value
-	var v_image_url Value
-	var v_image_value Value
-	var v_is_data_url Value
-	var v_is_image Value
-	var v_is_text Value
-	var v_message Value
-	var v_mime Value
-	var v_mime_raw Value
-	var v_mime_snake Value
-	var v_out Value
-	var v_text Value
-	var v_type Value
-	var v_url Value
-	if len(args) > 0 { v_part = args[0] }
-	_ = v_part
-	_ = v_details
-	_ = v_error
-	_ = v_image
-	_ = v_image_raw
-	_ = v_image_url
-	_ = v_image_value
-	_ = v_is_data_url
-	_ = v_is_image
-	_ = v_is_text
-	_ = v_message
-	_ = v_mime
-	_ = v_mime_raw
-	_ = v_mime_snake
-	_ = v_out
-	_ = v_text
-	_ = v_type
-	_ = v_url
-	v_type = coreGet(v_part, "type", nil)
-	v_is_text = _core_eq(v_type, "text")
-	if coreTruthy(v_is_text) {
-		v_text = coreGet(v_part, "text", "")
-		v_out = Object()
-		coreSet(v_out, "type", "text")
-		coreSet(v_out, "text", v_text)
-		panic(coreReturn{value: v_out})
-	} else {
-	// empty
-	}
-	v_is_image = _core_eq(v_type, "image")
-	if coreTruthy(v_is_image) {
-		v_mime_snake = coreGet(v_part, "mime_type", nil)
-		v_mime_raw = coreGet(v_part, "mimeType", v_mime_snake)
-		v_mime = _core_coalesce(v_mime_raw, "image/png")
-		v_image_value = coreGet(v_part, "image", nil)
-		v_image_raw = coreGet(v_part, "data", v_image_value)
-		v_image = _core_coalesce(v_image_raw, "")
-		v_is_data_url = _core_string_starts_with(v_image, "data:")
-		v_url = ""
-		if coreTruthy(v_is_data_url) {
-			v_url = v_image
-		} else {
-			v_url = _core_string_format("data:{};base64,{}", v_mime, v_image)
-		}
-		v_details = coreGet(v_part, "details", "auto")
-		v_image_url = Object()
-		coreSet(v_image_url, "url", v_url)
-		coreSet(v_image_url, "detail", v_details)
-		v_out = Object()
-		coreSet(v_out, "type", "image_url")
-		coreSet(v_out, "image_url", v_image_url)
-		panic(coreReturn{value: v_out})
-	} else {
-	// empty
-	}
-	v_message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", v_type)
-	v_error = _core_ai_error_unsupported(v_message)
-	panic(asAxError(v_error))
 }
 
 func _openai_tool_call_to_provider_impl(args ...Value) (ret Value) {
@@ -14321,364 +14321,6 @@ func _validate_optimization_component_value(args ...Value) (ret Value) {
 	panic(coreReturn{value: true})
 }
 
-func _validate_optimization_component_map(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_components Value
-	var v_component_map Value
-	var v_bad Value
-	var v_component Value
-	var v_component_by_id Value
-	var v_error Value
-	var v_id Value
-	var v_keys Value
-	var v_known Value
-	var v_message Value
-	var v_ok Value
-	var v_value Value
-	if len(args) > 0 { v_components = args[0] }
-	_ = v_components
-	if len(args) > 1 { v_component_map = args[1] }
-	_ = v_component_map
-	_ = v_bad
-	_ = v_component
-	_ = v_component_by_id
-	_ = v_error
-	_ = v_id
-	_ = v_keys
-	_ = v_known
-	_ = v_message
-	_ = v_ok
-	_ = v_value
-	v_known = MutableArray()
-	v_component_by_id = Object()
-	for _, v_component = range coreIter(v_components) {
-		var coreLoopSignal any
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					switch r.(type) {
-					case coreBreak, coreContinue:
-						coreLoopSignal = r
-					default:
-						panic(r)
-					}
-				}
-			}()
-			v_id = coreGet(v_component, "id", "")
-			v_known = coreAppend(v_known, v_id)
-			coreSet(v_component_by_id, v_id, v_component)
-		}()
-		if _, ok := coreLoopSignal.(coreBreak); ok { break }
-		if _, ok := coreLoopSignal.(coreContinue); ok { continue }
-	}
-	v_keys = _core_map_keys(v_component_map)
-	for _, v_id = range coreIter(v_keys) {
-		var coreLoopSignal any
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					switch r.(type) {
-					case coreBreak, coreContinue:
-						coreLoopSignal = r
-					default:
-						panic(r)
-					}
-				}
-			}()
-			v_ok = _core_contains(v_known, v_id)
-			v_bad = _core_not(v_ok)
-			if coreTruthy(v_bad) {
-				v_message = _core_string_format("unknown optimized component id: {}", v_id)
-				v_error = _core_runtime_error(v_message)
-				panic(asAxError(v_error))
-			} else {
-			// empty
-			}
-			v_component = coreGet(v_component_by_id, v_id, nil)
-			v_value = coreGet(v_component_map, v_id, nil)
-			_validate_optimization_component_value(v_component, v_value)
-		}()
-		if _, ok := coreLoopSignal.(coreBreak); ok { break }
-		if _, ok := coreLoopSignal.(coreContinue); ok { continue }
-	}
-	panic(coreReturn{value: true})
-}
-
-func _validate_optimized_artifact_provenance(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_artifact Value
-	var v_components Value
-	var v_actual_owner Value
-	var v_bad_owners Value
-	var v_component Value
-	var v_empty_map Value
-	var v_error Value
-	var v_expected_owner Value
-	var v_has_expected_owner Value
-	var v_id Value
-	var v_message Value
-	var v_owner_ok Value
-	var v_owners Value
-	var v_owners_error Value
-	var v_owners_is_object Value
-	var v_provenance Value
-	var v_stale_owner Value
-	if len(args) > 0 { v_artifact = args[0] }
-	_ = v_artifact
-	if len(args) > 1 { v_components = args[1] }
-	_ = v_components
-	_ = v_actual_owner
-	_ = v_bad_owners
-	_ = v_component
-	_ = v_empty_map
-	_ = v_error
-	_ = v_expected_owner
-	_ = v_has_expected_owner
-	_ = v_id
-	_ = v_message
-	_ = v_owner_ok
-	_ = v_owners
-	_ = v_owners_error
-	_ = v_owners_is_object
-	_ = v_provenance
-	_ = v_stale_owner
-	v_empty_map = Object()
-	v_provenance = coreGet(v_artifact, "provenance", v_empty_map)
-	v_owners = coreGet(v_provenance, "componentOwners", v_empty_map)
-	v_owners_is_object = coreTypeIs(v_owners, "object")
-	v_bad_owners = _core_not(v_owners_is_object)
-	if coreTruthy(v_bad_owners) {
-		v_owners_error = _core_runtime_error("optimized artifact provenance componentOwners must be an object")
-		panic(asAxError(v_owners_error))
-	} else {
-	// empty
-	}
-	for _, v_component = range coreIter(v_components) {
-		var coreLoopSignal any
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					switch r.(type) {
-					case coreBreak, coreContinue:
-						coreLoopSignal = r
-					default:
-						panic(r)
-					}
-				}
-			}()
-			v_id = coreGet(v_component, "id", "")
-			v_expected_owner = coreGet(v_owners, v_id, nil)
-			v_has_expected_owner = _core_is_not_none(v_expected_owner)
-			if coreTruthy(v_has_expected_owner) {
-				v_actual_owner = coreGet(v_component, "owner", "")
-				v_owner_ok = _core_eq(v_expected_owner, v_actual_owner)
-				v_stale_owner = _core_not(v_owner_ok)
-				if coreTruthy(v_stale_owner) {
-					v_message = _core_string_format("stale optimized component owner: {}", v_id)
-					v_error = _core_runtime_error(v_message)
-					panic(asAxError(v_error))
-				} else {
-				// empty
-				}
-			} else {
-			// empty
-			}
-		}()
-		if _, ok := coreLoopSignal.(coreBreak); ok { break }
-		if _, ok := coreLoopSignal.(coreContinue); ok { continue }
-	}
-	panic(coreReturn{value: true})
-}
-
-func _validate_optimized_artifact(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_artifact Value
-	var v_components Value
-	var v_bad_component_map Value
-	var v_bad_evidence Value
-	var v_bad_metadata Value
-	var v_bad_name Value
-	var v_bad_name_type Value
-	var v_bad_optimizer_version Value
-	var v_bad_optimizer_version_type Value
-	var v_bad_provenance Value
-	var v_bad_version Value
-	var v_component_map Value
-	var v_component_map_is_object Value
-	var v_empty_map Value
-	var v_error Value
-	var v_error_map Value
-	var v_error_version Value
-	var v_evidence Value
-	var v_evidence_error Value
-	var v_evidence_is_object Value
-	var v_is_object Value
-	var v_metadata Value
-	var v_metadata_error Value
-	var v_metadata_is_object Value
-	var v_name_empty Value
-	var v_name_error Value
-	var v_name_is_string Value
-	var v_not_object Value
-	var v_optimizer_name Value
-	var v_optimizer_version Value
-	var v_optimizer_version_empty Value
-	var v_optimizer_version_error Value
-	var v_provenance Value
-	var v_provenance_error Value
-	var v_provenance_is_object Value
-	var v_version Value
-	var v_version_is_string Value
-	var v_version_ok Value
-	if len(args) > 0 { v_artifact = args[0] }
-	_ = v_artifact
-	if len(args) > 1 { v_components = args[1] }
-	_ = v_components
-	_ = v_bad_component_map
-	_ = v_bad_evidence
-	_ = v_bad_metadata
-	_ = v_bad_name
-	_ = v_bad_name_type
-	_ = v_bad_optimizer_version
-	_ = v_bad_optimizer_version_type
-	_ = v_bad_provenance
-	_ = v_bad_version
-	_ = v_component_map
-	_ = v_component_map_is_object
-	_ = v_empty_map
-	_ = v_error
-	_ = v_error_map
-	_ = v_error_version
-	_ = v_evidence
-	_ = v_evidence_error
-	_ = v_evidence_is_object
-	_ = v_is_object
-	_ = v_metadata
-	_ = v_metadata_error
-	_ = v_metadata_is_object
-	_ = v_name_empty
-	_ = v_name_error
-	_ = v_name_is_string
-	_ = v_not_object
-	_ = v_optimizer_name
-	_ = v_optimizer_version
-	_ = v_optimizer_version_empty
-	_ = v_optimizer_version_error
-	_ = v_provenance
-	_ = v_provenance_error
-	_ = v_provenance_is_object
-	_ = v_version
-	_ = v_version_is_string
-	_ = v_version_ok
-	v_is_object = coreTypeIs(v_artifact, "object")
-	v_not_object = _core_not(v_is_object)
-	if coreTruthy(v_not_object) {
-		v_error = _core_runtime_error("optimized artifact must be an object")
-		panic(asAxError(v_error))
-	} else {
-	// empty
-	}
-	v_version = coreGet(v_artifact, "artifactVersion", "")
-	v_version_ok = _core_eq(v_version, "axir-optimized-artifact-v1")
-	v_bad_version = _core_not(v_version_ok)
-	if coreTruthy(v_bad_version) {
-		v_error_version = _core_runtime_error("unsupported optimized artifact version")
-		panic(asAxError(v_error_version))
-	} else {
-	// empty
-	}
-	v_optimizer_name = coreGet(v_artifact, "optimizerName", "")
-	v_name_is_string = coreTypeIs(v_optimizer_name, "string")
-	v_name_empty = _core_eq(v_optimizer_name, "")
-	v_bad_name_type = _core_not(v_name_is_string)
-	v_bad_name = _core_or(v_bad_name_type, v_name_empty)
-	if coreTruthy(v_bad_name) {
-		v_name_error = _core_runtime_error("optimized artifact optimizerName must be a non-empty string")
-		panic(asAxError(v_name_error))
-	} else {
-	// empty
-	}
-	v_optimizer_version = coreGet(v_artifact, "optimizerVersion", "")
-	v_version_is_string = coreTypeIs(v_optimizer_version, "string")
-	v_optimizer_version_empty = _core_eq(v_optimizer_version, "")
-	v_bad_optimizer_version_type = _core_not(v_version_is_string)
-	v_bad_optimizer_version = _core_or(v_bad_optimizer_version_type, v_optimizer_version_empty)
-	if coreTruthy(v_bad_optimizer_version) {
-		v_optimizer_version_error = _core_runtime_error("optimized artifact optimizerVersion must be a non-empty string")
-		panic(asAxError(v_optimizer_version_error))
-	} else {
-	// empty
-	}
-	v_empty_map = Object()
-	v_component_map = coreGet(v_artifact, "componentMap", v_empty_map)
-	v_component_map_is_object = coreTypeIs(v_component_map, "object")
-	v_bad_component_map = _core_not(v_component_map_is_object)
-	if coreTruthy(v_bad_component_map) {
-		v_error_map = _core_runtime_error("optimized artifact componentMap must be an object")
-		panic(asAxError(v_error_map))
-	} else {
-	// empty
-	}
-	v_metadata = coreGet(v_artifact, "metadata", nil)
-	v_metadata_is_object = coreTypeIs(v_metadata, "object")
-	v_bad_metadata = _core_not(v_metadata_is_object)
-	if coreTruthy(v_bad_metadata) {
-		v_metadata_error = _core_runtime_error("optimized artifact metadata must be an object")
-		panic(asAxError(v_metadata_error))
-	} else {
-	// empty
-	}
-	v_provenance = coreGet(v_artifact, "provenance", nil)
-	v_provenance_is_object = coreTypeIs(v_provenance, "object")
-	v_bad_provenance = _core_not(v_provenance_is_object)
-	if coreTruthy(v_bad_provenance) {
-		v_provenance_error = _core_runtime_error("optimized artifact provenance must be an object")
-		panic(asAxError(v_provenance_error))
-	} else {
-	// empty
-	}
-	v_evidence = coreGet(v_artifact, "evidence", nil)
-	v_evidence_is_object = coreTypeIs(v_evidence, "object")
-	v_bad_evidence = _core_not(v_evidence_is_object)
-	if coreTruthy(v_bad_evidence) {
-		v_evidence_error = _core_runtime_error("optimized artifact evidence must be an object")
-		panic(asAxError(v_evidence_error))
-	} else {
-	// empty
-	}
-	_validate_optimization_component_map(v_components, v_component_map)
-	_validate_optimized_artifact_provenance(v_artifact, v_components)
-	panic(coreReturn{value: v_artifact})
-}
-
-func _serialize_optimized_artifact(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_artifact Value
-	var v_text Value
-	if len(args) > 0 { v_artifact = args[0] }
-	_ = v_artifact
-	_ = v_text
-	v_text = _core_json_stringify(v_artifact)
-	panic(coreReturn{value: v_text})
-}
-
-func _deserialize_optimized_artifact(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_text Value
-	var v_components Value
-	var v_artifact Value
-	var v_validated Value
-	if len(args) > 0 { v_text = args[0] }
-	_ = v_text
-	if len(args) > 1 { v_components = args[1] }
-	_ = v_components
-	_ = v_artifact
-	_ = v_validated
-	v_artifact = _core_json_parse(v_text)
-	v_validated = _validate_optimized_artifact(v_artifact, v_components)
-	panic(coreReturn{value: v_validated})
-}
-
 func _forward_impl(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_gen Value
@@ -14968,6 +14610,483 @@ func _forward_impl(args ...Value) (ret Value) {
 	panic(AxError{Category: "runtime", Message: "unreachable AxGen forward loop exit"})
 }
 
+func _validate_optimization_component_map(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_components Value
+	var v_component_map Value
+	var v_bad Value
+	var v_component Value
+	var v_component_by_id Value
+	var v_error Value
+	var v_id Value
+	var v_keys Value
+	var v_known Value
+	var v_message Value
+	var v_ok Value
+	var v_value Value
+	if len(args) > 0 { v_components = args[0] }
+	_ = v_components
+	if len(args) > 1 { v_component_map = args[1] }
+	_ = v_component_map
+	_ = v_bad
+	_ = v_component
+	_ = v_component_by_id
+	_ = v_error
+	_ = v_id
+	_ = v_keys
+	_ = v_known
+	_ = v_message
+	_ = v_ok
+	_ = v_value
+	v_known = MutableArray()
+	v_component_by_id = Object()
+	for _, v_component = range coreIter(v_components) {
+		var coreLoopSignal any
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					switch r.(type) {
+					case coreBreak, coreContinue:
+						coreLoopSignal = r
+					default:
+						panic(r)
+					}
+				}
+			}()
+			v_id = coreGet(v_component, "id", "")
+			v_known = coreAppend(v_known, v_id)
+			coreSet(v_component_by_id, v_id, v_component)
+		}()
+		if _, ok := coreLoopSignal.(coreBreak); ok { break }
+		if _, ok := coreLoopSignal.(coreContinue); ok { continue }
+	}
+	v_keys = _core_map_keys(v_component_map)
+	for _, v_id = range coreIter(v_keys) {
+		var coreLoopSignal any
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					switch r.(type) {
+					case coreBreak, coreContinue:
+						coreLoopSignal = r
+					default:
+						panic(r)
+					}
+				}
+			}()
+			v_ok = _core_contains(v_known, v_id)
+			v_bad = _core_not(v_ok)
+			if coreTruthy(v_bad) {
+				v_message = _core_string_format("unknown optimized component id: {}", v_id)
+				v_error = _core_runtime_error(v_message)
+				panic(asAxError(v_error))
+			} else {
+			// empty
+			}
+			v_component = coreGet(v_component_by_id, v_id, nil)
+			v_value = coreGet(v_component_map, v_id, nil)
+			_validate_optimization_component_value(v_component, v_value)
+		}()
+		if _, ok := coreLoopSignal.(coreBreak); ok { break }
+		if _, ok := coreLoopSignal.(coreContinue); ok { continue }
+	}
+	panic(coreReturn{value: true})
+}
+
+func _validate_optimized_artifact_provenance(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_artifact Value
+	var v_components Value
+	var v_actual_owner Value
+	var v_bad_owners Value
+	var v_component Value
+	var v_empty_map Value
+	var v_error Value
+	var v_expected_owner Value
+	var v_has_expected_owner Value
+	var v_id Value
+	var v_message Value
+	var v_owner_ok Value
+	var v_owners Value
+	var v_owners_error Value
+	var v_owners_is_object Value
+	var v_provenance Value
+	var v_stale_owner Value
+	if len(args) > 0 { v_artifact = args[0] }
+	_ = v_artifact
+	if len(args) > 1 { v_components = args[1] }
+	_ = v_components
+	_ = v_actual_owner
+	_ = v_bad_owners
+	_ = v_component
+	_ = v_empty_map
+	_ = v_error
+	_ = v_expected_owner
+	_ = v_has_expected_owner
+	_ = v_id
+	_ = v_message
+	_ = v_owner_ok
+	_ = v_owners
+	_ = v_owners_error
+	_ = v_owners_is_object
+	_ = v_provenance
+	_ = v_stale_owner
+	v_empty_map = Object()
+	v_provenance = coreGet(v_artifact, "provenance", v_empty_map)
+	v_owners = coreGet(v_provenance, "componentOwners", v_empty_map)
+	v_owners_is_object = coreTypeIs(v_owners, "object")
+	v_bad_owners = _core_not(v_owners_is_object)
+	if coreTruthy(v_bad_owners) {
+		v_owners_error = _core_runtime_error("optimized artifact provenance componentOwners must be an object")
+		panic(asAxError(v_owners_error))
+	} else {
+	// empty
+	}
+	for _, v_component = range coreIter(v_components) {
+		var coreLoopSignal any
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					switch r.(type) {
+					case coreBreak, coreContinue:
+						coreLoopSignal = r
+					default:
+						panic(r)
+					}
+				}
+			}()
+			v_id = coreGet(v_component, "id", "")
+			v_expected_owner = coreGet(v_owners, v_id, nil)
+			v_has_expected_owner = _core_is_not_none(v_expected_owner)
+			if coreTruthy(v_has_expected_owner) {
+				v_actual_owner = coreGet(v_component, "owner", "")
+				v_owner_ok = _core_eq(v_expected_owner, v_actual_owner)
+				v_stale_owner = _core_not(v_owner_ok)
+				if coreTruthy(v_stale_owner) {
+					v_message = _core_string_format("stale optimized component owner: {}", v_id)
+					v_error = _core_runtime_error(v_message)
+					panic(asAxError(v_error))
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}()
+		if _, ok := coreLoopSignal.(coreBreak); ok { break }
+		if _, ok := coreLoopSignal.(coreContinue); ok { continue }
+	}
+	panic(coreReturn{value: true})
+}
+
+func _set_examples(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_gen Value
+	var v_examples Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_examples = args[1] }
+	_ = v_examples
+	coreSet(v_gen, "examples", v_examples)
+	panic(coreReturn{value: v_gen})
+}
+
+func _validate_optimized_artifact(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_artifact Value
+	var v_components Value
+	var v_bad_component_map Value
+	var v_bad_evidence Value
+	var v_bad_metadata Value
+	var v_bad_name Value
+	var v_bad_name_type Value
+	var v_bad_optimizer_version Value
+	var v_bad_optimizer_version_type Value
+	var v_bad_provenance Value
+	var v_bad_version Value
+	var v_component_map Value
+	var v_component_map_is_object Value
+	var v_empty_map Value
+	var v_error Value
+	var v_error_map Value
+	var v_error_version Value
+	var v_evidence Value
+	var v_evidence_error Value
+	var v_evidence_is_object Value
+	var v_is_object Value
+	var v_metadata Value
+	var v_metadata_error Value
+	var v_metadata_is_object Value
+	var v_name_empty Value
+	var v_name_error Value
+	var v_name_is_string Value
+	var v_not_object Value
+	var v_optimizer_name Value
+	var v_optimizer_version Value
+	var v_optimizer_version_empty Value
+	var v_optimizer_version_error Value
+	var v_provenance Value
+	var v_provenance_error Value
+	var v_provenance_is_object Value
+	var v_version Value
+	var v_version_is_string Value
+	var v_version_ok Value
+	if len(args) > 0 { v_artifact = args[0] }
+	_ = v_artifact
+	if len(args) > 1 { v_components = args[1] }
+	_ = v_components
+	_ = v_bad_component_map
+	_ = v_bad_evidence
+	_ = v_bad_metadata
+	_ = v_bad_name
+	_ = v_bad_name_type
+	_ = v_bad_optimizer_version
+	_ = v_bad_optimizer_version_type
+	_ = v_bad_provenance
+	_ = v_bad_version
+	_ = v_component_map
+	_ = v_component_map_is_object
+	_ = v_empty_map
+	_ = v_error
+	_ = v_error_map
+	_ = v_error_version
+	_ = v_evidence
+	_ = v_evidence_error
+	_ = v_evidence_is_object
+	_ = v_is_object
+	_ = v_metadata
+	_ = v_metadata_error
+	_ = v_metadata_is_object
+	_ = v_name_empty
+	_ = v_name_error
+	_ = v_name_is_string
+	_ = v_not_object
+	_ = v_optimizer_name
+	_ = v_optimizer_version
+	_ = v_optimizer_version_empty
+	_ = v_optimizer_version_error
+	_ = v_provenance
+	_ = v_provenance_error
+	_ = v_provenance_is_object
+	_ = v_version
+	_ = v_version_is_string
+	_ = v_version_ok
+	v_is_object = coreTypeIs(v_artifact, "object")
+	v_not_object = _core_not(v_is_object)
+	if coreTruthy(v_not_object) {
+		v_error = _core_runtime_error("optimized artifact must be an object")
+		panic(asAxError(v_error))
+	} else {
+	// empty
+	}
+	v_version = coreGet(v_artifact, "artifactVersion", "")
+	v_version_ok = _core_eq(v_version, "axir-optimized-artifact-v1")
+	v_bad_version = _core_not(v_version_ok)
+	if coreTruthy(v_bad_version) {
+		v_error_version = _core_runtime_error("unsupported optimized artifact version")
+		panic(asAxError(v_error_version))
+	} else {
+	// empty
+	}
+	v_optimizer_name = coreGet(v_artifact, "optimizerName", "")
+	v_name_is_string = coreTypeIs(v_optimizer_name, "string")
+	v_name_empty = _core_eq(v_optimizer_name, "")
+	v_bad_name_type = _core_not(v_name_is_string)
+	v_bad_name = _core_or(v_bad_name_type, v_name_empty)
+	if coreTruthy(v_bad_name) {
+		v_name_error = _core_runtime_error("optimized artifact optimizerName must be a non-empty string")
+		panic(asAxError(v_name_error))
+	} else {
+	// empty
+	}
+	v_optimizer_version = coreGet(v_artifact, "optimizerVersion", "")
+	v_version_is_string = coreTypeIs(v_optimizer_version, "string")
+	v_optimizer_version_empty = _core_eq(v_optimizer_version, "")
+	v_bad_optimizer_version_type = _core_not(v_version_is_string)
+	v_bad_optimizer_version = _core_or(v_bad_optimizer_version_type, v_optimizer_version_empty)
+	if coreTruthy(v_bad_optimizer_version) {
+		v_optimizer_version_error = _core_runtime_error("optimized artifact optimizerVersion must be a non-empty string")
+		panic(asAxError(v_optimizer_version_error))
+	} else {
+	// empty
+	}
+	v_empty_map = Object()
+	v_component_map = coreGet(v_artifact, "componentMap", v_empty_map)
+	v_component_map_is_object = coreTypeIs(v_component_map, "object")
+	v_bad_component_map = _core_not(v_component_map_is_object)
+	if coreTruthy(v_bad_component_map) {
+		v_error_map = _core_runtime_error("optimized artifact componentMap must be an object")
+		panic(asAxError(v_error_map))
+	} else {
+	// empty
+	}
+	v_metadata = coreGet(v_artifact, "metadata", nil)
+	v_metadata_is_object = coreTypeIs(v_metadata, "object")
+	v_bad_metadata = _core_not(v_metadata_is_object)
+	if coreTruthy(v_bad_metadata) {
+		v_metadata_error = _core_runtime_error("optimized artifact metadata must be an object")
+		panic(asAxError(v_metadata_error))
+	} else {
+	// empty
+	}
+	v_provenance = coreGet(v_artifact, "provenance", nil)
+	v_provenance_is_object = coreTypeIs(v_provenance, "object")
+	v_bad_provenance = _core_not(v_provenance_is_object)
+	if coreTruthy(v_bad_provenance) {
+		v_provenance_error = _core_runtime_error("optimized artifact provenance must be an object")
+		panic(asAxError(v_provenance_error))
+	} else {
+	// empty
+	}
+	v_evidence = coreGet(v_artifact, "evidence", nil)
+	v_evidence_is_object = coreTypeIs(v_evidence, "object")
+	v_bad_evidence = _core_not(v_evidence_is_object)
+	if coreTruthy(v_bad_evidence) {
+		v_evidence_error = _core_runtime_error("optimized artifact evidence must be an object")
+		panic(asAxError(v_evidence_error))
+	} else {
+	// empty
+	}
+	_validate_optimization_component_map(v_components, v_component_map)
+	_validate_optimized_artifact_provenance(v_artifact, v_components)
+	panic(coreReturn{value: v_artifact})
+}
+
+func _set_demos(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_gen Value
+	var v_demos Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_demos = args[1] }
+	_ = v_demos
+	coreSet(v_gen, "demos", v_demos)
+	panic(coreReturn{value: v_gen})
+}
+
+func _render_examples(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_gen Value
+	var v_messages Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	_ = v_messages
+	v_messages = _core_axgen_render_examples(v_gen)
+	panic(coreReturn{value: v_messages})
+}
+
+func _render_demos(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_gen Value
+	var v_messages Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	_ = v_messages
+	v_messages = _core_axgen_render_demos(v_gen)
+	panic(coreReturn{value: v_messages})
+}
+
+func _apply_field_processors(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_gen Value
+	var v_output Value
+	var v_processed Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_output = args[1] }
+	_ = v_output
+	_ = v_processed
+	v_processed = _core_axgen_apply_field_processors(v_gen, v_output)
+	panic(coreReturn{value: v_processed})
+}
+
+func _run_assertions(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_gen Value
+	var v_output Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_output = args[1] }
+	_ = v_output
+	_core_axgen_run_assertions(v_gen, v_output)
+	panic(coreReturn{value: nil})
+}
+
+func _append_assertion_retry_messages(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_messages Value
+	var v_response Value
+	var v_error Value
+	if len(args) > 0 { v_messages = args[0] }
+	_ = v_messages
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	if len(args) > 2 { v_error = args[2] }
+	_ = v_error
+	_append_validation_retry_messages_impl(v_messages, v_response, v_error)
+	panic(coreReturn{value: nil})
+}
+
+func _serialize_optimized_artifact(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_artifact Value
+	var v_text Value
+	if len(args) > 0 { v_artifact = args[0] }
+	_ = v_artifact
+	_ = v_text
+	v_text = _core_json_stringify(v_artifact)
+	panic(coreReturn{value: v_text})
+}
+
+func _record_trace(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_gen Value
+	var v_input Value
+	var v_output Value
+	var v_status Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_input = args[1] }
+	_ = v_input
+	if len(args) > 2 { v_output = args[2] }
+	_ = v_output
+	if len(args) > 3 { v_status = args[3] }
+	_ = v_status
+	_core_axgen_record_trace(v_gen, v_input, v_output, v_status)
+	panic(coreReturn{value: nil})
+}
+
+func _deserialize_optimized_artifact(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_text Value
+	var v_components Value
+	var v_artifact Value
+	var v_validated Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	if len(args) > 1 { v_components = args[1] }
+	_ = v_components
+	_ = v_artifact
+	_ = v_validated
+	v_artifact = _core_json_parse(v_text)
+	v_validated = _validate_optimized_artifact(v_artifact, v_components)
+	panic(coreReturn{value: v_validated})
+}
+
+func _should_continue_steps(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_gen Value
+	var v_calls Value
+	var v_should_continue Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_calls = args[1] }
+	_ = v_calls
+	_ = v_should_continue
+	v_should_continue = _core_axgen_should_continue_steps(v_gen, v_calls)
+	panic(coreReturn{value: v_should_continue})
+}
+
 func _optimization_changed_components(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_components Value
@@ -15027,6 +15146,82 @@ func _optimization_changed_components(args ...Value) (ret Value) {
 	panic(coreReturn{value: v_changes})
 }
 
+func _complete_with_retries_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_client Value
+	var v_request Value
+	var v_retries Value
+	var v_attempt Value
+	var v_error Value
+	var v_exhausted Value
+	var v_last_error Value
+	var v_next_attempt Value
+	var v_response Value
+	if len(args) > 0 { v_client = args[0] }
+	_ = v_client
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_retries = args[2] }
+	_ = v_retries
+	_ = v_attempt
+	_ = v_error
+	_ = v_exhausted
+	_ = v_last_error
+	_ = v_next_attempt
+	_ = v_response
+	v_attempt = 0
+	v_last_error = _core_none()
+	for {
+		var coreLoopSignal any
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					switch r.(type) {
+					case coreBreak, coreContinue:
+						coreLoopSignal = r
+					default:
+						panic(r)
+					}
+				}
+			}()
+			func() {
+				var coreCaught any
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							switch r.(type) {
+							case coreReturn, coreBreak, coreContinue:
+								panic(r)
+							default:
+								coreCaught = r
+							}
+						}
+					}()
+					v_response = _core_ai_complete_once(v_client, v_request)
+					panic(coreReturn{value: v_response})
+				}()
+				if coreCaught != nil {
+					v_error = errorValue(coreCaught)
+					v_last_error = v_error
+					v_exhausted = _core_gte(v_attempt, v_retries)
+					if coreTruthy(v_exhausted) {
+						panic(asAxError(v_error))
+					} else {
+					// empty
+					}
+					_core_retry_sleep(v_attempt)
+					v_next_attempt = _core_add(v_attempt, 1)
+					v_attempt = v_next_attempt
+					panic(coreContinue{})
+				}
+			}()
+		}()
+		if _, ok := coreLoopSignal.(coreBreak); ok { break }
+		if _, ok := coreLoopSignal.(coreContinue); ok { continue }
+	}
+	panic(asAxError(v_last_error))
+}
+
 func _optimization_component_current_map(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_components Value
@@ -15064,6 +15259,20 @@ func _optimization_component_current_map(args ...Value) (ret Value) {
 	panic(coreReturn{value: v_out})
 }
 
+func _parse_output_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_content Value
+	var v_output Value
+	var v_text Value
+	if len(args) > 0 { v_content = args[0] }
+	_ = v_content
+	_ = v_output
+	_ = v_text
+	v_text = coreStringTrim(v_content)
+	v_output = _core_json_parse(v_text)
+	panic(coreReturn{value: v_output})
+}
+
 func _normalize_optimization_dataset(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_dataset Value
@@ -15099,6 +15308,29 @@ func _normalize_optimization_dataset(args ...Value) (ret Value) {
 	panic(coreReturn{value: v_out_list})
 }
 
+func _tool_spec_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_fn Value
+	var v_description Value
+	var v_name Value
+	var v_parameters Value
+	var v_spec Value
+	if len(args) > 0 { v_fn = args[0] }
+	_ = v_fn
+	_ = v_description
+	_ = v_name
+	_ = v_parameters
+	_ = v_spec
+	v_spec = Object()
+	v_name = coreGet(v_fn, "name", nil)
+	v_description = coreGet(v_fn, "description", nil)
+	v_parameters = coreGet(v_fn, "parameters", nil)
+	coreSet(v_spec, "name", v_name)
+	coreSet(v_spec, "description", v_description)
+	coreSet(v_spec, "parameters", v_parameters)
+	panic(coreReturn{value: v_spec})
+}
+
 func _normalize_optimization_metric_scores(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_raw Value
@@ -15129,6 +15361,44 @@ func _normalize_optimization_metric_scores(args ...Value) (ret Value) {
 	v_out_zero = Object()
 	coreSet(v_out_zero, "score", 0)
 	panic(coreReturn{value: v_out_zero})
+}
+
+func _function_call_mode_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_mode Value
+	var v_is_auto Value
+	var v_is_native Value
+	var v_is_prompt Value
+	var v_missing Value
+	var v_native_or_auto Value
+	if len(args) > 0 { v_mode = args[0] }
+	_ = v_mode
+	_ = v_is_auto
+	_ = v_is_native
+	_ = v_is_prompt
+	_ = v_missing
+	_ = v_native_or_auto
+	v_missing = _core_is_none(v_mode)
+	if coreTruthy(v_missing) {
+		panic(coreReturn{value: "auto"})
+	} else {
+	// empty
+	}
+	v_is_native = _core_eq(v_mode, "native")
+	v_is_auto = _core_eq(v_mode, "auto")
+	v_native_or_auto = _core_or(v_is_native, v_is_auto)
+	if coreTruthy(v_native_or_auto) {
+		panic(coreReturn{value: "auto"})
+	} else {
+	// empty
+	}
+	v_is_prompt = _core_eq(v_mode, "prompt")
+	if coreTruthy(v_is_prompt) {
+		panic(coreReturn{value: "none"})
+	} else {
+	// empty
+	}
+	panic(coreReturn{value: v_mode})
 }
 
 func _scalarize_optimization_scores(args ...Value) (ret Value) {
@@ -15203,6 +15473,70 @@ func _scalarize_optimization_scores(args ...Value) (ret Value) {
 	panic(coreReturn{value: v_avg})
 }
 
+func _response_function_calls_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_response Value
+	var v_calls Value
+	var v_empty Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	_ = v_calls
+	_ = v_empty
+	v_empty = MutableArray()
+	v_calls = coreGet(v_response, "function_calls", v_empty)
+	panic(coreReturn{value: v_calls})
+}
+
+func _append_tool_call_messages_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_messages Value
+	var v_response Value
+	var v_calls Value
+	var v_call Value
+	var v_chat_call Value
+	var v_chat_calls Value
+	var v_content Value
+	var v_message Value
+	if len(args) > 0 { v_messages = args[0] }
+	_ = v_messages
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	if len(args) > 2 { v_calls = args[2] }
+	_ = v_calls
+	_ = v_call
+	_ = v_chat_call
+	_ = v_chat_calls
+	_ = v_content
+	_ = v_message
+	v_chat_calls = MutableArray()
+	for _, v_call = range coreIter(v_calls) {
+		var coreLoopSignal any
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					switch r.(type) {
+					case coreBreak, coreContinue:
+						coreLoopSignal = r
+					default:
+						panic(r)
+					}
+				}
+			}()
+			v_chat_call = _completion_call_to_chat_impl(v_call)
+			v_chat_calls = coreAppend(v_chat_calls, v_chat_call)
+		}()
+		if _, ok := coreLoopSignal.(coreBreak); ok { break }
+		if _, ok := coreLoopSignal.(coreContinue); ok { continue }
+	}
+	v_content = coreGet(v_response, "content", "")
+	v_message = Object()
+	coreSet(v_message, "role", "assistant")
+	coreSet(v_message, "content", v_content)
+	coreSet(v_message, "function_calls", v_chat_calls)
+	v_messages = coreAppend(v_messages, v_message)
+	panic(coreReturn{value: nil})
+}
+
 func _optimization_action_name_matches(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_expected Value
@@ -15236,6 +15570,34 @@ func _optimization_action_name_matches(args ...Value) (ret Value) {
 	v_direct_match = _core_or(v_qualified_match, v_name_match)
 	v_any_match = _core_or(v_direct_match, v_suffix_match)
 	panic(coreReturn{value: v_any_match})
+}
+
+func _completion_call_to_chat_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_call Value
+	var v_function Value
+	var v_id Value
+	var v_name Value
+	var v_out Value
+	var v_params Value
+	if len(args) > 0 { v_call = args[0] }
+	_ = v_call
+	_ = v_function
+	_ = v_id
+	_ = v_name
+	_ = v_out
+	_ = v_params
+	v_id = coreGet(v_call, "id", nil)
+	v_name = coreGet(v_call, "name", nil)
+	v_params = coreGet(v_call, "params", nil)
+	v_function = Object()
+	coreSet(v_function, "name", v_name)
+	coreSet(v_function, "params", v_params)
+	v_out = Object()
+	coreSet(v_out, "id", v_id)
+	coreSet(v_out, "type", "function")
+	coreSet(v_out, "function", v_function)
+	panic(coreReturn{value: v_out})
 }
 
 func _adjust_optimization_score_for_actions(args ...Value) (ret Value) {
@@ -15403,6 +15765,98 @@ func _adjust_optimization_score_for_actions(args ...Value) (ret Value) {
 		if _, ok := coreLoopSignal.(coreContinue); ok { continue }
 	}
 	panic(coreReturn{value: v_adjusted})
+}
+
+func _tool_result_message_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_call Value
+	var v_result Value
+	var v_id Value
+	var v_message Value
+	var v_result_json Value
+	if len(args) > 0 { v_call = args[0] }
+	_ = v_call
+	if len(args) > 1 { v_result = args[1] }
+	_ = v_result
+	_ = v_id
+	_ = v_message
+	_ = v_result_json
+	v_id = coreGet(v_call, "id", nil)
+	v_result_json = _core_json_stringify(v_result)
+	v_message = Object()
+	coreSet(v_message, "role", "function")
+	coreSet(v_message, "function_id", v_id)
+	coreSet(v_message, "result", v_result_json)
+	panic(coreReturn{value: v_message})
+}
+
+func _tool_error_message_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_call Value
+	var v_error Value
+	var v_error_text Value
+	var v_id Value
+	var v_message Value
+	var v_payload Value
+	var v_payload_json Value
+	if len(args) > 0 { v_call = args[0] }
+	_ = v_call
+	if len(args) > 1 { v_error = args[1] }
+	_ = v_error
+	_ = v_error_text
+	_ = v_id
+	_ = v_message
+	_ = v_payload
+	_ = v_payload_json
+	v_id = coreGet(v_call, "id", nil)
+	v_error_text = _core_exception_message(v_error)
+	v_payload = Object()
+	coreSet(v_payload, "error", v_error_text)
+	v_payload_json = _core_json_stringify(v_payload)
+	v_message = Object()
+	coreSet(v_message, "role", "function")
+	coreSet(v_message, "function_id", v_id)
+	coreSet(v_message, "result", v_payload_json)
+	coreSet(v_message, "is_error", true)
+	panic(coreReturn{value: v_message})
+}
+
+func _append_validation_retry_messages_impl(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_messages Value
+	var v_response Value
+	var v_error Value
+	var v_assistant_message Value
+	var v_content Value
+	var v_error_text Value
+	var v_prefix_message Value
+	var v_retry_content Value
+	var v_retry_message Value
+	if len(args) > 0 { v_messages = args[0] }
+	_ = v_messages
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	if len(args) > 2 { v_error = args[2] }
+	_ = v_error
+	_ = v_assistant_message
+	_ = v_content
+	_ = v_error_text
+	_ = v_prefix_message
+	_ = v_retry_content
+	_ = v_retry_message
+	v_content = coreGet(v_response, "content", "")
+	v_assistant_message = Object()
+	coreSet(v_assistant_message, "role", "assistant")
+	coreSet(v_assistant_message, "content", v_content)
+	v_messages = coreAppend(v_messages, v_assistant_message)
+	v_error_text = _core_exception_message(v_error)
+	v_prefix_message = _core_add("The previous response failed validation: ", v_error_text)
+	v_retry_content = _core_add(v_prefix_message, ". Return only corrected JSON.")
+	v_retry_message = Object()
+	coreSet(v_retry_message, "role", "user")
+	coreSet(v_retry_message, "content", v_retry_content)
+	v_messages = coreAppend(v_messages, v_retry_message)
+	panic(coreReturn{value: nil})
 }
 
 func _build_optimization_eval_row(args ...Value) (ret Value) {
@@ -15710,18 +16164,6 @@ func _build_optimizer_request(args ...Value) (ret Value) {
 	panic(coreReturn{value: v_out})
 }
 
-func _set_examples(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_gen Value
-	var v_examples Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_examples = args[1] }
-	_ = v_examples
-	coreSet(v_gen, "examples", v_examples)
-	panic(coreReturn{value: v_gen})
-}
-
 func _prepare_optimizer_run(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_program_kind Value
@@ -15789,29 +16231,6 @@ func _prepare_optimizer_run(args ...Value) (ret Value) {
 	coreSet(v_out, "options", v_request_options)
 	coreSet(v_out, "request", v_request)
 	panic(coreReturn{value: v_out})
-}
-
-func _set_demos(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_gen Value
-	var v_demos Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_demos = args[1] }
-	_ = v_demos
-	coreSet(v_gen, "demos", v_demos)
-	panic(coreReturn{value: v_gen})
-}
-
-func _render_examples(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_gen Value
-	var v_messages Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	_ = v_messages
-	v_messages = _core_axgen_render_examples(v_gen)
-	panic(coreReturn{value: v_messages})
 }
 
 func _normalize_optimizer_engine_response(args ...Value) (ret Value) {
@@ -15985,76 +16404,6 @@ func _normalize_optimizer_engine_response(args ...Value) (ret Value) {
 	v_changed = _optimization_changed_components(v_components, v_map)
 	coreSet(v_validated, "changedComponents", v_changed)
 	panic(coreReturn{value: v_validated})
-}
-
-func _render_demos(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_gen Value
-	var v_messages Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	_ = v_messages
-	v_messages = _core_axgen_render_demos(v_gen)
-	panic(coreReturn{value: v_messages})
-}
-
-func _apply_field_processors(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_gen Value
-	var v_output Value
-	var v_processed Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_output = args[1] }
-	_ = v_output
-	_ = v_processed
-	v_processed = _core_axgen_apply_field_processors(v_gen, v_output)
-	panic(coreReturn{value: v_processed})
-}
-
-func _run_assertions(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_gen Value
-	var v_output Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_output = args[1] }
-	_ = v_output
-	_core_axgen_run_assertions(v_gen, v_output)
-	panic(coreReturn{value: nil})
-}
-
-func _append_assertion_retry_messages(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_messages Value
-	var v_response Value
-	var v_error Value
-	if len(args) > 0 { v_messages = args[0] }
-	_ = v_messages
-	if len(args) > 1 { v_response = args[1] }
-	_ = v_response
-	if len(args) > 2 { v_error = args[2] }
-	_ = v_error
-	_append_validation_retry_messages_impl(v_messages, v_response, v_error)
-	panic(coreReturn{value: nil})
-}
-
-func _record_trace(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_gen Value
-	var v_input Value
-	var v_output Value
-	var v_status Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_input = args[1] }
-	_ = v_input
-	if len(args) > 2 { v_output = args[2] }
-	_ = v_output
-	if len(args) > 3 { v_status = args[3] }
-	_ = v_status
-	_core_axgen_record_trace(v_gen, v_input, v_output, v_status)
-	panic(coreReturn{value: nil})
 }
 
 func _build_optimizer_evidence_batch(args ...Value) (ret Value) {
@@ -16235,355 +16584,6 @@ func _build_optimizer_evidence_batch(args ...Value) (ret Value) {
 	coreSet(v_out, "count", v_count)
 	coreSet(v_out, "reflectiveDataset", v_reflective)
 	panic(coreReturn{value: v_out})
-}
-
-func _should_continue_steps(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_gen Value
-	var v_calls Value
-	var v_should_continue Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_calls = args[1] }
-	_ = v_calls
-	_ = v_should_continue
-	v_should_continue = _core_axgen_should_continue_steps(v_gen, v_calls)
-	panic(coreReturn{value: v_should_continue})
-}
-
-func _complete_with_retries_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_client Value
-	var v_request Value
-	var v_retries Value
-	var v_attempt Value
-	var v_error Value
-	var v_exhausted Value
-	var v_last_error Value
-	var v_next_attempt Value
-	var v_response Value
-	if len(args) > 0 { v_client = args[0] }
-	_ = v_client
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_retries = args[2] }
-	_ = v_retries
-	_ = v_attempt
-	_ = v_error
-	_ = v_exhausted
-	_ = v_last_error
-	_ = v_next_attempt
-	_ = v_response
-	v_attempt = 0
-	v_last_error = _core_none()
-	for {
-		var coreLoopSignal any
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					switch r.(type) {
-					case coreBreak, coreContinue:
-						coreLoopSignal = r
-					default:
-						panic(r)
-					}
-				}
-			}()
-			func() {
-				var coreCaught any
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							switch r.(type) {
-							case coreReturn, coreBreak, coreContinue:
-								panic(r)
-							default:
-								coreCaught = r
-							}
-						}
-					}()
-					v_response = _core_ai_complete_once(v_client, v_request)
-					panic(coreReturn{value: v_response})
-				}()
-				if coreCaught != nil {
-					v_error = errorValue(coreCaught)
-					v_last_error = v_error
-					v_exhausted = _core_gte(v_attempt, v_retries)
-					if coreTruthy(v_exhausted) {
-						panic(asAxError(v_error))
-					} else {
-					// empty
-					}
-					_core_retry_sleep(v_attempt)
-					v_next_attempt = _core_add(v_attempt, 1)
-					v_attempt = v_next_attempt
-					panic(coreContinue{})
-				}
-			}()
-		}()
-		if _, ok := coreLoopSignal.(coreBreak); ok { break }
-		if _, ok := coreLoopSignal.(coreContinue); ok { continue }
-	}
-	panic(asAxError(v_last_error))
-}
-
-func _parse_output_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_content Value
-	var v_output Value
-	var v_text Value
-	if len(args) > 0 { v_content = args[0] }
-	_ = v_content
-	_ = v_output
-	_ = v_text
-	v_text = coreStringTrim(v_content)
-	v_output = _core_json_parse(v_text)
-	panic(coreReturn{value: v_output})
-}
-
-func _tool_spec_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_fn Value
-	var v_description Value
-	var v_name Value
-	var v_parameters Value
-	var v_spec Value
-	if len(args) > 0 { v_fn = args[0] }
-	_ = v_fn
-	_ = v_description
-	_ = v_name
-	_ = v_parameters
-	_ = v_spec
-	v_spec = Object()
-	v_name = coreGet(v_fn, "name", nil)
-	v_description = coreGet(v_fn, "description", nil)
-	v_parameters = coreGet(v_fn, "parameters", nil)
-	coreSet(v_spec, "name", v_name)
-	coreSet(v_spec, "description", v_description)
-	coreSet(v_spec, "parameters", v_parameters)
-	panic(coreReturn{value: v_spec})
-}
-
-func _function_call_mode_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_mode Value
-	var v_is_auto Value
-	var v_is_native Value
-	var v_is_prompt Value
-	var v_missing Value
-	var v_native_or_auto Value
-	if len(args) > 0 { v_mode = args[0] }
-	_ = v_mode
-	_ = v_is_auto
-	_ = v_is_native
-	_ = v_is_prompt
-	_ = v_missing
-	_ = v_native_or_auto
-	v_missing = _core_is_none(v_mode)
-	if coreTruthy(v_missing) {
-		panic(coreReturn{value: "auto"})
-	} else {
-	// empty
-	}
-	v_is_native = _core_eq(v_mode, "native")
-	v_is_auto = _core_eq(v_mode, "auto")
-	v_native_or_auto = _core_or(v_is_native, v_is_auto)
-	if coreTruthy(v_native_or_auto) {
-		panic(coreReturn{value: "auto"})
-	} else {
-	// empty
-	}
-	v_is_prompt = _core_eq(v_mode, "prompt")
-	if coreTruthy(v_is_prompt) {
-		panic(coreReturn{value: "none"})
-	} else {
-	// empty
-	}
-	panic(coreReturn{value: v_mode})
-}
-
-func _response_function_calls_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_response Value
-	var v_calls Value
-	var v_empty Value
-	if len(args) > 0 { v_response = args[0] }
-	_ = v_response
-	_ = v_calls
-	_ = v_empty
-	v_empty = MutableArray()
-	v_calls = coreGet(v_response, "function_calls", v_empty)
-	panic(coreReturn{value: v_calls})
-}
-
-func _append_tool_call_messages_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_messages Value
-	var v_response Value
-	var v_calls Value
-	var v_call Value
-	var v_chat_call Value
-	var v_chat_calls Value
-	var v_content Value
-	var v_message Value
-	if len(args) > 0 { v_messages = args[0] }
-	_ = v_messages
-	if len(args) > 1 { v_response = args[1] }
-	_ = v_response
-	if len(args) > 2 { v_calls = args[2] }
-	_ = v_calls
-	_ = v_call
-	_ = v_chat_call
-	_ = v_chat_calls
-	_ = v_content
-	_ = v_message
-	v_chat_calls = MutableArray()
-	for _, v_call = range coreIter(v_calls) {
-		var coreLoopSignal any
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					switch r.(type) {
-					case coreBreak, coreContinue:
-						coreLoopSignal = r
-					default:
-						panic(r)
-					}
-				}
-			}()
-			v_chat_call = _completion_call_to_chat_impl(v_call)
-			v_chat_calls = coreAppend(v_chat_calls, v_chat_call)
-		}()
-		if _, ok := coreLoopSignal.(coreBreak); ok { break }
-		if _, ok := coreLoopSignal.(coreContinue); ok { continue }
-	}
-	v_content = coreGet(v_response, "content", "")
-	v_message = Object()
-	coreSet(v_message, "role", "assistant")
-	coreSet(v_message, "content", v_content)
-	coreSet(v_message, "function_calls", v_chat_calls)
-	v_messages = coreAppend(v_messages, v_message)
-	panic(coreReturn{value: nil})
-}
-
-func _completion_call_to_chat_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_call Value
-	var v_function Value
-	var v_id Value
-	var v_name Value
-	var v_out Value
-	var v_params Value
-	if len(args) > 0 { v_call = args[0] }
-	_ = v_call
-	_ = v_function
-	_ = v_id
-	_ = v_name
-	_ = v_out
-	_ = v_params
-	v_id = coreGet(v_call, "id", nil)
-	v_name = coreGet(v_call, "name", nil)
-	v_params = coreGet(v_call, "params", nil)
-	v_function = Object()
-	coreSet(v_function, "name", v_name)
-	coreSet(v_function, "params", v_params)
-	v_out = Object()
-	coreSet(v_out, "id", v_id)
-	coreSet(v_out, "type", "function")
-	coreSet(v_out, "function", v_function)
-	panic(coreReturn{value: v_out})
-}
-
-func _tool_result_message_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_call Value
-	var v_result Value
-	var v_id Value
-	var v_message Value
-	var v_result_json Value
-	if len(args) > 0 { v_call = args[0] }
-	_ = v_call
-	if len(args) > 1 { v_result = args[1] }
-	_ = v_result
-	_ = v_id
-	_ = v_message
-	_ = v_result_json
-	v_id = coreGet(v_call, "id", nil)
-	v_result_json = _core_json_stringify(v_result)
-	v_message = Object()
-	coreSet(v_message, "role", "function")
-	coreSet(v_message, "function_id", v_id)
-	coreSet(v_message, "result", v_result_json)
-	panic(coreReturn{value: v_message})
-}
-
-func _tool_error_message_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_call Value
-	var v_error Value
-	var v_error_text Value
-	var v_id Value
-	var v_message Value
-	var v_payload Value
-	var v_payload_json Value
-	if len(args) > 0 { v_call = args[0] }
-	_ = v_call
-	if len(args) > 1 { v_error = args[1] }
-	_ = v_error
-	_ = v_error_text
-	_ = v_id
-	_ = v_message
-	_ = v_payload
-	_ = v_payload_json
-	v_id = coreGet(v_call, "id", nil)
-	v_error_text = _core_exception_message(v_error)
-	v_payload = Object()
-	coreSet(v_payload, "error", v_error_text)
-	v_payload_json = _core_json_stringify(v_payload)
-	v_message = Object()
-	coreSet(v_message, "role", "function")
-	coreSet(v_message, "function_id", v_id)
-	coreSet(v_message, "result", v_payload_json)
-	coreSet(v_message, "is_error", true)
-	panic(coreReturn{value: v_message})
-}
-
-func _append_validation_retry_messages_impl(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_messages Value
-	var v_response Value
-	var v_error Value
-	var v_assistant_message Value
-	var v_content Value
-	var v_error_text Value
-	var v_prefix_message Value
-	var v_retry_content Value
-	var v_retry_message Value
-	if len(args) > 0 { v_messages = args[0] }
-	_ = v_messages
-	if len(args) > 1 { v_response = args[1] }
-	_ = v_response
-	if len(args) > 2 { v_error = args[2] }
-	_ = v_error
-	_ = v_assistant_message
-	_ = v_content
-	_ = v_error_text
-	_ = v_prefix_message
-	_ = v_retry_content
-	_ = v_retry_message
-	v_content = coreGet(v_response, "content", "")
-	v_assistant_message = Object()
-	coreSet(v_assistant_message, "role", "assistant")
-	coreSet(v_assistant_message, "content", v_content)
-	v_messages = coreAppend(v_messages, v_assistant_message)
-	v_error_text = _core_exception_message(v_error)
-	v_prefix_message = _core_add("The previous response failed validation: ", v_error_text)
-	v_retry_content = _core_add(v_prefix_message, ". Return only corrected JSON.")
-	v_retry_message = Object()
-	coreSet(v_retry_message, "role", "user")
-	coreSet(v_retry_message, "content", v_retry_content)
-	v_messages = coreAppend(v_messages, v_retry_message)
-	panic(coreReturn{value: nil})
 }
 
 func _agent_factory(args ...Value) (ret Value) {
@@ -18282,6 +18282,38 @@ func _select_protocol_actions(args ...Value) (ret Value) {
 	panic(coreReturn{value: v_actions})
 }
 
+func _build_agent_eval_prediction(args ...Value) (ret Value) {
+	defer catchCoreReturn(&ret)
+	var v_output Value
+	var v_action_log Value
+	var v_usage Value
+	var v_trace Value
+	var v_empty_list Value
+	var v_out Value
+	if len(args) > 0 { v_output = args[0] }
+	_ = v_output
+	if len(args) > 1 { v_action_log = args[1] }
+	_ = v_action_log
+	if len(args) > 2 { v_usage = args[2] }
+	_ = v_usage
+	if len(args) > 3 { v_trace = args[3] }
+	_ = v_trace
+	_ = v_empty_list
+	_ = v_out
+	v_out = Object()
+	coreSet(v_out, "completionType", "final")
+	coreSet(v_out, "output", v_output)
+	coreSet(v_out, "finalOutput", v_output)
+	coreSet(v_out, "actionLog", v_action_log)
+	coreSet(v_out, "usage", v_usage)
+	coreSet(v_out, "trace", v_trace)
+	v_empty_list = MutableArray()
+	coreSet(v_out, "functionCalls", v_empty_list)
+	coreSet(v_out, "toolErrors", v_empty_list)
+	coreSet(v_out, "turnCount", 0)
+	panic(coreReturn{value: v_out})
+}
+
 func _select_runtime_globals(args ...Value) (ret Value) {
 	defer catchCoreReturn(&ret)
 	var v_registry Value
@@ -18373,38 +18405,6 @@ func _render_actor_primitive_guidance(args ...Value) (ret Value) {
 		if _, ok := coreLoopSignal.(coreContinue); ok { continue }
 	}
 	v_out = _core_string_join("\n", v_lines)
-	panic(coreReturn{value: v_out})
-}
-
-func _build_agent_eval_prediction(args ...Value) (ret Value) {
-	defer catchCoreReturn(&ret)
-	var v_output Value
-	var v_action_log Value
-	var v_usage Value
-	var v_trace Value
-	var v_empty_list Value
-	var v_out Value
-	if len(args) > 0 { v_output = args[0] }
-	_ = v_output
-	if len(args) > 1 { v_action_log = args[1] }
-	_ = v_action_log
-	if len(args) > 2 { v_usage = args[2] }
-	_ = v_usage
-	if len(args) > 3 { v_trace = args[3] }
-	_ = v_trace
-	_ = v_empty_list
-	_ = v_out
-	v_out = Object()
-	coreSet(v_out, "completionType", "final")
-	coreSet(v_out, "output", v_output)
-	coreSet(v_out, "finalOutput", v_output)
-	coreSet(v_out, "actionLog", v_action_log)
-	coreSet(v_out, "usage", v_usage)
-	coreSet(v_out, "trace", v_trace)
-	v_empty_list = MutableArray()
-	coreSet(v_out, "functionCalls", v_empty_list)
-	coreSet(v_out, "toolErrors", v_empty_list)
-	coreSet(v_out, "turnCount", 0)
 	panic(coreReturn{value: v_out})
 }
 

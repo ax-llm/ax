@@ -1492,16 +1492,6 @@ def build_chat_request(service: AxAIService, request: AxChatRequest, options: An
     return payload
 
 
-def normalize_chat_response(raw: Any) -> AxChatResponse:
-    response = openai_normalize_chat_response(raw)
-    return response
-
-
-def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
-    response = openai_normalize_stream_delta(raw, state)
-    return response
-
-
 def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, target: str) -> None:
     has_source = _core_map_contains(model_config, source)
     if has_source:
@@ -1512,13 +1502,13 @@ def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, t
     return None
 
 
-def build_embed_request(service: AxAIService, request: AxEmbedRequest, options: Any = None) -> Any:
-    payload = openai_build_embed_request(request)
-    return payload
+def normalize_chat_response(raw: Any) -> AxChatResponse:
+    response = openai_normalize_chat_response(raw)
+    return response
 
 
-def normalize_embed_response(raw: Any) -> AxEmbedResponse:
-    response = openai_normalize_embed_response(raw)
+def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
+    response = openai_normalize_stream_delta(raw, state)
     return response
 
 
@@ -1598,6 +1588,16 @@ def _openai_message_impl(message: Any) -> Any:
     raise error
 
 
+def build_embed_request(service: AxAIService, request: AxEmbedRequest, options: Any = None) -> Any:
+    payload = openai_build_embed_request(request)
+    return payload
+
+
+def normalize_embed_response(raw: Any) -> AxEmbedResponse:
+    response = openai_normalize_embed_response(raw)
+    return response
+
+
 def normalize_token_usage(usage: Any) -> Any:
     out = {}
     input_tokens = _core_get(usage, "input_tokens", 0)
@@ -1652,34 +1652,6 @@ def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
     return out
 
 
-def chat_response_to_completion(response: AxChatResponse) -> Any:
-    empty_results = []
-    results = _core_get(response, "results", empty_results)
-    empty_result = {}
-    result = _core_list_get(results, 0, empty_result)
-    content = _core_get(result, "content", "")
-    calls = []
-    empty_calls = []
-    function_calls = _core_get(result, "function_calls", empty_calls)
-    for call in function_calls:
-        fn = _core_get(call, "function", None)
-        id = _core_get(call, "id", None)
-        name = _core_get(fn, "name", None)
-        params = _core_get(fn, "params", None)
-        compat_call = {}
-        compat_call["id"] = id
-        compat_call["name"] = name
-        compat_call["params"] = params
-        calls.append(compat_call)
-    model_usage = _core_get(response, "model_usage", None)
-    usage = _core_get(model_usage, "tokens", None)
-    out = {}
-    out["content"] = content
-    out["function_calls"] = calls
-    out["usage"] = usage
-    return out
-
-
 def _openai_content_part_impl(part: Any) -> Any:
     type = _core_get(part, "type", None)
     is_text = _core_eq(type, "text")
@@ -1718,6 +1690,34 @@ def _openai_content_part_impl(part: Any) -> Any:
     message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", type)
     error = _core_ai_error_unsupported(message)
     raise error
+
+
+def chat_response_to_completion(response: AxChatResponse) -> Any:
+    empty_results = []
+    results = _core_get(response, "results", empty_results)
+    empty_result = {}
+    result = _core_list_get(results, 0, empty_result)
+    content = _core_get(result, "content", "")
+    calls = []
+    empty_calls = []
+    function_calls = _core_get(result, "function_calls", empty_calls)
+    for call in function_calls:
+        fn = _core_get(call, "function", None)
+        id = _core_get(call, "id", None)
+        name = _core_get(fn, "name", None)
+        params = _core_get(fn, "params", None)
+        compat_call = {}
+        compat_call["id"] = id
+        compat_call["name"] = name
+        compat_call["params"] = params
+        calls.append(compat_call)
+    model_usage = _core_get(response, "model_usage", None)
+    usage = _core_get(model_usage, "tokens", None)
+    out = {}
+    out["content"] = content
+    out["function_calls"] = calls
+    out["usage"] = usage
+    return out
 
 
 def _openai_tool_call_to_provider_impl(call: Any) -> Any:

@@ -2050,6 +2050,21 @@ def _select_protocol_actions(registry: Any) -> Any:
     return actions
 
 
+def _build_agent_eval_prediction(output: Any, action_log: Any, usage: Any, trace: Any) -> Any:
+    out = {}
+    out["completionType"] = "final"
+    out["output"] = output
+    out["finalOutput"] = output
+    out["actionLog"] = action_log
+    out["usage"] = usage
+    out["trace"] = trace
+    empty_list = []
+    out["functionCalls"] = empty_list
+    out["toolErrors"] = empty_list
+    out["turnCount"] = 0
+    return out
+
+
 def _select_runtime_globals(registry: Any) -> Any:
     empty_list = []
     globals = _core_get(registry, "runtime_globals", empty_list)
@@ -2078,21 +2093,6 @@ def _render_actor_primitive_guidance(registry: Any, stage: str) -> str:
         line = _core_string_format("- {}: {}", id, effect)
         lines.append(line)
     out = _core_string_join("\n", lines)
-    return out
-
-
-def _build_agent_eval_prediction(output: Any, action_log: Any, usage: Any, trace: Any) -> Any:
-    out = {}
-    out["completionType"] = "final"
-    out["output"] = output
-    out["finalOutput"] = output
-    out["actionLog"] = action_log
-    out["usage"] = usage
-    out["trace"] = trace
-    empty_list = []
-    out["functionCalls"] = empty_list
-    out["toolErrors"] = empty_list
-    out["turnCount"] = 0
     return out
 
 

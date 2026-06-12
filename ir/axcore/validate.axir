@@ -12,15 +12,9 @@ module @ax.validate version "0.1" {
     attr emit_module = "schema"
     tag "src/ax/dsp/extract/structuredJson.ts"
     type signature = "(list<Field>, json, context:string) -> void throws"
-    region @body {
-      block @entry(%fields: list<Field>, %values: json, %context: string) {
-        op core.call {
-          attr args = [%fields, %values, %context]
-          attr callee = @validate_fields_impl
-        }
-        op core.return {
-        }
-      }
+    body @entry(%fields: list<Field>, %values: json, %context: string) {
+      core.call @validate_fields_impl(%fields, %values, %context)
+      core.return
     }
   }
 
@@ -31,17 +25,9 @@ module @ax.validate version "0.1" {
     ref validate = @validate_fields
     tag "structured-output-validation"
     type signature = "(list<Field>, json) -> json throws"
-    region @body {
-      block @entry(%fields: list<Field>, %values: json) {
-        op core.call {
-          attr args = [%fields, %values]
-          attr callee = @validate_output_impl
-          attr result = %validated
-        }
-        op core.return {
-          attr value = %validated
-        }
-      }
+    body @entry(%fields: list<Field>, %values: json) {
+      %validated = core.call @validate_output_impl(%fields, %values)
+      core.return %validated
     }
   }
 
@@ -51,15 +37,9 @@ module @ax.validate version "0.1" {
     attr emit_module = "schema"
     tag "src/ax/dsp/util.ts"
     type signature = "(Field, json, path?:string) -> void throws"
-    region @body {
-      block @entry(%field: Field, %value: json, %path: string) {
-        op core.call {
-          attr args = [%field, %value, %path]
-          attr callee = @validate_value_impl
-        }
-        op core.return {
-        }
-      }
+    body @entry(%field: Field, %value: json, %path: string) {
+      core.call @validate_value_impl(%field, %value, %path)
+      core.return
     }
   }
 
@@ -69,17 +49,9 @@ module @ax.validate version "0.1" {
     attr emit_name = "strip_internal"
     tag "internal-output"
     type signature = "(list<Field>, json) -> json"
-    region @body {
-      block @entry(%fields: list<Field>, %values: json) {
-        op core.call {
-          attr args = [%fields, %values]
-          attr callee = @strip_internal_fields_impl
-          attr result = %public_values
-        }
-        op core.return {
-          attr value = %public_values
-        }
-      }
+    body @entry(%fields: list<Field>, %values: json) {
+      %public_values = core.call @strip_internal_fields_impl(%fields, %values)
+      core.return %public_values
     }
   }
 
@@ -90,143 +62,36 @@ module @ax.validate version "0.1" {
     attr private = true
     tag "validate-fields-core-helper"
     type signature = "(list<Field>, json, string) -> void throws"
-    region @body {
-      block @entry(%fields: list<Field>, %values: json, %context: string) {
-        op core.type_is {
-          attr result = %values_is_object
-          attr type = "object"
-          attr value = %values
-        }
-        op core.call {
-          attr args = [%values_is_object]
-          attr callee = "intrinsic.not"
-          attr result = %values_not_object
-        }
-        op core.if {
-          attr condition = %values_not_object
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["{} must be an object", %context]
-                attr callee = "intrinsic.string.format"
-                attr result = %message
-              }
-              op core.call {
-                attr args = [%message]
-                attr callee = "intrinsic.error.validation"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
+    body @entry(%fields: list<Field>, %values: json, %context: string) {
+      %values_is_object = core.type_is %values type "object"
+      %values_not_object = core.call intrinsic.not(%values_is_object)
+      core.if %values_not_object {
+        %message = core.call intrinsic.string.format("{} must be an object", %context)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.for %field in %fields {
+        %field_name = core.get %field["name"]
+        %field_title = core.get %field["title"]
+        %is_optional = core.get %field["is_optional"] default false
+        %has_value = core.call intrinsic.map.contains(%values, %field_name)
+        %missing = core.call intrinsic.not(%has_value)
+        %field_value = core.get %values[%field_name]
+        %is_null = core.call intrinsic.is_none(%field_value)
+        %missing_or_null = core.call intrinsic.or(%missing, %is_null)
+        core.if %missing_or_null {
+          %required_missing = core.call intrinsic.not(%is_optional)
+          core.if %required_missing {
+            %message = core.call intrinsic.string.format("Required field is missing: '{}'", %field_title)
+            %error = core.call intrinsic.error.validation(%message)
+            core.raise %error
           }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.for {
-          attr in = %fields
-          attr item = %field
-          region @body {
-            block @each {
-              op core.get {
-                attr key = "name"
-                attr result = %field_name
-                attr target = %field
-              }
-              op core.get {
-                attr key = "title"
-                attr result = %field_title
-                attr target = %field
-              }
-              op core.get {
-                attr default = false
-                attr key = "is_optional"
-                attr result = %is_optional
-                attr target = %field
-              }
-              op core.call {
-                attr args = [%values, %field_name]
-                attr callee = "intrinsic.map.contains"
-                attr result = %has_value
-              }
-              op core.call {
-                attr args = [%has_value]
-                attr callee = "intrinsic.not"
-                attr result = %missing
-              }
-              op core.get {
-                attr key = %field_name
-                attr result = %field_value
-                attr target = %values
-              }
-              op core.call {
-                attr args = [%field_value]
-                attr callee = "intrinsic.is_none"
-                attr result = %is_null
-              }
-              op core.call {
-                attr args = [%missing, %is_null]
-                attr callee = "intrinsic.or"
-                attr result = %missing_or_null
-              }
-              op core.if {
-                attr condition = %missing_or_null
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = [%is_optional]
-                      attr callee = "intrinsic.not"
-                      attr result = %required_missing
-                    }
-                    op core.if {
-                      attr condition = %required_missing
-                      region @then {
-                        block @then {
-                          op core.call {
-                            attr args = ["Required field is missing: '{}'", %field_title]
-                            attr callee = "intrinsic.string.format"
-                            attr result = %message
-                          }
-                          op core.call {
-                            attr args = [%message]
-                            attr callee = "intrinsic.error.validation"
-                            attr result = %error
-                          }
-                          op core.raise {
-                            attr error = %error
-                          }
-                        }
-                      }
-                      region @else {
-                        block @else {
-                        }
-                      }
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                    op core.call {
-                      attr args = ["{}.{}", %context, %field_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %child_path
-                    }
-                    op core.call {
-                      attr args = [%field, %field_value, %child_path]
-                      attr callee = @validate_value_impl
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-        op core.return {
+        } else {
+          %child_path = core.call intrinsic.string.format("{}.{}", %context, %field_name)
+          core.call @validate_value_impl(%field, %field_value, %child_path)
         }
       }
+      core.return
     }
   }
 
@@ -237,79 +102,22 @@ module @ax.validate version "0.1" {
     attr private = true
     tag "validate-output-core-helper"
     type signature = "(list<Field>, json) -> json throws"
-      region @body {
-        block @entry(%fields: list<Field>, %values: json) {
-        op core.let {
-          attr result = %normalized
-          attr value = %values
-        }
-        op core.for {
-          attr in = %fields
-          attr item = %field
-          region @body {
-            block @each {
-              op core.get {
-                attr key = "name"
-                attr result = %field_name
-                attr target = %field
-              }
-              op core.get {
-                attr key = "title"
-                attr result = %field_title
-                attr target = %field
-              }
-              op core.call {
-                attr args = [%normalized, %field_name]
-                attr callee = "intrinsic.map.contains"
-                attr result = %has_name
-              }
-              op core.call {
-                attr args = [%has_name]
-                attr callee = "intrinsic.not"
-                attr result = %missing_name
-              }
-              op core.call {
-                attr args = [%normalized, %field_title]
-                attr callee = "intrinsic.map.contains"
-                attr result = %has_title
-              }
-              op core.call {
-                attr args = [%missing_name, %has_title]
-                attr callee = "intrinsic.and"
-                attr result = %alias_title
-              }
-              op core.if {
-                attr condition = %alias_title
-                region @then {
-                  block @then {
-                    op core.get {
-                      attr key = %field_title
-                      attr result = %title_value
-                      attr target = %normalized
-                    }
-                    op core.set {
-                      attr key = %field_name
-                      attr target = %normalized
-                      attr value = %title_value
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-            }
-          }
-        }
-        op core.call {
-          attr args = [%fields, %normalized, "output"]
-          attr callee = @validate_fields_impl
-        }
-        op core.return {
-          attr value = %normalized
+    body @entry(%fields: list<Field>, %values: json) {
+      %normalized = core.let %values
+      core.for %field in %fields {
+        %field_name = core.get %field["name"]
+        %field_title = core.get %field["title"]
+        %has_name = core.call intrinsic.map.contains(%normalized, %field_name)
+        %missing_name = core.call intrinsic.not(%has_name)
+        %has_title = core.call intrinsic.map.contains(%normalized, %field_title)
+        %alias_title = core.call intrinsic.and(%missing_name, %has_title)
+        core.if %alias_title {
+          %title_value = core.get %normalized[%field_title]
+          core.set %normalized[%field_name] = %title_value
         }
       }
+      core.call @validate_fields_impl(%fields, %normalized, "output")
+      core.return %normalized
     }
   }
 
@@ -320,302 +128,67 @@ module @ax.validate version "0.1" {
     attr private = true
     tag "validate-string-constraints-core-helper"
     type signature = "(string, Field) -> void throws"
-    region @body {
-      block @entry(%value: string, %field: Field) {
-        op core.get {
-          attr key = "type"
-          attr result = %typ
-          attr target = %field
-        }
-        op core.get {
-          attr key = "title"
-          attr result = %title
-          attr target = %field
-        }
-        op core.get {
-          attr key = "min_length"
-          attr result = %min_length
-          attr target = %typ
-        }
-        op core.call {
-          attr args = [%min_length]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_min
-        }
-        op core.if {
-          attr condition = %has_min
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%value]
-                attr callee = "intrinsic.len"
-                attr result = %length
-              }
-              op core.call {
-                attr args = [%length, %min_length]
-                attr callee = "intrinsic.lt"
-                attr result = %too_short
-              }
-              op core.if {
-                attr condition = %too_short
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Field '{}' failed validation: String must be at least {} characters long.", %title, %min_length]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "max_length"
-          attr result = %max_length
-          attr target = %typ
-        }
-        op core.call {
-          attr args = [%max_length]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_max
-        }
-        op core.if {
-          attr condition = %has_max
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%value]
-                attr callee = "intrinsic.len"
-                attr result = %length
-              }
-              op core.call {
-                attr args = [%length, %max_length]
-                attr callee = "intrinsic.gt"
-                attr result = %too_long
-              }
-              op core.if {
-                attr condition = %too_long
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Field '{}' failed validation: String must be at most {} characters long.", %title, %max_length]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "pattern"
-          attr result = %pattern
-          attr target = %typ
-        }
-        op core.call {
-          attr args = [%pattern]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_pattern
-        }
-        op core.if {
-          attr condition = %has_pattern
-          region @then {
-            block @then {
-              op core.regex_match {
-                attr pattern = %pattern
-                attr result = %matches
-                attr value = %value
-              }
-              op core.call {
-                attr args = [%matches]
-                attr callee = "intrinsic.not"
-                attr result = %pattern_failed
-              }
-              op core.if {
-                attr condition = %pattern_failed
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Field '{}' failed validation: String must match pattern /{}/.", %title, %pattern]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "format"
-          attr result = %format
-          attr target = %typ
-        }
-        op core.call {
-          attr args = [%format, "email"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_email
-        }
-        op core.if {
-          attr condition = %is_email
-          region @then {
-            block @then {
-              op core.regex_match {
-                attr pattern = "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
-                attr result = %valid_email
-                attr value = %value
-              }
-              op core.call {
-                attr args = [%valid_email]
-                attr callee = "intrinsic.not"
-                attr result = %invalid_email
-              }
-              op core.if {
-                attr condition = %invalid_email
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Field '{}' failed validation: String must be a valid email address.", %title]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.list {
-          attr result = %url_formats
-        }
-        op core.append {
-          attr target = %url_formats
-          attr value = "uri"
-        }
-        op core.append {
-          attr target = %url_formats
-          attr value = "url"
-        }
-        op core.call {
-          attr args = [%url_formats, %format]
-          attr callee = "intrinsic.contains"
-          attr result = %is_url_format
-        }
-        op core.if {
-          attr condition = %is_url_format
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%value]
-                attr callee = "intrinsic.url.valid"
-                attr result = %valid_url
-              }
-              op core.call {
-                attr args = [%valid_url]
-                attr callee = "intrinsic.not"
-                attr result = %invalid_url
-              }
-              op core.if {
-                attr condition = %invalid_url
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Invalid URL for '{}': Invalid URL format.", %title]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.return {
+    body @entry(%value: string, %field: Field) {
+      %typ = core.get %field["type"]
+      %title = core.get %field["title"]
+      %min_length = core.get %typ["min_length"]
+      %has_min = core.call intrinsic.is_not_none(%min_length)
+      core.if %has_min {
+        %length = core.call intrinsic.len(%value)
+        %too_short = core.call intrinsic.lt(%length, %min_length)
+        core.if %too_short {
+          %message = core.call intrinsic.string.format("Field '{}' failed validation: String must be at least {} characters long.", %title, %min_length)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
         }
       }
+      %max_length = core.get %typ["max_length"]
+      %has_max = core.call intrinsic.is_not_none(%max_length)
+      core.if %has_max {
+        %length = core.call intrinsic.len(%value)
+        %too_long = core.call intrinsic.gt(%length, %max_length)
+        core.if %too_long {
+          %message = core.call intrinsic.string.format("Field '{}' failed validation: String must be at most {} characters long.", %title, %max_length)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+      }
+      %pattern = core.get %typ["pattern"]
+      %has_pattern = core.call intrinsic.is_not_none(%pattern)
+      core.if %has_pattern {
+        %matches = core.regex_match %value pattern %pattern
+        %pattern_failed = core.call intrinsic.not(%matches)
+        core.if %pattern_failed {
+          %message = core.call intrinsic.string.format("Field '{}' failed validation: String must match pattern /{}/.", %title, %pattern)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+      }
+      %format = core.get %typ["format"]
+      %is_email = core.call intrinsic.eq(%format, "email")
+      core.if %is_email {
+        %valid_email = core.regex_match %value pattern "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        %invalid_email = core.call intrinsic.not(%valid_email)
+        core.if %invalid_email {
+          %message = core.call intrinsic.string.format("Field '{}' failed validation: String must be a valid email address.", %title)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+      }
+      %url_formats = core.list
+      core.append %url_formats, "uri"
+      core.append %url_formats, "url"
+      %is_url_format = core.call intrinsic.contains(%url_formats, %format)
+      core.if %is_url_format {
+        %valid_url = core.call intrinsic.url.valid(%value)
+        %invalid_url = core.call intrinsic.not(%valid_url)
+        core.if %invalid_url {
+          %message = core.call intrinsic.string.format("Invalid URL for '{}': Invalid URL format.", %title)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+      }
+      core.return
     }
   }
 
@@ -626,121 +199,30 @@ module @ax.validate version "0.1" {
     attr private = true
     tag "validate-number-constraints-core-helper"
     type signature = "(f64, Field) -> void throws"
-    region @body {
-      block @entry(%value: f64, %field: Field) {
-        op core.get {
-          attr key = "type"
-          attr result = %typ
-          attr target = %field
-        }
-        op core.get {
-          attr key = "title"
-          attr result = %title
-          attr target = %field
-        }
-        op core.get {
-          attr key = "minimum"
-          attr result = %minimum
-          attr target = %typ
-        }
-        op core.call {
-          attr args = [%minimum]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_minimum
-        }
-        op core.if {
-          attr condition = %has_minimum
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%value, %minimum]
-                attr callee = "intrinsic.lt"
-                attr result = %too_small
-              }
-              op core.if {
-                attr condition = %too_small
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Field '{}' failed validation: Number must be at least {}.", %title, %minimum]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "maximum"
-          attr result = %maximum
-          attr target = %typ
-        }
-        op core.call {
-          attr args = [%maximum]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_maximum
-        }
-        op core.if {
-          attr condition = %has_maximum
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%value, %maximum]
-                attr callee = "intrinsic.gt"
-                attr result = %too_large
-              }
-              op core.if {
-                attr condition = %too_large
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Field '{}' failed validation: Number must be at most {}.", %title, %maximum]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.return {
+    body @entry(%value: f64, %field: Field) {
+      %typ = core.get %field["type"]
+      %title = core.get %field["title"]
+      %minimum = core.get %typ["minimum"]
+      %has_minimum = core.call intrinsic.is_not_none(%minimum)
+      core.if %has_minimum {
+        %too_small = core.call intrinsic.lt(%value, %minimum)
+        core.if %too_small {
+          %message = core.call intrinsic.string.format("Field '{}' failed validation: Number must be at least {}.", %title, %minimum)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
         }
       }
+      %maximum = core.get %typ["maximum"]
+      %has_maximum = core.call intrinsic.is_not_none(%maximum)
+      core.if %has_maximum {
+        %too_large = core.call intrinsic.gt(%value, %maximum)
+        core.if %too_large {
+          %message = core.call intrinsic.string.format("Field '{}' failed validation: Number must be at most {}.", %title, %maximum)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+      }
+      core.return
     }
   }
 
@@ -751,791 +233,173 @@ module @ax.validate version "0.1" {
     attr private = true
     tag "validate-value-core-helper"
     type signature = "(Field, json, string) -> void throws"
-    region @body {
-      block @entry(%field: Field, %value: json, %path: string) {
-        op core.get {
-          attr key = "name"
-          attr result = %field_name
-          attr target = %field
+    body @entry(%field: Field, %value: json, %path: string) {
+      %field_name = core.get %field["name"]
+      %typ = core.get %field["type"]
+      %type_name = core.get %typ["name"]
+      %is_array = core.get %typ["is_array"] default false
+      core.if %is_array {
+        %is_list = core.type_is %value type "list"
+        %not_list = core.call intrinsic.not(%is_list)
+        core.if %not_list {
+          %message = core.call intrinsic.string.format("{} must be an array", %path)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
         }
-        op core.get {
-          attr key = "type"
-          attr result = %typ
-          attr target = %field
+        %item_field = core.call intrinsic.field.item(%field)
+        core.for %item in %value {
+          core.call @validate_value_impl(%item_field, %item, %path)
         }
-        op core.get {
-          attr key = "name"
-          attr result = %type_name
-          attr target = %typ
-        }
-        op core.get {
-          attr default = false
-          attr key = "is_array"
-          attr result = %is_array
-          attr target = %typ
-        }
-        op core.if {
-          attr condition = %is_array
-          region @then {
-            block @then {
-              op core.type_is {
-                attr result = %is_list
-                attr type = "list"
-                attr value = %value
-              }
-              op core.call {
-                attr args = [%is_list]
-                attr callee = "intrinsic.not"
-                attr result = %not_list
-              }
-              op core.if {
-                attr condition = %not_list
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["{} must be an array", %path]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.call {
-                attr args = [%field]
-                attr callee = "intrinsic.field.item"
-                attr result = %item_field
-              }
-              op core.for {
-                attr in = %value
-                attr item = %item
-                region @body {
-                  block @each {
-                    op core.call {
-                      attr args = [%item_field, %item, %path]
-                      attr callee = @validate_value_impl
-                    }
-                  }
-                }
-              }
-              op core.return {
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "image"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_image
-        }
-        op core.if {
-          attr condition = %is_image
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%value]
-                attr callee = "intrinsic.media.valid_image"
-                attr result = %valid_image
-              }
-              op core.call {
-                attr args = [%valid_image]
-                attr callee = "intrinsic.not"
-                attr result = %invalid_image
-              }
-              op core.if {
-                attr condition = %invalid_image
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'", %field_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.return {
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "audio"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_audio
-        }
-        op core.if {
-          attr condition = %is_audio
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%value]
-                attr callee = "intrinsic.media.valid_audio"
-                attr result = %valid_audio
-              }
-              op core.call {
-                attr args = [%valid_audio]
-                attr callee = "intrinsic.not"
-                attr result = %invalid_audio
-              }
-              op core.if {
-                attr condition = %invalid_audio
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'", %field_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.return {
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "file"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_file
-        }
-        op core.if {
-          attr condition = %is_file
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%value]
-                attr callee = "intrinsic.media.valid_file"
-                attr result = %valid_file
-              }
-              op core.call {
-                attr args = [%valid_file]
-                attr callee = "intrinsic.not"
-                attr result = %invalid_file
-              }
-              op core.if {
-                attr condition = %invalid_file
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'", %field_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.return {
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "url"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_url
-        }
-        op core.if {
-          attr condition = %is_url
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%value]
-                attr callee = "intrinsic.media.valid_url_shape"
-                attr result = %valid_url_shape
-              }
-              op core.call {
-                attr args = [%valid_url_shape]
-                attr callee = "intrinsic.not"
-                attr result = %invalid_url_shape
-              }
-              op core.if {
-                attr condition = %invalid_url_shape
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'", %field_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.type_is {
-                attr result = %url_is_string
-                attr type = "string"
-                attr value = %value
-              }
-              op core.if {
-                attr condition = %url_is_string
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = [%value]
-                      attr callee = "intrinsic.url.valid"
-                      attr result = %valid_url
-                    }
-                    op core.call {
-                      attr args = [%valid_url]
-                      attr callee = "intrinsic.not"
-                      attr result = %invalid_url
-                    }
-                    op core.if {
-                      attr condition = %invalid_url
-                      region @then {
-                        block @then {
-                          op core.get {
-                            attr key = "title"
-                            attr result = %field_title
-                            attr target = %field
-                          }
-                          op core.call {
-                            attr args = ["Invalid URL for '{}': Invalid URL format.", %field_title]
-                            attr callee = "intrinsic.string.format"
-                            attr result = %message
-                          }
-                          op core.call {
-                            attr args = [%message]
-                            attr callee = "intrinsic.error.validation"
-                            attr result = %error
-                          }
-                          op core.raise {
-                            attr error = %error
-                          }
-                        }
-                      }
-                      region @else {
-                        block @else {
-                        }
-                      }
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.return {
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.list {
-          attr result = %string_types
-        }
-        op core.append {
-          attr target = %string_types
-          attr value = "string"
-        }
-        op core.append {
-          attr target = %string_types
-          attr value = "code"
-        }
-        op core.append {
-          attr target = %string_types
-          attr value = "date"
-        }
-        op core.append {
-          attr target = %string_types
-          attr value = "datetime"
-        }
-        op core.append {
-          attr target = %string_types
-          attr value = "dateRange"
-        }
-        op core.append {
-          attr target = %string_types
-          attr value = "datetimeRange"
-        }
-        op core.call {
-          attr args = [%string_types, %type_name]
-          attr callee = "intrinsic.contains"
-          attr result = %is_string_type
-        }
-        op core.if {
-          attr condition = %is_string_type
-          region @then {
-            block @then {
-              op core.type_is {
-                attr result = %is_string
-                attr type = "string"
-                attr value = %value
-              }
-              op core.call {
-                attr args = [%is_string]
-                attr callee = "intrinsic.not"
-                attr result = %not_string
-              }
-              op core.if {
-                attr condition = %not_string
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Validation failed: Expected '{}' to be a {}", %field_name, %type_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.call {
-                attr args = [%value, %field]
-                attr callee = @validate_string_constraints_impl
-              }
-              op core.return {
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "number"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_number_type
-        }
-        op core.if {
-          attr condition = %is_number_type
-          region @then {
-            block @then {
-              op core.type_is {
-                attr result = %is_number
-                attr type = "number"
-                attr value = %value
-              }
-              op core.call {
-                attr args = [%is_number]
-                attr callee = "intrinsic.not"
-                attr result = %not_number
-              }
-              op core.if {
-                attr condition = %not_number
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Validation failed: Expected '{}' to be a number", %field_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.call {
-                attr args = [%value, %field]
-                attr callee = @validate_number_constraints_impl
-              }
-              op core.return {
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "boolean"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_boolean_type
-        }
-        op core.if {
-          attr condition = %is_boolean_type
-          region @then {
-            block @then {
-              op core.type_is {
-                attr result = %is_boolean
-                attr type = "boolean"
-                attr value = %value
-              }
-              op core.call {
-                attr args = [%is_boolean]
-                attr callee = "intrinsic.not"
-                attr result = %not_boolean
-              }
-              op core.if {
-                attr condition = %not_boolean
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Validation failed: Expected '{}' to be a boolean", %field_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.return {
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "class"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_class_type
-        }
-        op core.if {
-          attr condition = %is_class_type
-          region @then {
-            block @then {
-              op core.type_is {
-                attr result = %is_class_string
-                attr type = "string"
-                attr value = %value
-              }
-              op core.call {
-                attr args = [%is_class_string]
-                attr callee = "intrinsic.not"
-                attr result = %not_class_string
-              }
-              op core.if {
-                attr condition = %not_class_string
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Validation failed: Expected '{}' to be a class", %field_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.get {
-                attr key = "options"
-                attr result = %options
-                attr target = %typ
-              }
-              op core.call {
-                attr args = [%options]
-                attr callee = "intrinsic.truthy"
-                attr result = %has_options
-              }
-              op core.if {
-                attr condition = %has_options
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = [%options, %value]
-                      attr callee = "intrinsic.contains"
-                      attr result = %known_class
-                    }
-                    op core.call {
-                      attr args = [%known_class]
-                      attr callee = "intrinsic.not"
-                      attr result = %unknown_class
-                    }
-                    op core.if {
-                      attr condition = %unknown_class
-                      region @then {
-                        block @then {
-                          op core.call {
-                            attr args = ["{} must be one of {}", %path, %options]
-                            attr callee = "intrinsic.string.format"
-                            attr result = %message
-                          }
-                          op core.call {
-                            attr args = [%message]
-                            attr callee = "intrinsic.error.validation"
-                            attr result = %error
-                          }
-                          op core.raise {
-                            attr error = %error
-                          }
-                        }
-                      }
-                      region @else {
-                        block @else {
-                        }
-                      }
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.return {
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "json"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_json_type
-        }
-        op core.if {
-          attr condition = %is_json_type
-          region @then {
-            block @then {
-              op core.type_is {
-                attr result = %is_json
-                attr type = "json"
-                attr value = %value
-              }
-              op core.call {
-                attr args = [%is_json]
-                attr callee = "intrinsic.not"
-                attr result = %not_json
-              }
-              op core.if {
-                attr condition = %not_json
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Validation failed: Expected '{}' to be JSON", %field_name]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.return {
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%type_name, "object"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_object_type
-        }
-        op core.if {
-          attr condition = %is_object_type
-          region @then {
-            block @then {
-              op core.type_is {
-                attr result = %is_object
-                attr type = "object"
-                attr value = %value
-              }
-              op core.call {
-                attr args = [%is_object]
-                attr callee = "intrinsic.not"
-                attr result = %not_object
-              }
-              op core.if {
-                attr condition = %not_object
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["{} must be an object", %path]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message
-                    }
-                    op core.call {
-                      attr args = [%message]
-                      attr callee = "intrinsic.error.validation"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.get {
-                attr key = "fields"
-                attr result = %nested_map
-                attr target = %typ
-              }
-              op core.call {
-                attr args = [%nested_map]
-                attr callee = "intrinsic.truthy"
-                attr result = %has_nested
-              }
-              op core.if {
-                attr condition = %has_nested
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = [%nested_map]
-                      attr callee = "intrinsic.fields.from_map"
-                      attr result = %nested_fields
-                    }
-                    op core.call {
-                      attr args = [%nested_fields, %value, %path]
-                      attr callee = @validate_fields_impl
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.return {
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.return {
-        }
+        core.return
       }
+      %is_image = core.call intrinsic.eq(%type_name, "image")
+      core.if %is_image {
+        %valid_image = core.call intrinsic.media.valid_image(%value)
+        %invalid_image = core.call intrinsic.not(%valid_image)
+        core.if %invalid_image {
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'", %field_name)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        core.return
+      }
+      %is_audio = core.call intrinsic.eq(%type_name, "audio")
+      core.if %is_audio {
+        %valid_audio = core.call intrinsic.media.valid_audio(%value)
+        %invalid_audio = core.call intrinsic.not(%valid_audio)
+        core.if %invalid_audio {
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'", %field_name)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        core.return
+      }
+      %is_file = core.call intrinsic.eq(%type_name, "file")
+      core.if %is_file {
+        %valid_file = core.call intrinsic.media.valid_file(%value)
+        %invalid_file = core.call intrinsic.not(%valid_file)
+        core.if %invalid_file {
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'", %field_name)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        core.return
+      }
+      %is_url = core.call intrinsic.eq(%type_name, "url")
+      core.if %is_url {
+        %valid_url_shape = core.call intrinsic.media.valid_url_shape(%value)
+        %invalid_url_shape = core.call intrinsic.not(%valid_url_shape)
+        core.if %invalid_url_shape {
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'", %field_name)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        %url_is_string = core.type_is %value type "string"
+        core.if %url_is_string {
+          %valid_url = core.call intrinsic.url.valid(%value)
+          %invalid_url = core.call intrinsic.not(%valid_url)
+          core.if %invalid_url {
+            %field_title = core.get %field["title"]
+            %message = core.call intrinsic.string.format("Invalid URL for '{}': Invalid URL format.", %field_title)
+            %error = core.call intrinsic.error.validation(%message)
+            core.raise %error
+          }
+        }
+        core.return
+      }
+      %string_types = core.list
+      core.append %string_types, "string"
+      core.append %string_types, "code"
+      core.append %string_types, "date"
+      core.append %string_types, "datetime"
+      core.append %string_types, "dateRange"
+      core.append %string_types, "datetimeRange"
+      %is_string_type = core.call intrinsic.contains(%string_types, %type_name)
+      core.if %is_string_type {
+        %is_string = core.type_is %value type "string"
+        %not_string = core.call intrinsic.not(%is_string)
+        core.if %not_string {
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be a {}", %field_name, %type_name)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        core.call @validate_string_constraints_impl(%value, %field)
+        core.return
+      }
+      %is_number_type = core.call intrinsic.eq(%type_name, "number")
+      core.if %is_number_type {
+        %is_number = core.type_is %value type "number"
+        %not_number = core.call intrinsic.not(%is_number)
+        core.if %not_number {
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be a number", %field_name)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        core.call @validate_number_constraints_impl(%value, %field)
+        core.return
+      }
+      %is_boolean_type = core.call intrinsic.eq(%type_name, "boolean")
+      core.if %is_boolean_type {
+        %is_boolean = core.type_is %value type "boolean"
+        %not_boolean = core.call intrinsic.not(%is_boolean)
+        core.if %not_boolean {
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be a boolean", %field_name)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        core.return
+      }
+      %is_class_type = core.call intrinsic.eq(%type_name, "class")
+      core.if %is_class_type {
+        %is_class_string = core.type_is %value type "string"
+        %not_class_string = core.call intrinsic.not(%is_class_string)
+        core.if %not_class_string {
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be a class", %field_name)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        %options = core.get %typ["options"]
+        %has_options = core.call intrinsic.truthy(%options)
+        core.if %has_options {
+          %known_class = core.call intrinsic.contains(%options, %value)
+          %unknown_class = core.call intrinsic.not(%known_class)
+          core.if %unknown_class {
+            %message = core.call intrinsic.string.format("{} must be one of {}", %path, %options)
+            %error = core.call intrinsic.error.validation(%message)
+            core.raise %error
+          }
+        }
+        core.return
+      }
+      %is_json_type = core.call intrinsic.eq(%type_name, "json")
+      core.if %is_json_type {
+        %is_json = core.type_is %value type "json"
+        %not_json = core.call intrinsic.not(%is_json)
+        core.if %not_json {
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be JSON", %field_name)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        core.return
+      }
+      %is_object_type = core.call intrinsic.eq(%type_name, "object")
+      core.if %is_object_type {
+        %is_object = core.type_is %value type "object"
+        %not_object = core.call intrinsic.not(%is_object)
+        core.if %not_object {
+          %message = core.call intrinsic.string.format("{} must be an object", %path)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        %nested_map = core.get %typ["fields"]
+        %has_nested = core.call intrinsic.truthy(%nested_map)
+        core.if %has_nested {
+          %nested_fields = core.call intrinsic.fields.from_map(%nested_map)
+          core.call @validate_fields_impl(%nested_fields, %value, %path)
+        }
+        core.return
+      }
+      core.return
     }
   }
 
@@ -1545,70 +409,20 @@ module @ax.validate version "0.1" {
     attr private = true
     tag "strip-internal-core-helper"
     type signature = "(list<Field>, json) -> json"
-    region @body {
-      block @entry(%fields: list<Field>, %values: json) {
-        op core.map {
-          attr result = %public_values
-        }
-        op core.for {
-          attr in = %fields
-          attr item = %field
-          region @body {
-            block @each {
-              op core.get {
-                attr default = false
-                attr key = "is_internal"
-                attr result = %is_internal
-                attr target = %field
-              }
-              op core.call {
-                attr args = [%is_internal]
-                attr callee = "intrinsic.not"
-                attr result = %is_public
-              }
-              op core.get {
-                attr key = "name"
-                attr result = %field_name
-                attr target = %field
-              }
-              op core.call {
-                attr args = [%values, %field_name]
-                attr callee = "intrinsic.map.contains"
-                attr result = %has_value
-              }
-              op core.call {
-                attr args = [%is_public, %has_value]
-                attr callee = "intrinsic.and"
-                attr result = %keep
-              }
-              op core.if {
-                attr condition = %keep
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = [%values, %field_name]
-                      attr callee = "intrinsic.map.get"
-                      attr result = %field_value
-                    }
-                    op core.set {
-                      attr key = %field_name
-                      attr target = %public_values
-                      attr value = %field_value
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-            }
-          }
-        }
-        op core.return {
-          attr value = %public_values
+    body @entry(%fields: list<Field>, %values: json) {
+      %public_values = core.map
+      core.for %field in %fields {
+        %is_internal = core.get %field["is_internal"] default false
+        %is_public = core.call intrinsic.not(%is_internal)
+        %field_name = core.get %field["name"]
+        %has_value = core.call intrinsic.map.contains(%values, %field_name)
+        %keep = core.call intrinsic.and(%is_public, %has_value)
+        core.if %keep {
+          %field_value = core.call intrinsic.map.get(%values, %field_name)
+          core.set %public_values[%field_name] = %field_value
         }
       }
+      core.return %public_values
     }
   }
 }

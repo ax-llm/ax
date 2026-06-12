@@ -13,7 +13,6 @@ module @ax.flow version "0.1" {
       %opts = core.let %options
       core.if %opts_missing {
         %opts = core.let %empty_map
-      } else {
       }
       %steps = core.list
       %traces = core.list
@@ -46,14 +45,12 @@ module @ax.flow version "0.1" {
       core.if %missing_name {
         %err = core.call intrinsic.error.runtime("flow step name is required")
         core.raise %err
-      } else {
       }
       %empty_map = core.map
       %opts_missing = core.call intrinsic.is_none(%options)
       %opts = core.let %options
       core.if %opts_missing {
         %opts = core.let %empty_map
-      } else {
       }
       %step = core.map
       core.set %step["kind"] = %kind
@@ -71,26 +68,21 @@ module @ax.flow version "0.1" {
       core.if %is_execute {
         %execute_write = core.call intrinsic.string.format("{}Result", %trimmed)
         core.append %writes_default, %execute_write
-      } else {
       }
       core.if %is_derive {
         core.append %writes_default, %trimmed
-      } else {
       }
       core.if %is_parallel {
         core.append %writes_default, "_parallelResults"
-      } else {
       }
       core.if %is_parallel_merge {
         core.append %writes_default, %trimmed
-      } else {
       }
       %writes = core.get %opts["writes"] default %writes_default
       %default_barrier = core.let true
       %may_parallel = core.call intrinsic.or(%is_execute, %is_derive)
       core.if %may_parallel {
         %default_barrier = core.let false
-      } else {
       }
       %barrier_from_snake = core.get %opts["is_barrier"] default %default_barrier
       %barrier_from_camel = core.get %opts["isBarrier"] default %barrier_from_snake
@@ -117,7 +109,6 @@ module @ax.flow version "0.1" {
           %message = core.call intrinsic.string.format("duplicate flow step: {}", %name)
           %err = core.call intrinsic.error.runtime(%message)
           core.raise %err
-        } else {
         }
       }
       core.append %steps, %step
@@ -137,7 +128,6 @@ module @ax.flow version "0.1" {
       %spec = core.let %returns
       core.if %missing {
         %spec = core.let %empty_map
-      } else {
       }
       core.set %flow["returns"] = %spec
       core.return %flow
@@ -184,17 +174,14 @@ module @ax.flow version "0.1" {
       %can_share = core.let true
       core.if %candidate_barrier {
         %can_share = core.let false
-      } else {
       }
       core.if %no_writes {
         %can_share = core.let false
-      } else {
       }
       core.for %existing in %group {
         %existing_barrier = core.get %existing["barrier"] default true
         core.if %existing_barrier {
           %can_share = core.let false
-        } else {
         }
         %existing_writes = core.get %existing["writes"] default %empty_list
         %existing_reads = core.get %existing["reads"] default %empty_list
@@ -202,21 +189,18 @@ module @ax.flow version "0.1" {
           %read_conflict = core.call intrinsic.contains(%existing_writes, %read)
           core.if %read_conflict {
             %can_share = core.let false
-          } else {
           }
         }
         core.for %existing_read in %existing_reads {
           %reverse_read_conflict = core.call intrinsic.contains(%candidate_writes, %existing_read)
           core.if %reverse_read_conflict {
             %can_share = core.let false
-          } else {
           }
         }
         core.for %write in %candidate_writes {
           %write_conflict = core.call intrinsic.contains(%existing_writes, %write)
           core.if %write_conflict {
             %can_share = core.let false
-          } else {
           }
         }
       }
@@ -255,7 +239,6 @@ module @ax.flow version "0.1" {
         core.append %plan_steps, %returns_entry
         %return_next_step_index = core.call intrinsic.add(%step_index, 1)
         %step_index = core.let %return_next_step_index
-      } else {
       }
       %groups = core.list
       %current_group = core.list
@@ -271,7 +254,6 @@ module @ax.flow version "0.1" {
             core.set %group["steps"] = %current_group
             core.append %groups, %group
             %current_group = core.list
-          } else {
           }
           %single_steps = core.list
           core.append %single_steps, %plan_step
@@ -284,7 +266,6 @@ module @ax.flow version "0.1" {
           %can_add = core.let true
           core.if %has_current {
             %can_add = core.call @flow_plan_can_share_group(%current_group, %plan_step)
-          } else {
           }
           core.if %can_add {
             core.append %current_group, %plan_step
@@ -307,7 +288,6 @@ module @ax.flow version "0.1" {
         core.set %group["level"] = %level
         core.set %group["steps"] = %current_group
         core.append %groups, %group
-      } else {
       }
       %max_parallelism = core.let 1
       core.for %group in %groups {
@@ -316,7 +296,6 @@ module @ax.flow version "0.1" {
         %bigger = core.call intrinsic.gt(%group_count, %max_parallelism)
         core.if %bigger {
           %max_parallelism = core.let %group_count
-        } else {
         }
       }
       %plan = core.map
@@ -353,7 +332,6 @@ module @ax.flow version "0.1" {
       %opts = core.let %options
       core.if %opts_missing {
         %opts = core.let %empty_map
-      } else {
       }
       %key = core.call @flow_cache_key(%values)
       %store_snake = core.get %opts["cache_store"] default null
@@ -381,12 +359,9 @@ module @ax.flow version "0.1" {
             core.if %hit {
               core.set %result["hit"] = true
               core.set %result["value"] = %cached
-            } else {
             }
-          } else {
           }
         }
-      } else {
       }
       core.if %is_write {
         %can_write_store = core.call intrinsic.and(%has_store, %write_error)
@@ -396,10 +371,8 @@ module @ax.flow version "0.1" {
           core.if %has_store {
             core.set %store[%key] = %cached_value
             core.set %result["value"] = %cached_value
-          } else {
           }
         }
-      } else {
       }
       core.return %result
     }
@@ -420,7 +393,6 @@ module @ax.flow version "0.1" {
         %message = core.call intrinsic.string.format("Flow aborted at {}", %location)
         %err = core.call intrinsic.error.runtime(%message)
         core.raise %err
-      } else {
       }
       core.return %none
     }
@@ -437,7 +409,6 @@ module @ax.flow version "0.1" {
       %missing = core.call intrinsic.is_none(%returns)
       core.if %missing {
         %spec = core.let %empty_map
-      } else {
       }
       %has_returns = core.call intrinsic.truthy(%spec)
       %output = core.let %state
@@ -450,7 +421,6 @@ module @ax.flow version "0.1" {
           core.set %projected[%key] = %value
         }
         %output = core.let %projected
-      } else {
       }
       core.return %output
     }
@@ -515,7 +485,6 @@ module @ax.flow version "0.1" {
       %has_usage = core.call intrinsic.truthy(%child_usage)
       core.if %has_usage {
         core.set %usage[%node] = %child_usage
-      } else {
       }
       core.set %flow["usage"] = %usage
       core.return %usage
@@ -562,7 +531,6 @@ module @ax.flow version "0.1" {
       %trace_label = core.call intrinsic.string.format("Node:{}", %name)
       core.if %has_trace_label {
         %trace_label = core.call intrinsic.string.format("Node:{} ({})", %name, %trace_label_in)
-      } else {
       }
       core.set %runtime_options["traceLabel"] = %trace_label
       %abort_during_snake = core.get %options["abort_during_step"] default false
@@ -578,7 +546,6 @@ module @ax.flow version "0.1" {
         %abort_message = core.call intrinsic.string.format("Flow aborted at flow-node-{}", %name)
         %abort_error = core.call intrinsic.error.runtime(%abort_message)
         core.raise %abort_error
-      } else {
       }
       %result = core.call intrinsic.agent.stage_forward(%program, %client, %state, %runtime_options)
       %out = core.call intrinsic.map.merge(%state, %empty_map)
@@ -587,7 +554,6 @@ module @ax.flow version "0.1" {
       %is_derive = core.call intrinsic.eq(%kind, "derive")
       core.if %is_derive {
         core.set %out[%name] = %result
-      } else {
       }
       %out = core.call intrinsic.map.update(%out, %result)
       core.call @flow_record_child_chat_log(%flow, %name, %program)
@@ -607,7 +573,6 @@ module @ax.flow version "0.1" {
       %missing_step = core.call intrinsic.is_none(%step)
       core.if %missing_step {
         core.return %state
-      } else {
       }
       %kind = core.get %step["kind"] default "execute"
       %name = core.get %step["name"] default ""
@@ -631,7 +596,6 @@ module @ax.flow version "0.1" {
         core.set %out[%result_key] = %mapped
         %out = core.call intrinsic.map.update(%out, %mapped)
         core.return %out
-      } else {
       }
       %is_branch = core.call intrinsic.eq(%kind, "branch")
       core.if %is_branch {
@@ -642,7 +606,6 @@ module @ax.flow version "0.1" {
         %branch_value = core.get %step_options["branchValue"] default %branch_value_default
         core.if %has_predicate {
           %branch_value = core.call intrinsic.object.call_method(%predicate, "call", %state)
-        } else {
         }
         %default_branches = core.list
         %branches = core.get %step_options["branches"] default %default_branches
@@ -655,11 +618,9 @@ module @ax.flow version "0.1" {
             %branch_steps = core.get %branch["steps"] default %default_branches
             %current = core.call @flow_execute_nested_steps(%flow, %client, %branch_steps, %current, %options)
             %matched = core.let true
-          } else {
           }
         }
         core.return %current
-      } else {
       }
       %is_while = core.call intrinsic.eq(%kind, "while")
       core.if %is_while {
@@ -676,27 +637,23 @@ module @ax.flow version "0.1" {
           %condition_result = core.get %step_options["conditionResult"] default false
           core.if %has_condition {
             %condition_result = core.call intrinsic.object.call_method(%condition, "call", %current)
-          } else {
           }
           %should_continue = core.call intrinsic.truthy(%condition_result)
           %done = core.call intrinsic.not(%should_continue)
           core.if %done {
             core.break
-          } else {
           }
           %too_many = core.call intrinsic.gte(%iterations, %max_iterations)
           core.if %too_many {
             %message = core.call intrinsic.string.format("While loop exceeded maximum iterations ({})", %max_iterations)
             %err = core.call intrinsic.error.runtime(%message)
             core.raise %err
-          } else {
           }
           core.call @flow_check_abort(%options, "flow-while")
           %current = core.call @flow_execute_nested_steps(%flow, %client, %body_steps, %current, %options)
           %iterations = core.call intrinsic.add(%iterations, 1)
         }
         core.return %current
-      } else {
       }
       %is_feedback = core.call intrinsic.eq(%kind, "feedback")
       core.if %is_feedback {
@@ -714,25 +671,21 @@ module @ax.flow version "0.1" {
         %missing_iterations = core.call intrinsic.is_none(%existing_iterations)
         core.if %missing_iterations {
           core.set %current[%iteration_key] = 1
-        } else {
         }
         %iterations = core.let 1
         core.loop {
           %condition_result = core.get %step_options["conditionResult"] default false
           core.if %has_condition {
             %condition_result = core.call intrinsic.object.call_method(%condition, "call", %current)
-          } else {
           }
           %should_continue = core.call intrinsic.truthy(%condition_result)
           %done = core.call intrinsic.not(%should_continue)
           core.if %done {
             core.break
-          } else {
           }
           %too_many = core.call intrinsic.gte(%iterations, %max_iterations)
           core.if %too_many {
             core.break
-          } else {
           }
           %location = core.call intrinsic.string.format("flow-feedback-{}", %label)
           core.call @flow_check_abort(%options, %location)
@@ -741,7 +694,6 @@ module @ax.flow version "0.1" {
           %current = core.call @flow_execute_nested_steps(%flow, %client, %body_steps, %current, %options)
         }
         core.return %current
-      } else {
       }
       %is_parallel = core.call intrinsic.eq(%kind, "parallel")
       core.if %is_parallel {
@@ -752,7 +704,6 @@ module @ax.flow version "0.1" {
         %out = core.call intrinsic.map.merge(%state, %empty_map)
         core.set %out["_parallelResults"] = %parallel_results
         core.return %out
-      } else {
       }
       %is_parallel_merge = core.call intrinsic.eq(%kind, "parallelMerge")
       core.if %is_parallel_merge {
@@ -763,7 +714,6 @@ module @ax.flow version "0.1" {
         core.if %bad_results {
           %err = core.call intrinsic.error.runtime("No parallel results found for merge")
           core.raise %err
-        } else {
         }
         %merge_output_snake = core.get %step_options["merge_output"] default %results
         %merge_output = core.get %step_options["mergeOutput"] default %merge_output_snake
@@ -772,7 +722,6 @@ module @ax.flow version "0.1" {
         core.set %out["_parallelResults"] = %none
         core.set %out[%name] = %merge_output
         core.return %out
-      } else {
       }
       %program_out = core.call @flow_execute_program_node(%flow, %step, %client, %state, %options)
       core.return %program_out
@@ -868,7 +817,6 @@ module @ax.flow version "0.1" {
           core.set %group_payload["steps"] = %group_steps
           %group_event = core.call @program_trace_event(%program_id, "flow_group", %group_payload)
           core.append %traces, %group_event
-        } else {
         }
         %is_parallel_group = core.call intrinsic.gt(%group_count, 1)
         core.if %is_parallel_group {
@@ -902,14 +850,12 @@ module @ax.flow version "0.1" {
       %opts = core.let %options
       core.if %opts_missing {
         %opts = core.let %empty_map
-      } else {
       }
       %cache_read = core.call @flow_cache_read_write(%flow, %values, %opts, "read", null)
       %cache_hit = core.get %cache_read["hit"] default false
       core.if %cache_hit {
         %cached_value = core.get %cache_read["value"]
         core.return %cached_value
-      } else {
       }
       %fresh_traces = core.list
       %fresh_chat_log = core.list
@@ -981,7 +927,6 @@ module @ax.flow version "0.1" {
       %updates = core.let %component_map
       core.if %updates_missing {
         %updates = core.let %empty_map
-      } else {
       }
       %components = core.call @flow_get_optimizable_components(%flow)
       core.call @validate_optimization_component_map(%components, %updates)
@@ -995,10 +940,8 @@ module @ax.flow version "0.1" {
         core.if %bad_graph {
           %err = core.call intrinsic.error.runtime("optimized flow graph-plan component must be an object")
           core.raise %err
-        } else {
         }
         core.set %flow["optimized_graph_plan"] = %graph_update
-      } else {
       }
       %steps = core.get %flow["steps"] default %empty_list
       core.for %step in %steps {
@@ -1009,7 +952,6 @@ module @ax.flow version "0.1" {
         %has_child_updates = core.call intrinsic.truthy(%child_updates)
         core.if %has_child_updates {
           core.call intrinsic.program.apply_components(%program, %child_updates)
-        } else {
         }
       }
       core.return %flow
@@ -1051,13 +993,11 @@ module @ax.flow version "0.1" {
       %opts = core.let %options
       core.if %opts_missing {
         %opts = core.let %empty_map
-      } else {
       }
       %candidate_missing = core.call intrinsic.is_none(%candidate_map)
       %candidate = core.let %candidate_map
       core.if %candidate_missing {
         %candidate = core.let %empty_map
-      } else {
       }
       %normalized = core.call @normalize_optimization_dataset(%dataset)
       %train = core.get %normalized["train"] default %empty_list
@@ -1073,7 +1013,6 @@ module @ax.flow version "0.1" {
         %has_candidate = core.call intrinsic.truthy(%candidate)
         core.if %has_candidate {
           core.call @flow_apply_optimized_components(%flow, %candidate)
-        } else {
         }
         core.for %task in %train {
           %too_many = core.call intrinsic.gte(%calls, %max_calls)
@@ -1081,7 +1020,6 @@ module @ax.flow version "0.1" {
             %message = core.call intrinsic.string.format("max metric calls exceeded: {}", %max_calls)
             %err = core.call intrinsic.error.runtime(%message)
             core.raise %err
-          } else {
           }
           %next_calls = core.call intrinsic.add(%calls, 1)
           %calls = core.let %next_calls
@@ -1120,7 +1058,6 @@ module @ax.flow version "0.1" {
           %default_score = core.let 1
           core.if %is_error {
             %default_score = core.let 0
-          } else {
           }
           %score_from_score = core.get %task["score"] default %default_score
           %score_from_scores = core.get %task["scores"] default %score_from_score

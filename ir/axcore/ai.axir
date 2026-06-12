@@ -93,80 +93,22 @@ module @ax.ai version "0.1" {
     attr emit_module = "ai"
     tag "src/ax/ai/base.ts"
     type signature = "(AxModelConfig, AxModelConfig?, AxAIServiceOptions?) -> AxModelConfig"
-    region @body {
-      block @entry(%base: json, %override: json, %options: json) {
-        op core.call {
-          attr args = [%base, %override]
-          attr callee = "intrinsic.map.merge"
-          attr result = %merged
-        }
-        op core.call {
-          attr args = [%options, "stream"]
-          attr callee = "intrinsic.map.contains"
-          attr result = %has_stream_option
-        }
-        op core.if {
-          attr condition = %has_stream_option
-          region @then {
-            block @then {
-              op core.get {
-                attr key = "stream"
-                attr result = %stream
-                attr target = %options
-              }
-              op core.set {
-                attr key = "stream"
-                attr target = %merged
-                attr value = %stream
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.map {
-          attr result = %out
-        }
-        op core.for {
-          attr in = %merged
-          attr item = %key
-          region @body {
-            block @each {
-              op core.get {
-                attr key = %key
-                attr result = %value
-                attr target = %merged
-              }
-              op core.call {
-                attr args = [%value]
-                attr callee = "intrinsic.is_not_none"
-                attr result = %include
-              }
-              op core.if {
-                attr condition = %include
-                region @then {
-                  block @then {
-                    op core.set {
-                      attr key = %key
-                      attr target = %out
-                      attr value = %value
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-            }
-          }
-        }
-        op core.return {
-          attr value = %out
+    body @entry(%base: json, %override: json, %options: json) {
+      %merged = core.call intrinsic.map.merge(%base, %override)
+      %has_stream_option = core.call intrinsic.map.contains(%options, "stream")
+      core.if %has_stream_option {
+        %stream = core.get %options["stream"]
+        core.set %merged["stream"] = %stream
+      }
+      %out = core.map
+      core.for %key in %merged {
+        %value = core.get %merged[%key]
+        %include = core.call intrinsic.is_not_none(%value)
+        core.if %include {
+          core.set %out[%key] = %value
         }
       }
+      core.return %out
     }
   }
 
@@ -176,220 +118,51 @@ module @ax.ai version "0.1" {
     attr emit_module = "ai"
     tag "src/ax/ai/types.ts"
     type signature = "(AxChatRequest) -> void throws"
-    region @body {
-      block @entry(%request: AxChatRequest) {
-        op core.get {
-          attr key = "realtime"
-          attr result = %realtime
-          attr target = %request
+    body @entry(%request: AxChatRequest) {
+      %realtime = core.get %request["realtime"]
+      %has_realtime = core.call intrinsic.truthy(%realtime)
+      core.if %has_realtime {
+        %error = core.call intrinsic.ai.error.unsupported("OpenAI-compatible beta does not support realtime requests")
+        core.raise %error
+      }
+      %prompt = core.get %request["chat_prompt"]
+      %prompt_is_list = core.type_is %prompt type "list"
+      %prompt_len = core.call intrinsic.len(%prompt)
+      %prompt_empty = core.call intrinsic.eq(%prompt_len, 0)
+      %prompt_not_list = core.call intrinsic.not(%prompt_is_list)
+      %bad_prompt = core.call intrinsic.or(%prompt_not_list, %prompt_empty)
+      core.if %bad_prompt {
+        %error = core.call intrinsic.ai.error.response("Chat prompt is empty")
+        core.raise %error
+      }
+      core.for %message in %prompt {
+        %role = core.get %message["role"]
+        %is_system = core.call intrinsic.eq(%role, "system")
+        %is_user = core.call intrinsic.eq(%role, "user")
+        %is_assistant = core.call intrinsic.eq(%role, "assistant")
+        %is_function = core.call intrinsic.eq(%role, "function")
+        %valid_left = core.call intrinsic.or(%is_system, %is_user)
+        %valid_right = core.call intrinsic.or(%is_assistant, %is_function)
+        %valid_role = core.call intrinsic.or(%valid_left, %valid_right)
+        %invalid_role = core.call intrinsic.not(%valid_role)
+        core.if %invalid_role {
+          %message_text = core.call intrinsic.string.format("Invalid chat message role: {}", %role)
+          %error = core.call intrinsic.ai.error.response(%message_text)
+          core.raise %error
         }
-        op core.call {
-          attr args = [%realtime]
-          attr callee = "intrinsic.truthy"
-          attr result = %has_realtime
-        }
-        op core.if {
-          attr condition = %has_realtime
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["OpenAI-compatible beta does not support realtime requests"]
-                attr callee = "intrinsic.ai.error.unsupported"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "chat_prompt"
-          attr result = %prompt
-          attr target = %request
-        }
-        op core.type_is {
-          attr result = %prompt_is_list
-          attr type = "list"
-          attr value = %prompt
-        }
-        op core.call {
-          attr args = [%prompt]
-          attr callee = "intrinsic.len"
-          attr result = %prompt_len
-        }
-        op core.call {
-          attr args = [%prompt_len, 0]
-          attr callee = "intrinsic.eq"
-          attr result = %prompt_empty
-        }
-        op core.call {
-          attr args = [%prompt_is_list]
-          attr callee = "intrinsic.not"
-          attr result = %prompt_not_list
-        }
-        op core.call {
-          attr args = [%prompt_not_list, %prompt_empty]
-          attr callee = "intrinsic.or"
-          attr result = %bad_prompt
-        }
-        op core.if {
-          attr condition = %bad_prompt
-          region @then {
-            block @then {
-              op core.call {
-                attr args = ["Chat prompt is empty"]
-                attr callee = "intrinsic.ai.error.response"
-                attr result = %error
-              }
-              op core.raise {
-                attr error = %error
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.for {
-          attr in = %prompt
-          attr item = %message
-          region @body {
-            block @each {
-              op core.get {
-                attr key = "role"
-                attr result = %role
-                attr target = %message
-              }
-              op core.call {
-                attr args = [%role, "system"]
-                attr callee = "intrinsic.eq"
-                attr result = %is_system
-              }
-              op core.call {
-                attr args = [%role, "user"]
-                attr callee = "intrinsic.eq"
-                attr result = %is_user
-              }
-              op core.call {
-                attr args = [%role, "assistant"]
-                attr callee = "intrinsic.eq"
-                attr result = %is_assistant
-              }
-              op core.call {
-                attr args = [%role, "function"]
-                attr callee = "intrinsic.eq"
-                attr result = %is_function
-              }
-              op core.call {
-                attr args = [%is_system, %is_user]
-                attr callee = "intrinsic.or"
-                attr result = %valid_left
-              }
-              op core.call {
-                attr args = [%is_assistant, %is_function]
-                attr callee = "intrinsic.or"
-                attr result = %valid_right
-              }
-              op core.call {
-                attr args = [%valid_left, %valid_right]
-                attr callee = "intrinsic.or"
-                attr result = %valid_role
-              }
-              op core.call {
-                attr args = [%valid_role]
-                attr callee = "intrinsic.not"
-                attr result = %invalid_role
-              }
-              op core.if {
-                attr condition = %invalid_role
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Invalid chat message role: {}", %role]
-                      attr callee = "intrinsic.string.format"
-                      attr result = %message_text
-                    }
-                    op core.call {
-                      attr args = [%message_text]
-                      attr callee = "intrinsic.ai.error.response"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-              op core.get {
-                attr key = "content"
-                attr result = %content
-                attr target = %message
-              }
-              op core.get {
-                attr key = "function_calls"
-                attr result = %function_calls
-                attr target = %message
-              }
-              op core.call {
-                attr args = [%content]
-                attr callee = "intrinsic.truthy"
-                attr result = %has_content
-              }
-              op core.call {
-                attr args = [%function_calls]
-                attr callee = "intrinsic.truthy"
-                attr result = %has_calls
-              }
-              op core.call {
-                attr args = [%has_content, %has_calls]
-                attr callee = "intrinsic.or"
-                attr result = %has_assistant_payload
-              }
-              op core.call {
-                attr args = [%has_assistant_payload]
-                attr callee = "intrinsic.not"
-                attr result = %missing_assistant_payload
-              }
-              op core.call {
-                attr args = [%is_assistant, %missing_assistant_payload]
-                attr callee = "intrinsic.and"
-                attr result = %bad_assistant
-              }
-              op core.if {
-                attr condition = %bad_assistant
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = ["Assistant content is required when no tool calls are provided"]
-                      attr callee = "intrinsic.ai.error.response"
-                      attr result = %error
-                    }
-                    op core.raise {
-                      attr error = %error
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-            }
-          }
-        }
-        op core.return {
+        %content = core.get %message["content"]
+        %function_calls = core.get %message["function_calls"]
+        %has_content = core.call intrinsic.truthy(%content)
+        %has_calls = core.call intrinsic.truthy(%function_calls)
+        %has_assistant_payload = core.call intrinsic.or(%has_content, %has_calls)
+        %missing_assistant_payload = core.call intrinsic.not(%has_assistant_payload)
+        %bad_assistant = core.call intrinsic.and(%is_assistant, %missing_assistant_payload)
+        core.if %bad_assistant {
+          %error = core.call intrinsic.ai.error.response("Assistant content is required when no tool calls are provided")
+          core.raise %error
         }
       }
+      core.return
     }
   }
 
@@ -399,21 +172,10 @@ module @ax.ai version "0.1" {
     attr emit_module = "ai"
     ref validate = @validate_chat_request
     type signature = "(AxAIService, AxChatRequest, AxAIServiceOptions?) -> json throws"
-    region @body {
-      block @entry(%service: AxAIService, %request: AxChatRequest, %options: json) {
-        op core.call {
-          attr args = [%request]
-          attr callee = @validate_chat_request
-        }
-        op core.call {
-          attr args = [%request]
-          attr callee = @openai_build_chat_request
-          attr result = %payload
-        }
-        op core.return {
-          attr value = %payload
-        }
-      }
+    body @entry(%service: AxAIService, %request: AxChatRequest, %options: json) {
+      core.call @validate_chat_request(%request)
+      %payload = core.call @openai_build_chat_request(%request)
+      core.return %payload
     }
   }
 
@@ -423,17 +185,9 @@ module @ax.ai version "0.1" {
     attr emit_module = "ai"
     tag "src/ax/ai/openai/api.ts"
     type signature = "(json) -> AxChatResponse throws"
-    region @body {
-      block @entry(%raw: json) {
-        op core.call {
-          attr args = [%raw]
-          attr callee = @openai_normalize_chat_response
-          attr result = %response
-        }
-        op core.return {
-          attr value = %response
-        }
-      }
+    body @entry(%raw: json) {
+      %response = core.call @openai_normalize_chat_response(%raw)
+      core.return %response
     }
   }
 
@@ -443,17 +197,9 @@ module @ax.ai version "0.1" {
     attr emit_module = "ai"
     tag "src/ax/ai/openai/api.ts"
     type signature = "(json, json) -> AxChatResponse throws"
-    region @body {
-      block @entry(%raw: json, %state: json) {
-        op core.call {
-          attr args = [%raw, %state]
-          attr callee = @openai_normalize_stream_delta
-          attr result = %response
-        }
-        op core.return {
-          attr value = %response
-        }
-      }
+    body @entry(%raw: json, %state: json) {
+      %response = core.call @openai_normalize_stream_delta(%raw, %state)
+      core.return %response
     }
   }
 
@@ -462,17 +208,9 @@ module @ax.ai version "0.1" {
     attr effect = "throws"
     attr emit_module = "ai"
     type signature = "(AxAIService, AxEmbedRequest, AxAIServiceOptions?) -> json throws"
-    region @body {
-      block @entry(%service: AxAIService, %request: AxEmbedRequest, %options: json) {
-        op core.call {
-          attr args = [%request]
-          attr callee = @openai_build_embed_request
-          attr result = %payload
-        }
-        op core.return {
-          attr value = %payload
-        }
-      }
+    body @entry(%service: AxAIService, %request: AxEmbedRequest, %options: json) {
+      %payload = core.call @openai_build_embed_request(%request)
+      core.return %payload
     }
   }
 
@@ -482,17 +220,9 @@ module @ax.ai version "0.1" {
     attr emit_module = "ai"
     tag "src/ax/ai/openai/api.ts"
     type signature = "(json) -> AxEmbedResponse throws"
-    region @body {
-      block @entry(%raw: json) {
-        op core.call {
-          attr args = [%raw]
-          attr callee = @openai_normalize_embed_response
-          attr result = %response
-        }
-        op core.return {
-          attr value = %response
-        }
-      }
+    body @entry(%raw: json) {
+      %response = core.call @openai_normalize_embed_response(%raw)
+      core.return %response
     }
   }
 
@@ -501,179 +231,39 @@ module @ax.ai version "0.1" {
     attr emit_module = "ai"
     tag "token-usage-core-helper"
     type signature = "(json) -> json"
-    region @body {
-      block @entry(%usage: json) {
-        op core.map {
-          attr result = %out
-        }
-        op core.get {
-          attr default = 0
-          attr key = "input_tokens"
-          attr result = %input_tokens
-          attr target = %usage
-        }
-        op core.get {
-          attr default = %input_tokens
-          attr key = "prompt_tokens"
-          attr result = %prompt_tokens_snake
-          attr target = %usage
-        }
-        op core.get {
-          attr default = %prompt_tokens_snake
-          attr key = "promptTokens"
-          attr result = %prompt_tokens
-          attr target = %usage
-        }
-        op core.get {
-          attr default = 0
-          attr key = "output_tokens"
-          attr result = %output_tokens
-          attr target = %usage
-        }
-        op core.get {
-          attr default = %output_tokens
-          attr key = "completion_tokens"
-          attr result = %completion_tokens_snake
-          attr target = %usage
-        }
-        op core.get {
-          attr default = %completion_tokens_snake
-          attr key = "completionTokens"
-          attr result = %completion_tokens
-          attr target = %usage
-        }
-        op core.call {
-          attr args = [%prompt_tokens, %completion_tokens]
-          attr callee = "intrinsic.add"
-          attr result = %computed_total_tokens
-        }
-        op core.get {
-          attr default = %computed_total_tokens
-          attr key = "total_tokens"
-          attr result = %total_tokens_snake
-          attr target = %usage
-        }
-        op core.get {
-          attr default = %total_tokens_snake
-          attr key = "totalTokens"
-          attr result = %total_tokens
-          attr target = %usage
-        }
-        op core.set {
-          attr key = "prompt_tokens"
-          attr target = %out
-          attr value = %prompt_tokens
-        }
-        op core.set {
-          attr key = "completion_tokens"
-          attr target = %out
-          attr value = %completion_tokens
-        }
-        op core.set {
-          attr key = "total_tokens"
-          attr target = %out
-          attr value = %total_tokens
-        }
-        op core.get {
-          attr key = "reasoning_tokens"
-          attr result = %reasoning_tokens_snake
-          attr target = %usage
-        }
-        op core.get {
-          attr default = %reasoning_tokens_snake
-          attr key = "reasoningTokens"
-          attr result = %reasoning_tokens
-          attr target = %usage
-        }
-        op core.call {
-          attr args = [%reasoning_tokens]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_reasoning
-        }
-        op core.if {
-          attr condition = %has_reasoning
-          region @then {
-            block @then {
-              op core.set {
-                attr key = "reasoning_tokens"
-                attr target = %out
-                attr value = %reasoning_tokens
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "cache_read_tokens"
-          attr result = %cache_read_tokens_snake
-          attr target = %usage
-        }
-        op core.get {
-          attr default = %cache_read_tokens_snake
-          attr key = "cacheReadTokens"
-          attr result = %cache_read_tokens
-          attr target = %usage
-        }
-        op core.call {
-          attr args = [%cache_read_tokens]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_cache_read
-        }
-        op core.if {
-          attr condition = %has_cache_read
-          region @then {
-            block @then {
-              op core.set {
-                attr key = "cache_read_tokens"
-                attr target = %out
-                attr value = %cache_read_tokens
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "cache_creation_tokens"
-          attr result = %cache_creation_tokens_snake
-          attr target = %usage
-        }
-        op core.get {
-          attr default = %cache_creation_tokens_snake
-          attr key = "cacheCreationTokens"
-          attr result = %cache_creation_tokens
-          attr target = %usage
-        }
-        op core.call {
-          attr args = [%cache_creation_tokens]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_cache_creation
-        }
-        op core.if {
-          attr condition = %has_cache_creation
-          region @then {
-            block @then {
-              op core.set {
-                attr key = "cache_creation_tokens"
-                attr target = %out
-                attr value = %cache_creation_tokens
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.return {
-          attr value = %out
-        }
+    body @entry(%usage: json) {
+      %out = core.map
+      %input_tokens = core.get %usage["input_tokens"] default 0
+      %prompt_tokens_snake = core.get %usage["prompt_tokens"] default %input_tokens
+      %prompt_tokens = core.get %usage["promptTokens"] default %prompt_tokens_snake
+      %output_tokens = core.get %usage["output_tokens"] default 0
+      %completion_tokens_snake = core.get %usage["completion_tokens"] default %output_tokens
+      %completion_tokens = core.get %usage["completionTokens"] default %completion_tokens_snake
+      %computed_total_tokens = core.call intrinsic.add(%prompt_tokens, %completion_tokens)
+      %total_tokens_snake = core.get %usage["total_tokens"] default %computed_total_tokens
+      %total_tokens = core.get %usage["totalTokens"] default %total_tokens_snake
+      core.set %out["prompt_tokens"] = %prompt_tokens
+      core.set %out["completion_tokens"] = %completion_tokens
+      core.set %out["total_tokens"] = %total_tokens
+      %reasoning_tokens_snake = core.get %usage["reasoning_tokens"]
+      %reasoning_tokens = core.get %usage["reasoningTokens"] default %reasoning_tokens_snake
+      %has_reasoning = core.call intrinsic.is_not_none(%reasoning_tokens)
+      core.if %has_reasoning {
+        core.set %out["reasoning_tokens"] = %reasoning_tokens
       }
+      %cache_read_tokens_snake = core.get %usage["cache_read_tokens"]
+      %cache_read_tokens = core.get %usage["cacheReadTokens"] default %cache_read_tokens_snake
+      %has_cache_read = core.call intrinsic.is_not_none(%cache_read_tokens)
+      core.if %has_cache_read {
+        core.set %out["cache_read_tokens"] = %cache_read_tokens
+      }
+      %cache_creation_tokens_snake = core.get %usage["cache_creation_tokens"]
+      %cache_creation_tokens = core.get %usage["cacheCreationTokens"] default %cache_creation_tokens_snake
+      %has_cache_creation = core.call intrinsic.is_not_none(%cache_creation_tokens)
+      core.if %has_cache_creation {
+        core.set %out["cache_creation_tokens"] = %cache_creation_tokens
+      }
+      core.return %out
     }
   }
 
@@ -683,63 +273,19 @@ module @ax.ai version "0.1" {
     attr private = true
     tag "model-usage-core-helper"
     type signature = "(string, string, json) -> json"
-    region @body {
-      block @entry(%ai_name: string, %model: string, %usage: json) {
-        op core.call {
-          attr args = [%usage]
-          attr callee = "intrinsic.truthy"
-          attr result = %has_usage
-        }
-        op core.call {
-          attr args = [%has_usage]
-          attr callee = "intrinsic.not"
-          attr result = %missing_usage
-        }
-        op core.if {
-          attr condition = %missing_usage
-          region @then {
-            block @then {
-              op core.call {
-                attr callee = "intrinsic.none"
-                attr result = %none
-              }
-              op core.return {
-                attr value = %none
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%usage]
-          attr callee = @normalize_token_usage
-          attr result = %tokens
-        }
-        op core.map {
-          attr result = %out
-        }
-        op core.set {
-          attr key = "ai"
-          attr target = %out
-          attr value = %ai_name
-        }
-        op core.set {
-          attr key = "model"
-          attr target = %out
-          attr value = %model
-        }
-        op core.set {
-          attr key = "tokens"
-          attr target = %out
-          attr value = %tokens
-        }
-        op core.return {
-          attr value = %out
-        }
+    body @entry(%ai_name: string, %model: string, %usage: json) {
+      %has_usage = core.call intrinsic.truthy(%usage)
+      %missing_usage = core.call intrinsic.not(%has_usage)
+      core.if %missing_usage {
+        %none = core.call intrinsic.none()
+        core.return %none
       }
+      %tokens = core.call @normalize_token_usage(%usage)
+      %out = core.map
+      core.set %out["ai"] = %ai_name
+      core.set %out["model"] = %model
+      core.set %out["tokens"] = %tokens
+      core.return %out
     }
   }
 
@@ -748,125 +294,33 @@ module @ax.ai version "0.1" {
     attr emit_module = "ai"
     tag "legacy-completion-compat"
     type signature = "(AxChatResponse) -> json"
-    region @body {
-      block @entry(%response: AxChatResponse) {
-        op core.list {
-          attr result = %empty_results
-        }
-        op core.get {
-          attr default = %empty_results
-          attr key = "results"
-          attr result = %results
-          attr target = %response
-        }
-        op core.map {
-          attr result = %empty_result
-        }
-        op core.call {
-          attr args = [%results, 0, %empty_result]
-          attr callee = "intrinsic.list.get"
-          attr result = %result
-        }
-        op core.get {
-          attr default = ""
-          attr key = "content"
-          attr result = %content
-          attr target = %result
-        }
-        op core.list {
-          attr result = %calls
-        }
-        op core.list {
-          attr result = %empty_calls
-        }
-        op core.get {
-          attr default = %empty_calls
-          attr key = "function_calls"
-          attr result = %function_calls
-          attr target = %result
-        }
-        op core.for {
-          attr in = %function_calls
-          attr item = %call
-          region @body {
-            block @each {
-              op core.get {
-                attr key = "function"
-                attr result = %fn
-                attr target = %call
-              }
-              op core.get {
-                attr key = "id"
-                attr result = %id
-                attr target = %call
-              }
-              op core.get {
-                attr key = "name"
-                attr result = %name
-                attr target = %fn
-              }
-              op core.get {
-                attr key = "params"
-                attr result = %params
-                attr target = %fn
-              }
-              op core.map {
-                attr result = %compat_call
-              }
-              op core.set {
-                attr key = "id"
-                attr target = %compat_call
-                attr value = %id
-              }
-              op core.set {
-                attr key = "name"
-                attr target = %compat_call
-                attr value = %name
-              }
-              op core.set {
-                attr key = "params"
-                attr target = %compat_call
-                attr value = %params
-              }
-              op core.append {
-                attr target = %calls
-                attr value = %compat_call
-              }
-            }
-          }
-        }
-        op core.get {
-          attr key = "model_usage"
-          attr result = %model_usage
-          attr target = %response
-        }
-        op core.get {
-          attr key = "tokens"
-          attr result = %usage
-          attr target = %model_usage
-        }
-        op core.map {
-          attr result = %out
-        }
-        op core.set {
-          attr key = "content"
-          attr target = %out
-          attr value = %content
-        }
-        op core.set {
-          attr key = "function_calls"
-          attr target = %out
-          attr value = %calls
-        }
-        op core.set {
-          attr key = "usage"
-          attr target = %out
-          attr value = %usage
-        }
-        op core.return {
-          attr value = %out
-        }
+    body @entry(%response: AxChatResponse) {
+      %empty_results = core.list
+      %results = core.get %response["results"] default %empty_results
+      %empty_result = core.map
+      %result = core.call intrinsic.list.get(%results, 0, %empty_result)
+      %content = core.get %result["content"] default ""
+      %calls = core.list
+      %empty_calls = core.list
+      %function_calls = core.get %result["function_calls"] default %empty_calls
+      core.for %call in %function_calls {
+        %fn = core.get %call["function"]
+        %id = core.get %call["id"]
+        %name = core.get %fn["name"]
+        %params = core.get %fn["params"]
+        %compat_call = core.map
+        core.set %compat_call["id"] = %id
+        core.set %compat_call["name"] = %name
+        core.set %compat_call["params"] = %params
+        core.append %calls, %compat_call
       }
+      %model_usage = core.get %response["model_usage"]
+      %usage = core.get %model_usage["tokens"]
+      %out = core.map
+      core.set %out["content"] = %content
+      core.set %out["function_calls"] = %calls
+      core.set %out["usage"] = %usage
+      core.return %out
     }
   }
 

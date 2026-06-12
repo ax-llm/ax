@@ -7,300 +7,66 @@ module @ax.gen version "0.1" {
     attr private = true
     ref prompt = @render_prompt
     type signature = "(AxGen, list<json>, json) -> AxChatRequest throws"
-    region @body {
-      block @entry(%gen: AxGen, %messages: list<json>, %options: json) {
-        op core.map {
-          attr result = %model_config
-        }
-        op core.get {
-          attr default = false
-          attr key = "stream"
-          attr result = %stream_value
-          attr target = %options
-        }
-        op core.call {
-          attr args = [%stream_value]
-          attr callee = "intrinsic.truthy"
-          attr result = %stream_bool
-        }
-        op core.set {
-          attr key = "stream"
-          attr target = %model_config
-          attr value = %stream_bool
-        }
-        op core.get {
-          attr key = "temperature"
-          attr result = %temperature
-          attr target = %options
-        }
-        op core.call {
-          attr args = [%temperature]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_temperature
-        }
-        op core.if {
-          attr condition = %has_temperature
-          region @then {
-            block @then {
-              op core.set {
-                attr key = "temperature"
-                attr target = %model_config
-                attr value = %temperature
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "max_tokens"
-          attr result = %max_tokens
-          attr target = %options
-        }
-        op core.call {
-          attr args = [%max_tokens]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_max_tokens
-        }
-        op core.if {
-          attr condition = %has_max_tokens
-          region @then {
-            block @then {
-              op core.set {
-                attr key = "max_tokens"
-                attr target = %model_config
-                attr value = %max_tokens
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "top_p"
-          attr result = %top_p
-          attr target = %options
-        }
-        op core.call {
-          attr args = [%top_p]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_top_p
-        }
-        op core.if {
-          attr condition = %has_top_p
-          region @then {
-            block @then {
-              op core.set {
-                attr key = "top_p"
-                attr target = %model_config
-                attr value = %top_p
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "presence_penalty"
-          attr result = %presence_penalty
-          attr target = %options
-        }
-        op core.call {
-          attr args = [%presence_penalty]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_presence_penalty
-        }
-        op core.if {
-          attr condition = %has_presence_penalty
-          region @then {
-            block @then {
-              op core.set {
-                attr key = "presence_penalty"
-                attr target = %model_config
-                attr value = %presence_penalty
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "frequency_penalty"
-          attr result = %frequency_penalty
-          attr target = %options
-        }
-        op core.call {
-          attr args = [%frequency_penalty]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_frequency_penalty
-        }
-        op core.if {
-          attr condition = %has_frequency_penalty
-          region @then {
-            block @then {
-              op core.set {
-                attr key = "frequency_penalty"
-                attr target = %model_config
-                attr value = %frequency_penalty
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "n"
-          attr result = %n
-          attr target = %options
-        }
-        op core.call {
-          attr args = [%n]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_n
-        }
-        op core.if {
-          attr condition = %has_n
-          region @then {
-            block @then {
-              op core.set {
-                attr key = "n"
-                attr target = %model_config
-                attr value = %n
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.get {
-          attr key = "stop_sequences"
-          attr result = %stop_sequences
-          attr target = %options
-        }
-        op core.call {
-          attr args = [%stop_sequences]
-          attr callee = "intrinsic.is_not_none"
-          attr result = %has_stop_sequences
-        }
-        op core.if {
-          attr condition = %has_stop_sequences
-          region @then {
-            block @then {
-              op core.set {
-                attr key = "stop_sequences"
-                attr target = %model_config
-                attr value = %stop_sequences
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.map {
-          attr result = %request
-        }
-        op core.get {
-          attr key = "model"
-          attr result = %model
-          attr target = %options
-        }
-        op core.set {
-          attr key = "model"
-          attr target = %request
-          attr value = %model
-        }
-        op core.set {
-          attr key = "chat_prompt"
-          attr target = %request
-          attr value = %messages
-        }
-        op core.get {
-          attr key = "functions"
-          attr result = %functions
-          attr target = %gen
-        }
-        op core.list {
-          attr result = %function_specs
-        }
-        op core.for {
-          attr in = %functions
-          attr item = %fn
-          region @body {
-            block @each {
-              op core.call {
-                attr args = [%fn]
-                attr callee = @tool_spec_impl
-                attr result = %spec
-              }
-              op core.append {
-                attr target = %function_specs
-                attr value = %spec
-              }
-            }
-          }
-        }
-        op core.set {
-          attr key = "functions"
-          attr target = %request
-          attr value = %function_specs
-        }
-        op core.get {
-          attr key = "function_call_mode"
-          attr result = %mode_snake
-          attr target = %options
-        }
-        op core.get {
-          attr default = %mode_snake
-          attr key = "functionCallMode"
-          attr result = %mode_raw
-          attr target = %options
-        }
-        op core.call {
-          attr args = [%mode_raw]
-          attr callee = @function_call_mode_impl
-          attr result = %mode
-        }
-        op core.set {
-          attr key = "function_call"
-          attr target = %request
-          attr value = %mode
-        }
-        op core.map {
-          attr result = %response_format
-        }
-        op core.set {
-          attr key = "type"
-          attr target = %response_format
-          attr value = "json_object"
-        }
-        op core.set {
-          attr key = "response_format"
-          attr target = %request
-          attr value = %response_format
-        }
-        op core.set {
-          attr key = "model_config"
-          attr target = %request
-          attr value = %model_config
-        }
-        op core.return {
-          attr value = %request
-        }
+    body @entry(%gen: AxGen, %messages: list<json>, %options: json) {
+      %model_config = core.map
+      %stream_value = core.get %options["stream"] default false
+      %stream_bool = core.call intrinsic.truthy(%stream_value)
+      core.set %model_config["stream"] = %stream_bool
+      %temperature = core.get %options["temperature"]
+      %has_temperature = core.call intrinsic.is_not_none(%temperature)
+      core.if %has_temperature {
+        core.set %model_config["temperature"] = %temperature
       }
+      %max_tokens = core.get %options["max_tokens"]
+      %has_max_tokens = core.call intrinsic.is_not_none(%max_tokens)
+      core.if %has_max_tokens {
+        core.set %model_config["max_tokens"] = %max_tokens
+      }
+      %top_p = core.get %options["top_p"]
+      %has_top_p = core.call intrinsic.is_not_none(%top_p)
+      core.if %has_top_p {
+        core.set %model_config["top_p"] = %top_p
+      }
+      %presence_penalty = core.get %options["presence_penalty"]
+      %has_presence_penalty = core.call intrinsic.is_not_none(%presence_penalty)
+      core.if %has_presence_penalty {
+        core.set %model_config["presence_penalty"] = %presence_penalty
+      }
+      %frequency_penalty = core.get %options["frequency_penalty"]
+      %has_frequency_penalty = core.call intrinsic.is_not_none(%frequency_penalty)
+      core.if %has_frequency_penalty {
+        core.set %model_config["frequency_penalty"] = %frequency_penalty
+      }
+      %n = core.get %options["n"]
+      %has_n = core.call intrinsic.is_not_none(%n)
+      core.if %has_n {
+        core.set %model_config["n"] = %n
+      }
+      %stop_sequences = core.get %options["stop_sequences"]
+      %has_stop_sequences = core.call intrinsic.is_not_none(%stop_sequences)
+      core.if %has_stop_sequences {
+        core.set %model_config["stop_sequences"] = %stop_sequences
+      }
+      %request = core.map
+      %model = core.get %options["model"]
+      core.set %request["model"] = %model
+      core.set %request["chat_prompt"] = %messages
+      %functions = core.get %gen["functions"]
+      %function_specs = core.list
+      core.for %fn in %functions {
+        %spec = core.call @tool_spec_impl(%fn)
+        core.append %function_specs, %spec
+      }
+      core.set %request["functions"] = %function_specs
+      %mode_snake = core.get %options["function_call_mode"]
+      %mode_raw = core.get %options["functionCallMode"] default %mode_snake
+      %mode = core.call @function_call_mode_impl(%mode_raw)
+      core.set %request["function_call"] = %mode
+      %response_format = core.map
+      core.set %response_format["type"] = "json_object"
+      core.set %request["response_format"] = %response_format
+      core.set %request["model_config"] = %model_config
+      core.return %request
     }
   }
 
@@ -314,410 +80,100 @@ module @ax.gen version "0.1" {
     ref validate = @validate_output
     tag "src/ax/dsp/generate.ts"
     type signature = "(AxGen, AIClient, json, options?:json) -> json throws"
-    region @body {
-      block @entry(%gen: AxGen, %client: AIClient, %values: json, %options: json) {
-        op core.get {
-          attr key = "options"
-          attr result = %base_options
-          attr target = %gen
-        }
-        op core.call {
-          attr args = [%base_options, %options]
-          attr callee = "intrinsic.map.merge"
-          attr result = %runtime_options
-        }
-        op core.get {
-          attr key = "signature"
-          attr result = %signature
-          attr target = %gen
-        }
-        op core.get {
-          attr key = "input_fields"
-          attr result = %input_fields
-          attr target = %signature
-        }
-        op core.call {
-          attr args = [%input_fields, %values, "input"]
-          attr callee = @validate_fields
-        }
-        op core.get {
-          attr key = "prompt_template"
-          attr result = %prompt_template
-          attr target = %gen
-        }
-        op core.call {
-          attr args = [%prompt_template, "render", %values]
-          attr callee = "intrinsic.object.call_method"
-          attr result = %messages
-        }
-        op core.call {
-          attr args = [%gen]
-          attr callee = @render_examples
-          attr result = %example_messages
-        }
-        op core.call {
-          attr args = [%gen]
-          attr callee = @render_demos
-          attr result = %demo_messages
-        }
-        op core.call {
-          attr args = [%messages, 0, %messages]
-          attr callee = "intrinsic.list.get"
-          attr result = %system_message
-        }
-        op core.call {
-          attr args = [%messages, 1, %messages]
-          attr callee = "intrinsic.list.get"
-          attr result = %user_message
-        }
-        op core.list {
-          attr result = %ordered_messages
-        }
-        op core.append {
-          attr target = %ordered_messages
-          attr value = %system_message
-        }
-        op core.for {
-          attr in = %example_messages
-          attr item = %example_message
-          region @body {
-            block @each_example {
-              op core.append {
-                attr target = %ordered_messages
-                attr value = %example_message
-              }
+    body @entry(%gen: AxGen, %client: AIClient, %values: json, %options: json) {
+      %base_options = core.get %gen["options"]
+      %runtime_options = core.call intrinsic.map.merge(%base_options, %options)
+      %signature = core.get %gen["signature"]
+      %input_fields = core.get %signature["input_fields"]
+      core.call @validate_fields(%input_fields, %values, "input")
+      %prompt_template = core.get %gen["prompt_template"]
+      %messages = core.call intrinsic.object.call_method(%prompt_template, "render", %values)
+      %example_messages = core.call @render_examples(%gen)
+      %demo_messages = core.call @render_demos(%gen)
+      %system_message = core.call intrinsic.list.get(%messages, 0, %messages)
+      %user_message = core.call intrinsic.list.get(%messages, 1, %messages)
+      %ordered_messages = core.list
+      core.append %ordered_messages, %system_message
+      core.for %example_message in %example_messages {
+        core.append %ordered_messages, %example_message
+      }
+      core.for %demo_message in %demo_messages {
+        core.append %ordered_messages, %demo_message
+      }
+      core.append %ordered_messages, %user_message
+      %cached_messages = core.call intrinsic.axgen.apply_context_cache(%gen, %ordered_messages, %options)
+      %messages = core.let %cached_messages
+      core.call intrinsic.axgen.memory_add_request(%gen, %messages)
+      %validation_retries_snake = core.get %runtime_options["validation_retries"] default 2
+      %validation_retries = core.get %runtime_options["validationRetries"] default %validation_retries_snake
+      %infra_retries_snake = core.get %runtime_options["infra_retries"] default 2
+      %infra_retries = core.get %runtime_options["infraRetries"] default %infra_retries_snake
+      %attempt = core.const 0
+      %output_fields = core.get %signature["output_fields"]
+      %functions = core.get %gen["functions"]
+      %last_tool_result = core.call intrinsic.none()
+      core.loop {
+        %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options)
+        %response = core.call @complete_with_retries_impl(%client, %request, %infra_retries)
+        core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
+        core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
+        %calls = core.call @response_function_calls_impl(%response)
+        %call_count = core.call intrinsic.len(%calls)
+        %has_calls = core.call intrinsic.gt(%call_count, 0)
+        core.if %has_calls {
+          core.call @append_tool_call_messages_impl(%messages, %response, %calls)
+          core.for %call in %calls {
+            core.try {
+              %tool_result = core.call @execute_tool_call(%functions, %call)
+              %last_tool_result = core.let %tool_result
+              %tool_message = core.call @tool_result_message_impl(%call, %tool_result)
+              core.append %messages, %tool_message
+              core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_result, true)
+              core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_result, "ok")
+            } catch %tool_error {
+              %tool_error_message = core.call @tool_error_message_impl(%call, %tool_error)
+              core.append %messages, %tool_error_message
+              core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_error_message, false)
+              core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_error_message, "error")
             }
           }
-        }
-        op core.for {
-          attr in = %demo_messages
-          attr item = %demo_message
-          region @body {
-            block @each_demo {
-              op core.append {
-                attr target = %ordered_messages
-                attr value = %demo_message
-              }
-            }
+          %continue_after_tools = core.call @should_continue_steps(%gen, %calls)
+          core.if %continue_after_tools {
+            core.continue
+          } else {
+            %validated_tool_result = core.call @validate_output(%output_fields, %last_tool_result)
+            %processed_tool_result = core.call @apply_field_processors(%gen, %validated_tool_result)
+            core.call @run_assertions(%gen, %processed_tool_result)
+            %public_tool_result = core.call @strip_internal_fields(%output_fields, %processed_tool_result)
+            core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
+            core.call @record_trace(%gen, %values, %public_tool_result, "ok")
+            core.return %public_tool_result
           }
-        }
-        op core.append {
-          attr target = %ordered_messages
-          attr value = %user_message
-        }
-        op core.call {
-          attr args = [%gen, %ordered_messages, %options]
-          attr callee = "intrinsic.axgen.apply_context_cache"
-          attr result = %cached_messages
-        }
-        op core.let {
-          attr result = %messages
-          attr value = %cached_messages
-        }
-        op core.call {
-          attr args = [%gen, %messages]
-          attr callee = "intrinsic.axgen.memory_add_request"
-        }
-        op core.get {
-          attr default = 2
-          attr key = "validation_retries"
-          attr result = %validation_retries_snake
-          attr target = %runtime_options
-        }
-        op core.get {
-          attr default = %validation_retries_snake
-          attr key = "validationRetries"
-          attr result = %validation_retries
-          attr target = %runtime_options
-        }
-        op core.get {
-          attr default = 2
-          attr key = "infra_retries"
-          attr result = %infra_retries_snake
-          attr target = %runtime_options
-        }
-        op core.get {
-          attr default = %infra_retries_snake
-          attr key = "infraRetries"
-          attr result = %infra_retries
-          attr target = %runtime_options
-        }
-        op core.const {
-          attr result = %attempt
-          attr value = 0
-        }
-        op core.get {
-          attr key = "output_fields"
-          attr result = %output_fields
-          attr target = %signature
-        }
-        op core.get {
-          attr key = "functions"
-          attr result = %functions
-          attr target = %gen
-        }
-        op core.call {
-          attr callee = "intrinsic.none"
-          attr result = %last_tool_result
-        }
-        op core.loop {
-          region @body {
-            block @forward_loop {
-              op core.call {
-                attr args = [%gen, %messages, %runtime_options]
-                attr callee = @build_gen_chat_request
-                attr result = %request
-              }
-              op core.call {
-                attr args = [%client, %request, %infra_retries]
-                attr callee = @complete_with_retries_impl
-                attr result = %response
-              }
-              op core.call {
-                attr args = [%gen, %request, %response]
-                attr callee = "intrinsic.axgen.memory_add_response"
-              }
-              op core.call {
-                attr args = [%gen, %request, %response]
-                attr callee = "intrinsic.axgen.record_chat_log"
-              }
-              op core.call {
-                attr args = [%response]
-                attr callee = @response_function_calls_impl
-                attr result = %calls
-              }
-              op core.call {
-                attr args = [%calls]
-                attr callee = "intrinsic.len"
-                attr result = %call_count
-              }
-              op core.call {
-                attr args = [%call_count, 0]
-                attr callee = "intrinsic.gt"
-                attr result = %has_calls
-              }
-              op core.if {
-                attr condition = %has_calls
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = [%messages, %response, %calls]
-                      attr callee = @append_tool_call_messages_impl
-                    }
-                    op core.for {
-                      attr in = %calls
-                      attr item = %call
-                      region @body {
-                        block @each_call {
-                          op core.try {
-                            attr error = %tool_error
-                            region @try {
-                              block @try {
-                                op core.call {
-                                  attr args = [%functions, %call]
-                                  attr callee = @execute_tool_call
-                                  attr result = %tool_result
-                                }
-                                op core.let {
-                                  attr result = %last_tool_result
-                                  attr value = %tool_result
-                                }
-                                op core.call {
-                                  attr args = [%call, %tool_result]
-                                  attr callee = @tool_result_message_impl
-                                  attr result = %tool_message
-                                }
-                                op core.append {
-                                  attr target = %messages
-                                  attr value = %tool_message
-                                }
-                                op core.call {
-                                  attr args = [%gen, %call, %tool_result, true]
-                                  attr callee = "intrinsic.axgen.memory_add_function_result"
-                                }
-                                op core.call {
-                                  attr args = [%gen, %call, %tool_result, "ok"]
-                                  attr callee = "intrinsic.axgen.record_function_call"
-                                }
-                              }
-                            }
-                            region @catch {
-                              block @catch {
-                                op core.call {
-                                  attr args = [%call, %tool_error]
-                                  attr callee = @tool_error_message_impl
-                                  attr result = %tool_error_message
-                                }
-                                op core.append {
-                                  attr target = %messages
-                                  attr value = %tool_error_message
-                                }
-                                op core.call {
-                                  attr args = [%gen, %call, %tool_error_message, false]
-                                  attr callee = "intrinsic.axgen.memory_add_function_result"
-                                }
-                                op core.call {
-                                  attr args = [%gen, %call, %tool_error_message, "error"]
-                                  attr callee = "intrinsic.axgen.record_function_call"
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                    op core.call {
-                      attr args = [%gen, %calls]
-                      attr callee = @should_continue_steps
-                      attr result = %continue_after_tools
-                    }
-                    op core.if {
-                      attr condition = %continue_after_tools
-                      region @then {
-                        block @then {
-                          op core.continue {
-                          }
-                        }
-                      }
-                      region @else {
-                        block @else {
-                          op core.call {
-                            attr args = [%output_fields, %last_tool_result]
-                            attr callee = @validate_output
-                            attr result = %validated_tool_result
-                          }
-                          op core.call {
-                            attr args = [%gen, %validated_tool_result]
-                            attr callee = @apply_field_processors
-                            attr result = %processed_tool_result
-                          }
-                          op core.call {
-                            attr args = [%gen, %processed_tool_result]
-                            attr callee = @run_assertions
-                          }
-                          op core.call {
-                            attr args = [%output_fields, %processed_tool_result]
-                            attr callee = @strip_internal_fields
-                            attr result = %public_tool_result
-                          }
-                          op core.call {
-                            attr args = [%gen]
-                            attr callee = "intrinsic.axgen.memory_cleanup_corrections"
-                          }
-                          op core.call {
-                            attr args = [%gen, %values, %public_tool_result, "ok"]
-                            attr callee = @record_trace
-                          }
-                          op core.return {
-                            attr value = %public_tool_result
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                    op core.try {
-                      attr error = %validation_error
-                      region @try {
-                        block @try {
-                          op core.get {
-                            attr default = ""
-                            attr key = "content"
-                            attr result = %content
-                            attr target = %response
-                          }
-                          op core.call {
-                            attr args = [%content]
-                            attr callee = @parse_output_impl
-                            attr result = %output
-                          }
-                          op core.call {
-                            attr args = [%output_fields, %output]
-                            attr callee = @validate_output
-                            attr result = %validated
-                          }
-                          op core.call {
-                            attr args = [%gen, %validated]
-                            attr callee = @apply_field_processors
-                            attr result = %processed
-                          }
-                          op core.call {
-                            attr args = [%gen, %processed]
-                            attr callee = @run_assertions
-                          }
-                          op core.call {
-                            attr args = [%output_fields, %processed]
-                            attr callee = @strip_internal_fields
-                            attr result = %public_output
-                          }
-                          op core.call {
-                            attr args = [%gen]
-                            attr callee = "intrinsic.axgen.memory_cleanup_corrections"
-                          }
-                          op core.call {
-                            attr args = [%gen, %values, %public_output, "ok"]
-                            attr callee = @record_trace
-                          }
-                          op core.return {
-                            attr value = %public_output
-                          }
-                        }
-                      }
-                      region @catch {
-                        block @catch {
-                          op core.call {
-                            attr args = [%attempt, %validation_retries]
-                            attr callee = "intrinsic.gte"
-                            attr result = %retries_exhausted
-                          }
-                          op core.if {
-                            attr condition = %retries_exhausted
-                            region @then {
-                              block @then {
-                                op core.raise {
-                                  attr error = %validation_error
-                                }
-                              }
-                            }
-                            region @else {
-                              block @else {
-                              }
-                            }
-                          }
-                          op core.call {
-                            attr args = [%attempt, 1]
-                            attr callee = "intrinsic.add"
-                            attr result = %next_attempt
-                          }
-                          op core.let {
-                            attr result = %attempt
-                            attr value = %next_attempt
-                          }
-                          op core.call {
-                            attr args = [%messages, %response, %validation_error]
-                            attr callee = @append_assertion_retry_messages
-                          }
-                          op core.call {
-                            attr args = [%gen, %response, %validation_error]
-                            attr callee = "intrinsic.axgen.memory_add_correction"
-                          }
-                          op core.continue {
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
+        } else {
+          core.try {
+            %content = core.get %response["content"] default ""
+            %output = core.call @parse_output_impl(%content)
+            %validated = core.call @validate_output(%output_fields, %output)
+            %processed = core.call @apply_field_processors(%gen, %validated)
+            core.call @run_assertions(%gen, %processed)
+            %public_output = core.call @strip_internal_fields(%output_fields, %processed)
+            core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
+            core.call @record_trace(%gen, %values, %public_output, "ok")
+            core.return %public_output
+          } catch %validation_error {
+            %retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
+            core.if %retries_exhausted {
+              core.raise %validation_error
             }
+            %next_attempt = core.call intrinsic.add(%attempt, 1)
+            %attempt = core.let %next_attempt
+            core.call @append_assertion_retry_messages(%messages, %response, %validation_error)
+            core.call intrinsic.axgen.memory_add_correction(%gen, %response, %validation_error)
+            core.continue
           }
-        }
-        op core.raise {
-          attr message = "unreachable AxGen forward loop exit"
         }
       }
+      core.raise "unreachable AxGen forward loop exit"
     }
   }
 
@@ -727,17 +183,9 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "examples-host-boundary"
     type signature = "(AxGen, list<json>) -> AxGen"
-    region @body {
-      block @entry(%gen: AxGen, %examples: list<json>) {
-        op core.set {
-          attr key = "examples"
-          attr target = %gen
-          attr value = %examples
-        }
-        op core.return {
-          attr value = %gen
-        }
-      }
+    body @entry(%gen: AxGen, %examples: list<json>) {
+      core.set %gen["examples"] = %examples
+      core.return %gen
     }
   }
 
@@ -747,17 +195,9 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "demos-host-boundary"
     type signature = "(AxGen, list<json>) -> AxGen"
-    region @body {
-      block @entry(%gen: AxGen, %demos: list<json>) {
-        op core.set {
-          attr key = "demos"
-          attr target = %gen
-          attr value = %demos
-        }
-        op core.return {
-          attr value = %gen
-        }
-      }
+    body @entry(%gen: AxGen, %demos: list<json>) {
+      core.set %gen["demos"] = %demos
+      core.return %gen
     }
   }
 
@@ -767,17 +207,9 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "examples-render-order-core-owned"
     type signature = "(AxGen) -> list<json>"
-    region @body {
-      block @entry(%gen: AxGen) {
-        op core.call {
-          attr args = [%gen]
-          attr callee = "intrinsic.axgen.render_examples"
-          attr result = %messages
-        }
-        op core.return {
-          attr value = %messages
-        }
-      }
+    body @entry(%gen: AxGen) {
+      %messages = core.call intrinsic.axgen.render_examples(%gen)
+      core.return %messages
     }
   }
 
@@ -787,17 +219,9 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "demos-render-order-core-owned"
     type signature = "(AxGen) -> list<json>"
-    region @body {
-      block @entry(%gen: AxGen) {
-        op core.call {
-          attr args = [%gen]
-          attr callee = "intrinsic.axgen.render_demos"
-          attr result = %messages
-        }
-        op core.return {
-          attr value = %messages
-        }
-      }
+    body @entry(%gen: AxGen) {
+      %messages = core.call intrinsic.axgen.render_demos(%gen)
+      core.return %messages
     }
   }
 
@@ -807,17 +231,9 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "field-processors-host-boundary"
     type signature = "(AxGen, json) -> json throws"
-    region @body {
-      block @entry(%gen: AxGen, %output: json) {
-        op core.call {
-          attr args = [%gen, %output]
-          attr callee = "intrinsic.axgen.apply_field_processors"
-          attr result = %processed
-        }
-        op core.return {
-          attr value = %processed
-        }
-      }
+    body @entry(%gen: AxGen, %output: json) {
+      %processed = core.call intrinsic.axgen.apply_field_processors(%gen, %output)
+      core.return %processed
     }
   }
 
@@ -828,15 +244,9 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "assertions-host-boundary"
     type signature = "(AxGen, json) -> void throws"
-    region @body {
-      block @entry(%gen: AxGen, %output: json) {
-        op core.call {
-          attr args = [%gen, %output]
-          attr callee = "intrinsic.axgen.run_assertions"
-        }
-        op core.return {
-        }
-      }
+    body @entry(%gen: AxGen, %output: json) {
+      core.call intrinsic.axgen.run_assertions(%gen, %output)
+      core.return
     }
   }
 
@@ -846,15 +256,9 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "assertion-retry-message-core-helper"
     type signature = "(list<json>, json, error) -> void"
-    region @body {
-      block @entry(%messages: list<json>, %response: json, %error: error) {
-        op core.call {
-          attr args = [%messages, %response, %error]
-          attr callee = @append_validation_retry_messages_impl
-        }
-        op core.return {
-        }
-      }
+    body @entry(%messages: list<json>, %response: json, %error: error) {
+      core.call @append_validation_retry_messages_impl(%messages, %response, %error)
+      core.return
     }
   }
 
@@ -864,15 +268,9 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "trace-capture-host-boundary"
     type signature = "(AxGen, json, json, string) -> void"
-    region @body {
-      block @entry(%gen: AxGen, %input: json, %output: json, %status: string) {
-        op core.call {
-          attr args = [%gen, %input, %output, %status]
-          attr callee = "intrinsic.axgen.record_trace"
-        }
-        op core.return {
-        }
-      }
+    body @entry(%gen: AxGen, %input: json, %output: json, %status: string) {
+      core.call intrinsic.axgen.record_trace(%gen, %input, %output, %status)
+      core.return
     }
   }
 
@@ -882,17 +280,9 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "stop-functions-host-boundary"
     type signature = "(AxGen, list<json>) -> bool"
-    region @body {
-      block @entry(%gen: AxGen, %calls: list<json>) {
-        op core.call {
-          attr args = [%gen, %calls]
-          attr callee = "intrinsic.axgen.should_continue_steps"
-          attr result = %should_continue
-        }
-        op core.return {
-          attr value = %should_continue
-        }
-      }
+    body @entry(%gen: AxGen, %calls: list<json>) {
+      %should_continue = core.call intrinsic.axgen.should_continue_steps(%gen, %calls)
+      core.return %should_continue
     }
   }
 
@@ -909,83 +299,26 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "infra-retry-core-helper"
     type signature = "(AIClient, AxChatRequest, i64) -> json throws"
-    region @body {
-      block @entry(%client: AIClient, %request: AxChatRequest, %retries: i64) {
-        op core.const {
-          attr result = %attempt
-          attr value = 0
-        }
-        op core.call {
-          attr callee = "intrinsic.none"
-          attr result = %last_error
-        }
-        op core.loop {
-          region @body {
-            block @retry_loop {
-              op core.try {
-                attr error = %error
-                region @try {
-                  block @try {
-                    op core.call {
-                      attr args = [%client, %request]
-                      attr callee = "intrinsic.ai.complete_once"
-                      attr result = %response
-                    }
-                    op core.return {
-                      attr value = %response
-                    }
-                  }
-                }
-                region @catch {
-                  block @catch {
-                    op core.let {
-                      attr result = %last_error
-                      attr value = %error
-                    }
-                    op core.call {
-                      attr args = [%attempt, %retries]
-                      attr callee = "intrinsic.gte"
-                      attr result = %exhausted
-                    }
-                    op core.if {
-                      attr condition = %exhausted
-                      region @then {
-                        block @then {
-                          op core.raise {
-                            attr error = %error
-                          }
-                        }
-                      }
-                      region @else {
-                        block @else {
-                        }
-                      }
-                    }
-                    op core.call {
-                      attr args = [%attempt]
-                      attr callee = "intrinsic.retry.sleep"
-                    }
-                    op core.call {
-                      attr args = [%attempt, 1]
-                      attr callee = "intrinsic.add"
-                      attr result = %next_attempt
-                    }
-                    op core.let {
-                      attr result = %attempt
-                      attr value = %next_attempt
-                    }
-                    op core.continue {
-                    }
-                  }
-                }
-              }
-            }
+    body @entry(%client: AIClient, %request: AxChatRequest, %retries: i64) {
+      %attempt = core.const 0
+      %last_error = core.call intrinsic.none()
+      core.loop {
+        core.try {
+          %response = core.call intrinsic.ai.complete_once(%client, %request)
+          core.return %response
+        } catch %error {
+          %last_error = core.let %error
+          %exhausted = core.call intrinsic.gte(%attempt, %retries)
+          core.if %exhausted {
+            core.raise %error
           }
-        }
-        op core.raise {
-          attr error = %last_error
+          core.call intrinsic.retry.sleep(%attempt)
+          %next_attempt = core.call intrinsic.add(%attempt, 1)
+          %attempt = core.let %next_attempt
+          core.continue
         }
       }
+      core.raise %last_error
     }
   }
 
@@ -996,21 +329,10 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "parse-structured-output-core-helper"
     type signature = "(string) -> json throws"
-    region @body {
-      block @entry(%content: string) {
-        op core.string_trim {
-          attr result = %text
-          attr value = %content
-        }
-        op core.call {
-          attr args = [%text]
-          attr callee = "intrinsic.json.parse"
-          attr result = %output
-        }
-        op core.return {
-          attr value = %output
-        }
-      }
+    body @entry(%content: string) {
+      %text = core.string_trim %content
+      %output = core.call intrinsic.json.parse(%text)
+      core.return %output
     }
   }
 
@@ -1020,45 +342,15 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "tool-spec-core-helper"
     type signature = "(Tool) -> json"
-    region @body {
-      block @entry(%fn: Tool) {
-        op core.map {
-          attr result = %spec
-        }
-        op core.get {
-          attr key = "name"
-          attr result = %name
-          attr target = %fn
-        }
-        op core.get {
-          attr key = "description"
-          attr result = %description
-          attr target = %fn
-        }
-        op core.get {
-          attr key = "parameters"
-          attr result = %parameters
-          attr target = %fn
-        }
-        op core.set {
-          attr key = "name"
-          attr target = %spec
-          attr value = %name
-        }
-        op core.set {
-          attr key = "description"
-          attr target = %spec
-          attr value = %description
-        }
-        op core.set {
-          attr key = "parameters"
-          attr target = %spec
-          attr value = %parameters
-        }
-        op core.return {
-          attr value = %spec
-        }
-      }
+    body @entry(%fn: Tool) {
+      %spec = core.map
+      %name = core.get %fn["name"]
+      %description = core.get %fn["description"]
+      %parameters = core.get %fn["parameters"]
+      core.set %spec["name"] = %name
+      core.set %spec["description"] = %description
+      core.set %spec["parameters"] = %parameters
+      core.return %spec
     }
   }
 
@@ -1068,79 +360,22 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "function-call-mode-core-helper"
     type signature = "(json) -> string"
-    region @body {
-      block @entry(%mode: json) {
-        op core.call {
-          attr args = [%mode]
-          attr callee = "intrinsic.is_none"
-          attr result = %missing
-        }
-        op core.if {
-          attr condition = %missing
-          region @then {
-            block @then {
-              op core.return {
-                attr value = "auto"
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%mode, "native"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_native
-        }
-        op core.call {
-          attr args = [%mode, "auto"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_auto
-        }
-        op core.call {
-          attr args = [%is_native, %is_auto]
-          attr callee = "intrinsic.or"
-          attr result = %native_or_auto
-        }
-        op core.if {
-          attr condition = %native_or_auto
-          region @then {
-            block @then {
-              op core.return {
-                attr value = "auto"
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%mode, "prompt"]
-          attr callee = "intrinsic.eq"
-          attr result = %is_prompt
-        }
-        op core.if {
-          attr condition = %is_prompt
-          region @then {
-            block @then {
-              op core.return {
-                attr value = "none"
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.return {
-          attr value = %mode
-        }
+    body @entry(%mode: json) {
+      %missing = core.call intrinsic.is_none(%mode)
+      core.if %missing {
+        core.return "auto"
       }
+      %is_native = core.call intrinsic.eq(%mode, "native")
+      %is_auto = core.call intrinsic.eq(%mode, "auto")
+      %native_or_auto = core.call intrinsic.or(%is_native, %is_auto)
+      core.if %native_or_auto {
+        core.return "auto"
+      }
+      %is_prompt = core.call intrinsic.eq(%mode, "prompt")
+      core.if %is_prompt {
+        core.return "none"
+      }
+      core.return %mode
     }
   }
 
@@ -1150,21 +385,10 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "response-function-calls-core-helper"
     type signature = "(json) -> list<json>"
-    region @body {
-      block @entry(%response: json) {
-        op core.list {
-          attr result = %empty
-        }
-        op core.get {
-          attr default = %empty
-          attr key = "function_calls"
-          attr result = %calls
-          attr target = %response
-        }
-        op core.return {
-          attr value = %calls
-        }
-      }
+    body @entry(%response: json) {
+      %empty = core.list
+      %calls = core.get %response["function_calls"] default %empty
+      core.return %calls
     }
   }
 
@@ -1174,59 +398,19 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "tool-call-message-core-helper"
     type signature = "(list<json>, json, list<json>) -> void"
-    region @body {
-      block @entry(%messages: list<json>, %response: json, %calls: list<json>) {
-        op core.list {
-          attr result = %chat_calls
-        }
-        op core.for {
-          attr in = %calls
-          attr item = %call
-          region @body {
-            block @each {
-              op core.call {
-                attr args = [%call]
-                attr callee = @completion_call_to_chat_impl
-                attr result = %chat_call
-              }
-              op core.append {
-                attr target = %chat_calls
-                attr value = %chat_call
-              }
-            }
-          }
-        }
-        op core.get {
-          attr default = ""
-          attr key = "content"
-          attr result = %content
-          attr target = %response
-        }
-        op core.map {
-          attr result = %message
-        }
-        op core.set {
-          attr key = "role"
-          attr target = %message
-          attr value = "assistant"
-        }
-        op core.set {
-          attr key = "content"
-          attr target = %message
-          attr value = %content
-        }
-        op core.set {
-          attr key = "function_calls"
-          attr target = %message
-          attr value = %chat_calls
-        }
-        op core.append {
-          attr target = %messages
-          attr value = %message
-        }
-        op core.return {
-        }
+    body @entry(%messages: list<json>, %response: json, %calls: list<json>) {
+      %chat_calls = core.list
+      core.for %call in %calls {
+        %chat_call = core.call @completion_call_to_chat_impl(%call)
+        core.append %chat_calls, %chat_call
       }
+      %content = core.get %response["content"] default ""
+      %message = core.map
+      core.set %message["role"] = "assistant"
+      core.set %message["content"] = %content
+      core.set %message["function_calls"] = %chat_calls
+      core.append %messages, %message
+      core.return
     }
   }
 
@@ -1236,58 +420,18 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "completion-call-to-chat-core-helper"
     type signature = "(json) -> json"
-    region @body {
-      block @entry(%call: json) {
-        op core.get {
-          attr key = "id"
-          attr result = %id
-          attr target = %call
-        }
-        op core.get {
-          attr key = "name"
-          attr result = %name
-          attr target = %call
-        }
-        op core.get {
-          attr key = "params"
-          attr result = %params
-          attr target = %call
-        }
-        op core.map {
-          attr result = %function
-        }
-        op core.set {
-          attr key = "name"
-          attr target = %function
-          attr value = %name
-        }
-        op core.set {
-          attr key = "params"
-          attr target = %function
-          attr value = %params
-        }
-        op core.map {
-          attr result = %out
-        }
-        op core.set {
-          attr key = "id"
-          attr target = %out
-          attr value = %id
-        }
-        op core.set {
-          attr key = "type"
-          attr target = %out
-          attr value = "function"
-        }
-        op core.set {
-          attr key = "function"
-          attr target = %out
-          attr value = %function
-        }
-        op core.return {
-          attr value = %out
-        }
-      }
+    body @entry(%call: json) {
+      %id = core.get %call["id"]
+      %name = core.get %call["name"]
+      %params = core.get %call["params"]
+      %function = core.map
+      core.set %function["name"] = %name
+      core.set %function["params"] = %params
+      %out = core.map
+      core.set %out["id"] = %id
+      core.set %out["type"] = "function"
+      core.set %out["function"] = %function
+      core.return %out
     }
   }
 
@@ -1297,40 +441,14 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "tool-result-message-core-helper"
     type signature = "(json, json) -> json"
-    region @body {
-      block @entry(%call: json, %result: json) {
-        op core.get {
-          attr key = "id"
-          attr result = %id
-          attr target = %call
-        }
-        op core.call {
-          attr args = [%result]
-          attr callee = "intrinsic.json.stringify"
-          attr result = %result_json
-        }
-        op core.map {
-          attr result = %message
-        }
-        op core.set {
-          attr key = "role"
-          attr target = %message
-          attr value = "function"
-        }
-        op core.set {
-          attr key = "function_id"
-          attr target = %message
-          attr value = %id
-        }
-        op core.set {
-          attr key = "result"
-          attr target = %message
-          attr value = %result_json
-        }
-        op core.return {
-          attr value = %message
-        }
-      }
+    body @entry(%call: json, %result: json) {
+      %id = core.get %call["id"]
+      %result_json = core.call intrinsic.json.stringify(%result)
+      %message = core.map
+      core.set %message["role"] = "function"
+      core.set %message["function_id"] = %id
+      core.set %message["result"] = %result_json
+      core.return %message
     }
   }
 
@@ -1340,58 +458,18 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "tool-error-message-core-helper"
     type signature = "(json, error) -> json"
-    region @body {
-      block @entry(%call: json, %error: error) {
-        op core.get {
-          attr key = "id"
-          attr result = %id
-          attr target = %call
-        }
-        op core.call {
-          attr args = [%error]
-          attr callee = "intrinsic.exception.message"
-          attr result = %error_text
-        }
-        op core.map {
-          attr result = %payload
-        }
-        op core.set {
-          attr key = "error"
-          attr target = %payload
-          attr value = %error_text
-        }
-        op core.call {
-          attr args = [%payload]
-          attr callee = "intrinsic.json.stringify"
-          attr result = %payload_json
-        }
-        op core.map {
-          attr result = %message
-        }
-        op core.set {
-          attr key = "role"
-          attr target = %message
-          attr value = "function"
-        }
-        op core.set {
-          attr key = "function_id"
-          attr target = %message
-          attr value = %id
-        }
-        op core.set {
-          attr key = "result"
-          attr target = %message
-          attr value = %payload_json
-        }
-        op core.set {
-          attr key = "is_error"
-          attr target = %message
-          attr value = true
-        }
-        op core.return {
-          attr value = %message
-        }
-      }
+    body @entry(%call: json, %error: error) {
+      %id = core.get %call["id"]
+      %error_text = core.call intrinsic.exception.message(%error)
+      %payload = core.map
+      core.set %payload["error"] = %error_text
+      %payload_json = core.call intrinsic.json.stringify(%payload)
+      %message = core.map
+      core.set %message["role"] = "function"
+      core.set %message["function_id"] = %id
+      core.set %message["result"] = %payload_json
+      core.set %message["is_error"] = true
+      core.return %message
     }
   }
 
@@ -1401,66 +479,20 @@ module @ax.gen version "0.1" {
     attr private = true
     tag "validation-retry-message-core-helper"
     type signature = "(list<json>, json, error) -> void"
-    region @body {
-      block @entry(%messages: list<json>, %response: json, %error: error) {
-        op core.get {
-          attr default = ""
-          attr key = "content"
-          attr result = %content
-          attr target = %response
-        }
-        op core.map {
-          attr result = %assistant_message
-        }
-        op core.set {
-          attr key = "role"
-          attr target = %assistant_message
-          attr value = "assistant"
-        }
-        op core.set {
-          attr key = "content"
-          attr target = %assistant_message
-          attr value = %content
-        }
-        op core.append {
-          attr target = %messages
-          attr value = %assistant_message
-        }
-        op core.call {
-          attr args = [%error]
-          attr callee = "intrinsic.exception.message"
-          attr result = %error_text
-        }
-        op core.call {
-          attr args = ["The previous response failed validation: ", %error_text]
-          attr callee = "intrinsic.add"
-          attr result = %prefix_message
-        }
-        op core.call {
-          attr args = [%prefix_message, ". Return only corrected JSON."]
-          attr callee = "intrinsic.add"
-          attr result = %retry_content
-        }
-        op core.map {
-          attr result = %retry_message
-        }
-        op core.set {
-          attr key = "role"
-          attr target = %retry_message
-          attr value = "user"
-        }
-        op core.set {
-          attr key = "content"
-          attr target = %retry_message
-          attr value = %retry_content
-        }
-        op core.append {
-          attr target = %messages
-          attr value = %retry_message
-        }
-        op core.return {
-        }
-      }
+    body @entry(%messages: list<json>, %response: json, %error: error) {
+      %content = core.get %response["content"] default ""
+      %assistant_message = core.map
+      core.set %assistant_message["role"] = "assistant"
+      core.set %assistant_message["content"] = %content
+      core.append %messages, %assistant_message
+      %error_text = core.call intrinsic.exception.message(%error)
+      %prefix_message = core.call intrinsic.add("The previous response failed validation: ", %error_text)
+      %retry_content = core.call intrinsic.add(%prefix_message, ". Return only corrected JSON.")
+      %retry_message = core.map
+      core.set %retry_message["role"] = "user"
+      core.set %retry_message["content"] = %retry_content
+      core.append %messages, %retry_message
+      core.return
     }
   }
 }

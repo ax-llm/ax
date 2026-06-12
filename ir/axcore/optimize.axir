@@ -38,7 +38,6 @@ module @ax.optimize version "0.1" {
       %meta_missing = core.call intrinsic.is_none(%metadata)
       core.if %meta_missing {
         %meta = core.let %empty_map
-      } else {
       }
       core.set %out["metadata"] = %meta
       %provenance = core.get %meta["provenance"] default %empty_map
@@ -65,9 +64,7 @@ module @ax.optimize version "0.1" {
           %message = core.call intrinsic.string.format("invalid optimized component value for {}", %id)
           %error = core.call intrinsic.error.runtime(%message)
           core.raise %error
-        } else {
         }
-      } else {
       }
       %current_is_object = core.type_is %current type "object"
       core.if %current_is_object {
@@ -78,9 +75,7 @@ module @ax.optimize version "0.1" {
           %message_object = core.call intrinsic.string.format("invalid optimized component value for {}", %id_object)
           %error_object = core.call intrinsic.error.runtime(%message_object)
           core.raise %error_object
-        } else {
         }
-      } else {
       }
       %current_is_list = core.type_is %current type "list"
       core.if %current_is_list {
@@ -91,9 +86,7 @@ module @ax.optimize version "0.1" {
           %message_list = core.call intrinsic.string.format("invalid optimized component value for {}", %id_list)
           %error_list = core.call intrinsic.error.runtime(%message_list)
           core.raise %error_list
-        } else {
         }
-      } else {
       }
       %current_is_number = core.type_is %current type "number"
       core.if %current_is_number {
@@ -104,9 +97,7 @@ module @ax.optimize version "0.1" {
           %message_number = core.call intrinsic.string.format("invalid optimized component value for {}", %id_number)
           %error_number = core.call intrinsic.error.runtime(%message_number)
           core.raise %error_number
-        } else {
         }
-      } else {
       }
       %current_is_boolean = core.type_is %current type "boolean"
       core.if %current_is_boolean {
@@ -117,9 +108,7 @@ module @ax.optimize version "0.1" {
           %message_boolean = core.call intrinsic.string.format("invalid optimized component value for {}", %id_boolean)
           %error_boolean = core.call intrinsic.error.runtime(%message_boolean)
           core.raise %error_boolean
-        } else {
         }
-      } else {
       }
       %format = core.get %component["format"] default ""
       %is_snake = core.call intrinsic.eq(%format, "snake_case")
@@ -129,9 +118,7 @@ module @ax.optimize version "0.1" {
         core.if %bad_snake {
           %error_snake = core.call intrinsic.error.runtime("invalid optimized function name")
           core.raise %error_snake
-        } else {
         }
-      } else {
       }
       core.return true
     }
@@ -158,7 +145,6 @@ module @ax.optimize version "0.1" {
           %message = core.call intrinsic.string.format("unknown optimized component id: {}", %id)
           %error = core.call intrinsic.error.runtime(%message)
           core.raise %error
-        } else {
         }
         %component = core.get %component_by_id[%id]
         %value = core.get %component_map[%id]
@@ -182,7 +168,6 @@ module @ax.optimize version "0.1" {
       core.if %bad_owners {
         %owners_error = core.call intrinsic.error.runtime("optimized artifact provenance componentOwners must be an object")
         core.raise %owners_error
-      } else {
       }
       core.for %component in %components {
         %id = core.get %component["id"] default ""
@@ -196,9 +181,7 @@ module @ax.optimize version "0.1" {
             %message = core.call intrinsic.string.format("stale optimized component owner: {}", %id)
             %error = core.call intrinsic.error.runtime(%message)
             core.raise %error
-          } else {
           }
-        } else {
         }
       }
       core.return true
@@ -216,7 +199,6 @@ module @ax.optimize version "0.1" {
       core.if %not_object {
         %error = core.call intrinsic.error.runtime("optimized artifact must be an object")
         core.raise %error
-      } else {
       }
       %version = core.get %artifact["artifactVersion"] default ""
       %version_ok = core.call intrinsic.eq(%version, "axir-optimized-artifact-v1")
@@ -224,7 +206,6 @@ module @ax.optimize version "0.1" {
       core.if %bad_version {
         %error_version = core.call intrinsic.error.runtime("unsupported optimized artifact version")
         core.raise %error_version
-      } else {
       }
       %optimizer_name = core.get %artifact["optimizerName"] default ""
       %name_is_string = core.type_is %optimizer_name type "string"
@@ -234,7 +215,6 @@ module @ax.optimize version "0.1" {
       core.if %bad_name {
         %name_error = core.call intrinsic.error.runtime("optimized artifact optimizerName must be a non-empty string")
         core.raise %name_error
-      } else {
       }
       %optimizer_version = core.get %artifact["optimizerVersion"] default ""
       %version_is_string = core.type_is %optimizer_version type "string"
@@ -244,7 +224,6 @@ module @ax.optimize version "0.1" {
       core.if %bad_optimizer_version {
         %optimizer_version_error = core.call intrinsic.error.runtime("optimized artifact optimizerVersion must be a non-empty string")
         core.raise %optimizer_version_error
-      } else {
       }
       %empty_map = core.map
       %component_map = core.get %artifact["componentMap"] default %empty_map
@@ -253,7 +232,6 @@ module @ax.optimize version "0.1" {
       core.if %bad_component_map {
         %error_map = core.call intrinsic.error.runtime("optimized artifact componentMap must be an object")
         core.raise %error_map
-      } else {
       }
       %metadata = core.get %artifact["metadata"] default null
       %metadata_is_object = core.type_is %metadata type "object"
@@ -261,7 +239,6 @@ module @ax.optimize version "0.1" {
       core.if %bad_metadata {
         %metadata_error = core.call intrinsic.error.runtime("optimized artifact metadata must be an object")
         core.raise %metadata_error
-      } else {
       }
       %provenance = core.get %artifact["provenance"] default null
       %provenance_is_object = core.type_is %provenance type "object"
@@ -269,7 +246,6 @@ module @ax.optimize version "0.1" {
       core.if %bad_provenance {
         %provenance_error = core.call intrinsic.error.runtime("optimized artifact provenance must be an object")
         core.raise %provenance_error
-      } else {
       }
       %evidence = core.get %artifact["evidence"] default null
       %evidence_is_object = core.type_is %evidence type "object"
@@ -277,7 +253,6 @@ module @ax.optimize version "0.1" {
       core.if %bad_evidence {
         %evidence_error = core.call intrinsic.error.runtime("optimized artifact evidence must be an object")
         core.raise %evidence_error
-      } else {
       }
       core.call @validate_optimization_component_map(%components, %component_map)
       core.call @validate_optimized_artifact_provenance(%artifact, %components)
@@ -327,7 +302,6 @@ module @ax.optimize version "0.1" {
           core.set %entry["current"] = %current
           core.set %entry["next"] = %next
           core.append %changes, %entry
-        } else {
         }
       }
       core.return %changes
@@ -365,7 +339,6 @@ module @ax.optimize version "0.1" {
         core.set %out_obj["train"] = %train
         core.set %out_obj["validation"] = %validation
         core.return %out_obj
-      } else {
       }
       %out_list = core.map
       core.set %out_list["train"] = %dataset
@@ -385,12 +358,10 @@ module @ax.optimize version "0.1" {
         %out_number = core.map
         core.set %out_number["score"] = %raw
         core.return %out_number
-      } else {
       }
       %is_object = core.type_is %raw type "object"
       core.if %is_object {
         core.return %raw
-      } else {
       }
       %out_zero = core.map
       core.set %out_zero["score"] = 0
@@ -409,7 +380,6 @@ module @ax.optimize version "0.1" {
       core.if %has_metric {
         %picked = core.get %scores[%metric_key] default 0
         core.return %picked
-      } else {
       }
       %values = core.call intrinsic.map.values(%scores)
       %sum = core.let 0
@@ -423,7 +393,6 @@ module @ax.optimize version "0.1" {
       %empty = core.call intrinsic.eq(%count, 0)
       core.if %empty {
         core.return 0
-      } else {
       }
       %avg = core.call intrinsic.div(%sum, %count)
       core.return %avg
@@ -469,13 +438,11 @@ module @ax.optimize version "0.1" {
             %call_matches = core.call @optimization_action_name_matches(%expected, %call)
             core.if %call_matches {
               %found = core.let true
-            } else {
             }
           }
           core.if %found {
             %matched_next = core.call intrinsic.add(%matched, 1)
             %matched = core.let %matched_next
-          } else {
           }
         }
         %ratio = core.call intrinsic.div(%matched, %expected_count)
@@ -483,7 +450,6 @@ module @ax.optimize version "0.1" {
         %factor = core.call intrinsic.add(0.5, %half_ratio)
         %adjusted_next = core.call intrinsic.mul(%adjusted, %factor)
         %adjusted = core.let %adjusted_next
-      } else {
       }
       core.for %forbidden in %forbidden_actions {
         %bad_found = core.let false
@@ -491,13 +457,11 @@ module @ax.optimize version "0.1" {
           %bad_match = core.call @optimization_action_name_matches(%forbidden, %call)
           core.if %bad_match {
             %bad_found = core.let true
-          } else {
           }
         }
         core.if %bad_found {
           %penalized = core.call intrinsic.mul(%adjusted, 0.2)
           %adjusted = core.let %penalized
-        } else {
         }
       }
       core.return %adjusted
@@ -514,27 +478,22 @@ module @ax.optimize version "0.1" {
       %is_excellent = core.call intrinsic.eq(%normalized, "excellent")
       core.if %is_excellent {
         core.return 1
-      } else {
       }
       %is_good = core.call intrinsic.eq(%normalized, "good")
       core.if %is_good {
         core.return 0.8
-      } else {
       }
       %is_acceptable = core.call intrinsic.eq(%normalized, "acceptable")
       core.if %is_acceptable {
         core.return 0.5
-      } else {
       }
       %is_poor = core.call intrinsic.eq(%normalized, "poor")
       core.if %is_poor {
         core.return 0.2
-      } else {
       }
       %is_unacceptable = core.call intrinsic.eq(%normalized, "unacceptable")
       core.if %is_unacceptable {
         core.return 0
-      } else {
       }
       core.return 0.5
     }
@@ -599,7 +558,6 @@ module @ax.optimize version "0.1" {
       %has_error = core.call intrinsic.is_not_none(%error)
       core.if %has_error {
         core.set %out["error"] = %error
-      } else {
       }
       core.return %out
     }
@@ -625,7 +583,6 @@ module @ax.optimize version "0.1" {
       core.if %has_rows {
         %avg_next = core.call intrinsic.div(%sum, %count)
         %avg = core.let %avg_next
-      } else {
       }
       %out = core.map
       core.set %out["phase"] = %phase
@@ -656,15 +613,12 @@ module @ax.optimize version "0.1" {
         %include = core.let false
         core.if %is_all {
           %include = core.let true
-        } else {
         }
         core.if %is_list {
           %listed = core.call intrinsic.contains(%target, %id)
           core.if %listed {
             %include = core.let true
-          } else {
           }
-        } else {
         }
         core.if %is_actor {
           %actor_match = core.call intrinsic.string.ends_with(%id, ".actor")
@@ -672,9 +626,7 @@ module @ax.optimize version "0.1" {
           %actor_any_match = core.call intrinsic.or(%actor_match, %actor_component_match)
           core.if %actor_any_match {
             %include = core.let true
-          } else {
           }
-        } else {
         }
         core.if %is_responder {
           %responder_match = core.call intrinsic.string.ends_with(%id, ".responder")
@@ -682,26 +634,20 @@ module @ax.optimize version "0.1" {
           %responder_any_match = core.call intrinsic.or(%responder_match, %responder_component_match)
           core.if %responder_any_match {
             %include = core.let true
-          } else {
           }
-        } else {
         }
         core.if %is_flow {
           %flow_component = core.call intrinsic.eq(%kind, "flow-graph")
           core.if %flow_component {
             %include = core.let true
-          } else {
           }
-        } else {
         }
         %explicit_match = core.call intrinsic.eq(%target, %id)
         core.if %explicit_match {
           %include = core.let true
-        } else {
         }
         core.if %include {
           core.append %out, %component
-        } else {
         }
       }
       %count = core.call intrinsic.len(%out)
@@ -710,7 +656,6 @@ module @ax.optimize version "0.1" {
         %message = core.call intrinsic.string.format("no optimizable components match target: {}", %target)
         %error = core.call intrinsic.error.runtime(%message)
         core.raise %error
-      } else {
       }
       core.return %out
     }
@@ -752,7 +697,6 @@ module @ax.optimize version "0.1" {
       %opts = core.let %options
       core.if %opts_missing {
         %opts = core.let %empty_map
-      } else {
       }
       %normalized = core.call @normalize_optimization_dataset(%dataset)
       %target = core.get %opts["target"] default "all"
@@ -787,7 +731,6 @@ module @ax.optimize version "0.1" {
       core.if %bad_response {
         %error = core.call intrinsic.error.runtime("optimizer engine must return an optimized artifact")
         core.raise %error
-      } else {
       }
       %empty_map = core.map
       %has_artifact = core.call intrinsic.map.contains(%response, "artifact")
@@ -795,7 +738,6 @@ module @ax.optimize version "0.1" {
       core.if %has_artifact {
         %artifact_value = core.get %response["artifact"]
         %artifact_source = core.let %artifact_value
-      } else {
       }
       %artifact = core.call intrinsic.map.merge(%empty_map, %artifact_source)
       %artifact_is_object = core.type_is %artifact type "object"
@@ -803,39 +745,33 @@ module @ax.optimize version "0.1" {
       core.if %bad_artifact {
         %artifact_error = core.call intrinsic.error.runtime("optimizer engine must return an optimized artifact")
         core.raise %artifact_error
-      } else {
       }
       %version = core.get %artifact["artifactVersion"] default null
       %missing_version = core.call intrinsic.is_none(%version)
       core.if %missing_version {
         core.set %artifact["artifactVersion"] = "axir-optimized-artifact-v1"
-      } else {
       }
       %name = core.get %artifact["optimizerName"] default null
       %missing_name = core.call intrinsic.is_none(%name)
       core.if %missing_name {
         core.set %artifact["optimizerName"] = %engine_name
-      } else {
       }
       %engine_ver = core.get %artifact["optimizerVersion"] default null
       %missing_engine_ver = core.call intrinsic.is_none(%engine_ver)
       core.if %missing_engine_ver {
         core.set %artifact["optimizerVersion"] = %engine_version
-      } else {
       }
       %component_map = core.get %artifact["componentMap"] default null
       %missing_component_map = core.call intrinsic.is_none(%component_map)
       core.if %missing_component_map {
         %snake_map = core.get %artifact["component_map"] default %empty_map
         core.set %artifact["componentMap"] = %snake_map
-      } else {
       }
       %metadata = core.get %artifact["metadata"] default null
       %missing_metadata = core.call intrinsic.is_none(%metadata)
       core.if %missing_metadata {
         %default_metadata = core.map
         core.set %artifact["metadata"] = %default_metadata
-      } else {
       }
       %metadata_final = core.get %artifact["metadata"]
       %provenance = core.get %artifact["provenance"] default null
@@ -844,7 +780,6 @@ module @ax.optimize version "0.1" {
         %empty_provenance = core.map
         %metadata_provenance = core.get %metadata_final["provenance"] default %empty_provenance
         core.set %artifact["provenance"] = %metadata_provenance
-      } else {
       }
       %evidence = core.get %artifact["evidence"] default null
       %missing_evidence = core.call intrinsic.is_none(%evidence)
@@ -852,7 +787,6 @@ module @ax.optimize version "0.1" {
         %empty_evidence = core.map
         %metadata_evidence = core.get %metadata_final["evidence"] default %empty_evidence
         core.set %artifact["evidence"] = %metadata_evidence
-      } else {
       }
       %validated = core.call @validate_optimized_artifact(%artifact, %components)
       %map = core.get %validated["componentMap"]
@@ -892,7 +826,6 @@ module @ax.optimize version "0.1" {
         %has_error = core.call intrinsic.is_not_none(%prediction_error)
         core.if %has_error {
           core.set %trajectory["error"] = %prediction_error
-        } else {
         }
         core.append %trajectories, %trajectory
       }
@@ -913,7 +846,6 @@ module @ax.optimize version "0.1" {
           %has_error = core.call intrinsic.is_not_none(%error)
           core.if %has_error {
             core.set %entry["error"] = %error
-          } else {
           }
           core.append %items, %entry
         }

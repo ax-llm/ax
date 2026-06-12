@@ -27,159 +27,38 @@ module @ax.tool version "0.1" {
     ref validate = @validate_fields
     tag "native-tool-call"
     type signature = "(list<Tool>, json) -> json throws"
-    region @body {
-      block @entry(%functions: list<Tool>, %call: json) {
-        op core.get {
-          attr key = "function"
-          attr result = %fn_call
-          attr target = %call
-        }
-        op core.get {
-          attr key = "name"
-          attr result = %direct_name
-          attr target = %call
-        }
-        op core.get {
-          attr default = %direct_name
-          attr key = "name"
-          attr result = %name
-          attr target = %fn_call
-        }
-        op core.get {
-          attr key = "params"
-          attr result = %direct_params
-          attr target = %call
-        }
-        op core.get {
-          attr default = %direct_params
-          attr key = "params"
-          attr result = %params
-          attr target = %fn_call
-        }
-        op core.call {
-          attr args = [%params]
-          attr callee = "intrinsic.is_none"
-          attr result = %missing_params
-        }
-        op core.if {
-          attr condition = %missing_params
-          region @then {
-            block @then {
-              op core.get {
-                attr key = "arguments"
-                attr result = %argument_params
-                attr target = %call
-              }
-              op core.let {
-                attr result = %params
-                attr value = %argument_params
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.type_is {
-          attr result = %params_is_string
-          attr type = "string"
-          attr value = %params
-        }
-        op core.if {
-          attr condition = %params_is_string
-          region @then {
-            block @then {
-              op core.call {
-                attr args = [%params]
-                attr callee = "intrinsic.json.parse"
-                attr result = %parsed_params
-              }
-              op core.let {
-                attr result = %params
-                attr value = %parsed_params
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.call {
-          attr args = [%params]
-          attr callee = "intrinsic.is_none"
-          attr result = %params_still_missing
-        }
-        op core.if {
-          attr condition = %params_still_missing
-          region @then {
-            block @then {
-              op core.map {
-                attr result = %empty_params
-              }
-              op core.let {
-                attr result = %params
-                attr value = %empty_params
-              }
-            }
-          }
-          region @else {
-            block @else {
-            }
-          }
-        }
-        op core.for {
-          attr in = %functions
-          attr item = %fn
-          region @body {
-            block @each {
-              op core.get {
-                attr key = "name"
-                attr result = %fn_name
-                attr target = %fn
-              }
-              op core.call {
-                attr args = [%fn_name, %name]
-                attr callee = "intrinsic.eq"
-                attr result = %matches
-              }
-              op core.if {
-                attr condition = %matches
-                region @then {
-                  block @then {
-                    op core.call {
-                      attr args = [%fn, %params]
-                      attr callee = "intrinsic.tool.invoke"
-                      attr result = %result
-                    }
-                    op core.return {
-                      attr value = %result
-                    }
-                  }
-                }
-                region @else {
-                  block @else {
-                  }
-                }
-              }
-            }
-          }
-        }
-        op core.call {
-          attr args = ["unknown tool call: {}", %name]
-          attr callee = "intrinsic.string.format"
-          attr result = %message
-        }
-        op core.call {
-          attr args = [%message]
-          attr callee = "intrinsic.error.runtime"
-          attr result = %error
-        }
-        op core.raise {
-          attr error = %error
+    body @entry(%functions: list<Tool>, %call: json) {
+      %fn_call = core.get %call["function"]
+      %direct_name = core.get %call["name"]
+      %name = core.get %fn_call["name"] default %direct_name
+      %direct_params = core.get %call["params"]
+      %params = core.get %fn_call["params"] default %direct_params
+      %missing_params = core.call intrinsic.is_none(%params)
+      core.if %missing_params {
+        %argument_params = core.get %call["arguments"]
+        %params = core.let %argument_params
+      }
+      %params_is_string = core.type_is %params type "string"
+      core.if %params_is_string {
+        %parsed_params = core.call intrinsic.json.parse(%params)
+        %params = core.let %parsed_params
+      }
+      %params_still_missing = core.call intrinsic.is_none(%params)
+      core.if %params_still_missing {
+        %empty_params = core.map
+        %params = core.let %empty_params
+      }
+      core.for %fn in %functions {
+        %fn_name = core.get %fn["name"]
+        %matches = core.call intrinsic.eq(%fn_name, %name)
+        core.if %matches {
+          %result = core.call intrinsic.tool.invoke(%fn, %params)
+          core.return %result
         }
       }
+      %message = core.call intrinsic.string.format("unknown tool call: {}", %name)
+      %error = core.call intrinsic.error.runtime(%message)
+      core.raise %error
     }
   }
 }

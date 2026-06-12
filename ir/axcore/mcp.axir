@@ -2,10 +2,10 @@ module @ax.mcp version "0.1" {
   dialect @ax.mcp version "0.1"
 
   op ax.mcp.interface @AxMCPTransport {
+    attr contract = "mcp-transport"
     attr core_kind = "interface"
     attr public = true
     tag "axmcp"
-    attr contract = "mcp-transport"
   }
 
   op ax.mcp.record @AxMCPTokenSet {
@@ -47,12 +47,12 @@ module @ax.mcp version "0.1" {
   }
 
   op ax.mcp.semantic @mcp_protocol_constants {
+    attr body_source = "core"
     attr core_kind = "func"
     attr emit_module = "mcp"
-    attr body_source = "core"
     tag "axmcp"
     type signature = "() -> json"
-    body @entry() {
+    body @entry {
       %versions = core.list
       core.append %versions, "2025-11-25"
       core.append %versions, "2025-06-18"
@@ -66,9 +66,9 @@ module @ax.mcp version "0.1" {
   }
 
   op ax.mcp.semantic @mcp_jsonrpc_request {
+    attr body_source = "core"
     attr core_kind = "func"
     attr emit_module = "mcp"
-    attr body_source = "core"
     tag "axmcp"
     type signature = "(id:string, method:string, params?:json) -> json"
     body @entry(%id: string, %method: string, %params: json) {
@@ -86,9 +86,9 @@ module @ax.mcp version "0.1" {
   }
 
   op ax.mcp.semantic @mcp_jsonrpc_notification {
+    attr body_source = "core"
     attr core_kind = "func"
     attr emit_module = "mcp"
-    attr body_source = "core"
     tag "axmcp"
     type signature = "(method:string, params?:json) -> json"
     body @entry(%method: string, %params: json) {
@@ -105,9 +105,9 @@ module @ax.mcp version "0.1" {
   }
 
   op ax.mcp.semantic @mcp_normalize_error {
+    attr body_source = "core"
     attr core_kind = "func"
     attr emit_module = "mcp"
-    attr body_source = "core"
     tag "axmcp"
     type signature = "(response:json) -> json"
     body @entry(%response: json) {

@@ -1192,11 +1192,6 @@ final class Core {
     return schema;
   }
 
-  static Object validate_output(Object fields, Object values) {
-    Object validated = Core._validate_output_impl(fields, values);
-    return validated;
-  }
-
   static Object _schema_required_impl(Object field, Object options) {
     Object strict_camel = Core.get(options, "strictStructuredOutputs", Boolean.FALSE);
     Object strict_snake = Core.get(options, "strict_structured_outputs", Boolean.FALSE);
@@ -1207,14 +1202,14 @@ final class Core {
     return required;
   }
 
+  static Object validate_output(Object fields, Object values) {
+    Object validated = Core._validate_output_impl(fields, values);
+    return validated;
+  }
+
   static Object validate_value(Object field, Object value, Object path) {
     Core._validate_value_impl(field, value, path);
     return null;
-  }
-
-  static Object strip_internal(Object fields, Object values) {
-    Object public_values = Core._strip_internal_fields_impl(fields, values);
-    return public_values;
   }
 
   static Object _schema_flexible_json_as_string_impl(Object typ, Object options) {
@@ -1231,6 +1226,11 @@ final class Core {
     Object flexible_type = Core.or(is_json, unshaped_object);
     Object as_string = Core.and(enabled, flexible_type);
     return as_string;
+  }
+
+  static Object strip_internal(Object fields, Object values) {
+    Object public_values = Core._strip_internal_fields_impl(fields, values);
+    return public_values;
   }
 
   static Object _validate_fields_impl(Object fields, Object values, Object context) {
@@ -1323,69 +1323,6 @@ final class Core {
     }
     Core._validate_fields_impl(fields, normalized, "output");
     return normalized;
-  }
-
-  static Object _validate_string_constraints_impl(Object value, Object field) {
-    Object typ = Core.get(field, "type", null);
-    Object title = Core.get(field, "title", null);
-    Object min_length = Core.get(typ, "min_length", null);
-    Object has_min = Core.isNotNone(min_length);
-    if (Core.truthy(has_min)) {
-      Object length = Core.len(value);
-      Object too_short = Core.lt(length, min_length);
-      if (Core.truthy(too_short)) {
-        Object message = Core.stringFormat("Field '{}' failed validation: String must be at least {} characters long.", title, min_length);
-        Object error = Core.validationError(message);
-        throw Core.asRuntime(error);
-      }
-    }
-    Object max_length = Core.get(typ, "max_length", null);
-    Object has_max = Core.isNotNone(max_length);
-    if (Core.truthy(has_max)) {
-      Object length = Core.len(value);
-      Object too_long = Core.gt(length, max_length);
-      if (Core.truthy(too_long)) {
-        Object message = Core.stringFormat("Field '{}' failed validation: String must be at most {} characters long.", title, max_length);
-        Object error = Core.validationError(message);
-        throw Core.asRuntime(error);
-      }
-    }
-    Object pattern = Core.get(typ, "pattern", null);
-    Object has_pattern = Core.isNotNone(pattern);
-    if (Core.truthy(has_pattern)) {
-      Object matches = Core.regexMatch(pattern, value);
-      Object pattern_failed = Core.not(matches);
-      if (Core.truthy(pattern_failed)) {
-        Object message = Core.stringFormat("Field '{}' failed validation: String must match pattern /{}/.", title, pattern);
-        Object error = Core.validationError(message);
-        throw Core.asRuntime(error);
-      }
-    }
-    Object format = Core.get(typ, "format", null);
-    Object is_email = Core.eq(format, "email");
-    if (Core.truthy(is_email)) {
-      Object valid_email = Core.regexMatch("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", value);
-      Object invalid_email = Core.not(valid_email);
-      if (Core.truthy(invalid_email)) {
-        Object message = Core.stringFormat("Field '{}' failed validation: String must be a valid email address.", title);
-        Object error = Core.validationError(message);
-        throw Core.asRuntime(error);
-      }
-    }
-    Object url_formats = new java.util.ArrayList<Object>();
-    Core.append(url_formats, "uri");
-    Core.append(url_formats, "url");
-    Object is_url_format = Core.contains(url_formats, format);
-    if (Core.truthy(is_url_format)) {
-      Object valid_url = Core.urlValid(value);
-      Object invalid_url = Core.not(valid_url);
-      if (Core.truthy(invalid_url)) {
-        Object message = Core.stringFormat("Invalid URL for '{}': Invalid URL format.", title);
-        Object error = Core.validationError(message);
-        throw Core.asRuntime(error);
-      }
-    }
-    return null;
   }
 
   static Object _schema_enhance_description_impl(Object base, Object typ) {
@@ -1501,6 +1438,69 @@ final class Core {
     return base;
   }
 
+  static Object _validate_string_constraints_impl(Object value, Object field) {
+    Object typ = Core.get(field, "type", null);
+    Object title = Core.get(field, "title", null);
+    Object min_length = Core.get(typ, "min_length", null);
+    Object has_min = Core.isNotNone(min_length);
+    if (Core.truthy(has_min)) {
+      Object length = Core.len(value);
+      Object too_short = Core.lt(length, min_length);
+      if (Core.truthy(too_short)) {
+        Object message = Core.stringFormat("Field '{}' failed validation: String must be at least {} characters long.", title, min_length);
+        Object error = Core.validationError(message);
+        throw Core.asRuntime(error);
+      }
+    }
+    Object max_length = Core.get(typ, "max_length", null);
+    Object has_max = Core.isNotNone(max_length);
+    if (Core.truthy(has_max)) {
+      Object length = Core.len(value);
+      Object too_long = Core.gt(length, max_length);
+      if (Core.truthy(too_long)) {
+        Object message = Core.stringFormat("Field '{}' failed validation: String must be at most {} characters long.", title, max_length);
+        Object error = Core.validationError(message);
+        throw Core.asRuntime(error);
+      }
+    }
+    Object pattern = Core.get(typ, "pattern", null);
+    Object has_pattern = Core.isNotNone(pattern);
+    if (Core.truthy(has_pattern)) {
+      Object matches = Core.regexMatch(pattern, value);
+      Object pattern_failed = Core.not(matches);
+      if (Core.truthy(pattern_failed)) {
+        Object message = Core.stringFormat("Field '{}' failed validation: String must match pattern /{}/.", title, pattern);
+        Object error = Core.validationError(message);
+        throw Core.asRuntime(error);
+      }
+    }
+    Object format = Core.get(typ, "format", null);
+    Object is_email = Core.eq(format, "email");
+    if (Core.truthy(is_email)) {
+      Object valid_email = Core.regexMatch("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", value);
+      Object invalid_email = Core.not(valid_email);
+      if (Core.truthy(invalid_email)) {
+        Object message = Core.stringFormat("Field '{}' failed validation: String must be a valid email address.", title);
+        Object error = Core.validationError(message);
+        throw Core.asRuntime(error);
+      }
+    }
+    Object url_formats = new java.util.ArrayList<Object>();
+    Core.append(url_formats, "uri");
+    Core.append(url_formats, "url");
+    Object is_url_format = Core.contains(url_formats, format);
+    if (Core.truthy(is_url_format)) {
+      Object valid_url = Core.urlValid(value);
+      Object invalid_url = Core.not(valid_url);
+      if (Core.truthy(invalid_url)) {
+        Object message = Core.stringFormat("Invalid URL for '{}': Invalid URL format.", title);
+        Object error = Core.validationError(message);
+        throw Core.asRuntime(error);
+      }
+    }
+    return null;
+  }
+
   static Object _validate_number_constraints_impl(Object value, Object field) {
     Object typ = Core.get(field, "type", null);
     Object title = Core.get(field, "title", null);
@@ -1525,6 +1525,73 @@ final class Core {
       }
     }
     return null;
+  }
+
+  static Object _schema_apply_constraints_impl(Object schema, Object typ) {
+    Object type_name = Core.get(typ, "name", null);
+    Object string_types = new java.util.ArrayList<Object>();
+    Core.append(string_types, "string");
+    Core.append(string_types, "code");
+    Core.append(string_types, "url");
+    Core.append(string_types, "date");
+    Core.append(string_types, "dateRange");
+    Core.append(string_types, "datetime");
+    Core.append(string_types, "datetimeRange");
+    Object is_string_type = Core.contains(string_types, type_name);
+    if (Core.truthy(is_string_type)) {
+      Object min_length = Core.get(typ, "min_length", null);
+      Object has_min = Core.isNotNone(min_length);
+      if (Core.truthy(has_min)) {
+        Core.set(schema, "minLength", min_length);
+      }
+      Object max_length = Core.get(typ, "max_length", null);
+      Object has_max = Core.isNotNone(max_length);
+      if (Core.truthy(has_max)) {
+        Core.set(schema, "maxLength", max_length);
+      }
+      Object pattern = Core.get(typ, "pattern", null);
+      Object has_pattern = Core.isNotNone(pattern);
+      if (Core.truthy(has_pattern)) {
+        Core.set(schema, "pattern", pattern);
+      }
+      Object format = Core.get(typ, "format", null);
+      Object has_format = Core.isNotNone(format);
+      if (Core.truthy(has_format)) {
+        Core.set(schema, "format", format);
+      }
+      Object is_url = Core.eq(type_name, "url");
+      Object missing_format = Core.not(has_format);
+      Object default_url_format = Core.and(is_url, missing_format);
+      if (Core.truthy(default_url_format)) {
+        Core.set(schema, "format", "uri");
+      }
+      Object is_date = Core.eq(type_name, "date");
+      Object default_date_format = Core.and(is_date, missing_format);
+      if (Core.truthy(default_date_format)) {
+        Core.set(schema, "format", "date");
+      }
+      Object is_datetime = Core.eq(type_name, "datetime");
+      Object default_datetime_format = Core.and(is_datetime, missing_format);
+      if (Core.truthy(default_datetime_format)) {
+        Core.set(schema, "format", "date-time");
+      }
+    }
+    if (!Core.truthy(is_string_type)) {
+      Object is_number = Core.eq(type_name, "number");
+      if (Core.truthy(is_number)) {
+        Object minimum = Core.get(typ, "minimum", null);
+        Object has_minimum = Core.isNotNone(minimum);
+        if (Core.truthy(has_minimum)) {
+          Core.set(schema, "minimum", minimum);
+        }
+        Object maximum = Core.get(typ, "maximum", null);
+        Object has_maximum = Core.isNotNone(maximum);
+        if (Core.truthy(has_maximum)) {
+          Core.set(schema, "maximum", maximum);
+        }
+      }
+    }
+    return schema;
   }
 
   static Object _validate_value_impl(Object field, Object value, Object path) {
@@ -1694,73 +1761,6 @@ final class Core {
       return null;
     }
     return null;
-  }
-
-  static Object _schema_apply_constraints_impl(Object schema, Object typ) {
-    Object type_name = Core.get(typ, "name", null);
-    Object string_types = new java.util.ArrayList<Object>();
-    Core.append(string_types, "string");
-    Core.append(string_types, "code");
-    Core.append(string_types, "url");
-    Core.append(string_types, "date");
-    Core.append(string_types, "dateRange");
-    Core.append(string_types, "datetime");
-    Core.append(string_types, "datetimeRange");
-    Object is_string_type = Core.contains(string_types, type_name);
-    if (Core.truthy(is_string_type)) {
-      Object min_length = Core.get(typ, "min_length", null);
-      Object has_min = Core.isNotNone(min_length);
-      if (Core.truthy(has_min)) {
-        Core.set(schema, "minLength", min_length);
-      }
-      Object max_length = Core.get(typ, "max_length", null);
-      Object has_max = Core.isNotNone(max_length);
-      if (Core.truthy(has_max)) {
-        Core.set(schema, "maxLength", max_length);
-      }
-      Object pattern = Core.get(typ, "pattern", null);
-      Object has_pattern = Core.isNotNone(pattern);
-      if (Core.truthy(has_pattern)) {
-        Core.set(schema, "pattern", pattern);
-      }
-      Object format = Core.get(typ, "format", null);
-      Object has_format = Core.isNotNone(format);
-      if (Core.truthy(has_format)) {
-        Core.set(schema, "format", format);
-      }
-      Object is_url = Core.eq(type_name, "url");
-      Object missing_format = Core.not(has_format);
-      Object default_url_format = Core.and(is_url, missing_format);
-      if (Core.truthy(default_url_format)) {
-        Core.set(schema, "format", "uri");
-      }
-      Object is_date = Core.eq(type_name, "date");
-      Object default_date_format = Core.and(is_date, missing_format);
-      if (Core.truthy(default_date_format)) {
-        Core.set(schema, "format", "date");
-      }
-      Object is_datetime = Core.eq(type_name, "datetime");
-      Object default_datetime_format = Core.and(is_datetime, missing_format);
-      if (Core.truthy(default_datetime_format)) {
-        Core.set(schema, "format", "date-time");
-      }
-    }
-    if (!Core.truthy(is_string_type)) {
-      Object is_number = Core.eq(type_name, "number");
-      if (Core.truthy(is_number)) {
-        Object minimum = Core.get(typ, "minimum", null);
-        Object has_minimum = Core.isNotNone(minimum);
-        if (Core.truthy(has_minimum)) {
-          Core.set(schema, "minimum", minimum);
-        }
-        Object maximum = Core.get(typ, "maximum", null);
-        Object has_maximum = Core.isNotNone(maximum);
-        if (Core.truthy(has_maximum)) {
-          Core.set(schema, "maximum", maximum);
-        }
-      }
-    }
-    return schema;
   }
 
   static Object _schema_nullable_optional_impl(Object schema, Object field, Object options) {
@@ -2206,16 +2206,6 @@ final class Core {
     return payload;
   }
 
-  static Object normalize_chat_response(Object raw) {
-    Object response = Core.openai_normalize_chat_response(raw);
-    return response;
-  }
-
-  static Object normalize_stream_delta(Object raw, Object state) {
-    Object response = Core.openai_normalize_stream_delta(raw, state);
-    return response;
-  }
-
   static Object _openai_copy_config_key_impl(Object payload, Object model_config, Object source, Object target) {
     Object has_source = Core.mapContains(model_config, source);
     if (Core.truthy(has_source)) {
@@ -2225,13 +2215,13 @@ final class Core {
     return null;
   }
 
-  static Object build_embed_request(Object service, Object request, Object options) {
-    Object payload = Core.openai_build_embed_request(request);
-    return payload;
+  static Object normalize_chat_response(Object raw) {
+    Object response = Core.openai_normalize_chat_response(raw);
+    return response;
   }
 
-  static Object normalize_embed_response(Object raw) {
-    Object response = Core.openai_normalize_embed_response(raw);
+  static Object normalize_stream_delta(Object raw, Object state) {
+    Object response = Core.openai_normalize_stream_delta(raw, state);
     return response;
   }
 
@@ -2308,6 +2298,16 @@ final class Core {
     throw Core.asRuntime(error);
   }
 
+  static Object build_embed_request(Object service, Object request, Object options) {
+    Object payload = Core.openai_build_embed_request(request);
+    return payload;
+  }
+
+  static Object normalize_embed_response(Object raw) {
+    Object response = Core.openai_normalize_embed_response(raw);
+    return response;
+  }
+
   static Object normalize_token_usage(Object usage) {
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object input_tokens = Core.get(usage, "input_tokens", 0);
@@ -2358,35 +2358,6 @@ final class Core {
     return out;
   }
 
-  static Object chat_response_to_completion(Object response) {
-    Object empty_results = new java.util.ArrayList<Object>();
-    Object results = Core.get(response, "results", empty_results);
-    Object empty_result = new java.util.LinkedHashMap<String, Object>();
-    Object result = Core.listGet(results, 0, empty_result);
-    Object content = Core.get(result, "content", "");
-    Object calls = new java.util.ArrayList<Object>();
-    Object empty_calls = new java.util.ArrayList<Object>();
-    Object function_calls = Core.get(result, "function_calls", empty_calls);
-    for (Object call : Core.iter(function_calls)) {
-      Object fn = Core.get(call, "function", null);
-      Object id = Core.get(call, "id", null);
-      Object name = Core.get(fn, "name", null);
-      Object params = Core.get(fn, "params", null);
-      Object compat_call = new java.util.LinkedHashMap<String, Object>();
-      Core.set(compat_call, "id", id);
-      Core.set(compat_call, "name", name);
-      Core.set(compat_call, "params", params);
-      Core.append(calls, compat_call);
-    }
-    Object model_usage = Core.get(response, "model_usage", null);
-    Object usage = Core.get(model_usage, "tokens", null);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "content", content);
-    Core.set(out, "function_calls", calls);
-    Core.set(out, "usage", usage);
-    return out;
-  }
-
   static Object _openai_content_part_impl(Object part) {
     Object type = Core.get(part, "type", null);
     Object is_text = Core.eq(type, "text");
@@ -2425,6 +2396,35 @@ final class Core {
     Object message = Core.stringFormat("OpenAI-compatible beta does not support content part type: {}", type);
     Object error = Core.aiErrorUnsupported(message);
     throw Core.asRuntime(error);
+  }
+
+  static Object chat_response_to_completion(Object response) {
+    Object empty_results = new java.util.ArrayList<Object>();
+    Object results = Core.get(response, "results", empty_results);
+    Object empty_result = new java.util.LinkedHashMap<String, Object>();
+    Object result = Core.listGet(results, 0, empty_result);
+    Object content = Core.get(result, "content", "");
+    Object calls = new java.util.ArrayList<Object>();
+    Object empty_calls = new java.util.ArrayList<Object>();
+    Object function_calls = Core.get(result, "function_calls", empty_calls);
+    for (Object call : Core.iter(function_calls)) {
+      Object fn = Core.get(call, "function", null);
+      Object id = Core.get(call, "id", null);
+      Object name = Core.get(fn, "name", null);
+      Object params = Core.get(fn, "params", null);
+      Object compat_call = new java.util.LinkedHashMap<String, Object>();
+      Core.set(compat_call, "id", id);
+      Core.set(compat_call, "name", name);
+      Core.set(compat_call, "params", params);
+      Core.append(calls, compat_call);
+    }
+    Object model_usage = Core.get(response, "model_usage", null);
+    Object usage = Core.get(model_usage, "tokens", null);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "content", content);
+    Core.set(out, "function_calls", calls);
+    Core.set(out, "usage", usage);
+    return out;
   }
 
   static Object _openai_tool_call_to_provider_impl(Object call) {
@@ -6819,135 +6819,6 @@ final class Core {
     return Boolean.TRUE;
   }
 
-  static Object _validate_optimization_component_map(Object components, Object component_map) {
-    Object known = new java.util.ArrayList<Object>();
-    Object component_by_id = new java.util.LinkedHashMap<String, Object>();
-    for (Object component : Core.iter(components)) {
-      Object id = Core.get(component, "id", "");
-      Core.append(known, id);
-      Core.set(component_by_id, id, component);
-    }
-    Object keys = Core.mapKeys(component_map);
-    for (Object id : Core.iter(keys)) {
-      Object ok = Core.contains(known, id);
-      Object bad = Core.not(ok);
-      if (Core.truthy(bad)) {
-        Object message = Core.stringFormat("unknown optimized component id: {}", id);
-        Object error = Core.runtimeError(message);
-        throw Core.asRuntime(error);
-      }
-      Object component = Core.get(component_by_id, id, null);
-      Object value = Core.get(component_map, id, null);
-      Core._validate_optimization_component_value(component, value);
-    }
-    return Boolean.TRUE;
-  }
-
-  static Object _validate_optimized_artifact_provenance(Object artifact, Object components) {
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object provenance = Core.get(artifact, "provenance", empty_map);
-    Object owners = Core.get(provenance, "componentOwners", empty_map);
-    Object owners_is_object = Core.typeIs(owners, "object");
-    Object bad_owners = Core.not(owners_is_object);
-    if (Core.truthy(bad_owners)) {
-      Object owners_error = Core.runtimeError("optimized artifact provenance componentOwners must be an object");
-      throw Core.asRuntime(owners_error);
-    }
-    for (Object component : Core.iter(components)) {
-      Object id = Core.get(component, "id", "");
-      Object expected_owner = Core.get(owners, id, null);
-      Object has_expected_owner = Core.isNotNone(expected_owner);
-      if (Core.truthy(has_expected_owner)) {
-        Object actual_owner = Core.get(component, "owner", "");
-        Object owner_ok = Core.eq(expected_owner, actual_owner);
-        Object stale_owner = Core.not(owner_ok);
-        if (Core.truthy(stale_owner)) {
-          Object message = Core.stringFormat("stale optimized component owner: {}", id);
-          Object error = Core.runtimeError(message);
-          throw Core.asRuntime(error);
-        }
-      }
-    }
-    return Boolean.TRUE;
-  }
-
-  static Object _validate_optimized_artifact(Object artifact, Object components) {
-    Object is_object = Core.typeIs(artifact, "object");
-    Object not_object = Core.not(is_object);
-    if (Core.truthy(not_object)) {
-      Object error = Core.runtimeError("optimized artifact must be an object");
-      throw Core.asRuntime(error);
-    }
-    Object version = Core.get(artifact, "artifactVersion", "");
-    Object version_ok = Core.eq(version, "axir-optimized-artifact-v1");
-    Object bad_version = Core.not(version_ok);
-    if (Core.truthy(bad_version)) {
-      Object error_version = Core.runtimeError("unsupported optimized artifact version");
-      throw Core.asRuntime(error_version);
-    }
-    Object optimizer_name = Core.get(artifact, "optimizerName", "");
-    Object name_is_string = Core.typeIs(optimizer_name, "string");
-    Object name_empty = Core.eq(optimizer_name, "");
-    Object bad_name_type = Core.not(name_is_string);
-    Object bad_name = Core.or(bad_name_type, name_empty);
-    if (Core.truthy(bad_name)) {
-      Object name_error = Core.runtimeError("optimized artifact optimizerName must be a non-empty string");
-      throw Core.asRuntime(name_error);
-    }
-    Object optimizer_version = Core.get(artifact, "optimizerVersion", "");
-    Object version_is_string = Core.typeIs(optimizer_version, "string");
-    Object optimizer_version_empty = Core.eq(optimizer_version, "");
-    Object bad_optimizer_version_type = Core.not(version_is_string);
-    Object bad_optimizer_version = Core.or(bad_optimizer_version_type, optimizer_version_empty);
-    if (Core.truthy(bad_optimizer_version)) {
-      Object optimizer_version_error = Core.runtimeError("optimized artifact optimizerVersion must be a non-empty string");
-      throw Core.asRuntime(optimizer_version_error);
-    }
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object component_map = Core.get(artifact, "componentMap", empty_map);
-    Object component_map_is_object = Core.typeIs(component_map, "object");
-    Object bad_component_map = Core.not(component_map_is_object);
-    if (Core.truthy(bad_component_map)) {
-      Object error_map = Core.runtimeError("optimized artifact componentMap must be an object");
-      throw Core.asRuntime(error_map);
-    }
-    Object metadata = Core.get(artifact, "metadata", null);
-    Object metadata_is_object = Core.typeIs(metadata, "object");
-    Object bad_metadata = Core.not(metadata_is_object);
-    if (Core.truthy(bad_metadata)) {
-      Object metadata_error = Core.runtimeError("optimized artifact metadata must be an object");
-      throw Core.asRuntime(metadata_error);
-    }
-    Object provenance = Core.get(artifact, "provenance", null);
-    Object provenance_is_object = Core.typeIs(provenance, "object");
-    Object bad_provenance = Core.not(provenance_is_object);
-    if (Core.truthy(bad_provenance)) {
-      Object provenance_error = Core.runtimeError("optimized artifact provenance must be an object");
-      throw Core.asRuntime(provenance_error);
-    }
-    Object evidence = Core.get(artifact, "evidence", null);
-    Object evidence_is_object = Core.typeIs(evidence, "object");
-    Object bad_evidence = Core.not(evidence_is_object);
-    if (Core.truthy(bad_evidence)) {
-      Object evidence_error = Core.runtimeError("optimized artifact evidence must be an object");
-      throw Core.asRuntime(evidence_error);
-    }
-    Core._validate_optimization_component_map(components, component_map);
-    Core._validate_optimized_artifact_provenance(artifact, components);
-    return artifact;
-  }
-
-  static Object _serialize_optimized_artifact(Object artifact) {
-    Object text = Core.jsonStringify(artifact);
-    return text;
-  }
-
-  static Object _deserialize_optimized_artifact(Object text, Object components) {
-    Object artifact = Core.jsonParse(text);
-    Object validated = Core._validate_optimized_artifact(artifact, components);
-    return validated;
-  }
-
   static Object _forward_impl(Object gen, Object client, Object values, Object options) {
     Object base_options = Core.get(gen, "options", null);
     Object runtime_options = Core.mapMerge(base_options, options);
@@ -7046,6 +6917,180 @@ final class Core {
     throw new RuntimeException("unreachable AxGen forward loop exit");
   }
 
+  static Object _validate_optimization_component_map(Object components, Object component_map) {
+    Object known = new java.util.ArrayList<Object>();
+    Object component_by_id = new java.util.LinkedHashMap<String, Object>();
+    for (Object component : Core.iter(components)) {
+      Object id = Core.get(component, "id", "");
+      Core.append(known, id);
+      Core.set(component_by_id, id, component);
+    }
+    Object keys = Core.mapKeys(component_map);
+    for (Object id : Core.iter(keys)) {
+      Object ok = Core.contains(known, id);
+      Object bad = Core.not(ok);
+      if (Core.truthy(bad)) {
+        Object message = Core.stringFormat("unknown optimized component id: {}", id);
+        Object error = Core.runtimeError(message);
+        throw Core.asRuntime(error);
+      }
+      Object component = Core.get(component_by_id, id, null);
+      Object value = Core.get(component_map, id, null);
+      Core._validate_optimization_component_value(component, value);
+    }
+    return Boolean.TRUE;
+  }
+
+  static Object _validate_optimized_artifact_provenance(Object artifact, Object components) {
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object provenance = Core.get(artifact, "provenance", empty_map);
+    Object owners = Core.get(provenance, "componentOwners", empty_map);
+    Object owners_is_object = Core.typeIs(owners, "object");
+    Object bad_owners = Core.not(owners_is_object);
+    if (Core.truthy(bad_owners)) {
+      Object owners_error = Core.runtimeError("optimized artifact provenance componentOwners must be an object");
+      throw Core.asRuntime(owners_error);
+    }
+    for (Object component : Core.iter(components)) {
+      Object id = Core.get(component, "id", "");
+      Object expected_owner = Core.get(owners, id, null);
+      Object has_expected_owner = Core.isNotNone(expected_owner);
+      if (Core.truthy(has_expected_owner)) {
+        Object actual_owner = Core.get(component, "owner", "");
+        Object owner_ok = Core.eq(expected_owner, actual_owner);
+        Object stale_owner = Core.not(owner_ok);
+        if (Core.truthy(stale_owner)) {
+          Object message = Core.stringFormat("stale optimized component owner: {}", id);
+          Object error = Core.runtimeError(message);
+          throw Core.asRuntime(error);
+        }
+      }
+    }
+    return Boolean.TRUE;
+  }
+
+  static Object _set_examples(Object gen, Object examples) {
+    Core.set(gen, "examples", examples);
+    return gen;
+  }
+
+  static Object _validate_optimized_artifact(Object artifact, Object components) {
+    Object is_object = Core.typeIs(artifact, "object");
+    Object not_object = Core.not(is_object);
+    if (Core.truthy(not_object)) {
+      Object error = Core.runtimeError("optimized artifact must be an object");
+      throw Core.asRuntime(error);
+    }
+    Object version = Core.get(artifact, "artifactVersion", "");
+    Object version_ok = Core.eq(version, "axir-optimized-artifact-v1");
+    Object bad_version = Core.not(version_ok);
+    if (Core.truthy(bad_version)) {
+      Object error_version = Core.runtimeError("unsupported optimized artifact version");
+      throw Core.asRuntime(error_version);
+    }
+    Object optimizer_name = Core.get(artifact, "optimizerName", "");
+    Object name_is_string = Core.typeIs(optimizer_name, "string");
+    Object name_empty = Core.eq(optimizer_name, "");
+    Object bad_name_type = Core.not(name_is_string);
+    Object bad_name = Core.or(bad_name_type, name_empty);
+    if (Core.truthy(bad_name)) {
+      Object name_error = Core.runtimeError("optimized artifact optimizerName must be a non-empty string");
+      throw Core.asRuntime(name_error);
+    }
+    Object optimizer_version = Core.get(artifact, "optimizerVersion", "");
+    Object version_is_string = Core.typeIs(optimizer_version, "string");
+    Object optimizer_version_empty = Core.eq(optimizer_version, "");
+    Object bad_optimizer_version_type = Core.not(version_is_string);
+    Object bad_optimizer_version = Core.or(bad_optimizer_version_type, optimizer_version_empty);
+    if (Core.truthy(bad_optimizer_version)) {
+      Object optimizer_version_error = Core.runtimeError("optimized artifact optimizerVersion must be a non-empty string");
+      throw Core.asRuntime(optimizer_version_error);
+    }
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object component_map = Core.get(artifact, "componentMap", empty_map);
+    Object component_map_is_object = Core.typeIs(component_map, "object");
+    Object bad_component_map = Core.not(component_map_is_object);
+    if (Core.truthy(bad_component_map)) {
+      Object error_map = Core.runtimeError("optimized artifact componentMap must be an object");
+      throw Core.asRuntime(error_map);
+    }
+    Object metadata = Core.get(artifact, "metadata", null);
+    Object metadata_is_object = Core.typeIs(metadata, "object");
+    Object bad_metadata = Core.not(metadata_is_object);
+    if (Core.truthy(bad_metadata)) {
+      Object metadata_error = Core.runtimeError("optimized artifact metadata must be an object");
+      throw Core.asRuntime(metadata_error);
+    }
+    Object provenance = Core.get(artifact, "provenance", null);
+    Object provenance_is_object = Core.typeIs(provenance, "object");
+    Object bad_provenance = Core.not(provenance_is_object);
+    if (Core.truthy(bad_provenance)) {
+      Object provenance_error = Core.runtimeError("optimized artifact provenance must be an object");
+      throw Core.asRuntime(provenance_error);
+    }
+    Object evidence = Core.get(artifact, "evidence", null);
+    Object evidence_is_object = Core.typeIs(evidence, "object");
+    Object bad_evidence = Core.not(evidence_is_object);
+    if (Core.truthy(bad_evidence)) {
+      Object evidence_error = Core.runtimeError("optimized artifact evidence must be an object");
+      throw Core.asRuntime(evidence_error);
+    }
+    Core._validate_optimization_component_map(components, component_map);
+    Core._validate_optimized_artifact_provenance(artifact, components);
+    return artifact;
+  }
+
+  static Object _set_demos(Object gen, Object demos) {
+    Core.set(gen, "demos", demos);
+    return gen;
+  }
+
+  static Object _render_examples(Object gen) {
+    Object messages = Core.axgenRenderExamples(gen);
+    return messages;
+  }
+
+  static Object _render_demos(Object gen) {
+    Object messages = Core.axgenRenderDemos(gen);
+    return messages;
+  }
+
+  static Object _apply_field_processors(Object gen, Object output) {
+    Object processed = Core.axgenApplyFieldProcessors(gen, output);
+    return processed;
+  }
+
+  static Object _run_assertions(Object gen, Object output) {
+    Core.axgenRunAssertions(gen, output);
+    return null;
+  }
+
+  static Object _append_assertion_retry_messages(Object messages, Object response, Object error) {
+    Core._append_validation_retry_messages_impl(messages, response, error);
+    return null;
+  }
+
+  static Object _serialize_optimized_artifact(Object artifact) {
+    Object text = Core.jsonStringify(artifact);
+    return text;
+  }
+
+  static Object _record_trace(Object gen, Object input, Object output, Object status) {
+    Core.axgenRecordTrace(gen, input, output, status);
+    return null;
+  }
+
+  static Object _deserialize_optimized_artifact(Object text, Object components) {
+    Object artifact = Core.jsonParse(text);
+    Object validated = Core._validate_optimized_artifact(artifact, components);
+    return validated;
+  }
+
+  static Object _should_continue_steps(Object gen, Object calls) {
+    Object should_continue = Core.axgenShouldContinueSteps(gen, calls);
+    return should_continue;
+  }
+
   static Object _optimization_changed_components(Object components, Object component_map) {
     Object changes = new java.util.ArrayList<Object>();
     for (Object component : Core.iter(components)) {
@@ -7065,6 +7110,28 @@ final class Core {
     return changes;
   }
 
+  static Object _complete_with_retries_impl(Object client, Object request, Object retries) {
+    Object attempt = 0;
+    Object last_error = Core.none();
+    while (Core.truthy(Boolean.TRUE)) {
+      try {
+        Object response = Core.aiCompleteOnce(client, request);
+        return response;
+      } catch (RuntimeException error) {
+        last_error = error;
+        Object exhausted = Core.gte(attempt, retries);
+        if (Core.truthy(exhausted)) {
+          throw Core.asRuntime(error);
+        }
+        Core.retrySleep(attempt);
+        Object next_attempt = Core.add(attempt, 1);
+        attempt = next_attempt;
+        continue;
+      }
+    }
+    throw Core.asRuntime(last_error);
+  }
+
   static Object _optimization_component_current_map(Object components) {
     Object out = new java.util.LinkedHashMap<String, Object>();
     for (Object component : Core.iter(components)) {
@@ -7073,6 +7140,12 @@ final class Core {
       Core.set(out, id, current);
     }
     return out;
+  }
+
+  static Object _parse_output_impl(Object content) {
+    Object text = Core.stringTrim(content);
+    Object output = Core.jsonParse(text);
+    return output;
   }
 
   static Object _normalize_optimization_dataset(Object dataset) {
@@ -7092,6 +7165,17 @@ final class Core {
     return out_list;
   }
 
+  static Object _tool_spec_impl(Object fn) {
+    Object spec = new java.util.LinkedHashMap<String, Object>();
+    Object name = Core.get(fn, "name", null);
+    Object description = Core.get(fn, "description", null);
+    Object parameters = Core.get(fn, "parameters", null);
+    Core.set(spec, "name", name);
+    Core.set(spec, "description", description);
+    Core.set(spec, "parameters", parameters);
+    return spec;
+  }
+
   static Object _normalize_optimization_metric_scores(Object raw) {
     Object is_number = Core.typeIs(raw, "number");
     if (Core.truthy(is_number)) {
@@ -7106,6 +7190,24 @@ final class Core {
     Object out_zero = new java.util.LinkedHashMap<String, Object>();
     Core.set(out_zero, "score", 0);
     return out_zero;
+  }
+
+  static Object _function_call_mode_impl(Object mode) {
+    Object missing = Core.isNone(mode);
+    if (Core.truthy(missing)) {
+      return "auto";
+    }
+    Object is_native = Core.eq(mode, "native");
+    Object is_auto = Core.eq(mode, "auto");
+    Object native_or_auto = Core.or(is_native, is_auto);
+    if (Core.truthy(native_or_auto)) {
+      return "auto";
+    }
+    Object is_prompt = Core.eq(mode, "prompt");
+    if (Core.truthy(is_prompt)) {
+      return "none";
+    }
+    return mode;
   }
 
   static Object _scalarize_optimization_scores(Object scores, Object options) {
@@ -7132,6 +7234,27 @@ final class Core {
     return avg;
   }
 
+  static Object _response_function_calls_impl(Object response) {
+    Object empty = new java.util.ArrayList<Object>();
+    Object calls = Core.get(response, "function_calls", empty);
+    return calls;
+  }
+
+  static Object _append_tool_call_messages_impl(Object messages, Object response, Object calls) {
+    Object chat_calls = new java.util.ArrayList<Object>();
+    for (Object call : Core.iter(calls)) {
+      Object chat_call = Core._completion_call_to_chat_impl(call);
+      Core.append(chat_calls, chat_call);
+    }
+    Object content = Core.get(response, "content", "");
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "assistant");
+    Core.set(message, "content", content);
+    Core.set(message, "function_calls", chat_calls);
+    Core.append(messages, message);
+    return null;
+  }
+
   static Object _optimization_action_name_matches(Object expected, Object call) {
     Object qualified = Core.get(call, "qualifiedName", "");
     Object name = Core.get(call, "name", "");
@@ -7142,6 +7265,20 @@ final class Core {
     Object direct_match = Core.or(qualified_match, name_match);
     Object any_match = Core.or(direct_match, suffix_match);
     return any_match;
+  }
+
+  static Object _completion_call_to_chat_impl(Object call) {
+    Object id = Core.get(call, "id", null);
+    Object name = Core.get(call, "name", null);
+    Object params = Core.get(call, "params", null);
+    Object function = new java.util.LinkedHashMap<String, Object>();
+    Core.set(function, "name", name);
+    Core.set(function, "params", params);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "id", id);
+    Core.set(out, "type", "function");
+    Core.set(out, "function", function);
+    return out;
   }
 
   static Object _adjust_optimization_score_for_actions(Object score, Object task, Object prediction) {
@@ -7187,6 +7324,46 @@ final class Core {
       }
     }
     return adjusted;
+  }
+
+  static Object _tool_result_message_impl(Object call, Object result) {
+    Object id = Core.get(call, "id", null);
+    Object result_json = Core.jsonStringify(result);
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "function");
+    Core.set(message, "function_id", id);
+    Core.set(message, "result", result_json);
+    return message;
+  }
+
+  static Object _tool_error_message_impl(Object call, Object error) {
+    Object id = Core.get(call, "id", null);
+    Object error_text = Core.exceptionMessage(error);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Core.set(payload, "error", error_text);
+    Object payload_json = Core.jsonStringify(payload);
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "function");
+    Core.set(message, "function_id", id);
+    Core.set(message, "result", payload_json);
+    Core.set(message, "is_error", Boolean.TRUE);
+    return message;
+  }
+
+  static Object _append_validation_retry_messages_impl(Object messages, Object response, Object error) {
+    Object content = Core.get(response, "content", "");
+    Object assistant_message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(assistant_message, "role", "assistant");
+    Core.set(assistant_message, "content", content);
+    Core.append(messages, assistant_message);
+    Object error_text = Core.exceptionMessage(error);
+    Object prefix_message = Core.add("The previous response failed validation: ", error_text);
+    Object retry_content = Core.add(prefix_message, ". Return only corrected JSON.");
+    Object retry_message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(retry_message, "role", "user");
+    Core.set(retry_message, "content", retry_content);
+    Core.append(messages, retry_message);
+    return null;
   }
 
   static Object _build_optimization_eval_row(Object task, Object prediction, Object scores, Object scalar, Object trace, Object error) {
@@ -7308,11 +7485,6 @@ final class Core {
     return out;
   }
 
-  static Object _set_examples(Object gen, Object examples) {
-    Core.set(gen, "examples", examples);
-    return gen;
-  }
-
   static Object _prepare_optimizer_run(Object program_kind, Object components, Object dataset, Object options, Object trace, Object evaluator_available) {
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object opts_missing = Core.isNone(options);
@@ -7339,16 +7511,6 @@ final class Core {
     Core.set(out, "options", request_options);
     Core.set(out, "request", request);
     return out;
-  }
-
-  static Object _set_demos(Object gen, Object demos) {
-    Core.set(gen, "demos", demos);
-    return gen;
-  }
-
-  static Object _render_examples(Object gen) {
-    Object messages = Core.axgenRenderExamples(gen);
-    return messages;
   }
 
   static Object _normalize_optimizer_engine_response(Object response, Object engine_name, Object engine_version, Object components) {
@@ -7421,31 +7583,6 @@ final class Core {
     return validated;
   }
 
-  static Object _render_demos(Object gen) {
-    Object messages = Core.axgenRenderDemos(gen);
-    return messages;
-  }
-
-  static Object _apply_field_processors(Object gen, Object output) {
-    Object processed = Core.axgenApplyFieldProcessors(gen, output);
-    return processed;
-  }
-
-  static Object _run_assertions(Object gen, Object output) {
-    Core.axgenRunAssertions(gen, output);
-    return null;
-  }
-
-  static Object _append_assertion_retry_messages(Object messages, Object response, Object error) {
-    Core._append_validation_retry_messages_impl(messages, response, error);
-    return null;
-  }
-
-  static Object _record_trace(Object gen, Object input, Object output, Object status) {
-    Core.axgenRecordTrace(gen, input, output, status);
-    return null;
-  }
-
   static Object _build_optimizer_evidence_batch(Object eval_result, Object components) {
     Object empty_list = new java.util.ArrayList<Object>();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -7512,143 +7649,6 @@ final class Core {
     Core.set(out, "count", count);
     Core.set(out, "reflectiveDataset", reflective);
     return out;
-  }
-
-  static Object _should_continue_steps(Object gen, Object calls) {
-    Object should_continue = Core.axgenShouldContinueSteps(gen, calls);
-    return should_continue;
-  }
-
-  static Object _complete_with_retries_impl(Object client, Object request, Object retries) {
-    Object attempt = 0;
-    Object last_error = Core.none();
-    while (Core.truthy(Boolean.TRUE)) {
-      try {
-        Object response = Core.aiCompleteOnce(client, request);
-        return response;
-      } catch (RuntimeException error) {
-        last_error = error;
-        Object exhausted = Core.gte(attempt, retries);
-        if (Core.truthy(exhausted)) {
-          throw Core.asRuntime(error);
-        }
-        Core.retrySleep(attempt);
-        Object next_attempt = Core.add(attempt, 1);
-        attempt = next_attempt;
-        continue;
-      }
-    }
-    throw Core.asRuntime(last_error);
-  }
-
-  static Object _parse_output_impl(Object content) {
-    Object text = Core.stringTrim(content);
-    Object output = Core.jsonParse(text);
-    return output;
-  }
-
-  static Object _tool_spec_impl(Object fn) {
-    Object spec = new java.util.LinkedHashMap<String, Object>();
-    Object name = Core.get(fn, "name", null);
-    Object description = Core.get(fn, "description", null);
-    Object parameters = Core.get(fn, "parameters", null);
-    Core.set(spec, "name", name);
-    Core.set(spec, "description", description);
-    Core.set(spec, "parameters", parameters);
-    return spec;
-  }
-
-  static Object _function_call_mode_impl(Object mode) {
-    Object missing = Core.isNone(mode);
-    if (Core.truthy(missing)) {
-      return "auto";
-    }
-    Object is_native = Core.eq(mode, "native");
-    Object is_auto = Core.eq(mode, "auto");
-    Object native_or_auto = Core.or(is_native, is_auto);
-    if (Core.truthy(native_or_auto)) {
-      return "auto";
-    }
-    Object is_prompt = Core.eq(mode, "prompt");
-    if (Core.truthy(is_prompt)) {
-      return "none";
-    }
-    return mode;
-  }
-
-  static Object _response_function_calls_impl(Object response) {
-    Object empty = new java.util.ArrayList<Object>();
-    Object calls = Core.get(response, "function_calls", empty);
-    return calls;
-  }
-
-  static Object _append_tool_call_messages_impl(Object messages, Object response, Object calls) {
-    Object chat_calls = new java.util.ArrayList<Object>();
-    for (Object call : Core.iter(calls)) {
-      Object chat_call = Core._completion_call_to_chat_impl(call);
-      Core.append(chat_calls, chat_call);
-    }
-    Object content = Core.get(response, "content", "");
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "assistant");
-    Core.set(message, "content", content);
-    Core.set(message, "function_calls", chat_calls);
-    Core.append(messages, message);
-    return null;
-  }
-
-  static Object _completion_call_to_chat_impl(Object call) {
-    Object id = Core.get(call, "id", null);
-    Object name = Core.get(call, "name", null);
-    Object params = Core.get(call, "params", null);
-    Object function = new java.util.LinkedHashMap<String, Object>();
-    Core.set(function, "name", name);
-    Core.set(function, "params", params);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "id", id);
-    Core.set(out, "type", "function");
-    Core.set(out, "function", function);
-    return out;
-  }
-
-  static Object _tool_result_message_impl(Object call, Object result) {
-    Object id = Core.get(call, "id", null);
-    Object result_json = Core.jsonStringify(result);
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "function");
-    Core.set(message, "function_id", id);
-    Core.set(message, "result", result_json);
-    return message;
-  }
-
-  static Object _tool_error_message_impl(Object call, Object error) {
-    Object id = Core.get(call, "id", null);
-    Object error_text = Core.exceptionMessage(error);
-    Object payload = new java.util.LinkedHashMap<String, Object>();
-    Core.set(payload, "error", error_text);
-    Object payload_json = Core.jsonStringify(payload);
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "function");
-    Core.set(message, "function_id", id);
-    Core.set(message, "result", payload_json);
-    Core.set(message, "is_error", Boolean.TRUE);
-    return message;
-  }
-
-  static Object _append_validation_retry_messages_impl(Object messages, Object response, Object error) {
-    Object content = Core.get(response, "content", "");
-    Object assistant_message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(assistant_message, "role", "assistant");
-    Core.set(assistant_message, "content", content);
-    Core.append(messages, assistant_message);
-    Object error_text = Core.exceptionMessage(error);
-    Object prefix_message = Core.add("The previous response failed validation: ", error_text);
-    Object retry_content = Core.add(prefix_message, ". Return only corrected JSON.");
-    Object retry_message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(retry_message, "role", "user");
-    Core.set(retry_message, "content", retry_content);
-    Core.append(messages, retry_message);
-    return null;
   }
 
   static Object _agent_factory(Object signature, Object options) {
@@ -8502,6 +8502,21 @@ final class Core {
     return actions;
   }
 
+  static Object _build_agent_eval_prediction(Object output, Object action_log, Object usage, Object trace) {
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "completionType", "final");
+    Core.set(out, "output", output);
+    Core.set(out, "finalOutput", output);
+    Core.set(out, "actionLog", action_log);
+    Core.set(out, "usage", usage);
+    Core.set(out, "trace", trace);
+    Object empty_list = new java.util.ArrayList<Object>();
+    Core.set(out, "functionCalls", empty_list);
+    Core.set(out, "toolErrors", empty_list);
+    Core.set(out, "turnCount", 0);
+    return out;
+  }
+
   static Object _select_runtime_globals(Object registry) {
     Object empty_list = new java.util.ArrayList<Object>();
     Object globals = Core.get(registry, "runtime_globals", empty_list);
@@ -8530,21 +8545,6 @@ final class Core {
       Core.append(lines, line);
     }
     Object out = Core.stringJoin("\n", lines);
-    return out;
-  }
-
-  static Object _build_agent_eval_prediction(Object output, Object action_log, Object usage, Object trace) {
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "completionType", "final");
-    Core.set(out, "output", output);
-    Core.set(out, "finalOutput", output);
-    Core.set(out, "actionLog", action_log);
-    Core.set(out, "usage", usage);
-    Core.set(out, "trace", trace);
-    Object empty_list = new java.util.ArrayList<Object>();
-    Core.set(out, "functionCalls", empty_list);
-    Core.set(out, "toolErrors", empty_list);
-    Core.set(out, "turnCount", 0);
     return out;
   }
 

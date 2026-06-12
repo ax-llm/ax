@@ -1045,144 +1045,6 @@ def _validate_optimization_component_value(component: Any, value: Any) -> bool:
     return True
 
 
-def _validate_optimization_component_map(components: Any, component_map: Any) -> bool:
-    known = []
-    component_by_id = {}
-    for component in components:
-        id = _core_get(component, "id", "")
-        known.append(id)
-        component_by_id[id] = component
-    keys = _core_map_keys(component_map)
-    for id in keys:
-        ok = _core_contains(known, id)
-        bad = _core_not(ok)
-        if bad:
-            message = _core_string_format("unknown optimized component id: {}", id)
-            error = _core_runtime_error(message)
-            raise error
-        else:
-            pass
-        component = _core_get(component_by_id, id, None)
-        value = _core_get(component_map, id, None)
-        _validate_optimization_component_value(component, value)
-    return True
-
-
-def _validate_optimized_artifact_provenance(artifact: Any, components: Any) -> bool:
-    empty_map = {}
-    provenance = _core_get(artifact, "provenance", empty_map)
-    owners = _core_get(provenance, "componentOwners", empty_map)
-    owners_is_object = _core_type_is(owners, "object")
-    bad_owners = _core_not(owners_is_object)
-    if bad_owners:
-        owners_error = _core_runtime_error("optimized artifact provenance componentOwners must be an object")
-        raise owners_error
-    else:
-        pass
-    for component in components:
-        id = _core_get(component, "id", "")
-        expected_owner = _core_get(owners, id, None)
-        has_expected_owner = _core_is_not_none(expected_owner)
-        if has_expected_owner:
-            actual_owner = _core_get(component, "owner", "")
-            owner_ok = _core_eq(expected_owner, actual_owner)
-            stale_owner = _core_not(owner_ok)
-            if stale_owner:
-                message = _core_string_format("stale optimized component owner: {}", id)
-                error = _core_runtime_error(message)
-                raise error
-            else:
-                pass
-        else:
-            pass
-    return True
-
-
-def _validate_optimized_artifact(artifact: Any, components: Any) -> Any:
-    is_object = _core_type_is(artifact, "object")
-    not_object = _core_not(is_object)
-    if not_object:
-        error = _core_runtime_error("optimized artifact must be an object")
-        raise error
-    else:
-        pass
-    version = _core_get(artifact, "artifactVersion", "")
-    version_ok = _core_eq(version, "axir-optimized-artifact-v1")
-    bad_version = _core_not(version_ok)
-    if bad_version:
-        error_version = _core_runtime_error("unsupported optimized artifact version")
-        raise error_version
-    else:
-        pass
-    optimizer_name = _core_get(artifact, "optimizerName", "")
-    name_is_string = _core_type_is(optimizer_name, "string")
-    name_empty = _core_eq(optimizer_name, "")
-    bad_name_type = _core_not(name_is_string)
-    bad_name = _core_or(bad_name_type, name_empty)
-    if bad_name:
-        name_error = _core_runtime_error("optimized artifact optimizerName must be a non-empty string")
-        raise name_error
-    else:
-        pass
-    optimizer_version = _core_get(artifact, "optimizerVersion", "")
-    version_is_string = _core_type_is(optimizer_version, "string")
-    optimizer_version_empty = _core_eq(optimizer_version, "")
-    bad_optimizer_version_type = _core_not(version_is_string)
-    bad_optimizer_version = _core_or(bad_optimizer_version_type, optimizer_version_empty)
-    if bad_optimizer_version:
-        optimizer_version_error = _core_runtime_error("optimized artifact optimizerVersion must be a non-empty string")
-        raise optimizer_version_error
-    else:
-        pass
-    empty_map = {}
-    component_map = _core_get(artifact, "componentMap", empty_map)
-    component_map_is_object = _core_type_is(component_map, "object")
-    bad_component_map = _core_not(component_map_is_object)
-    if bad_component_map:
-        error_map = _core_runtime_error("optimized artifact componentMap must be an object")
-        raise error_map
-    else:
-        pass
-    metadata = _core_get(artifact, "metadata", None)
-    metadata_is_object = _core_type_is(metadata, "object")
-    bad_metadata = _core_not(metadata_is_object)
-    if bad_metadata:
-        metadata_error = _core_runtime_error("optimized artifact metadata must be an object")
-        raise metadata_error
-    else:
-        pass
-    provenance = _core_get(artifact, "provenance", None)
-    provenance_is_object = _core_type_is(provenance, "object")
-    bad_provenance = _core_not(provenance_is_object)
-    if bad_provenance:
-        provenance_error = _core_runtime_error("optimized artifact provenance must be an object")
-        raise provenance_error
-    else:
-        pass
-    evidence = _core_get(artifact, "evidence", None)
-    evidence_is_object = _core_type_is(evidence, "object")
-    bad_evidence = _core_not(evidence_is_object)
-    if bad_evidence:
-        evidence_error = _core_runtime_error("optimized artifact evidence must be an object")
-        raise evidence_error
-    else:
-        pass
-    _validate_optimization_component_map(components, component_map)
-    _validate_optimized_artifact_provenance(artifact, components)
-    return artifact
-
-
-def _serialize_optimized_artifact(artifact: Any) -> str:
-    text = _core_json_stringify(artifact)
-    return text
-
-
-def _deserialize_optimized_artifact(text: str, components: Any) -> Any:
-    artifact = _core_json_parse(text)
-    validated = _validate_optimized_artifact(artifact, components)
-    return validated
-
-
 def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> Any:
     base_options = _core_get(gen, "options", None)
     runtime_options = _core_map_merge(base_options, options)
@@ -1272,6 +1134,189 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
     raise RuntimeError("unreachable AxGen forward loop exit")
 
 
+def _validate_optimization_component_map(components: Any, component_map: Any) -> bool:
+    known = []
+    component_by_id = {}
+    for component in components:
+        id = _core_get(component, "id", "")
+        known.append(id)
+        component_by_id[id] = component
+    keys = _core_map_keys(component_map)
+    for id in keys:
+        ok = _core_contains(known, id)
+        bad = _core_not(ok)
+        if bad:
+            message = _core_string_format("unknown optimized component id: {}", id)
+            error = _core_runtime_error(message)
+            raise error
+        else:
+            pass
+        component = _core_get(component_by_id, id, None)
+        value = _core_get(component_map, id, None)
+        _validate_optimization_component_value(component, value)
+    return True
+
+
+def _validate_optimized_artifact_provenance(artifact: Any, components: Any) -> bool:
+    empty_map = {}
+    provenance = _core_get(artifact, "provenance", empty_map)
+    owners = _core_get(provenance, "componentOwners", empty_map)
+    owners_is_object = _core_type_is(owners, "object")
+    bad_owners = _core_not(owners_is_object)
+    if bad_owners:
+        owners_error = _core_runtime_error("optimized artifact provenance componentOwners must be an object")
+        raise owners_error
+    else:
+        pass
+    for component in components:
+        id = _core_get(component, "id", "")
+        expected_owner = _core_get(owners, id, None)
+        has_expected_owner = _core_is_not_none(expected_owner)
+        if has_expected_owner:
+            actual_owner = _core_get(component, "owner", "")
+            owner_ok = _core_eq(expected_owner, actual_owner)
+            stale_owner = _core_not(owner_ok)
+            if stale_owner:
+                message = _core_string_format("stale optimized component owner: {}", id)
+                error = _core_runtime_error(message)
+                raise error
+            else:
+                pass
+        else:
+            pass
+    return True
+
+
+def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
+    gen["examples"] = examples
+    return gen
+
+
+def _validate_optimized_artifact(artifact: Any, components: Any) -> Any:
+    is_object = _core_type_is(artifact, "object")
+    not_object = _core_not(is_object)
+    if not_object:
+        error = _core_runtime_error("optimized artifact must be an object")
+        raise error
+    else:
+        pass
+    version = _core_get(artifact, "artifactVersion", "")
+    version_ok = _core_eq(version, "axir-optimized-artifact-v1")
+    bad_version = _core_not(version_ok)
+    if bad_version:
+        error_version = _core_runtime_error("unsupported optimized artifact version")
+        raise error_version
+    else:
+        pass
+    optimizer_name = _core_get(artifact, "optimizerName", "")
+    name_is_string = _core_type_is(optimizer_name, "string")
+    name_empty = _core_eq(optimizer_name, "")
+    bad_name_type = _core_not(name_is_string)
+    bad_name = _core_or(bad_name_type, name_empty)
+    if bad_name:
+        name_error = _core_runtime_error("optimized artifact optimizerName must be a non-empty string")
+        raise name_error
+    else:
+        pass
+    optimizer_version = _core_get(artifact, "optimizerVersion", "")
+    version_is_string = _core_type_is(optimizer_version, "string")
+    optimizer_version_empty = _core_eq(optimizer_version, "")
+    bad_optimizer_version_type = _core_not(version_is_string)
+    bad_optimizer_version = _core_or(bad_optimizer_version_type, optimizer_version_empty)
+    if bad_optimizer_version:
+        optimizer_version_error = _core_runtime_error("optimized artifact optimizerVersion must be a non-empty string")
+        raise optimizer_version_error
+    else:
+        pass
+    empty_map = {}
+    component_map = _core_get(artifact, "componentMap", empty_map)
+    component_map_is_object = _core_type_is(component_map, "object")
+    bad_component_map = _core_not(component_map_is_object)
+    if bad_component_map:
+        error_map = _core_runtime_error("optimized artifact componentMap must be an object")
+        raise error_map
+    else:
+        pass
+    metadata = _core_get(artifact, "metadata", None)
+    metadata_is_object = _core_type_is(metadata, "object")
+    bad_metadata = _core_not(metadata_is_object)
+    if bad_metadata:
+        metadata_error = _core_runtime_error("optimized artifact metadata must be an object")
+        raise metadata_error
+    else:
+        pass
+    provenance = _core_get(artifact, "provenance", None)
+    provenance_is_object = _core_type_is(provenance, "object")
+    bad_provenance = _core_not(provenance_is_object)
+    if bad_provenance:
+        provenance_error = _core_runtime_error("optimized artifact provenance must be an object")
+        raise provenance_error
+    else:
+        pass
+    evidence = _core_get(artifact, "evidence", None)
+    evidence_is_object = _core_type_is(evidence, "object")
+    bad_evidence = _core_not(evidence_is_object)
+    if bad_evidence:
+        evidence_error = _core_runtime_error("optimized artifact evidence must be an object")
+        raise evidence_error
+    else:
+        pass
+    _validate_optimization_component_map(components, component_map)
+    _validate_optimized_artifact_provenance(artifact, components)
+    return artifact
+
+
+def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
+    gen["demos"] = demos
+    return gen
+
+
+def _render_examples(gen: AxGen) -> list[Any]:
+    messages = _core_axgen_render_examples(gen)
+    return messages
+
+
+def _render_demos(gen: AxGen) -> list[Any]:
+    messages = _core_axgen_render_demos(gen)
+    return messages
+
+
+def _apply_field_processors(gen: AxGen, output: Any) -> Any:
+    processed = _core_axgen_apply_field_processors(gen, output)
+    return processed
+
+
+def _run_assertions(gen: AxGen, output: Any) -> None:
+    _core_axgen_run_assertions(gen, output)
+    return None
+
+
+def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> None:
+    _append_validation_retry_messages_impl(messages, response, error)
+    return None
+
+
+def _serialize_optimized_artifact(artifact: Any) -> str:
+    text = _core_json_stringify(artifact)
+    return text
+
+
+def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
+    _core_axgen_record_trace(gen, input, output, status)
+    return None
+
+
+def _deserialize_optimized_artifact(text: str, components: Any) -> Any:
+    artifact = _core_json_parse(text)
+    validated = _validate_optimized_artifact(artifact, components)
+    return validated
+
+
+def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
+    should_continue = _core_axgen_should_continue_steps(gen, calls)
+    return should_continue
+
+
 def _optimization_changed_components(components: Any, component_map: Any) -> list[Any]:
     changes = []
     for component in components:
@@ -1291,6 +1336,27 @@ def _optimization_changed_components(components: Any, component_map: Any) -> lis
     return changes
 
 
+def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, retries: int) -> Any:
+    attempt = 0
+    last_error = _core_none()
+    while True:
+        try:
+            response = _core_ai_complete_once(client, request)
+            return response
+        except Exception as error:
+            last_error = error
+            exhausted = _core_gte(attempt, retries)
+            if exhausted:
+                raise error
+            else:
+                pass
+            _core_retry_sleep(attempt)
+            next_attempt = _core_add(attempt, 1)
+            attempt = next_attempt
+            continue
+    raise last_error
+
+
 def _optimization_component_current_map(components: Any) -> Any:
     out = {}
     for component in components:
@@ -1298,6 +1364,12 @@ def _optimization_component_current_map(components: Any) -> Any:
         current = _core_get(component, "current", None)
         out[id] = current
     return out
+
+
+def _parse_output_impl(content: str) -> Any:
+    text = str(content).strip()
+    output = _core_json_parse(text)
+    return output
 
 
 def _normalize_optimization_dataset(dataset: Any) -> Any:
@@ -1318,6 +1390,17 @@ def _normalize_optimization_dataset(dataset: Any) -> Any:
     return out_list
 
 
+def _tool_spec_impl(fn: Tool) -> Any:
+    spec = {}
+    name = _core_get(fn, "name", None)
+    description = _core_get(fn, "description", None)
+    parameters = _core_get(fn, "parameters", None)
+    spec["name"] = name
+    spec["description"] = description
+    spec["parameters"] = parameters
+    return spec
+
+
 def _normalize_optimization_metric_scores(raw: Any) -> Any:
     is_number = _core_type_is(raw, "number")
     if is_number:
@@ -1334,6 +1417,27 @@ def _normalize_optimization_metric_scores(raw: Any) -> Any:
     out_zero = {}
     out_zero["score"] = 0
     return out_zero
+
+
+def _function_call_mode_impl(mode: Any) -> str:
+    missing = _core_is_none(mode)
+    if missing:
+        return "auto"
+    else:
+        pass
+    is_native = _core_eq(mode, "native")
+    is_auto = _core_eq(mode, "auto")
+    native_or_auto = _core_or(is_native, is_auto)
+    if native_or_auto:
+        return "auto"
+    else:
+        pass
+    is_prompt = _core_eq(mode, "prompt")
+    if is_prompt:
+        return "none"
+    else:
+        pass
+    return mode
 
 
 def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
@@ -1361,6 +1465,26 @@ def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
     return avg
 
 
+def _response_function_calls_impl(response: Any) -> list[Any]:
+    empty = []
+    calls = _core_get(response, "function_calls", empty)
+    return calls
+
+
+def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> None:
+    chat_calls = []
+    for call in calls:
+        chat_call = _completion_call_to_chat_impl(call)
+        chat_calls.append(chat_call)
+    content = _core_get(response, "content", "")
+    message = {}
+    message["role"] = "assistant"
+    message["content"] = content
+    message["function_calls"] = chat_calls
+    messages.append(message)
+    return None
+
+
 def _optimization_action_name_matches(expected: str, call: Any) -> bool:
     qualified = _core_get(call, "qualifiedName", "")
     name = _core_get(call, "name", "")
@@ -1371,6 +1495,20 @@ def _optimization_action_name_matches(expected: str, call: Any) -> bool:
     direct_match = _core_or(qualified_match, name_match)
     any_match = _core_or(direct_match, suffix_match)
     return any_match
+
+
+def _completion_call_to_chat_impl(call: Any) -> Any:
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    params = _core_get(call, "params", None)
+    function = {}
+    function["name"] = name
+    function["params"] = params
+    out = {}
+    out["id"] = id
+    out["type"] = "function"
+    out["function"] = function
+    return out
 
 
 def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: Any) -> f64:
@@ -1417,6 +1555,46 @@ def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: An
         else:
             pass
     return adjusted
+
+
+def _tool_result_message_impl(call: Any, result: Any) -> Any:
+    id = _core_get(call, "id", None)
+    result_json = _core_json_stringify(result)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["result"] = result_json
+    return message
+
+
+def _tool_error_message_impl(call: Any, error: error) -> Any:
+    id = _core_get(call, "id", None)
+    error_text = _core_exception_message(error)
+    payload = {}
+    payload["error"] = error_text
+    payload_json = _core_json_stringify(payload)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["result"] = payload_json
+    message["is_error"] = True
+    return message
+
+
+def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> None:
+    content = _core_get(response, "content", "")
+    assistant_message = {}
+    assistant_message["role"] = "assistant"
+    assistant_message["content"] = content
+    messages.append(assistant_message)
+    error_text = _core_exception_message(error)
+    prefix_message = _core_add("The previous response failed validation: ", error_text)
+    retry_content = _core_add(prefix_message, ". Return only corrected JSON.")
+    retry_message = {}
+    retry_message["role"] = "user"
+    retry_message["content"] = retry_content
+    messages.append(retry_message)
+    return None
 
 
 def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
@@ -1550,11 +1728,6 @@ def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, o
     return out
 
 
-def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
-    gen["examples"] = examples
-    return gen
-
-
 def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any, evaluator_available: bool) -> Any:
     empty_map = {}
     opts_missing = _core_is_none(options)
@@ -1582,16 +1755,6 @@ def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, opt
     out["options"] = request_options
     out["request"] = request
     return out
-
-
-def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
-    gen["demos"] = demos
-    return gen
-
-
-def _render_examples(gen: AxGen) -> list[Any]:
-    messages = _core_axgen_render_examples(gen)
-    return messages
 
 
 def _normalize_optimizer_engine_response(response: Any, engine_name: str, engine_version: str, components: Any) -> Any:
@@ -1674,31 +1837,6 @@ def _normalize_optimizer_engine_response(response: Any, engine_name: str, engine
     return validated
 
 
-def _render_demos(gen: AxGen) -> list[Any]:
-    messages = _core_axgen_render_demos(gen)
-    return messages
-
-
-def _apply_field_processors(gen: AxGen, output: Any) -> Any:
-    processed = _core_axgen_apply_field_processors(gen, output)
-    return processed
-
-
-def _run_assertions(gen: AxGen, output: Any) -> None:
-    _core_axgen_run_assertions(gen, output)
-    return None
-
-
-def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> None:
-    _append_validation_retry_messages_impl(messages, response, error)
-    return None
-
-
-def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
-    _core_axgen_record_trace(gen, input, output, status)
-    return None
-
-
 def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
     empty_list = []
     empty_map = {}
@@ -1764,143 +1902,5 @@ def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
     out["count"] = count
     out["reflectiveDataset"] = reflective
     return out
-
-
-def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
-    should_continue = _core_axgen_should_continue_steps(gen, calls)
-    return should_continue
-
-
-def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, retries: int) -> Any:
-    attempt = 0
-    last_error = _core_none()
-    while True:
-        try:
-            response = _core_ai_complete_once(client, request)
-            return response
-        except Exception as error:
-            last_error = error
-            exhausted = _core_gte(attempt, retries)
-            if exhausted:
-                raise error
-            else:
-                pass
-            _core_retry_sleep(attempt)
-            next_attempt = _core_add(attempt, 1)
-            attempt = next_attempt
-            continue
-    raise last_error
-
-
-def _parse_output_impl(content: str) -> Any:
-    text = str(content).strip()
-    output = _core_json_parse(text)
-    return output
-
-
-def _tool_spec_impl(fn: Tool) -> Any:
-    spec = {}
-    name = _core_get(fn, "name", None)
-    description = _core_get(fn, "description", None)
-    parameters = _core_get(fn, "parameters", None)
-    spec["name"] = name
-    spec["description"] = description
-    spec["parameters"] = parameters
-    return spec
-
-
-def _function_call_mode_impl(mode: Any) -> str:
-    missing = _core_is_none(mode)
-    if missing:
-        return "auto"
-    else:
-        pass
-    is_native = _core_eq(mode, "native")
-    is_auto = _core_eq(mode, "auto")
-    native_or_auto = _core_or(is_native, is_auto)
-    if native_or_auto:
-        return "auto"
-    else:
-        pass
-    is_prompt = _core_eq(mode, "prompt")
-    if is_prompt:
-        return "none"
-    else:
-        pass
-    return mode
-
-
-def _response_function_calls_impl(response: Any) -> list[Any]:
-    empty = []
-    calls = _core_get(response, "function_calls", empty)
-    return calls
-
-
-def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> None:
-    chat_calls = []
-    for call in calls:
-        chat_call = _completion_call_to_chat_impl(call)
-        chat_calls.append(chat_call)
-    content = _core_get(response, "content", "")
-    message = {}
-    message["role"] = "assistant"
-    message["content"] = content
-    message["function_calls"] = chat_calls
-    messages.append(message)
-    return None
-
-
-def _completion_call_to_chat_impl(call: Any) -> Any:
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    params = _core_get(call, "params", None)
-    function = {}
-    function["name"] = name
-    function["params"] = params
-    out = {}
-    out["id"] = id
-    out["type"] = "function"
-    out["function"] = function
-    return out
-
-
-def _tool_result_message_impl(call: Any, result: Any) -> Any:
-    id = _core_get(call, "id", None)
-    result_json = _core_json_stringify(result)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["result"] = result_json
-    return message
-
-
-def _tool_error_message_impl(call: Any, error: error) -> Any:
-    id = _core_get(call, "id", None)
-    error_text = _core_exception_message(error)
-    payload = {}
-    payload["error"] = error_text
-    payload_json = _core_json_stringify(payload)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["result"] = payload_json
-    message["is_error"] = True
-    return message
-
-
-def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> None:
-    content = _core_get(response, "content", "")
-    assistant_message = {}
-    assistant_message["role"] = "assistant"
-    assistant_message["content"] = content
-    messages.append(assistant_message)
-    error_text = _core_exception_message(error)
-    prefix_message = _core_add("The previous response failed validation: ", error_text)
-    retry_content = _core_add(prefix_message, ". Return only corrected JSON.")
-    retry_message = {}
-    retry_message["role"] = "user"
-    retry_message["content"] = retry_content
-    messages.append(retry_message)
-    return None
 
 # END AXIR CORE EMITTED FUNCTIONS
