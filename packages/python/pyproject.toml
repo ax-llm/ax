@@ -8,15 +8,20 @@ version = "22.0.3"
 description = "Generated Ax runtime library"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 authors = [{ name = "Ax" }]
 dependencies = []
 classifiers = [
+  "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
   "Typing :: Typed",
 ]
+
+[project.urls]
+Homepage = "https://axllm.dev"
+Repository = "https://github.com/ax-llm/ax"
 
 [tool.setuptools.packages.find]
 include = ["axllm", "axllm.*"]

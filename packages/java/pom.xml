@@ -6,6 +6,17 @@
   <artifactId>ax</artifactId>
   <version>22.0.3</version>
   <name>Ax</name>
+  <url>https://axllm.dev</url>
+  <licenses>
+    <license>
+      <name>Apache-2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+    </license>
+  </licenses>
+  <scm>
+    <url>https://github.com/ax-llm/ax</url>
+    <connection>scm:git:https://github.com/ax-llm/ax.git</connection>
+  </scm>
   <description>Generated Ax runtime library.</description>
 
   <properties>
