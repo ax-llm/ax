@@ -474,11 +474,19 @@ npm install @ax-llm/ax
 ```
 
 Generated Python, Java, C++, Go, and Rust libraries are checked in under `packages/`
-and verified in this repo. They are prepared for ecosystem release as `axllm`,
-`dev.axllm:ax`, `axllm::axllm`, `github.com/ax-llm/ax/go`, and the Rust crate
-`axllm`. Until those
-registry lanes are enabled, use the repo runner to smoke-test the committed
-packages locally.
+and verified in this repo, all Apache-2.0 licensed.
+
+- **Python**: `pip install axllm` (published to PyPI on each release)
+- **Rust**: `cargo add axllm` (published to crates.io on each release)
+- **Go**: `go get github.com/ax-llm/ax/packages/go`
+- **Java**: consume `packages/java` from the repo (Maven coordinates
+  `dev.axllm:ax`; build with the included `pom.xml`, or use JitPack against
+  this repository)
+- **C++**: consume `packages/cpp` via CMake `FetchContent` or
+  `add_subdirectory`; the package installs headers and library targets
+
+Until a registry lane you need is enabled, use the repo runner to smoke-test
+the committed packages locally.
 
 Optional packages:
 

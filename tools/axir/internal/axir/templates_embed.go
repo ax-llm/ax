@@ -269,6 +269,9 @@ var javaSettingsGradle string
 //go:embed templates/package/pyManifestIn.txt
 var pyManifestIn string
 
+//go:embed templates/package/licenseApache.txt
+var packageLicenseText string
+
 //go:embed templates/package/pyProjectToml.toml
 var pyProjectToml string
 

@@ -153,6 +153,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/mcp_scripted_tools.py":                              pyMCPScriptedToolsExample,
 		"API.md":                                                      packageAPIReferenceMarkdown(model, "python"),
 		"README.md":                                                   packageREADME(model, "python"),
+		"LICENSE":                                                     packageLicenseText,
 	}
 	addPackageSkills(files, model, "python")
 	return writeFiles(outDir, files)
@@ -252,6 +253,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/AxMCPScriptedToolsExample.java":                     javaMCPScriptedToolsExample,
 		"API.md":    packageAPIReferenceMarkdown(model, "java"),
 		"README.md": packageREADME(model, "java"),
+		"LICENSE":   packageLicenseText,
 	}
 	addPackageSkills(files, model, "java")
 	return writeFiles(outDir, files)
@@ -303,6 +305,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/mcp_scripted_tools.cpp":                       cppMCPScriptedToolsExample,
 		"API.md":                                                packageAPIReferenceMarkdown(model, "cpp"),
 		"README.md":                                             packageREADME(model, "cpp"),
+		"LICENSE":                                               packageLicenseText,
 	}
 	addPackageSkills(files, model, "cpp")
 	return writeFiles(outDir, files)
@@ -343,6 +346,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"examples/mcp_scripted_tools/main.go":               goMCPScriptedToolsExample,
 		"API.md":                                            packageAPIReferenceMarkdown(model, "go"),
 		"README.md":                                         packageREADME(model, "go"),
+		"LICENSE":                                           packageLicenseText,
 	}
 	addPackageSkills(files, model, "go")
 	return writeFiles(outDir, files)
@@ -383,6 +387,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"examples/mcp_scripted_tools.rs":                  rustMCPScriptedToolsExample,
 		"API.md":                                          packageAPIReferenceMarkdown(model, "rust"),
 		"README.md":                                       packageREADME(model, "rust"),
+		"LICENSE":                                         packageLicenseText,
 	}
 	addPackageSkills(files, model, "rust")
 	if err := writeFiles(outDir, files); err != nil {
