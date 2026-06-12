@@ -17,5 +17,6 @@
     "./dist",
     "src/**/dist",
     "tools/axir/internal/axir/templates"
-  ]
+  ],
+  "words": ["scalarizes"]
 }
