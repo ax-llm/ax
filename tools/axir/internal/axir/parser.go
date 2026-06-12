@@ -588,12 +588,14 @@ func (p *parser) parseCompactCoreStmt() (Operation, error) {
 		if err != nil {
 			return Operation{}, err
 		}
-		if err := p.expectIdent("else"); err != nil {
-			return Operation{}, err
-		}
-		elseRegion, err := p.parseCompactRegionBlock("else", "else")
-		if err != nil {
-			return Operation{}, err
+		elseRegion := Region{Name: "else", Blocks: []Block{{Name: "else", Line: nameTok.line}}}
+		if tok := p.peek(); tok.kind == "ident" && tok.text == "else" {
+			p.next()
+			parsed, err := p.parseCompactRegionBlock("else", "else")
+			if err != nil {
+				return Operation{}, err
+			}
+			elseRegion = parsed
 		}
 		op.Regions = append(op.Regions, thenRegion, elseRegion)
 		return op, nil

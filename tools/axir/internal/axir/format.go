@@ -263,8 +263,10 @@ func formatCompactCoreOp(b *strings.Builder, op Operation, indent int, opts Form
 		}
 		fmt.Fprintf(b, "%score.if %s {\n", pad, cond)
 		formatSingleRegionBody(b, op.Regions[0], indent+2, opts)
-		fmt.Fprintf(b, "%s} else {\n", pad)
-		formatSingleRegionBody(b, op.Regions[1], indent+2, opts)
+		if regionHasOps(op.Regions[1]) {
+			fmt.Fprintf(b, "%s} else {\n", pad)
+			formatSingleRegionBody(b, op.Regions[1], indent+2, opts)
+		}
 		fmt.Fprintf(b, "%s}\n", pad)
 		return true
 	case "core.for":
@@ -301,6 +303,16 @@ func formatCompactCoreOp(b *strings.Builder, op Operation, indent int, opts Form
 	default:
 		return false
 	}
+}
+
+
+func regionHasOps(region Region) bool {
+	for _, block := range region.Blocks {
+		if len(block.Ops) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func formatSingleRegionBody(b *strings.Builder, region Region, indent int, opts FormatOptions) {

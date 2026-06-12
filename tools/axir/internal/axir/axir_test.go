@@ -2000,6 +2000,48 @@ func TestCoreBodyParseFormatRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCompactIfWithoutElseRoundTrip(t *testing.T) {
+	src := `module @bodytest version "0.1" {
+  dialect @core version "0.1"
+
+  op core.func @demo {
+    type signature = "(string) -> string"
+    body @entry(%input: string) {
+      %items = core.list
+      %ok = core.call intrinsic.is_not_none(%input)
+      core.if %ok {
+        core.append %items, %input
+      }
+      %out = core.string_join %items sep ""
+      core.return %out
+    }
+  }
+}
+`
+	mod, err := ParseModule(src, "compact.axir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ifOp := mod.Ops[0].Regions[0].Blocks[0].Ops[2]
+	if ifOp.Name != "core.if" || len(ifOp.Regions) != 2 {
+		t.Fatalf("if without else must synthesize the empty else region, got %d regions", len(ifOp.Regions))
+	}
+	if _, err := BuildCoreBody(mod.Ops[0]); err != nil {
+		t.Fatal(err)
+	}
+	text := FormatModuleCompact(mod)
+	if strings.Contains(text, "} else {") {
+		t.Fatalf("empty else must be omitted when formatting:\n%s", text)
+	}
+	again, err := ParseModule(text, "compact.axir")
+	if err != nil {
+		t.Fatalf("formatted if-without-else did not parse:\n%s\n%v", text, err)
+	}
+	if FormatModuleCompact(again) != text {
+		t.Fatal("if-without-else format is not a fixed point")
+	}
+}
+
 func TestCompactCoreBodyParseFormatRoundTrip(t *testing.T) {
 	src := `module @bodytest version "0.1" {
   dialect @core version "0.1"
