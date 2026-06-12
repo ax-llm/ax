@@ -1379,6 +1379,15 @@ impl AxGen {
     }
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
+        self.forward_with_options(client, input, Value::Null)
+    }
+
+    pub fn forward_with_options<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+    ) -> AxResult<Value> {
         let state = core_gen_state(self)?;
         let mut chat = |request: Value| client.chat(request);
         let result = with_core_client(&mut chat, || {
@@ -1386,7 +1395,7 @@ impl AxGen {
                 state.clone(),
                 CoreValue::Null,
                 core_value_from_json(&input),
-                CoreValue::Null,
+                core_value_from_json(&options),
             ])
         });
         core_gen_writeback(self, &state);
@@ -1575,11 +1584,12 @@ pub fn agent(spec: &str) -> AxResult<AxAgent> {
 }
 
 pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
+    agent_with_core_options(spec, core_value_from_json(&options))
+}
+
+pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResult<AxAgent> {
     let signature = s(spec)?;
-    let state = _agent_factory(&[
-        core_signature_value(&signature)?,
-        core_value_from_json(&options),
-    ])?;
+    let state = _agent_factory(&[core_signature_value(&signature)?, options.clone()])?;
     let distiller_signature = signature_from_record(&core_get(
         &state,
         &CoreValue::from("distiller_signature"),
@@ -1590,10 +1600,18 @@ pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
         &CoreValue::from("executor_signature"),
         CoreValue::Null,
     ))?;
-    let validation_retries = options
-        .get("validation_retries")
-        .cloned()
-        .unwrap_or_else(|| json!(2));
+    let validation_retries = {
+        let raw = core_get(
+            &options,
+            &CoreValue::from("validation_retries"),
+            CoreValue::Null,
+        );
+        if raw.is_null() {
+            json!(2)
+        } else {
+            core_value_to_json(&raw)
+        }
+    };
     Ok(AxAgent {
         state,
         distiller: agent_stage_gen(
@@ -1613,6 +1631,15 @@ pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
 
 impl AxAgent {
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
+        self.forward_with_options(client, input, json!({}))
+    }
+
+    pub fn forward_with_options<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+    ) -> AxResult<Value> {
         let mut chat = |request: Value| client.chat(request);
         let result = with_core_client(&mut chat, || {
             _agent_forward(&[
@@ -1622,10 +1649,133 @@ impl AxAgent {
                 self.responder.clone(),
                 CoreValue::Null,
                 core_value_from_json(&input),
-                CoreValue::new_map(),
+                core_value_from_json(&options),
             ])
         })?;
         Ok(core_value_to_json(&result))
+    }
+
+    fn state_json(&self, key: &str) -> Value {
+        core_value_to_json(&core_get(
+            &self.state,
+            &CoreValue::from(key),
+            CoreValue::Null,
+        ))
+    }
+
+    pub fn get_usage(&self) -> Value {
+        self.state_json("usage")
+    }
+
+    pub fn get_runtime_contract(&self) -> Value {
+        self.state_json("runtime_contract")
+    }
+
+    pub fn get_policy(&self) -> Value {
+        self.state_json("policy")
+    }
+
+    pub fn get_policy_registry(&self) -> Value {
+        self.state_json("policy_registry")
+    }
+
+    pub fn get_callable_inventory(&self) -> Value {
+        self.state_json("callable_inventory")
+    }
+
+    pub fn get_discovery_catalog(&self) -> Value {
+        self.state_json("discovery_catalog")
+    }
+
+    pub fn discover(&mut self, request: Value) -> AxResult<Value> {
+        Ok(core_value_to_json(&_agent_discover(&[
+            self.state.clone(),
+            core_value_from_json(&request),
+        ])?))
+    }
+
+    pub fn recall(&mut self, request: Value) -> AxResult<Value> {
+        Ok(core_value_to_json(&_agent_recall(&[
+            self.state.clone(),
+            core_value_from_json(&request),
+        ])?))
+    }
+
+    pub fn used(&mut self, id: &str, reason: &str, stage: &str) -> AxResult<Value> {
+        Ok(core_value_to_json(&_agent_used(&[
+            self.state.clone(),
+            core_value_from_json(&json!({"id": id, "reason": reason, "stage": stage})),
+            CoreValue::from(stage),
+        ])?))
+    }
+
+    pub fn invoke_callable(
+        &mut self,
+        qualified_name: &str,
+        args: Value,
+        options: Value,
+    ) -> AxResult<Value> {
+        Ok(core_value_to_json(&_agent_execute_callable(&[
+            self.state.clone(),
+            core_value_from_json(&json!({"qualified_name": qualified_name, "args": args})),
+            core_value_from_json(&options),
+        ])?))
+    }
+
+    pub fn export_runtime_state(&mut self) -> AxResult<Value> {
+        Ok(core_value_to_json(&_agent_export_runtime_state(&[self
+            .state
+            .clone()])?))
+    }
+
+    pub fn restore_runtime_state(&mut self, snapshot: Value) -> AxResult<Value> {
+        Ok(core_value_to_json(&_agent_restore_runtime_state(&[
+            self.state.clone(),
+            core_value_from_json(&snapshot),
+        ])?))
+    }
+
+    pub fn replay_trace(&mut self, trace: Value, fixtures: Value) -> AxResult<Value> {
+        Ok(core_value_to_json(&_agent_replay_trace(&[
+            core_value_from_json(&trace),
+            core_value_from_json(&fixtures),
+        ])?))
+    }
+
+    pub fn evaluate_optimization_task<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        task: Value,
+        options: Value,
+    ) -> AxResult<Value> {
+        let input = task.get("input").cloned().unwrap_or_else(|| task.clone());
+        let forward_options = options
+            .get("forward_options")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        match self.forward_with_options(client, input, forward_options) {
+            Ok(output) => {
+                let trace = self.export_trace()?;
+                Ok(core_value_to_json(&_build_agent_eval_prediction(&[
+                    core_value_from_json(&output),
+                    core_value_from_json(&Value::Array(self.get_action_log())),
+                    core_value_from_json(&self.get_usage()),
+                    core_value_from_json(&trace),
+                ])?))
+            }
+            Err(error) => match core_agent_clarification_detail(&error) {
+                Some(detail) => Ok(json!({
+                    "completionType": "askClarification",
+                    "clarification": detail.get("clarification").cloned().unwrap_or(Value::Null),
+                    "actionLog": Value::Array(self.get_action_log()),
+                    "functionCalls": self.state_json("function_call_traces"),
+                    "toolErrors": [],
+                    "turnCount": 0,
+                    "usage": self.get_usage(),
+                })),
+                None => Err(error),
+            },
+        }
     }
 
     pub fn execute_actor_step(
@@ -3004,55 +3154,7 @@ fn run_ai_support_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 
 fn run_agent_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
     match kind {
-        "agent_forward" => {
-            if fixture.get("expected_error_contains").is_some() {
-                return expect_validation_result(
-                    Err(AxError::runtime(
-                        fixture
-                            .get("expected_error_contains")
-                            .and_then(Value::as_str)
-                            .unwrap_or("agent error"),
-                    )),
-                    fixture,
-                );
-            }
-            if fixture.get("expected_executed").is_some()
-                || fixture.get("expected_state").is_some()
-                || fixture.get("expected_trace_event_kinds").is_some()
-                || fixture.get("expected_cached_request_indices").is_some()
-                || fixture.get("expected_stage_request_not_contains").is_some()
-                || fixture.get("expected_replay_result_subset").is_some()
-                || fixture.get("expected_exported_state_subset").is_some()
-                || fixture.get("expected_action_log_subset").is_some()
-            {
-                return run_agent_forward_contract_fixture(fixture);
-            }
-            let signature = fixture
-                .get("signature")
-                .and_then(Value::as_str)
-                .unwrap_or("question:string -> answer:string");
-            let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
-            let responses = fixture
-                .get("responses")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            let mut agent = agent(signature)?;
-            let mut client = FixtureClient {
-                responses: responses.into(),
-                requests: Vec::new(),
-            };
-            let result = agent.forward(&mut client, input);
-            if fixture.get("expected_error_contains").is_some() {
-                return expect_validation_result(result.map(|_| ()), fixture);
-            }
-            if let Ok(output) = result {
-                if let Some(expected) = fixture.get("expected_output") {
-                    expect_json_equal("agent output", &output, expected)?;
-                }
-            }
-            Ok(())
-        }
+        "agent_forward" => run_agent_forward_contract_fixture(fixture),
         "agent_runtime_protocol" => run_agent_runtime_protocol_fixture(fixture),
         "agent_runtime_session" | "agent_runtime_adapter" => {
             run_agent_runtime_session_fixture(fixture)
@@ -3331,141 +3433,320 @@ fn conformance_ai_routing_result(kind: &str, fixture: &Value) -> AxResult<Value>
 }
 
 fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
-    let actual = conformance_agent_forward_actual(fixture);
+    let responses = fixture
+        .get("responses")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut client = FixtureClient {
+        responses: responses.into(),
+        requests: Vec::new(),
+    };
+    let agent_options =
+        core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
+    let scripted = fixture
+        .get("runtime_script")
+        .and_then(Value::as_array)
+        .map(|script| {
+            let runtime_config = fixture
+                .get("options")
+                .and_then(|options| options.get("runtime"))
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            let language = runtime_config
+                .get("language")
+                .and_then(Value::as_str)
+                .or_else(|| fixture.get("runtime_language").and_then(Value::as_str))
+                .unwrap_or("JavaScript")
+                .to_string();
+            let usage = runtime_config
+                .get("usageInstructions")
+                .or_else(|| runtime_config.get("usage_instructions"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            ScriptedCodeRuntime::new(script.clone(), language, usage)
+        });
+    let executed_handle = scripted.as_ref().map(|runtime| runtime.executed_handle());
+    if let Some(runtime) = scripted {
+        let host = core_code_runtime_host_shared(
+            Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
+            core_runtime_capabilities_full(),
+        );
+        core_set(&agent_options, CoreValue::from("runtime"), host)?;
+    }
+    let signature = fixture
+        .get("signature")
+        .and_then(Value::as_str)
+        .unwrap_or("question:string -> answer:string");
+    let mut agent = match agent_with_core_options(signature, agent_options) {
+        Ok(agent) => agent,
+        Err(error) => {
+            if let Some(expected) = fixture
+                .get("expected_error_contains")
+                .and_then(Value::as_str)
+            {
+                if error.message.contains(expected) {
+                    return Ok(());
+                }
+            }
+            return Err(error);
+        }
+    };
+    if let Some(state) = fixture.get("set_state") {
+        agent.set_state(state.clone())?;
+    }
+    let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
+    let forward_options = fixture
+        .get("forward_options")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let output = match agent.forward_with_options(&mut client, input, forward_options) {
+        Ok(output) => output,
+        Err(error) => {
+            if let Some(expected) = fixture
+                .get("expected_error_contains")
+                .and_then(Value::as_str)
+            {
+                if error.message.contains(expected) {
+                    if let Some(expected_clarification) = fixture.get("expected_clarification") {
+                        let detail =
+                            core_agent_clarification_detail(&error).unwrap_or_else(|| json!({}));
+                        expect_json_subset(
+                            "clarification",
+                            detail.get("clarification").unwrap_or(&Value::Null),
+                            expected_clarification,
+                        )?;
+                    }
+                    return assert_agent_trace(&mut agent, fixture);
+                }
+            }
+            return Err(error);
+        }
+    };
+    if fixture.get("expected_error_contains").is_some() {
+        return Err(AxError::new("fixture", "expected agent forward to fail"));
+    }
     if let Some(expected) = fixture.get("expected_output") {
-        expect_json_equal(
-            "agent forward output",
-            actual.get("output").unwrap_or(&Value::Null),
+        expect_json_equal("agent output", &output, expected)?;
+    }
+    if let Some(expected) = fixture
+        .get("expected_request_count")
+        .and_then(Value::as_u64)
+    {
+        if client.requests.len() as u64 != expected {
+            return Err(AxError::new(
+                "fixture",
+                format!(
+                    "expected {} requests, got {}",
+                    expected,
+                    client.requests.len()
+                ),
+            ));
+        }
+    }
+    if let Some(items) = fixture
+        .get("expected_request_contains")
+        .and_then(Value::as_array)
+    {
+        let request_text = stable_stringify(&Value::Array(client.requests.clone()));
+        for item in items {
+            let needle = item
+                .as_str()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| item.to_string());
+            if !request_text.contains(&needle) {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("agent request missing {needle:?}: {request_text}"),
+                ));
+            }
+        }
+    }
+    if let Some(rules) = fixture
+        .get("expected_stage_request_not_contains")
+        .and_then(Value::as_array)
+    {
+        for raw in rules {
+            let index = raw.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let text = client
+                .requests
+                .get(index)
+                .map(stable_stringify)
+                .unwrap_or_default();
+            for item in raw
+                .get("absent")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let needle = item
+                    .as_str()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| item.to_string());
+                if text.contains(&needle) {
+                    return Err(AxError::new(
+                        "fixture",
+                        format!("agent request {index} unexpectedly contained {needle:?}: {text}"),
+                    ));
+                }
+            }
+        }
+    }
+    if let Some(rules) = fixture
+        .get("expected_stage_request_subset")
+        .and_then(Value::as_array)
+    {
+        for raw in rules {
+            let index = raw.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let request = client.requests.get(index).ok_or_else(|| {
+                AxError::new("fixture", format!("missing agent request index {index}"))
+            })?;
+            expect_json_subset(
+                &format!("agent request {index}"),
+                request,
+                raw.get("request").unwrap_or(&json!({})),
+            )?;
+        }
+    }
+    if let Some(indices) = fixture
+        .get("expected_cached_request_indices")
+        .and_then(Value::as_array)
+    {
+        for index in indices {
+            let idx = index.as_u64().unwrap_or(0) as usize;
+            let request = client.requests.get(idx).ok_or_else(|| {
+                AxError::new("fixture", format!("missing cached request index {idx}"))
+            })?;
+            let prompt = request
+                .get("chat_prompt")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let cached = prompt.iter().any(|message| {
+                message
+                    .get("cache")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            });
+            if !cached {
+                return Err(AxError::new(
+                    "fixture",
+                    format!(
+                        "agent request {idx} did not contain a cached prompt message: {prompt:?}"
+                    ),
+                ));
+            }
+        }
+    }
+    if let Some(expected) = fixture
+        .get("expected_chat_log_subset")
+        .and_then(Value::as_array)
+    {
+        expect_json_list_subset(
+            "agent chat log",
+            &Value::Array(agent.get_chat_log()),
             expected,
         )?;
     }
-    if let Some(expected) = fixture.get("expected_executed").and_then(Value::as_array) {
-        expect_json_equal(
-            "agent executed steps",
-            actual.get("executed").unwrap_or(&json!([])),
-            &Value::Array(expected.clone()),
-        )?;
+    if let Some(expected) = fixture.get("expected_state") {
+        expect_json_subset("agent state", &agent.get_state()?, expected)?;
+    }
+    let exported = agent.export_runtime_state()?;
+    if let Some(expected) = fixture.get("expected_runtime_contract_subset") {
+        expect_json_subset("runtime contract", &agent.get_runtime_contract(), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_exported_state_subset") {
+        expect_json_subset("runtime state", &exported, expected)?;
     }
     if let Some(expected) = fixture
         .get("expected_action_log_subset")
         .and_then(Value::as_array)
     {
         expect_json_list_subset(
-            "agent action log",
-            actual.get("action_log").unwrap_or(&json!([])),
+            "action log",
+            exported.get("action_log").unwrap_or(&json!([])),
             expected,
         )?;
     }
-    if let Some(expected) = fixture.get("expected_exported_state_subset") {
-        expect_json_subset(
-            "agent exported state",
-            actual.get("exported_state").unwrap_or(&json!({})),
-            expected,
+    if let Some(expected) = fixture.get("expected_executed").and_then(Value::as_array) {
+        let executed = executed_handle
+            .map(|shared| {
+                shared
+                    .borrow()
+                    .executed
+                    .iter()
+                    .map(|code| Value::String(code.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        expect_json_equal(
+            "executed code",
+            &Value::Array(executed),
+            &Value::Array(expected.clone()),
         )?;
     }
-    if let Some(expected) = fixture.get("expected_replay_result_subset") {
-        expect_json_subset(
-            "agent replay result",
-            actual.get("replay_result").unwrap_or(&json!({})),
-            expected,
-        )?;
-    }
+    assert_agent_trace(&mut agent, fixture)
+}
+
+fn assert_agent_trace(agent: &mut AxAgent, fixture: &Value) -> AxResult<()> {
+    let trace = agent.export_trace()?;
     if let Some(expected) = fixture.get("expected_trace_subset") {
-        expect_json_subset(
-            "agent trace",
-            actual.get("trace").unwrap_or(&json!({})),
-            expected,
-        )?;
+        expect_json_subset("agent trace", &trace, expected)?;
     }
     if let Some(expected) = fixture
         .get("expected_trace_event_kinds")
         .and_then(Value::as_array)
     {
+        let kinds = trace
+            .get("events")
+            .and_then(Value::as_array)
+            .map(|events| {
+                events
+                    .iter()
+                    .map(|event| event.get("kind").cloned().unwrap_or(Value::Null))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         expect_json_equal(
             "agent trace event kinds",
-            actual.get("trace_event_kinds").unwrap_or(&json!([])),
+            &Value::Array(kinds),
             &Value::Array(expected.clone()),
         )?;
     }
-    if let Some(expected) = fixture
-        .get("expected_request_count")
-        .and_then(Value::as_u64)
+    if fixture
+        .get("replay_trace")
+        .map(core_json_truthy)
+        .unwrap_or(false)
     {
-        if actual
-            .get("request_count")
-            .and_then(Value::as_u64)
-            .unwrap_or(0)
-            != expected
-        {
-            return Err(AxError::new("fixture", "agent request count mismatch"));
+        let mut replay_fixtures = fixture
+            .get("replay_fixtures")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(kinds) = fixture.get("expected_trace_event_kinds") {
+            replay_fixtures
+                .entry("expected_event_kinds".to_string())
+                .or_insert_with(|| kinds.clone());
+        }
+        if let Some(output) = fixture.get("expected_output") {
+            replay_fixtures
+                .entry("expected_output".to_string())
+                .or_insert_with(|| output.clone());
+        }
+        let replayed = agent.replay_trace(trace, Value::Object(replay_fixtures))?;
+        if let Some(expected) = fixture.get("expected_replay_result_subset") {
+            expect_json_subset("agent replay", &replayed, expected)?;
+        } else {
+            expect_json_subset(
+                "agent replay",
+                &replayed,
+                &json!({"ok": true, "status": "replayed"}),
+            )?;
         }
     }
     Ok(())
-}
-
-fn conformance_agent_forward_actual(fixture: &Value) -> Value {
-    let script = fixture
-        .get("runtime_script")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let executed = script
-        .iter()
-        .filter_map(|step| {
-            step.get("expected_code")
-                .or_else(|| step.get("code"))
-                .and_then(Value::as_str)
-        })
-        .map(|code| json!(code))
-        .collect::<Vec<_>>();
-    let mut action_log = Vec::new();
-    if !script.is_empty() {
-        action_log.push(json!({"type": "runtime_session", "action": "create_session"}));
-    }
-    for step in &script {
-        if let Some(code) = step
-            .get("expected_code")
-            .or_else(|| step.get("code"))
-            .and_then(Value::as_str)
-        {
-            let result = step.get("result").cloned().unwrap_or_else(|| json!({}));
-            action_log.push(json!({"code": code, "kind": result.get("type").or_else(|| result.get("kind")).cloned().unwrap_or_else(|| json!("result"))}));
-            if let Some(discover) = result.get("discover") {
-                action_log.push(json!({"type": "discover", "request": discover}));
-            }
-            if let Some(recall) = result.get("recall") {
-                action_log.push(json!({"type": "recall", "searches": [recall]}));
-            }
-            if let Some(used) = result.get("used") {
-                action_log.push(json!({"type": "used", "used": used}));
-            }
-            if let Some(guidance) = result.get("guidance_payload") {
-                action_log.push(guidance.clone());
-            } else if result.get("type").and_then(Value::as_str) == Some("guide_agent") {
-                action_log.push(result.clone());
-            }
-            if let Some(kind) = result.get("kind").and_then(Value::as_str) {
-                if kind == "status" {
-                    action_log.push(json!({"type": "status", "status": result.get("status").cloned().unwrap_or_else(|| json!({}))}));
-                }
-            }
-        }
-    }
-    let output = fixture
-        .get("expected_output")
-        .cloned()
-        .or_else(|| final_output_from_script(&script))
-        .unwrap_or_else(|| json!({}));
-    json!({
-        "output": output.clone(),
-        "executed": executed,
-        "action_log": action_log,
-        "exported_state": fixture.get("expected_exported_state_subset").cloned().unwrap_or_else(|| json!({})),
-        "replay_result": fixture.get("expected_replay_result_subset").cloned().unwrap_or_else(|| json!({"ok": true, "output": output, "status": "replayed"})),
-        "trace": fixture.get("expected_trace_subset").cloned().unwrap_or_else(|| json!({})),
-        "trace_event_kinds": fixture.get("expected_trace_event_kinds").cloned().unwrap_or_else(|| json!([])),
-        "request_count": fixture.get("expected_request_count").cloned().unwrap_or_else(|| json!(0)),
-    })
 }
 
 fn run_agent_runtime_protocol_fixture(fixture: &Value) -> AxResult<()> {
@@ -9916,8 +10197,9 @@ fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
     )?;
     let memory = core_memory_new();
     if let CoreValue::Host(host) = &memory {
+        let items = host.call_method("items", &[])?;
         for item in &gen.memory {
-            host.call_method("add_raw_item", &[core_value_from_json(item)])?;
+            core_append(&items, core_value_from_json(item))?;
         }
     }
     core_set(&state, CoreValue::from("memory"), memory)?;
@@ -10044,8 +10326,12 @@ impl CoreHost for GenHost {
         match name {
             "forward" => {
                 let values = core_value_to_json(&core_arg(args, 1));
+                let options = core_value_to_json(&core_arg(args, 2));
                 let mut client = core_scoped_client()?;
-                let output = self.gen.borrow_mut().forward(&mut client, values)?;
+                let output =
+                    self.gen
+                        .borrow_mut()
+                        .forward_with_options(&mut client, values, options)?;
                 Ok(core_value_from_json(&output))
             }
             "get_chat_log" => Ok(core_value_from_json(&Value::Array(
@@ -11053,6 +11339,180 @@ impl CoreHost for ScopedRuntimeHost {
                 "object of type AxCodeRuntime has no callable method '{other}'"
             ))),
         }
+    }
+}
+
+struct ScriptedRuntimeShared {
+    script: Vec<Value>,
+    executed: Vec<String>,
+}
+
+pub(crate) struct ScriptedCodeRuntime {
+    shared: Rc<RefCell<ScriptedRuntimeShared>>,
+    language: String,
+    usage_instructions: String,
+}
+
+impl ScriptedCodeRuntime {
+    pub(crate) fn new(script: Vec<Value>, language: String, usage_instructions: String) -> Self {
+        ScriptedCodeRuntime {
+            shared: Rc::new(RefCell::new(ScriptedRuntimeShared {
+                script,
+                executed: Vec::new(),
+            })),
+            language,
+            usage_instructions,
+        }
+    }
+
+    fn executed_handle(&self) -> Rc<RefCell<ScriptedRuntimeShared>> {
+        Rc::clone(&self.shared)
+    }
+}
+
+impl AxCodeRuntime for ScriptedCodeRuntime {
+    fn language(&self) -> &str {
+        &self.language
+    }
+    fn usage_instructions(&self) -> &str {
+        &self.usage_instructions
+    }
+    fn create_session(
+        &mut self,
+        globals: Value,
+        _options: Value,
+    ) -> AxResult<Box<dyn AxCodeSession>> {
+        Ok(Box::new(ScriptedCodeSession {
+            shared: Rc::clone(&self.shared),
+            globals: globals.as_object().cloned().unwrap_or_default(),
+            closed: false,
+        }))
+    }
+}
+
+struct ScriptedCodeSession {
+    shared: Rc<RefCell<ScriptedRuntimeShared>>,
+    globals: Map<String, Value>,
+    closed: bool,
+}
+
+impl AxCodeSession for ScriptedCodeSession {
+    fn execute(&mut self, code: &str, options: Value) -> AxResult<RuntimeEnvelope> {
+        if self.closed {
+            return Ok(RuntimeEnvelope {
+                payload: json!({"is_error": true, "error_category": "session_closed", "error": "session closed"}),
+            });
+        }
+        let step = {
+            let mut shared = self.shared.borrow_mut();
+            if shared.script.is_empty() {
+                return Err(AxError::runtime("scripted runtime exhausted"));
+            }
+            let step = shared.script.remove(0);
+            shared.executed.push(code.to_string());
+            step
+        };
+        if let Some(expected) = step.get("expected_code").and_then(Value::as_str) {
+            if expected != code {
+                return Err(AxError::runtime(format!(
+                    "expected code {expected:?}, got {code:?}"
+                )));
+            }
+        }
+        if let Some(expected) = step.get("expected_options_subset") {
+            expect_json_subset("runtime execute options", &options, expected)?;
+        }
+        if let Some(patch) = step.get("bindings_patch").and_then(Value::as_object) {
+            for (key, value) in patch {
+                self.globals.insert(key.clone(), value.clone());
+            }
+        }
+        if step
+            .get("close_before_result")
+            .map(core_json_truthy)
+            .unwrap_or(false)
+        {
+            self.closed = true;
+        }
+        let payload = step.get("result").cloned().unwrap_or_else(
+            || json!({"kind": "result", "result": Value::Object(self.globals.clone())}),
+        );
+        Ok(RuntimeEnvelope { payload })
+    }
+    fn inspect_globals(&mut self, _options: Value) -> AxResult<Value> {
+        Ok(Value::Object(self.globals.clone()))
+    }
+    fn snapshot_globals(&mut self, _options: Value) -> AxResult<Value> {
+        let entries = self
+            .globals
+            .iter()
+            .map(|(key, value)| {
+                json!({
+                    "name": key,
+                    "type": python_type_name(value),
+                    "preview": python_repr(value),
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "version": 1,
+            "entries": entries,
+            "bindings": Value::Object(self.globals.clone()),
+            "globals": Value::Object(self.globals.clone()),
+            "closed": self.closed,
+        }))
+    }
+    fn patch_globals(&mut self, snapshot: Value, options: Value) -> AxResult<Value> {
+        let snap = snapshot.as_object().cloned().unwrap_or_default();
+        self.globals = snap
+            .get("bindings")
+            .or_else(|| snap.get("globals"))
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        self.closed = snap.get("closed").map(core_json_truthy).unwrap_or(false);
+        self.snapshot_globals(options)
+    }
+    fn close(&mut self) -> AxResult<Value> {
+        self.closed = true;
+        Ok(json!({"closed": true}))
+    }
+}
+
+fn core_json_truthy(value: &Value) -> bool {
+    core_truthy(&core_value_from_json(value))
+}
+
+fn python_type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "NoneType",
+        Value::Bool(_) => "bool",
+        Value::Number(n) if n.is_i64() || n.is_u64() => "int",
+        Value::Number(_) => "float",
+        Value::String(_) => "str",
+        Value::Array(_) => "list",
+        Value::Object(_) => "dict",
+    }
+}
+
+fn python_repr(value: &Value) -> String {
+    match value {
+        Value::Null => "None".to_string(),
+        Value::Bool(true) => "True".to_string(),
+        Value::Bool(false) => "False".to_string(),
+        Value::Number(n) => n.to_string(),
+        Value::String(text) => format!("'{}'", text.replace('\\', "\\\\").replace('\'', "\\'")),
+        Value::Array(items) => format!(
+            "[{}]",
+            items.iter().map(python_repr).collect::<Vec<_>>().join(", ")
+        ),
+        Value::Object(map) => format!(
+            "{{{}}}",
+            map.iter()
+                .map(|(key, value)| format!("'{key}': {}", python_repr(value)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 
