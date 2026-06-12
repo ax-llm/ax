@@ -1301,15 +1301,6 @@ impl ToolBuilder {
     }
 }
 
-fn validate_tool_args(tool: &Tool, args: &Value) -> AxResult<()> {
-    let fields = tool
-        .args
-        .iter()
-        .map(|(name, raw)| field_from_payload(name, raw))
-        .collect::<Vec<_>>();
-    validate_fields_native(&fields, args)
-}
-
 pub struct AxGen {
     pub signature: AxSignature,
     pub options: Value,
@@ -1460,106 +1451,12 @@ impl AxGen {
     }
 }
 
-fn assertion_failure_message(assertion: &Value) -> String {
-    if let Some(message) = assertion.get("message").and_then(Value::as_str) {
-        return message.to_string();
-    }
-    if let Some(message) = assertion.get("return").and_then(Value::as_str) {
-        return message.to_string();
-    }
-    "assertion failed without message".to_string()
-}
-
 fn assertion_subject<'a>(assertion: &Value, output: &'a Value) -> &'a Value {
     assertion
         .get("field")
         .and_then(Value::as_str)
         .and_then(|field| output.get(field))
         .unwrap_or(output)
-}
-
-fn assertion_text(value: &Value) -> String {
-    value
-        .as_str()
-        .map(ToString::to_string)
-        .unwrap_or_else(|| stable_stringify(value))
-}
-
-fn evaluate_output_assertions(assertions: &[Value], output: &Value) -> Option<String> {
-    for assertion in assertions {
-        if assertion.get("return").and_then(Value::as_bool) == Some(false) {
-            return Some(assertion_failure_message(assertion));
-        }
-        if assertion.get("return").and_then(Value::as_str).is_some() {
-            return Some(assertion_failure_message(assertion));
-        }
-        let subject = assertion_subject(assertion, output);
-        if let Some(needle) = assertion.get("contains").and_then(Value::as_str) {
-            if !assertion_text(subject).contains(needle) {
-                return Some(assertion_failure_message(assertion));
-            }
-        }
-        if let Some(expected) = assertion.get("equals") {
-            if subject != expected {
-                return Some(assertion_failure_message(assertion));
-            }
-        }
-    }
-    None
-}
-
-fn render_field_values(label: &str, fields: &[Field], values: &Value) -> String {
-    let mut lines = vec![label.to_string()];
-    for field in fields {
-        let value = values.get(&field.name).cloned().unwrap_or(Value::Null);
-        lines.push(format!(
-            "{}: {}",
-            field.title,
-            display_template_value(&value)
-        ));
-    }
-    lines.join("\n")
-}
-
-fn render_examples_prompt(sig: &AxSignature, examples: &[Value], demos: &[Value]) -> String {
-    if examples.is_empty() && demos.is_empty() {
-        return String::new();
-    }
-    let mut lines = vec!["--- EXAMPLES ---".to_string()];
-    for example in examples {
-        lines.push(render_field_values(
-            "Example Input",
-            &sig.inputs,
-            example.get("input").unwrap_or(&Value::Null),
-        ));
-        lines.push(render_field_values(
-            "Example Output",
-            &sig.outputs,
-            example.get("output").unwrap_or(&Value::Null),
-        ));
-    }
-    for demo in demos {
-        lines.push(render_field_values(
-            "Demo Input",
-            &sig.inputs,
-            demo.get("input").unwrap_or(&Value::Null),
-        ));
-        lines.push(render_field_values(
-            "Demo Output",
-            &sig.outputs,
-            demo.get("output").unwrap_or(&Value::Null),
-        ));
-    }
-    lines.push("--- END OF EXAMPLES ---".to_string());
-    lines.join("\n")
-}
-
-fn parse_model_output(content: &str, _signature: &AxSignature) -> AxResult<Value> {
-    let trimmed = content.trim();
-    if trimmed.starts_with('{') || trimmed.starts_with('[') {
-        return Ok(serde_json::from_str(trimmed)?);
-    }
-    Err(AxError::validation("model output is not JSON"))
 }
 
 pub trait AxProgram {
@@ -3006,46 +2903,6 @@ fn run_prompt_fixture(fixture: &Value) -> AxResult<()> {
         }
     }
     Ok(())
-}
-
-fn render_default_prompt_fixture(sig: &AxSignature, input: &Value) -> String {
-    let input_titles = sig
-        .inputs
-        .iter()
-        .map(|field| format!("{}{}{}", char::from(96), field.title, char::from(96)))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let mut lines = vec![
-        "<identity>".to_string(),
-        format!("You will be provided with the following fields: {input_titles}."),
-        "<input_fields>".to_string(),
-    ];
-    for field in &sig.inputs {
-        let value = input.get(&field.name).cloned().unwrap_or(Value::Null);
-        lines.push(format!(
-            "{}: {}",
-            field.title,
-            display_template_value(&value)
-        ));
-    }
-    lines.push("<output_fields>".to_string());
-    for field in &sig.outputs {
-        let required = if field.is_optional {
-            "may be omitted"
-        } else {
-            "must be included"
-        };
-        lines.push(format!(
-            "{}: (This {} field {required})",
-            field.title, field.field_type.name
-        ));
-    }
-    if let Some(description) = &sig.description {
-        lines.push("<task_definition>".to_string());
-        lines.push(format!("{description}."));
-    }
-    lines.push("<formatting_rules>".to_string());
-    lines.join("\n")
 }
 
 fn run_template_fixture(fixture: &Value) -> AxResult<()> {
@@ -5041,17 +4898,6 @@ fn run_agent_runtime_policy_operations(fixture: &Value) -> AxResult<AxAgent> {
     Ok(agent)
 }
 
-fn final_output_from_script(script: &[Value]) -> Option<Value> {
-    script.iter().rev().find_map(|step| {
-        let result = step.get("result")?;
-        if result.get("type").and_then(Value::as_str) == Some("final") {
-            let args = result.get("args").and_then(Value::as_array)?;
-            return args.last().cloned();
-        }
-        None
-    })
-}
-
 fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
     if let Some(message) = fixture
         .get("expected_error_contains")
@@ -6383,20 +6229,6 @@ fn get_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
         current = current.get(part)?;
     }
     Some(current)
-}
-
-fn display_template_value(value: &Value) -> String {
-    match value {
-        Value::String(value) => value.clone(),
-        Value::Number(value) => value.to_string(),
-        Value::Bool(value) => value.to_string(),
-        Value::Null => String::new(),
-        _ => stable_stringify(value),
-    }
-}
-
-fn build_fixture_tools(fixture: &Value) -> AxResult<Vec<Tool>> {
-    Ok(build_fixture_tools_recording(fixture)?.0)
 }
 
 fn build_fixture_tools_recording(
