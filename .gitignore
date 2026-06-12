@@ -18,10 +18,10 @@ audio
 .data
 demos.json
 site/dist
-website-md/.generated/
-website-md/public/
-website-md/.hugo_build.lock
-website-md/static/vendor/
+website/.generated/
+website/public/
+website/.hugo_build.lock
+website/static/vendor/
 .astro
 .tsimp
 *.mp4
@@ -30,6 +30,9 @@ website-md/static/vendor/
 *.ac3
 *.webm
 *.txt
+# Emitter templates are real sources; the txt suffix only keeps the Go
+# toolchain from treating them as packages.
+!tools/axir/internal/axir/templates/**
 __pycache__
 *.jsonl
 gepa/

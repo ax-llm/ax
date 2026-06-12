@@ -1,0 +1,4 @@
+include README.md axir-capabilities.json
+recursive-include examples *.py *.md *.json *.sh
+recursive-include skills SKILL.md
+include axllm/py.typed

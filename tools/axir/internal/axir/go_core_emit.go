@@ -6,6 +6,30 @@ import (
 	"strings"
 )
 
+// coreIntrinsicGoRaising lists the intrinsics whose Go helpers return
+// (Value, error) because the operation can raise. Everything else in
+// coreIntrinsicPython stays a plain Value helper. This mirrors the Rust
+// emitter where raising helpers return Result and pure helpers are total;
+// in Go the split keeps the hot pure path free of error plumbing.
+var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
+	IntrinsicToolInvoke:          true,
+	IntrinsicAICompleteOnce:      true,
+	IntrinsicObjectCallMethod:    true,
+	IntrinsicJSONParse:           true,
+	IntrinsicAxGenRunAssertions:  true,
+	IntrinsicAgentStageForward:   true,
+	IntrinsicAgentRuntimeCreate:  true,
+	IntrinsicAgentRuntimeExecute: true,
+	IntrinsicAgentRuntimeInspect: true,
+	IntrinsicAgentRuntimeExport:  true,
+	IntrinsicAgentRuntimeRestore: true,
+	IntrinsicPromptStructured:    true,
+	IntrinsicStringFindQuoted:    true,
+	IntrinsicStringSplitQuoted:   true,
+	IntrinsicStringConsumeOpt:    true,
+	IntrinsicStringExtractSuf:    true,
+}
+
 func BuildGoCore(model AxRuntimeModel) (string, error) {
 	specs, err := BuildCoreFuncRegistry(model)
 	if err != nil {
@@ -40,6 +64,36 @@ func emitGoCoreFunctions(model AxRuntimeModel, specs []CoreFuncSpec, names map[s
 	return b.String(), nil
 }
 
+// goEmitCtx tracks lexical position the same way rustEmitCtx does:
+// closureDepth > 0 means statements live inside a core.try closure where
+// non-local exits travel through coreFlow values instead of plain control
+// flow; loopInClosure records, per enclosing loop, whether that loop began
+// inside the current closure (break/continue inside it stay native).
+type goEmitCtx struct {
+	names         map[string]string
+	closureDepth  int
+	loopInClosure []bool
+}
+
+func (ctx *goEmitCtx) inClosure() bool { return ctx.closureDepth > 0 }
+
+func (ctx *goEmitCtx) loopIsLocal() bool {
+	if len(ctx.loopInClosure) == 0 {
+		return false
+	}
+	return ctx.loopInClosure[len(ctx.loopInClosure)-1]
+}
+
+// errReturn is the statement used to propagate an error from the current
+// lexical scope: emitted functions return (Value, error) and try closures
+// return (coreFlow, error).
+func (ctx *goEmitCtx) errReturn() string {
+	if ctx.inClosure() {
+		return "return coreFlow{}, err"
+	}
+	return "return nil, err"
+}
+
 func emitGoCoreFunction(names map[string]string, op Operation, name string) (string, error) {
 	body, err := BuildCoreBody(op)
 	if err != nil {
@@ -63,8 +117,7 @@ func emitGoCoreFunction(names map[string]string, op Operation, name string) (str
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "func %s(args ...Value) (ret Value) {\n", name)
-	b.WriteString("	defer catchCoreReturn(&ret)\n")
+	fmt.Fprintf(&b, "func %s(args ...Value) (Value, error) {\n", name)
 	for _, arg := range block.Args {
 		fmt.Fprintf(&b, "	var %s Value\n", goName("%"+arg.Name))
 	}
@@ -78,22 +131,23 @@ func emitGoCoreFunction(names map[string]string, op Operation, name string) (str
 	for _, local := range localNames {
 		fmt.Fprintf(&b, "	_ = %s\n", local)
 	}
+	ctx := &goEmitCtx{names: names}
 	emittedTerminal := false
 	for _, stmt := range block.Stmts {
-		lines, err := emitGoCoreStmt(names, stmt)
+		lines, err := emitGoCoreStmt(ctx, stmt)
 		if err != nil {
 			return "", fmt.Errorf("@%s: %w", op.Symbol, err)
 		}
 		for _, line := range lines {
 			fmt.Fprintf(&b, "	%s\n", line)
 		}
-		if goStmtIsTerminal(stmt) {
+		if goStmtIsTerminal(ctx, stmt) {
 			emittedTerminal = true
 			break
 		}
 	}
 	if !emittedTerminal {
-		b.WriteString("	return nil\n")
+		b.WriteString("	return nil, nil\n")
 	}
 	b.WriteString("}\n")
 	return b.String(), nil
@@ -120,23 +174,20 @@ func collectGoLocals(block CoreBlock, locals map[string]bool) {
 	}
 }
 
-func emitGoCoreStmt(names map[string]string, stmt CoreStmt) ([]string, error) {
+func emitGoCoreStmt(ctx *goEmitCtx, stmt CoreStmt) ([]string, error) {
 	switch stmt.Kind {
 	case "break":
-		return []string{"panic(coreBreak{})"}, nil
+		if ctx.inClosure() && !ctx.loopIsLocal() {
+			return []string{"return coreFlow{kind: coreFlowBreak}, nil"}, nil
+		}
+		return []string{"break"}, nil
 	case "continue":
-		return []string{"panic(coreContinue{})"}, nil
+		if ctx.inClosure() && !ctx.loopIsLocal() {
+			return []string{"return coreFlow{kind: coreFlowContinue}, nil"}, nil
+		}
+		return []string{"continue"}, nil
 	case "call":
-		callee := goCallee(names, stmt.Callee)
-		args := make([]string, 0, len(stmt.Args))
-		for _, arg := range stmt.Args {
-			args = append(args, goLiteral(arg))
-		}
-		call := fmt.Sprintf("%s(%s)", callee, strings.Join(args, ", "))
-		if stmt.Result != "" {
-			return []string{fmt.Sprintf("%s = %s", goName(stmt.Result), call)}, nil
-		}
-		return []string{call}, nil
+		return emitGoCall(ctx, stmt)
 	case "const", "let":
 		return []string{fmt.Sprintf("%s = %s", goName(stmt.Result), goAttrValue(stmt.Op, "value"))}, nil
 	case "get":
@@ -160,47 +211,94 @@ func emitGoCoreStmt(names map[string]string, stmt CoreStmt) ([]string, error) {
 	case "type_is":
 		return []string{fmt.Sprintf("%s = coreTypeIs(%s, %s)", goName(stmt.Result), goLiteral(stmt.Value), goAttrValue(stmt.Op, "type"))}, nil
 	case "set":
-		return []string{fmt.Sprintf("coreSet(%s, %s, %s)", goLiteral(stmt.Target), goLiteral(stmt.Key), goLiteral(stmt.Value))}, nil
+		return []string{fmt.Sprintf("if err := coreSet(%s, %s, %s); err != nil { %s }",
+			goLiteral(stmt.Target), goLiteral(stmt.Key), goLiteral(stmt.Value), ctx.errReturn())}, nil
 	case "for":
-		return emitGoFor(names, stmt)
+		return emitGoFor(ctx, stmt)
 	case "if":
-		return emitGoIf(names, stmt)
+		return emitGoIf(ctx, stmt)
 	case "loop":
-		return emitGoLoop(names, stmt)
+		return emitGoLoop(ctx, stmt)
 	case "return":
-		if _, ok := Attr(stmt.Op, "value"); !ok {
-			return []string{"panic(coreReturn{value: nil})"}, nil
+		value := "nil"
+		if _, ok := Attr(stmt.Op, "value"); ok {
+			value = goAttrValue(stmt.Op, "value")
 		}
-		return []string{fmt.Sprintf("panic(coreReturn{value: %s})", goAttrValue(stmt.Op, "value"))}, nil
+		if ctx.inClosure() {
+			return []string{fmt.Sprintf("return coreFlow{kind: coreFlowReturn, value: %s}, nil", value)}, nil
+		}
+		return []string{fmt.Sprintf("return %s, nil", value)}, nil
 	case "raise":
+		errExpr := fmt.Sprintf("AxError{Category: \"runtime\", Message: %s}", strconv.Quote(stmt.Message))
 		if _, ok := Attr(stmt.Op, "error"); ok {
-			return []string{fmt.Sprintf("panic(asAxError(%s))", goAttrValue(stmt.Op, "error"))}, nil
+			errExpr = fmt.Sprintf("asAxError(%s)", goAttrValue(stmt.Op, "error"))
 		}
-		return []string{fmt.Sprintf("panic(AxError{Category: \"runtime\", Message: %s})", strconv.Quote(stmt.Message))}, nil
+		if ctx.inClosure() {
+			return []string{fmt.Sprintf("return coreFlow{}, %s", errExpr)}, nil
+		}
+		return []string{fmt.Sprintf("return nil, %s", errExpr)}, nil
 	case "try":
-		return emitGoTry(names, stmt)
+		return emitGoTry(ctx, stmt)
 	default:
 		return nil, fmt.Errorf("unsupported Go Core op %q", stmt.Op.Name)
 	}
 }
 
-func emitGoFor(names map[string]string, stmt CoreStmt) ([]string, error) {
-	lines := []string{fmt.Sprintf("for _, %s = range coreIter(%s) {", goName(stmt.Item), goLiteral(stmt.Iter)), "	var coreLoopSignal any", "	func() {", "		defer func() {", "			if r := recover(); r != nil {", "				switch r.(type) {", "				case coreBreak, coreContinue:", "					coreLoopSignal = r", "				default:", "					panic(r)", "				}", "			}", "		}()"}
-	bodyLines, err := emitGoRegionBlock(names, firstBodyBlock(stmt))
+func emitGoCall(ctx *goEmitCtx, stmt CoreStmt) ([]string, error) {
+	callee, raising, err := goCallee(ctx.names, stmt.Callee)
 	if err != nil {
 		return nil, err
 	}
-	for _, line := range bodyLines {
-		lines = append(lines, "	"+line)
+	args := make([]string, 0, len(stmt.Args))
+	for _, arg := range stmt.Args {
+		args = append(args, goLiteral(arg))
 	}
-	lines = append(lines, "	}()", "	if _, ok := coreLoopSignal.(coreBreak); ok { break }", "	if _, ok := coreLoopSignal.(coreContinue); ok { continue }", "}")
+	call := fmt.Sprintf("%s(%s)", callee, strings.Join(args, ", "))
+	if raising {
+		if stmt.Result != "" {
+			return []string{fmt.Sprintf("{ v, err := %s; if err != nil { %s }; %s = v }", call, ctx.errReturn(), goName(stmt.Result))}, nil
+		}
+		return []string{fmt.Sprintf("if _, err := %s; err != nil { %s }", call, ctx.errReturn())}, nil
+	}
+	if stmt.Result != "" {
+		return []string{fmt.Sprintf("%s = %s", goName(stmt.Result), call)}, nil
+	}
+	return []string{call}, nil
+}
+
+func emitGoFor(ctx *goEmitCtx, stmt CoreStmt) ([]string, error) {
+	if stmt.Item == "" || stmt.Iter == "" {
+		return nil, fmt.Errorf("core.for missing item or in")
+	}
+	lines := []string{fmt.Sprintf("for _, %s = range coreIter(%s) {", goName(stmt.Item), goLiteral(stmt.Iter))}
+	ctx.loopInClosure = append(ctx.loopInClosure, ctx.inClosure())
+	bodyLines, err := emitGoRegionBlock(ctx, firstBodyBlock(stmt))
+	ctx.loopInClosure = ctx.loopInClosure[:len(ctx.loopInClosure)-1]
+	if err != nil {
+		return nil, err
+	}
+	lines = append(lines, bodyLines...)
+	lines = append(lines, "}")
 	return lines, nil
 }
 
-func emitGoIf(names map[string]string, stmt CoreStmt) ([]string, error) {
+func emitGoLoop(ctx *goEmitCtx, stmt CoreStmt) ([]string, error) {
+	lines := []string{"for {"}
+	ctx.loopInClosure = append(ctx.loopInClosure, ctx.inClosure())
+	bodyLines, err := emitGoRegionBlock(ctx, firstBodyBlock(stmt))
+	ctx.loopInClosure = ctx.loopInClosure[:len(ctx.loopInClosure)-1]
+	if err != nil {
+		return nil, err
+	}
+	lines = append(lines, bodyLines...)
+	lines = append(lines, "}")
+	return lines, nil
+}
+
+func emitGoIf(ctx *goEmitCtx, stmt CoreStmt) ([]string, error) {
 	cond := goLiteral(stmt.Cond)
 	lines := []string{fmt.Sprintf("if coreTruthy(%s) {", cond)}
-	thenLines, err := emitGoRegionBlock(names, firstBodyBlock(stmt))
+	thenLines, err := emitGoRegionBlock(ctx, firstBodyBlock(stmt))
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +308,7 @@ func emitGoIf(names map[string]string, stmt CoreStmt) ([]string, error) {
 	if len(stmt.Regions) > 1 && len(stmt.Regions[1].Blocks) > 0 {
 		elseBlock = stmt.Regions[1].Blocks[0]
 	}
-	elseLines, err := emitGoRegionBlock(names, elseBlock)
+	elseLines, err := emitGoRegionBlock(ctx, elseBlock)
 	if err != nil {
 		return nil, err
 	}
@@ -219,20 +317,12 @@ func emitGoIf(names map[string]string, stmt CoreStmt) ([]string, error) {
 	return lines, nil
 }
 
-func emitGoLoop(names map[string]string, stmt CoreStmt) ([]string, error) {
-	lines := []string{"for {", "	var coreLoopSignal any", "	func() {", "		defer func() {", "			if r := recover(); r != nil {", "				switch r.(type) {", "				case coreBreak, coreContinue:", "					coreLoopSignal = r", "				default:", "					panic(r)", "				}", "			}", "		}()"}
-	bodyLines, err := emitGoRegionBlock(names, firstBodyBlock(stmt))
-	if err != nil {
-		return nil, err
-	}
-	for _, line := range bodyLines {
-		lines = append(lines, "	"+line)
-	}
-	lines = append(lines, "	}()", "	if _, ok := coreLoopSignal.(coreBreak); ok { break }", "	if _, ok := coreLoopSignal.(coreContinue); ok { continue }", "}")
-	return lines, nil
-}
-
-func emitGoTry(names map[string]string, stmt CoreStmt) ([]string, error) {
+// emitGoTry lowers core.try to an immediately-invoked closure returning
+// (coreFlow, error), mirroring the Rust emitter's closures returning
+// Result<CoreFlow, AxError>. The raised error arrives as the closure's
+// error; non-local exits (return/break/continue crossing the closure)
+// arrive as coreFlow values and are re-dispatched in the enclosing scope.
+func emitGoTry(ctx *goEmitCtx, stmt CoreStmt) ([]string, error) {
 	if len(stmt.Regions) != 2 {
 		return nil, fmt.Errorf("core.try must contain exactly try and catch regions")
 	}
@@ -240,51 +330,76 @@ func emitGoTry(names map[string]string, stmt CoreStmt) ([]string, error) {
 	if errorRef == "" {
 		return nil, fmt.Errorf("core.try missing error binding")
 	}
-	lines := []string{"func() {", "	var coreCaught any", "	func() {", "		defer func() {", "			if r := recover(); r != nil {", "				switch r.(type) {", "				case coreReturn, coreBreak, coreContinue:", "					panic(r)", "				default:", "					coreCaught = r", "				}", "			}", "		}()"}
-	tryLines, err := emitGoRegionBlock(names, firstBodyBlock(stmt))
+	lines := []string{"{", "	__flow, __err := func() (coreFlow, error) {"}
+	ctx.closureDepth++
+	tryLines, err := emitGoRegionBlock(ctx, firstBodyBlock(stmt))
+	bodyTerminal := goBlockIsTerminal(ctx, firstBodyBlock(stmt))
+	ctx.closureDepth--
 	if err != nil {
 		return nil, err
 	}
 	for _, line := range tryLines {
 		lines = append(lines, "	"+line)
 	}
-	lines = append(lines, "	}()", "	if coreCaught != nil {", fmt.Sprintf("		%s = errorValue(coreCaught)", goName(errorRef)))
+	if !bodyTerminal {
+		lines = append(lines, "		return coreFlow{}, nil")
+	}
+	lines = append(lines, "	}()")
+	if ctx.inClosure() {
+		lines = append(lines, "	if __err == nil && __flow.kind != coreFlowNormal { return __flow, nil }")
+	} else {
+		lines = append(lines, "	if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }")
+		// Break/continue arms are emitted only when the try body can produce
+		// that flow kind; an always-present break arm would make enclosing
+		// `for {}` loops syntactically breakable and break the terminating-
+		// statement analysis shared with goStmtIsTerminal.
+		if len(ctx.loopInClosure) > 0 {
+			if goRegionHasExit(stmt.Regions[0], "break") {
+				lines = append(lines, "	if __err == nil && __flow.kind == coreFlowBreak { break }")
+			}
+			if goRegionHasExit(stmt.Regions[0], "continue") {
+				lines = append(lines, "	if __err == nil && __flow.kind == coreFlowContinue { continue }")
+			}
+		}
+	}
+	lines = append(lines, "	if __err != nil {")
+	lines = append(lines, fmt.Sprintf("		%s = errorValue(__err)", goName(errorRef)))
 	catchBlock := CoreBlock{}
 	if len(stmt.Regions[1].Blocks) > 0 {
 		catchBlock = stmt.Regions[1].Blocks[0]
 	}
-	catchLines, err := emitGoRegionBlock(names, catchBlock)
+	catchLines, err := emitGoRegionBlock(ctx, catchBlock)
 	if err != nil {
 		return nil, err
 	}
 	for _, line := range catchLines {
 		lines = append(lines, "	"+line)
 	}
-	lines = append(lines, "	}", "}()")
+	lines = append(lines, "	}", "}")
 	return lines, nil
 }
 
-func emitGoRegionBlock(names map[string]string, block CoreBlock) ([]string, error) {
+func emitGoRegionBlock(ctx *goEmitCtx, block CoreBlock) ([]string, error) {
 	if len(block.Stmts) == 0 {
 		return []string{"// empty"}, nil
 	}
 	var lines []string
 	for _, child := range block.Stmts {
-		childLines, err := emitGoCoreStmt(names, child)
+		childLines, err := emitGoCoreStmt(ctx, child)
 		if err != nil {
 			return nil, err
 		}
 		for _, line := range childLines {
 			lines = append(lines, "	"+line)
 		}
-		if goStmtIsTerminal(child) {
+		if goStmtIsTerminal(ctx, child) {
 			break
 		}
 	}
 	return lines, nil
 }
 
-func goStmtIsTerminal(stmt CoreStmt) bool {
+func goStmtIsTerminal(ctx *goEmitCtx, stmt CoreStmt) bool {
 	switch stmt.Kind {
 	case "return", "raise", "break", "continue":
 		return true
@@ -292,35 +407,74 @@ func goStmtIsTerminal(stmt CoreStmt) bool {
 		if len(stmt.Regions) != 2 {
 			return false
 		}
-		return goBodyIsTerminal(stmt.Regions[0]) && goBodyIsTerminal(stmt.Regions[1])
+		return goBodyIsTerminal(ctx, stmt.Regions[0]) && goBodyIsTerminal(ctx, stmt.Regions[1])
+	case "loop":
+		// A core.loop without a break emits `for { ... }`, which is a Go
+		// terminating statement: anything after it would trip go vet's
+		// unreachable check, and a function ending with it needs no return.
+		return !goLoopHasBreak(firstRegionBody(stmt))
 	default:
 		return false
 	}
 }
 
-func goBodyIsTerminal(body CoreBody) bool {
+// goLoopHasBreak reports whether a loop body contains a break bound to that
+// loop. Breaks inside nested loops bind the inner loop; breaks inside
+// core.try bodies surface as a native break at the try's flow dispatch, so
+// try regions are searched.
+func goLoopHasBreak(body CoreBody) bool {
+	return goRegionHasExit(body, "break")
+}
+
+// goRegionHasExit reports whether a region contains a break/continue that
+// escapes it (i.e. one not bound to a loop nested inside the region).
+func goRegionHasExit(body CoreBody, kind string) bool {
+	for _, block := range body.Blocks {
+		for _, stmt := range block.Stmts {
+			switch stmt.Kind {
+			case kind:
+				return true
+			case "for", "loop":
+				continue
+			default:
+				for _, region := range stmt.Regions {
+					if goRegionHasExit(region, kind) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func goBodyIsTerminal(ctx *goEmitCtx, body CoreBody) bool {
 	if len(body.Blocks) == 0 {
 		return false
 	}
-	block := body.Blocks[0]
+	return goBlockIsTerminal(ctx, body.Blocks[0])
+}
+
+func goBlockIsTerminal(ctx *goEmitCtx, block CoreBlock) bool {
 	if len(block.Stmts) == 0 {
 		return false
 	}
-	return goStmtIsTerminal(block.Stmts[len(block.Stmts)-1])
+	return goStmtIsTerminal(ctx, block.Stmts[len(block.Stmts)-1])
 }
 
-func goCallee(names map[string]string, callee string) string {
+func goCallee(names map[string]string, callee string) (string, bool, error) {
 	if strings.HasPrefix(callee, "@") {
 		symbol := Symbol(callee)
-		if name, ok := names[symbol]; ok {
-			return name
+		name, ok := names[symbol]
+		if !ok {
+			return "", false, fmt.Errorf("call to unknown core symbol @%s", symbol)
 		}
-		return "_" + symbol
+		return name, true, nil
 	}
 	if target, ok := coreIntrinsicPython[CoreIntrinsic(callee)]; ok {
-		return target
+		return target, coreIntrinsicGoRaising[CoreIntrinsic(callee)], nil
 	}
-	return callee
+	return "", false, fmt.Errorf("intrinsic %q has no Go helper yet; add it to coreIntrinsicPython and the Go runtime", callee)
 }
 
 func goAttrValue(op Operation, name string) string {

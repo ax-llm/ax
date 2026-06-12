@@ -1637,7 +1637,7 @@ func generatedCoreSemanticLines(target, body string) []string {
 }
 
 func generatedGoCoreBoilerplateLine(line string) bool {
-	if line == "defer catchCoreReturn(&ret)" || line == "}" {
+	if line == "}" {
 		return true
 	}
 	for _, prefix := range []string{"var ", "_ = ", "if len(args) > "} {
