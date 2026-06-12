@@ -10,11 +10,152 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  evaluatePrCheck,
+  staleOpenEntries,
+  surfaceIrModulesFor,
+} from './axir-backlog.mjs';
 
 const scriptPath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   'axir-backlog.mjs'
 );
+
+const emptyLedger = { schemaVersion: 1, entries: [] };
+
+function openEntry(overrides = {}) {
+  return {
+    id: 'axir-2026-01-01-entry',
+    status: 'open',
+    title: 'Entry',
+    createdAt: '2026-01-01',
+    sourcePR: null,
+    sourceCommit: null,
+    tsPaths: ['src/ax/ai/'],
+    portableSurface: 'axai',
+    impact: 'Drift.',
+    suggestedAxirWork: [],
+    completedAt: null,
+    completedByCommit: null,
+    verification: null,
+    ...overrides,
+  };
+}
+
+describe('evaluatePrCheck surface scoping', () => {
+  it('passes when the matching surface IR module changed', () => {
+    const result = evaluatePrCheck({
+      changedFiles: ['src/ax/ai/openai/info.ts', 'ir/axcore/ai.axir'],
+      ledger: emptyLedger,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('fails when only an unrelated surface IR module changed', () => {
+    const result = evaluatePrCheck({
+      changedFiles: ['src/ax/ai/openai/info.ts', 'ir/axcore/agent.axir'],
+      ledger: emptyLedger,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.uncovered).toEqual(['src/ax/ai/openai/info.ts']);
+  });
+
+  it('passes any surface for global AxIR work', () => {
+    for (const global of [
+      'tools/axir/internal/axir/codegen.go',
+      'ir/conformance/axai/chat.json',
+      'ir/axcore/data/provider-model-catalog.json',
+      'ir/axcore/root.axir',
+      'scripts/axir-conformance-sync.mjs',
+    ]) {
+      const result = evaluatePrCheck({
+        changedFiles: ['src/ax/ai/openai/info.ts', global],
+        ledger: emptyLedger,
+      });
+      expect(result.ok, global).toBe(true);
+    }
+  });
+
+  it('flags only the surfaces left uncovered in a mixed PR', () => {
+    const result = evaluatePrCheck({
+      changedFiles: [
+        'src/ax/ai/openai/info.ts',
+        'ir/axcore/ai.axir',
+        'src/ax/dsp/generate.ts',
+      ],
+      ledger: emptyLedger,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.uncovered).toEqual(['src/ax/dsp/generate.ts']);
+  });
+
+  it('covers dsp through cross-cutting signature work', () => {
+    const result = evaluatePrCheck({
+      changedFiles: ['src/ax/dsp/sig.ts', 'ir/axcore/signature.axir'],
+      ledger: emptyLedger,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('tracks src/ax/mem against api.axir', () => {
+    expect(surfaceIrModulesFor('src/ax/mem/memory.ts')).toEqual([
+      'ir/axcore/api.axir',
+    ]);
+    expect(
+      evaluatePrCheck({
+        changedFiles: ['src/ax/mem/memory.ts'],
+        ledger: emptyLedger,
+      }).ok
+    ).toBe(false);
+    expect(
+      evaluatePrCheck({
+        changedFiles: ['src/ax/mem/memory.ts', 'ir/axcore/api.axir'],
+        ledger: emptyLedger,
+      }).ok
+    ).toBe(true);
+  });
+
+  it('still honors open backlog entries and the no-impact marker', () => {
+    const ledger = { schemaVersion: 1, entries: [openEntry()] };
+    expect(
+      evaluatePrCheck({
+        changedFiles: ['src/ax/ai/openai/info.ts'],
+        ledger,
+      }).ok
+    ).toBe(true);
+    expect(
+      evaluatePrCheck({
+        changedFiles: ['src/ax/ai/openai/info.ts'],
+        ledger: emptyLedger,
+        noImpact: true,
+      }).ok
+    ).toBe(true);
+  });
+});
+
+describe('staleOpenEntries', () => {
+  it('flags open entries past the threshold and skips fresh or done ones', () => {
+    const ledger = {
+      schemaVersion: 1,
+      entries: [
+        openEntry({ id: 'axir-old', createdAt: '2026-01-01' }),
+        openEntry({ id: 'axir-fresh', createdAt: '2026-02-15' }),
+        openEntry({
+          id: 'axir-done',
+          createdAt: '2026-01-01',
+          status: 'done',
+          completedAt: '2026-01-02',
+          completedByCommit: 'abc',
+          verification: 'npm run test:axir',
+        }),
+      ],
+    };
+    const stale = staleOpenEntries(ledger, '2026-03-01', 30);
+    expect(stale.map(({ entry }) => entry.id)).toEqual(['axir-old']);
+    expect(stale[0].ageDays).toBe(59);
+    expect(staleOpenEntries(ledger, '2026-01-29', 30)).toHaveLength(0);
+  });
+});
 
 describe('axir-backlog CLI', () => {
   let root;
@@ -232,6 +373,113 @@ describe('axir-backlog CLI', () => {
   });
 });
 
+describe('axir-backlog CLI diff base and staleness', () => {
+  let root;
+
+  beforeEach(() => {
+    root = mkdtempSync(path.join(os.tmpdir(), 'axir-backlog-git-'));
+    mkdirSync(path.join(root, 'ir'), { recursive: true });
+    mkdirSync(path.join(root, 'docs'), { recursive: true });
+    writeFileSync(
+      path.join(root, 'ir', 'axir-backlog.json'),
+      `${JSON.stringify({ schemaVersion: 1, entries: [] }, null, 2)}\n`
+    );
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function git(args) {
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    if (result.status !== 0) {
+      throw new Error(`${result.stdout}${result.stderr}`.trim());
+    }
+    return result.stdout.trim();
+  }
+
+  it('falls back to HEAD~1 when the diff base is unreachable', () => {
+    git(['init', '-q']);
+    git(['config', 'user.email', 'test@example.com']);
+    git(['config', 'user.name', 'Test']);
+    writeFileSync(path.join(root, 'one.txt'), 'one\n');
+    git(['add', '.']);
+    git(['commit', '-q', '-m', 'one']);
+    writeFileSync(path.join(root, 'two.txt'), 'two\n');
+    git(['add', 'two.txt']);
+    git(['commit', '-q', '-m', 'two']);
+
+    const zeros = '0'.repeat(40);
+    const result = runRaw([
+      'check-pr',
+      '--root',
+      root,
+      '--base',
+      zeros,
+      '--head',
+      'HEAD',
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain('falling back to HEAD~1');
+    expect(result.stdout).toContain('AxIR backlog check ok');
+  });
+
+  it('evaluates the real pre-push base when it is reachable', () => {
+    git(['init', '-q']);
+    git(['config', 'user.email', 'test@example.com']);
+    git(['config', 'user.name', 'Test']);
+    writeFileSync(path.join(root, 'base.txt'), 'base\n');
+    git(['add', '.']);
+    git(['commit', '-q', '-m', 'base']);
+    const baseSha = git(['rev-parse', 'HEAD']);
+    mkdirSync(path.join(root, 'src', 'ax', 'ai'), { recursive: true });
+    writeFileSync(
+      path.join(root, 'src', 'ax', 'ai', 'info.ts'),
+      'export {};\n'
+    );
+    git(['add', '.']);
+    git(['commit', '-q', '-m', 'portable change']);
+
+    const result = runRaw([
+      'check-pr',
+      '--root',
+      root,
+      '--base',
+      baseSha,
+      '--head',
+      'HEAD',
+    ]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('src/ax/ai/info.ts');
+  });
+
+  it('warns about stale open entries without failing', () => {
+    runWithEnv(
+      [
+        'add',
+        '--root',
+        root,
+        '--title',
+        'Old drift',
+        '--surface',
+        'axai',
+        '--impact',
+        'Drift.',
+        '--paths',
+        'src/ax/ai/old.ts',
+      ],
+      { AXIR_BACKLOG_TODAY: '2026-01-01' }
+    );
+    const result = runRaw(
+      ['check-pr', '--root', root, '--changed-file', 'docs/x.md'],
+      { AXIR_BACKLOG_TODAY: '2026-03-01' }
+    );
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain('older than 30 days');
+    expect(result.stderr).toContain('axir-2026-01-01-old-drift');
+  });
+});
+
 function run(args) {
   const result = spawnSync(process.execPath, [scriptPath, ...args], {
     cwd: path.dirname(scriptPath),
@@ -242,6 +490,22 @@ function run(args) {
     throw new Error(`${result.stdout}${result.stderr}`.trim());
   }
   return result.stdout;
+}
+
+function runWithEnv(args, env) {
+  const result = runRaw(args, env);
+  if (result.status !== 0) {
+    throw new Error(`${result.stdout}${result.stderr}`.trim());
+  }
+  return result.stdout;
+}
+
+function runRaw(args, env = {}) {
+  return spawnSync(process.execPath, [scriptPath, ...args], {
+    cwd: path.dirname(scriptPath),
+    env: { ...process.env, ...env },
+    encoding: 'utf8',
+  });
 }
 
 function readLedger(root) {

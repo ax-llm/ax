@@ -15,6 +15,7 @@ export const PORTABLE_SURFACES = new Set([
   'axagent',
   'axflow',
   'axmcp',
+  'axmem',
   'axoptimize',
   'axprogram',
   'runtime',
@@ -31,7 +32,52 @@ const portableRoots = [
   ['src/ax/agent/', 'axagent'],
   ['src/ax/flow/', 'axflow'],
   ['src/ax/mcp/', 'axmcp'],
+  ['src/ax/mem/', 'axmem'],
 ];
+
+// IR modules that implement each portable TS root. A same-PR AxIR change
+// only waives the portable paths whose surface it touches; everything else
+// still needs a backlog entry or the no-impact marker.
+const portableRootIrModules = new Map([
+  [
+    'src/ax/ai/',
+    ['ir/axcore/ai.axir', 'ir/axcore/provider.axir', 'ir/axcore/stream.axir'],
+  ],
+  [
+    'src/ax/dsp/',
+    [
+      'ir/axcore/gen.axir',
+      'ir/axcore/schema.axir',
+      'ir/axcore/signature.axir',
+      'ir/axcore/template.axir',
+      'ir/axcore/validate.axir',
+      'ir/axcore/optimize.axir',
+    ],
+  ],
+  [
+    'src/ax/agent/',
+    [
+      'ir/axcore/agent.axir',
+      'ir/axcore/program.axir',
+      'ir/axcore/api.axir',
+      'ir/axcore/tool.axir',
+      'ir/axcore/optimize.axir',
+    ],
+  ],
+  ['src/ax/flow/', ['ir/axcore/flow.axir', 'ir/axcore/program.axir']],
+  ['src/ax/mcp/', ['ir/axcore/mcp.axir', 'ir/axcore/tool.axir']],
+  ['src/ax/mem/', ['ir/axcore/api.axir']],
+]);
+
+// Cross-cutting AxIR work counts for every surface.
+const axirGlobalRoots = ['ir/axcore/data/', 'ir/conformance/', 'tools/axir/'];
+
+const axirGlobalFiles = new Set([
+  'ir/axcore/root.axir',
+  'ir/axcore/core.axir',
+  'scripts/axir-conformance-sync.mjs',
+  'scripts/test-axir.mjs',
+]);
 
 const axirSemanticRoots = ['ir/axcore/', 'ir/conformance/', 'tools/axir/'];
 
@@ -50,6 +96,9 @@ function usage(code = 0) {
   npm run axir:backlog -- render
   npm run axir:backlog -- validate
 
+check-pr passes a changed portable TS path when the same range touches the
+IR modules for its surface (see portableRootIrModules), conformance
+fixtures, tools/axir, or an open backlog entry covering it.
 CI escape hatch for TS-only changes: add the PR label or commit marker '${noImpactMarker}'.`);
   process.exit(code);
 }
@@ -453,6 +502,42 @@ function validateDocs(root) {
   }
 }
 
+function isValidCommit(root, ref) {
+  if (!ref || /^0+$/.test(ref)) return false;
+  try {
+    execFileSync(
+      'git',
+      ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// On branch creation pushes github.event.before is the all-zeros SHA, and a
+// force-push parent can be unreachable; fall back so the gate still
+// evaluates something instead of failing or passing vacuously.
+function resolveDiffBase(root, base) {
+  if (!base || isValidCommit(root, base)) return base;
+  const fallback = 'HEAD~1';
+  if (isValidCommit(root, fallback)) {
+    console.warn(
+      `Warning: diff base ${base} is not a reachable commit; falling back to ${fallback}.`
+    );
+    return fallback;
+  }
+  console.warn(
+    `Warning: diff base ${base} is not a reachable commit and HEAD~1 does not exist; comparing working tree only.`
+  );
+  return null;
+}
+
 function changedFilesFromGit(root, base, head) {
   const range = base && head ? [`${base}...${head}`] : [];
   const output = execFileSync('git', ['diff', '--name-only', ...range], {
@@ -513,6 +598,31 @@ function coveredByBacklog(changedPath, entries) {
   );
 }
 
+function portableRootOf(filePath) {
+  const normalized = normalizePath(filePath);
+  for (const [root] of portableRoots) {
+    if (normalized.startsWith(root)) return root;
+  }
+  return null;
+}
+
+function isAxirGlobalPath(filePath) {
+  const normalized = normalizePath(filePath);
+  if (axirGlobalFiles.has(normalized)) return true;
+  return axirGlobalRoots.some((root) => normalized.startsWith(root));
+}
+
+export function surfaceIrModulesFor(filePath) {
+  const root = portableRootOf(filePath);
+  return root ? (portableRootIrModules.get(root) ?? []) : [];
+}
+
+function coveredByAxirChange(changedPath, changedFiles) {
+  if (changedFiles.some(isAxirGlobalPath)) return true;
+  const modules = surfaceIrModulesFor(changedPath);
+  return changedFiles.some((file) => modules.includes(normalizePath(file)));
+}
+
 export function evaluatePrCheck({ changedFiles, ledger, noImpact = false }) {
   validateLedger(ledger);
   const changedPortable = changedFiles.filter(isPortableTsPath);
@@ -530,21 +640,16 @@ export function evaluatePrCheck({ changedFiles, ledger, noImpact = false }) {
       changedPortable,
     };
   }
-  const hasAxirChange = changedFiles.some(isAxirSemanticPath);
-  if (hasAxirChange) {
-    return {
-      ok: true,
-      reason: 'AxIR/conformance files changed with portable TS.',
-      changedPortable,
-    };
-  }
   const uncovered = changedPortable.filter(
-    (item) => !coveredByBacklog(item, ledger.entries)
+    (item) =>
+      !coveredByAxirChange(item, changedFiles) &&
+      !coveredByBacklog(item, ledger.entries)
   );
   if (uncovered.length === 0) {
     return {
       ok: true,
-      reason: 'Open AxIR backlog entries cover changed portable TS paths.',
+      reason:
+        'Surface-matching AxIR changes or open backlog entries cover every changed portable TS path.',
       changedPortable,
     };
   }
@@ -556,9 +661,42 @@ export function evaluatePrCheck({ changedFiles, ledger, noImpact = false }) {
   };
 }
 
+export function staleOpenEntries(ledger, todayDate, thresholdDays = 30) {
+  const now = Date.parse(todayDate);
+  if (Number.isNaN(now)) return [];
+  return ledger.entries
+    .filter((entry) => entry.status === 'open')
+    .map((entry) => {
+      const created = Date.parse(entry.createdAt);
+      const ageDays = Number.isNaN(created)
+        ? Number.POSITIVE_INFINITY
+        : Math.floor((now - created) / 86_400_000);
+      return { entry, ageDays };
+    })
+    .filter(({ ageDays }) => ageDays > thresholdDays);
+}
+
+function printStaleWarnings(ledger) {
+  const stale = staleOpenEntries(ledger, today());
+  if (stale.length === 0) return;
+  console.warn(
+    `\nWarning: ${stale.length} open AxIR backlog ${
+      stale.length === 1 ? 'entry is' : 'entries are'
+    } older than 30 days and still waive their TS paths:`
+  );
+  for (const { entry, ageDays } of stale) {
+    console.warn(
+      `- ${entry.id} (${ageDays} days old): ${entry.tsPaths.join(', ')}`
+    );
+  }
+  console.warn(
+    'Migrate them, or close them with: npm run axir:backlog -- done <id> --commit <sha> --verification "..."\n'
+  );
+}
+
 function checkPr(root, flags) {
   const explicitChanged = flagValues(flags, 'changed-file').map(normalizePath);
-  const base = flagValue(flags, 'base', null);
+  const base = resolveDiffBase(root, flagValue(flags, 'base', null));
   const head = flagValue(flags, 'head', null);
   const changedFiles =
     explicitChanged.length > 0
@@ -570,6 +708,7 @@ function checkPr(root, flags) {
     commitMessages(root, base, head).includes(noImpactMarker);
   const ledger = readLedger(root);
   const result = evaluatePrCheck({ changedFiles, ledger, noImpact });
+  printStaleWarnings(ledger);
 
   if (result.ok) {
     console.log(`AxIR backlog check ok: ${result.reason}`);
@@ -586,12 +725,16 @@ function checkPr(root, flags) {
     `--paths ${JSON.stringify(pathList)}`,
   ].join(' ');
 
+  const moduleHints = [
+    ...new Set(result.uncovered.flatMap(surfaceIrModulesFor)),
+  ];
+
   console.error(`AxIR backlog check failed.
 
-Changed portable TypeScript paths:
-${result.changedPortable.map((item) => `- ${item}`).join('\n')}
+Uncovered portable TypeScript paths:
+${result.uncovered.map((item) => `- ${item}`).join('\n')}
 
-These paths can affect generated Python/Java/C++/Go/Rust behavior. Either update AxIR/conformance in this PR, or add a tracked backlog item:
+These paths can affect generated Python/Java/C++/Go/Rust behavior. The check passes when the same change also touches the IR modules for their surface (${moduleHints.join(', ') || 'see portableRootIrModules'}), conformance fixtures, or tools/axir. Otherwise add a tracked backlog item:
 
   ${command}
 
@@ -620,11 +763,14 @@ async function main(argv = process.argv.slice(2)) {
       renderDocsToDisk(root);
       console.log('Rendered docs/AXIR_BACKLOG.md');
       break;
-    case 'validate':
-      validateLedger(readLedger(root));
+    case 'validate': {
+      const ledger = readLedger(root);
+      validateLedger(ledger);
       validateDocs(root);
+      printStaleWarnings(ledger);
       console.log('AxIR backlog is valid.');
       break;
+    }
     case 'check-pr':
       checkPr(root, flags);
       break;

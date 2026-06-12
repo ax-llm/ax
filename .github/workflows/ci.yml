@@ -46,7 +46,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Check AxIR backlog coverage for portable TypeScript changes
-        run: npm run axir:backlog:check -- --base origin/main --head HEAD
+        # On push events origin/main already equals HEAD, so diff against the
+        # pre-push tip; the script falls back safely when it is unreachable.
+        run: npm run axir:backlog:check -- --base "$DIFF_BASE" --head HEAD
+        env:
+          DIFF_BASE: ${{ github.event_name == 'push' && github.event.before || 'origin/main' }}
+      - name: Validate AxIR backlog ledger and docs
+        run: npm run axir:backlog:validate
       - name: Test AxIR maintenance tools
         run: npm run test:axir:tools
       - name: Check formatting
@@ -154,8 +160,8 @@ jobs:
       - name: Check generated package freshness
         run: npm run axir:check-packages
 
-  website-md:
-    name: Markdown Website
+  website:
+    name: Documentation Website
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -173,8 +179,8 @@ jobs:
           hugo version
       - name: Install dependencies
         run: npm ci
-      - name: Check markdown website
-        run: npm run website-md:check
+      - name: Check documentation website
+        run: npm run website:check
 
   axir-verify:
     name: AxIR Verify (${{ matrix.target }})
@@ -244,7 +250,7 @@ jobs:
       - workspace-tests
       - generated-examples
       - axir-packages
-      - website-md
+      - website
       - axir-verify
     steps:
       - name: Check all CI shards
@@ -255,7 +261,7 @@ jobs:
             "${{ needs.workspace-tests.result }}" \
             "${{ needs.generated-examples.result }}" \
             "${{ needs.axir-packages.result }}" \
-            "${{ needs.website-md.result }}" \
+            "${{ needs.website.result }}" \
             "${{ needs.axir-verify.result }}"; do
             if [ "$result" != "success" ]; then
               echo "CI shard failed or was skipped: $result"
