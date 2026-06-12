@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 
 import copy
 import re
@@ -73,6 +74,18 @@ def _core_none():
 
 def _core_coalesce(value, fallback):
     return fallback if value is None else value
+
+
+def _core_coverage_mark(name):
+    path = os.environ.get("AXIR_COVERAGE_FILE")
+    if not path or name in _CORE_COVERAGE_SEEN:
+        return
+    _CORE_COVERAGE_SEEN.add(name)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(name + "\n")
+
+
+_CORE_COVERAGE_SEEN: set[str] = set()
 
 
 def _core_get(target, key, default=None):
@@ -236,16 +249,19 @@ def _valid_url_shape(value):
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
 def validate_fields(fields: list[Any], values: Any, context: str = "value") -> None:
+    _core_coverage_mark("validate_fields")
     _validate_fields_impl(fields, values, context)
     return None
 
 
 def to_json_schema(fields: list[Any], schema_title: str = "Schema", options: Any = None) -> dict[str, Any]:
+    _core_coverage_mark("to_json_schema")
     schema = _schema_to_json_schema_impl(fields, schema_title, options)
     return schema
 
 
 def _schema_required_impl(field: Field, options: Any) -> bool:
+    _core_coverage_mark("_schema_required_impl")
     strict_camel = _core_get(options, "strictStructuredOutputs", False)
     strict_snake = _core_get(options, "strict_structured_outputs", False)
     strict = _core_or(strict_camel, strict_snake)
@@ -256,16 +272,19 @@ def _schema_required_impl(field: Field, options: Any) -> bool:
 
 
 def validate_output(fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("validate_output")
     validated = _validate_output_impl(fields, values)
     return validated
 
 
 def validate_value(field: Field, value: Any, path: str = None) -> None:
+    _core_coverage_mark("validate_value")
     _validate_value_impl(field, value, path)
     return None
 
 
 def _schema_flexible_json_as_string_impl(typ: FieldType, options: Any) -> bool:
+    _core_coverage_mark("_schema_flexible_json_as_string_impl")
     camel = _core_get(options, "flexibleJsonFieldsAsString", False)
     snake = _core_get(options, "flexible_json_fields_as_string", False)
     enabled = _core_or(camel, snake)
@@ -282,11 +301,13 @@ def _schema_flexible_json_as_string_impl(typ: FieldType, options: Any) -> bool:
 
 
 def strip_internal(fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("strip_internal")
     public_values = _strip_internal_fields_impl(fields, values)
     return public_values
 
 
 def _validate_fields_impl(fields: list[Any], values: Any, context: str) -> None:
+    _core_coverage_mark("_validate_fields_impl")
     values_is_object = _core_type_is(values, "object")
     values_not_object = _core_not(values_is_object)
     if values_not_object:
@@ -319,6 +340,7 @@ def _validate_fields_impl(fields: list[Any], values: Any, context: str) -> None:
 
 
 def _schema_json_type_impl(type_name: str) -> Any:
+    _core_coverage_mark("_schema_json_type_impl")
     string_types = []
     string_types.append("string")
     string_types.append("code")
@@ -364,6 +386,7 @@ def _schema_json_type_impl(type_name: str) -> Any:
 
 
 def _validate_output_impl(fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_validate_output_impl")
     normalized = values
     for field in fields:
         field_name = _core_get(field, "name", None)
@@ -382,6 +405,7 @@ def _validate_output_impl(fields: list[Any], values: Any) -> Any:
 
 
 def _schema_enhance_description_impl(base: Any, typ: FieldType) -> Any:
+    _core_coverage_mark("_schema_enhance_description_impl")
     constraints = []
     type_name = _core_get(typ, "name", None)
     format = _core_get(typ, "format", None)
@@ -497,6 +521,7 @@ def _schema_enhance_description_impl(base: Any, typ: FieldType) -> Any:
 
 
 def _validate_string_constraints_impl(value: str, field: Field) -> None:
+    _core_coverage_mark("_validate_string_constraints_impl")
     typ = _core_get(field, "type", None)
     title = _core_get(field, "title", None)
     min_length = _core_get(typ, "min_length", None)
@@ -570,6 +595,7 @@ def _validate_string_constraints_impl(value: str, field: Field) -> None:
 
 
 def _validate_number_constraints_impl(value: float, field: Field) -> None:
+    _core_coverage_mark("_validate_number_constraints_impl")
     typ = _core_get(field, "type", None)
     title = _core_get(field, "title", None)
     minimum = _core_get(typ, "minimum", None)
@@ -600,6 +626,7 @@ def _validate_number_constraints_impl(value: float, field: Field) -> None:
 
 
 def _schema_apply_constraints_impl(schema: Any, typ: FieldType) -> Any:
+    _core_coverage_mark("_schema_apply_constraints_impl")
     type_name = _core_get(typ, "name", None)
     string_types = []
     string_types.append("string")
@@ -675,6 +702,7 @@ def _schema_apply_constraints_impl(schema: Any, typ: FieldType) -> Any:
 
 
 def _validate_value_impl(field: Field, value: Any, path: str) -> None:
+    _core_coverage_mark("_validate_value_impl")
     field_name = _core_get(field, "name", None)
     typ = _core_get(field, "type", None)
     type_name = _core_get(typ, "name", None)
@@ -870,6 +898,7 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
 
 
 def _schema_nullable_optional_impl(schema: Any, field: Field, options: Any) -> Any:
+    _core_coverage_mark("_schema_nullable_optional_impl")
     is_optional = _core_get(field, "is_optional", False)
     strict_camel = _core_get(options, "strictStructuredOutputs", False)
     strict_snake = _core_get(options, "strict_structured_outputs", False)
@@ -908,6 +937,7 @@ def _schema_nullable_optional_impl(schema: Any, field: Field, options: Any) -> A
 
 
 def _schema_object_from_fields_impl(fields_map: Any, is_nested: bool, options: Any) -> Any:
+    _core_coverage_mark("_schema_object_from_fields_impl")
     schema = {}
     properties = {}
     required = []
@@ -934,6 +964,7 @@ def _schema_object_from_fields_impl(fields_map: Any, is_nested: bool, options: A
 
 
 def _schema_field_schema_impl(field: Field, is_nested: bool, options: Any) -> Any:
+    _core_coverage_mark("_schema_field_schema_impl")
     typ = _core_get(field, "type", None)
     type_name = _core_get(typ, "name", None)
     media_types = []
@@ -1054,6 +1085,7 @@ def _schema_field_schema_impl(field: Field, is_nested: bool, options: Any) -> An
 
 
 def _strip_internal_fields_impl(fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_strip_internal_fields_impl")
     public_values = {}
     for field in fields:
         is_internal = _core_get(field, "is_internal", False)
@@ -1070,6 +1102,7 @@ def _strip_internal_fields_impl(fields: list[Any], values: Any) -> Any:
 
 
 def _schema_to_json_schema_impl(fields: list[Any], schema_title: str, options: Any) -> dict[str, Any]:
+    _core_coverage_mark("_schema_to_json_schema_impl")
     schema = {}
     properties = {}
     required = []

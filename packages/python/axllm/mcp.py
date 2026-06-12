@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 
 import base64
 import hashlib
@@ -14,6 +15,18 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .tool import Tool
+
+
+_CORE_COVERAGE_SEEN: set[str] = set()
+
+
+def _core_coverage_mark(name):
+    path = os.environ.get("AXIR_COVERAGE_FILE")
+    if not path or name in _CORE_COVERAGE_SEEN:
+        return
+    _CORE_COVERAGE_SEEN.add(name)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(name + "\n")
 
 
 def _core_get(target, key, default=None):
@@ -32,6 +45,7 @@ def _core_is_none(value):
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
 def mcp_protocol_constants() -> Any:
+    _core_coverage_mark("mcp_protocol_constants")
     versions = []
     versions.append("2025-11-25")
     versions.append("2025-06-18")
@@ -44,6 +58,7 @@ def mcp_protocol_constants() -> Any:
 
 
 def mcp_jsonrpc_request(id: str, method: str, params: Any) -> Any:
+    _core_coverage_mark("mcp_jsonrpc_request")
     out = {}
     out["jsonrpc"] = "2.0"
     out["id"] = id
@@ -57,6 +72,7 @@ def mcp_jsonrpc_request(id: str, method: str, params: Any) -> Any:
 
 
 def mcp_jsonrpc_notification(method: str, params: Any) -> Any:
+    _core_coverage_mark("mcp_jsonrpc_notification")
     out = {}
     out["jsonrpc"] = "2.0"
     out["method"] = method
@@ -69,6 +85,7 @@ def mcp_jsonrpc_notification(method: str, params: Any) -> Any:
 
 
 def mcp_normalize_error(response: Any) -> Any:
+    _core_coverage_mark("mcp_normalize_error")
     err = _core_get(response, "error", None)
     missing = _core_is_none(err)
     if missing:

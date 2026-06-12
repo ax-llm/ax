@@ -12,6 +12,26 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class Core {
+
+  private static final String AXIR_COVERAGE_PATH = System.getenv("AXIR_COVERAGE_FILE");
+  private static final java.util.Set<String> AXIR_COVERAGE_SEEN =
+      java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+  static void axirCoverageMark(String name) {
+    if (AXIR_COVERAGE_PATH == null || !AXIR_COVERAGE_SEEN.add(name)) {
+      return;
+    }
+    try {
+      java.nio.file.Files.writeString(
+          java.nio.file.Path.of(AXIR_COVERAGE_PATH),
+          name + "\n",
+          java.nio.file.StandardOpenOption.CREATE,
+          java.nio.file.StandardOpenOption.APPEND);
+    } catch (java.io.IOException ignored) {
+      // coverage tracing must never affect behavior
+    }
+  }
+
   private Core() {}
 
   static boolean truthy(Object value) {
@@ -878,16 +898,19 @@ final class Core {
 
   // BEGIN AXIR CORE EMITTED FUNCTIONS
   static Object parse_signature(Object signature) {
+    axirCoverageMark("parse_signature");
     Object parsed = Core._signature_parse_impl(signature);
     return parsed;
   }
 
   static Object validate_signature(Object signature) {
+    axirCoverageMark("validate_signature");
     Core._signature_validate_impl(signature);
     return null;
   }
 
   static Object _signature_parse_impl(Object signature) {
+    axirCoverageMark("_signature_parse_impl");
     Object text = Core.stringTrim(signature);
     Object text_len = Core.len(text);
     Object is_empty = Core.eq(text_len, 0);
@@ -933,6 +956,7 @@ final class Core {
   }
 
   static Object _signature_parse_fields_impl(Object text, Object output) {
+    axirCoverageMark("_signature_parse_fields_impl");
     Object parts = Core.stringSplitOutsideQuotes(text, ",");
     Object fields = new java.util.ArrayList<Object>();
     for (Object part : Core.iter(parts)) {
@@ -943,6 +967,7 @@ final class Core {
   }
 
   static Object _signature_parse_field_impl(Object raw, Object output) {
+    axirCoverageMark("_signature_parse_field_impl");
     Object text = Core.stringTrim(raw);
     Object quoted_info = Core.stringExtractQuotedSuffix(text);
     Object quoted = Core.get(quoted_info, "value", null);
@@ -1030,6 +1055,7 @@ final class Core {
   }
 
   static Object _signature_validate_field_shape_impl(Object field, Object output, Object nested) {
+    axirCoverageMark("_signature_validate_field_shape_impl");
     Object name = Core.get(field, "name", null);
     Object valid_name = Core.regexMatch("^[A-Za-z_][A-Za-z0-9_]*$", name);
     Object invalid_name = Core.not(valid_name);
@@ -1135,6 +1161,7 @@ final class Core {
   }
 
   static Object _signature_validate_impl(Object signature) {
+    axirCoverageMark("_signature_validate_impl");
     Object inputs = Core.get(signature, "input_fields", null);
     Object outputs = Core.get(signature, "output_fields", null);
     Object input_count = Core.len(inputs);
@@ -1183,16 +1210,19 @@ final class Core {
   }
 
   static Object validate_fields(Object fields, Object values, Object context) {
+    axirCoverageMark("validate_fields");
     Core._validate_fields_impl(fields, values, context);
     return null;
   }
 
   static Object to_json_schema(Object fields, Object schema_title, Object options) {
+    axirCoverageMark("to_json_schema");
     Object schema = Core._schema_to_json_schema_impl(fields, schema_title, options);
     return schema;
   }
 
   static Object _schema_required_impl(Object field, Object options) {
+    axirCoverageMark("_schema_required_impl");
     Object strict_camel = Core.get(options, "strictStructuredOutputs", Boolean.FALSE);
     Object strict_snake = Core.get(options, "strict_structured_outputs", Boolean.FALSE);
     Object strict = Core.or(strict_camel, strict_snake);
@@ -1203,16 +1233,19 @@ final class Core {
   }
 
   static Object validate_output(Object fields, Object values) {
+    axirCoverageMark("validate_output");
     Object validated = Core._validate_output_impl(fields, values);
     return validated;
   }
 
   static Object validate_value(Object field, Object value, Object path) {
+    axirCoverageMark("validate_value");
     Core._validate_value_impl(field, value, path);
     return null;
   }
 
   static Object _schema_flexible_json_as_string_impl(Object typ, Object options) {
+    axirCoverageMark("_schema_flexible_json_as_string_impl");
     Object camel = Core.get(options, "flexibleJsonFieldsAsString", Boolean.FALSE);
     Object snake = Core.get(options, "flexible_json_fields_as_string", Boolean.FALSE);
     Object enabled = Core.or(camel, snake);
@@ -1229,11 +1262,13 @@ final class Core {
   }
 
   static Object strip_internal(Object fields, Object values) {
+    axirCoverageMark("strip_internal");
     Object public_values = Core._strip_internal_fields_impl(fields, values);
     return public_values;
   }
 
   static Object _validate_fields_impl(Object fields, Object values, Object context) {
+    axirCoverageMark("_validate_fields_impl");
     Object values_is_object = Core.typeIs(values, "object");
     Object values_not_object = Core.not(values_is_object);
     if (Core.truthy(values_not_object)) {
@@ -1267,6 +1302,7 @@ final class Core {
   }
 
   static Object _schema_json_type_impl(Object type_name) {
+    axirCoverageMark("_schema_json_type_impl");
     Object string_types = new java.util.ArrayList<Object>();
     Core.append(string_types, "string");
     Core.append(string_types, "code");
@@ -1308,6 +1344,7 @@ final class Core {
   }
 
   static Object _validate_output_impl(Object fields, Object values) {
+    axirCoverageMark("_validate_output_impl");
     Object normalized = values;
     for (Object field : Core.iter(fields)) {
       Object field_name = Core.get(field, "name", null);
@@ -1326,6 +1363,7 @@ final class Core {
   }
 
   static Object _schema_enhance_description_impl(Object base, Object typ) {
+    axirCoverageMark("_schema_enhance_description_impl");
     Object constraints = new java.util.ArrayList<Object>();
     Object type_name = Core.get(typ, "name", null);
     Object format = Core.get(typ, "format", null);
@@ -1439,6 +1477,7 @@ final class Core {
   }
 
   static Object _validate_string_constraints_impl(Object value, Object field) {
+    axirCoverageMark("_validate_string_constraints_impl");
     Object typ = Core.get(field, "type", null);
     Object title = Core.get(field, "title", null);
     Object min_length = Core.get(typ, "min_length", null);
@@ -1502,6 +1541,7 @@ final class Core {
   }
 
   static Object _validate_number_constraints_impl(Object value, Object field) {
+    axirCoverageMark("_validate_number_constraints_impl");
     Object typ = Core.get(field, "type", null);
     Object title = Core.get(field, "title", null);
     Object minimum = Core.get(typ, "minimum", null);
@@ -1528,6 +1568,7 @@ final class Core {
   }
 
   static Object _schema_apply_constraints_impl(Object schema, Object typ) {
+    axirCoverageMark("_schema_apply_constraints_impl");
     Object type_name = Core.get(typ, "name", null);
     Object string_types = new java.util.ArrayList<Object>();
     Core.append(string_types, "string");
@@ -1595,6 +1636,7 @@ final class Core {
   }
 
   static Object _validate_value_impl(Object field, Object value, Object path) {
+    axirCoverageMark("_validate_value_impl");
     Object field_name = Core.get(field, "name", null);
     Object typ = Core.get(field, "type", null);
     Object type_name = Core.get(typ, "name", null);
@@ -1764,6 +1806,7 @@ final class Core {
   }
 
   static Object _schema_nullable_optional_impl(Object schema, Object field, Object options) {
+    axirCoverageMark("_schema_nullable_optional_impl");
     Object is_optional = Core.get(field, "is_optional", Boolean.FALSE);
     Object strict_camel = Core.get(options, "strictStructuredOutputs", Boolean.FALSE);
     Object strict_snake = Core.get(options, "strict_structured_outputs", Boolean.FALSE);
@@ -1800,6 +1843,7 @@ final class Core {
   }
 
   static Object _schema_object_from_fields_impl(Object fields_map, Object is_nested, Object options) {
+    axirCoverageMark("_schema_object_from_fields_impl");
     Object schema = new java.util.LinkedHashMap<String, Object>();
     Object properties = new java.util.LinkedHashMap<String, Object>();
     Object required = new java.util.ArrayList<Object>();
@@ -1825,6 +1869,7 @@ final class Core {
   }
 
   static Object _schema_field_schema_impl(Object field, Object is_nested, Object options) {
+    axirCoverageMark("_schema_field_schema_impl");
     Object typ = Core.get(field, "type", null);
     Object type_name = Core.get(typ, "name", null);
     Object media_types = new java.util.ArrayList<Object>();
@@ -1936,6 +1981,7 @@ final class Core {
   }
 
   static Object _strip_internal_fields_impl(Object fields, Object values) {
+    axirCoverageMark("_strip_internal_fields_impl");
     Object public_values = new java.util.LinkedHashMap<String, Object>();
     for (Object field : Core.iter(fields)) {
       Object is_internal = Core.get(field, "is_internal", Boolean.FALSE);
@@ -1952,6 +1998,7 @@ final class Core {
   }
 
   static Object _schema_to_json_schema_impl(Object fields, Object schema_title, Object options) {
+    axirCoverageMark("_schema_to_json_schema_impl");
     Object schema = new java.util.LinkedHashMap<String, Object>();
     Object properties = new java.util.LinkedHashMap<String, Object>();
     Object required = new java.util.ArrayList<Object>();
@@ -1977,43 +2024,51 @@ final class Core {
   }
 
   static Object render_template_content(Object template, Object vars, Object context) {
+    axirCoverageMark("render_template_content");
     Object nodes = Core._template_parse_impl(template, context);
     Object rendered = Core._template_render_tree_impl(nodes, vars, template, context);
     return rendered;
   }
 
   static Object collect_template_variable_names(Object source, Object context) {
+    axirCoverageMark("collect_template_variable_names");
     Object nodes = Core._template_parse_impl(source, context);
     Object names = Core._template_collect_vars_impl(nodes);
     return names;
   }
 
   static Object validate_prompt_template_syntax(Object source, Object context, Object required_variables) {
+    axirCoverageMark("validate_prompt_template_syntax");
     Object result = Core._template_validate_impl(source, context, required_variables);
     return result;
   }
 
   static Object _template_parse_impl(Object template, Object context) {
+    axirCoverageMark("_template_parse_impl");
     Object nodes = Core.templateParse(template, context);
     return nodes;
   }
 
   static Object _template_render_tree_impl(Object nodes, Object vars, Object source, Object context) {
+    axirCoverageMark("_template_render_tree_impl");
     Object rendered = Core.templateRenderTree(nodes, vars, source, context);
     return rendered;
   }
 
   static Object _template_collect_vars_impl(Object nodes) {
+    axirCoverageMark("_template_collect_vars_impl");
     Object names = Core.templateCollectVars(nodes);
     return names;
   }
 
   static Object _template_validate_impl(Object source, Object context, Object required_variables) {
+    axirCoverageMark("_template_validate_impl");
     Object result = Core.templateValidate(source, context, required_variables);
     return result;
   }
 
   static Object render_prompt(Object signature, Object values, Object functions, Object options) {
+    axirCoverageMark("render_prompt");
     Object instruction = Core.get(options, "instruction", null);
     Object has_instruction = Core.isNotNone(instruction);
     if (Core.truthy(has_instruction)) {
@@ -2031,16 +2086,19 @@ final class Core {
   }
 
   static Object _prompt_structured_impl(Object signature, Object values, Object functions, Object options) {
+    axirCoverageMark("_prompt_structured_impl");
     Object content = Core.promptStructured(signature, values, functions, options);
     return content;
   }
 
   static Object _prompt_user_content_impl(Object signature, Object values) {
+    axirCoverageMark("_prompt_user_content_impl");
     Object content = Core.promptUserContent(signature, values);
     return content;
   }
 
   static Object _prompt_messages_impl(Object system, Object user) {
+    axirCoverageMark("_prompt_messages_impl");
     Object system_message = new java.util.LinkedHashMap<String, Object>();
     Core.set(system_message, "role", "system");
     Core.set(system_message, "content", system);
@@ -2055,6 +2113,7 @@ final class Core {
   }
 
   static Object openai_build_chat_request(Object request) {
+    axirCoverageMark("openai_build_chat_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Object model = Core.get(request, "model", null);
     Core.set(payload, "model", model);
@@ -2108,6 +2167,7 @@ final class Core {
   }
 
   static Object merge_model_config(Object base, Object override, Object options) {
+    axirCoverageMark("merge_model_config");
     Object merged = Core.mapMerge(base, override);
     Object has_stream_option = Core.mapContains(options, "stream");
     if (Core.truthy(has_stream_option)) {
@@ -2126,6 +2186,7 @@ final class Core {
   }
 
   static Object validate_chat_request(Object request) {
+    axirCoverageMark("validate_chat_request");
     Object realtime = Core.get(request, "realtime", null);
     Object has_realtime = Core.truthyValue(realtime);
     if (Core.truthy(has_realtime)) {
@@ -2173,6 +2234,7 @@ final class Core {
   }
 
   static Object _openai_apply_model_config_impl(Object payload, Object model_config) {
+    axirCoverageMark("_openai_apply_model_config_impl");
     Core._openai_copy_config_key_impl(payload, model_config, "max_tokens", "max_completion_tokens");
     Core._openai_copy_config_key_impl(payload, model_config, "maxTokens", "max_completion_tokens");
     Core._openai_copy_config_key_impl(payload, model_config, "temperature", "temperature");
@@ -2201,12 +2263,14 @@ final class Core {
   }
 
   static Object build_chat_request(Object service, Object request, Object options) {
+    axirCoverageMark("build_chat_request");
     Core.validate_chat_request(request);
     Object payload = Core.openai_build_chat_request(request);
     return payload;
   }
 
   static Object _openai_copy_config_key_impl(Object payload, Object model_config, Object source, Object target) {
+    axirCoverageMark("_openai_copy_config_key_impl");
     Object has_source = Core.mapContains(model_config, source);
     if (Core.truthy(has_source)) {
       Object value = Core.get(model_config, source, null);
@@ -2216,16 +2280,19 @@ final class Core {
   }
 
   static Object normalize_chat_response(Object raw) {
+    axirCoverageMark("normalize_chat_response");
     Object response = Core.openai_normalize_chat_response(raw);
     return response;
   }
 
   static Object normalize_stream_delta(Object raw, Object state) {
+    axirCoverageMark("normalize_stream_delta");
     Object response = Core.openai_normalize_stream_delta(raw, state);
     return response;
   }
 
   static Object _openai_message_impl(Object message) {
+    axirCoverageMark("_openai_message_impl");
     Object role = Core.get(message, "role", null);
     Object content = Core.get(message, "content", "");
     Object is_system = Core.eq(role, "system");
@@ -2299,16 +2366,19 @@ final class Core {
   }
 
   static Object build_embed_request(Object service, Object request, Object options) {
+    axirCoverageMark("build_embed_request");
     Object payload = Core.openai_build_embed_request(request);
     return payload;
   }
 
   static Object normalize_embed_response(Object raw) {
+    axirCoverageMark("normalize_embed_response");
     Object response = Core.openai_normalize_embed_response(raw);
     return response;
   }
 
   static Object normalize_token_usage(Object usage) {
+    axirCoverageMark("normalize_token_usage");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object input_tokens = Core.get(usage, "input_tokens", 0);
     Object prompt_tokens_snake = Core.get(usage, "prompt_tokens", input_tokens);
@@ -2344,6 +2414,7 @@ final class Core {
   }
 
   static Object _ai_model_usage_impl(Object ai_name, Object model, Object usage) {
+    axirCoverageMark("_ai_model_usage_impl");
     Object has_usage = Core.truthyValue(usage);
     Object missing_usage = Core.not(has_usage);
     if (Core.truthy(missing_usage)) {
@@ -2359,6 +2430,7 @@ final class Core {
   }
 
   static Object _openai_content_part_impl(Object part) {
+    axirCoverageMark("_openai_content_part_impl");
     Object type = Core.get(part, "type", null);
     Object is_text = Core.eq(type, "text");
     if (Core.truthy(is_text)) {
@@ -2399,6 +2471,7 @@ final class Core {
   }
 
   static Object chat_response_to_completion(Object response) {
+    axirCoverageMark("chat_response_to_completion");
     Object empty_results = new java.util.ArrayList<Object>();
     Object results = Core.get(response, "results", empty_results);
     Object empty_result = new java.util.LinkedHashMap<String, Object>();
@@ -2428,6 +2501,7 @@ final class Core {
   }
 
   static Object _openai_tool_call_to_provider_impl(Object call) {
+    axirCoverageMark("_openai_tool_call_to_provider_impl");
     Object fn = Core.get(call, "function", null);
     Object params = Core.get(fn, "params", null);
     Object params_is_string = Core.typeIs(params, "string");
@@ -2451,6 +2525,7 @@ final class Core {
   }
 
   static Object _openai_tool_spec_impl(Object fn) {
+    axirCoverageMark("_openai_tool_spec_impl");
     Object name = Core.get(fn, "name", null);
     Object description = Core.get(fn, "description", "");
     Object parameters = Core.get(fn, "parameters", null);
@@ -2468,6 +2543,7 @@ final class Core {
   }
 
   static Object openai_build_embed_request(Object request) {
+    axirCoverageMark("openai_build_embed_request");
     Object embed_model_snake = Core.get(request, "embed_model", null);
     Object model = Core.get(request, "embedModel", embed_model_snake);
     Object empty_texts = new java.util.ArrayList<Object>();
@@ -2484,6 +2560,7 @@ final class Core {
   }
 
   static Object openai_normalize_chat_response(Object raw, Object ai_name, Object model) {
+    axirCoverageMark("openai_normalize_chat_response");
     Object raw_is_object = Core.typeIs(raw, "object");
     Object raw_not_object = Core.not(raw_is_object);
     if (Core.truthy(raw_not_object)) {
@@ -2522,6 +2599,7 @@ final class Core {
   }
 
   static Object _openai_normalize_choice_impl(Object choice, Object raw) {
+    axirCoverageMark("_openai_normalize_choice_impl");
     Object empty_message = new java.util.LinkedHashMap<String, Object>();
     Object message = Core.get(choice, "message", empty_message);
     Object refusal = Core.get(message, "refusal", null);
@@ -2556,6 +2634,7 @@ final class Core {
   }
 
   static Object _openai_normalize_tool_calls_impl(Object calls) {
+    axirCoverageMark("_openai_normalize_tool_calls_impl");
     Object out = new java.util.ArrayList<Object>();
     for (Object call : Core.iter(calls)) {
       Object fn = Core.get(call, "function", null);
@@ -2584,6 +2663,7 @@ final class Core {
   }
 
   static Object _openai_finish_reason_impl(Object value) {
+    axirCoverageMark("_openai_finish_reason_impl");
     Object is_stop = Core.eq(value, "stop");
     if (Core.truthy(is_stop)) {
       return "stop";
@@ -2607,6 +2687,7 @@ final class Core {
   }
 
   static Object openai_normalize_embed_response(Object raw, Object ai_name, Object model) {
+    axirCoverageMark("openai_normalize_embed_response");
     Object embeddings = new java.util.ArrayList<Object>();
     Object empty_data = new java.util.ArrayList<Object>();
     Object data = Core.get(raw, "data", empty_data);
@@ -2627,6 +2708,7 @@ final class Core {
   }
 
   static Object openai_normalize_stream_delta(Object raw, Object state, Object ai_name, Object model) {
+    axirCoverageMark("openai_normalize_stream_delta");
     Object raw_is_object = Core.typeIs(raw, "object");
     Object raw_not_object = Core.not(raw_is_object);
     if (Core.truthy(raw_not_object)) {
@@ -2672,6 +2754,7 @@ final class Core {
   }
 
   static Object _openai_stream_choice_impl(Object choice, Object index_ids) {
+    axirCoverageMark("_openai_stream_choice_impl");
     Object empty_delta = new java.util.LinkedHashMap<String, Object>();
     Object delta = Core.get(choice, "delta", empty_delta);
     Object calls = new java.util.ArrayList<Object>();
@@ -2715,6 +2798,7 @@ final class Core {
   }
 
   static Object openai_normalize_error(Object status, Object body, Object request) {
+    axirCoverageMark("openai_normalize_error");
     Object message = body;
     Object code = Core.none();
     Object body_is_object = Core.typeIs(body, "object");
@@ -2760,6 +2844,7 @@ final class Core {
   }
 
   static Object provider_normalize_profile(Object profile) {
+    axirCoverageMark("provider_normalize_profile");
     Object normalized = Core.stringLower(profile);
     Object aliases = Core.jsonParse("{\"openai\":\"openai-compatible\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"mistral\":\"mistral\",\"reka\":\"reka\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\"}");
     Object provider_id = Core.get(aliases, normalized, "openai-compatible");
@@ -2767,11 +2852,13 @@ final class Core {
   }
 
   static Object provider_profile_registry() {
+    axirCoverageMark("provider_profile_registry");
     Object registry = Core.jsonParse("{\"deferredCatalogProviderIds\":[],\"profiles\":{\"anthropic\":{\"aliases\":[\"anthropic\",\"claude\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"AnthropicClient\",\"id\":\"anthropic\"},\"azure-openai\":{\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"AzureOpenAIClient\",\"id\":\"azure-openai\"},\"cohere\":{\"aliases\":[\"cohere\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"CohereClient\",\"id\":\"cohere\"},\"deepseek\":{\"aliases\":[\"deepseek\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"DeepSeekClient\",\"id\":\"deepseek\"},\"google-gemini\":{\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"GoogleGeminiClient\",\"id\":\"google-gemini\"},\"grok\":{\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"GrokClient\",\"id\":\"grok\"},\"mistral\":{\"aliases\":[\"mistral\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"MistralClient\",\"id\":\"mistral\"},\"openai-compatible\":{\"aliases\":[\"openai-compatible\",\"openai\",\"compatible\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"openai-compatible\"},\"openai-responses\":{\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAIResponsesClient\",\"id\":\"openai-responses\"},\"reka\":{\"aliases\":[\"reka\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"RekaClient\",\"id\":\"reka\"}},\"registryVersion\":\"provider-profile-registry-v1\",\"supportedProfileIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\",\"azure-openai\",\"deepseek\",\"mistral\",\"reka\",\"cohere\",\"grok\"]}");
     return registry;
   }
 
   static Object provider_resolve_profile(Object profile) {
+    axirCoverageMark("provider_resolve_profile");
     Object normalized = Core.stringLower(profile);
     Object aliases = Core.jsonParse("{\"openai\":\"openai-compatible\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"mistral\":\"mistral\",\"reka\":\"reka\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\"}");
     Object is_known = Core.mapContains(aliases, normalized);
@@ -2784,11 +2871,13 @@ final class Core {
   }
 
   static Object provider_model_catalog_summary() {
+    axirCoverageMark("provider_model_catalog_summary");
     Object summary = Core.jsonParse("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\",\"azure-openai\",\"deepseek\",\"mistral\",\"reka\",\"cohere\",\"grok\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":10,\"providerNames\":[\"google-gemini\",\"openai\",\"cohere\",\"mistral\",\"deepseek\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"azure-openai\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}");
     return summary;
   }
 
   static Object _provider_model_catalog_registry() {
+    axirCoverageMark("_provider_model_catalog_registry");
     Object catalog = Core.jsonParse(String.join("", new String[] {
         "{\"all\":[{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.134,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-pro-image-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-image-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"",
         "audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structured",
@@ -2808,6 +2897,7 @@ final class Core {
   }
 
   static Object provider_model_catalog(Object options) {
+    axirCoverageMark("provider_model_catalog");
     Object registry = Core._provider_model_catalog_registry();
     Object type_raw = "all";
     Object options_is_string = Core.typeIs(options, "string");
@@ -2840,6 +2930,7 @@ final class Core {
   }
 
   static Object provider_route_request_requirements(Object request) {
+    axirCoverageMark("provider_route_request_requirements");
     Object requirements = new java.util.LinkedHashMap<String, Object>();
     Core.set(requirements, "hasImages", Boolean.FALSE);
     Core.set(requirements, "hasAudio", Boolean.FALSE);
@@ -2959,6 +3050,7 @@ final class Core {
   }
 
   static Object _provider_features_support(Object features, Object path) {
+    axirCoverageMark("_provider_features_support");
     Object media = Core.get(features, "media", null);
     Object caching = Core.get(features, "caching", null);
     Object is_functions = Core.eq(path, "functions");
@@ -3004,6 +3096,7 @@ final class Core {
   }
 
   static Object _provider_route_score(Object provider, Object requirements) {
+    axirCoverageMark("_provider_route_score");
     Object features = Core.get(provider, "features", null);
     Object score = 10;
     Object missing = new java.util.ArrayList<Object>();
@@ -3110,6 +3203,7 @@ final class Core {
   }
 
   static Object provider_route_recommendation(Object providers, Object request, Object options) {
+    axirCoverageMark("provider_route_recommendation");
     Object provider_count = Core.len(providers);
     Object has_providers = Core.gt(provider_count, 0);
     Object no_providers = Core.not(has_providers);
@@ -3221,6 +3315,7 @@ final class Core {
   }
 
   static Object _provider_route_any_supports(Object providers, Object path) {
+    axirCoverageMark("_provider_route_any_supports");
     Object ok = Boolean.FALSE;
     for (Object provider : Core.iter(providers)) {
       Object features = Core.get(provider, "features", null);
@@ -3233,6 +3328,7 @@ final class Core {
   }
 
   static Object provider_route_validation(Object providers, Object request, Object processing, Object options) {
+    axirCoverageMark("provider_route_validation");
     Object issues = new java.util.ArrayList<Object>();
     Object recommendations = new java.util.ArrayList<Object>();
     Object result = new java.util.LinkedHashMap<String, Object>();
@@ -3287,6 +3383,7 @@ final class Core {
   }
 
   static Object provider_balancer_retry_policy(Object options) {
+    axirCoverageMark("provider_balancer_retry_policy");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object strategy = Core.get(options, "strategy", "metric");
     Core.set(out, "strategy", strategy);
@@ -3314,6 +3411,7 @@ final class Core {
   }
 
   static Object provider_balancer_metric_score(Object metrics) {
+    axirCoverageMark("provider_balancer_metric_score");
     Object latency = Core.get(metrics, "latency", null);
     Object chat = Core.get(latency, "chat", null);
     Object mean = Core.get(chat, "mean", 0);
@@ -3321,6 +3419,7 @@ final class Core {
   }
 
   static Object provider_balancer_candidate_allowed(Object features, Object request) {
+    axirCoverageMark("provider_balancer_candidate_allowed");
     Object format = Core.get(request, "responseFormat", null);
     Object format_missing = Core.isNone(format);
     if (Core.truthy(format_missing)) {
@@ -3371,6 +3470,7 @@ final class Core {
   }
 
   static Object provider_routing_stats(Object providers) {
+    axirCoverageMark("provider_routing_stats");
     Object matrix = new java.util.LinkedHashMap<String, Object>();
     Object functions = new java.util.ArrayList<Object>();
     Object streaming = new java.util.ArrayList<Object>();
@@ -3457,6 +3557,7 @@ final class Core {
   }
 
   static Object provider_descriptor(Object profile) {
+    axirCoverageMark("provider_descriptor");
     Object provider_id = Core.provider_normalize_profile(profile);
     Object openai_family = Core.jsonParse("{\"openai-compatible\":{\"provider\":\"openai-compatible\",\"id\":\"openai-compatible\",\"name\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"auth\":\"bearer\",\"defaultModel\":\"gpt-4.1-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/webp\"]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"provider\":\"azure-openai\",\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"baseUrl\":\"https://{resource}.openai.azure.com/openai/deployments/{deployment}\",\"auth\":\"api_key_header\",\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"],\"maxSize\":20971520},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"provider\":\"deepseek\",\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"baseUrl\":\"https://api.deepseek.com\",\"auth\":\"bearer\",\"defaultModel\":\"deepseek-v4-flash\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"provider\":\"mistral\",\"id\":\"mistral\",\"name\":\"Mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"auth\":\"bearer\",\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"provider\":\"reka\",\"id\":\"reka\",\"name\":\"Reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"auth\":\"bearer\",\"defaultModel\":\"reka-core\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"provider\":\"cohere\",\"id\":\"cohere\",\"name\":\"Cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"auth\":\"bearer\",\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"provider\":\"grok\",\"id\":\"grok\",\"name\":\"Grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"auth\":\"bearer\",\"defaultModel\":\"grok-4.3\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"],\"maxSize\":20971520},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}");
     Object openai_family_descriptor = Core.get(openai_family, provider_id, null);
@@ -3651,6 +3752,7 @@ final class Core {
   }
 
   static Object provider_operation_descriptor(Object profile, Object operation) {
+    axirCoverageMark("provider_operation_descriptor");
     Object descriptor = Core.provider_descriptor(profile);
     Object operations = Core.get(descriptor, "operations", null);
     Object operation_desc = Core.get(operations, operation, null);
@@ -3664,11 +3766,13 @@ final class Core {
   }
 
   static Object _provider_realtime_audio_descriptor(Object profile) {
+    axirCoverageMark("_provider_realtime_audio_descriptor");
     Object descriptor = Core.provider_operation_descriptor(profile, "realtime_audio");
     return descriptor;
   }
 
   static Object provider_build_realtime_audio_setup(Object profile, Object request) {
+    axirCoverageMark("provider_build_realtime_audio_setup");
     Object descriptor = Core._provider_realtime_audio_descriptor(profile);
     Object grammar = Core.get(descriptor, "grammar", "openai_realtime_compatible");
     Object is_gemini_live = Core.eq(grammar, "gemini_live_bidi");
@@ -3681,6 +3785,7 @@ final class Core {
   }
 
   static Object provider_build_realtime_audio_input(Object profile, Object request) {
+    axirCoverageMark("provider_build_realtime_audio_input");
     Object descriptor = Core._provider_realtime_audio_descriptor(profile);
     Object grammar = Core.get(descriptor, "grammar", "openai_realtime_compatible");
     Object is_gemini_live = Core.eq(grammar, "gemini_live_bidi");
@@ -3693,6 +3798,7 @@ final class Core {
   }
 
   static Object _openai_realtime_compatible_build_setup(Object descriptor, Object request) {
+    axirCoverageMark("_openai_realtime_compatible_build_setup");
     Object audio_descriptor = Core.get(descriptor, "audio", null);
     Object output_audio_descriptor = Core.get(audio_descriptor, "output", null);
     Object default_voice = Core.get(output_audio_descriptor, "defaultVoice", "alloy");
@@ -3756,6 +3862,7 @@ final class Core {
   }
 
   static Object _openai_realtime_compatible_build_input(Object descriptor, Object request) {
+    axirCoverageMark("_openai_realtime_compatible_build_input");
     Object events = new java.util.ArrayList<Object>();
     Object messages = Core._realtime_request_user_messages_impl(request);
     for (Object message : Core.iter(messages)) {
@@ -3781,6 +3888,7 @@ final class Core {
   }
 
   static Object _gemini_live_bidi_build_setup(Object descriptor, Object request) {
+    axirCoverageMark("_gemini_live_bidi_build_setup");
     Object response_format = Core.get(request, "response_format", null);
     Object has_response_format = Core.truthyValue(response_format);
     if (Core.truthy(has_response_format)) {
@@ -3839,6 +3947,7 @@ final class Core {
   }
 
   static Object _gemini_live_bidi_build_input(Object descriptor, Object request) {
+    axirCoverageMark("_gemini_live_bidi_build_input");
     Object events = new java.util.ArrayList<Object>();
     Object messages = Core._realtime_request_user_messages_impl(request);
     for (Object message : Core.iter(messages)) {
@@ -3926,6 +4035,7 @@ final class Core {
   }
 
   static Object _realtime_request_system_instruction_impl(Object request) {
+    axirCoverageMark("_realtime_request_system_instruction_impl");
     Object direct = Core.get(request, "instructions", null);
     Object has_direct = Core.truthyValue(direct);
     if (Core.truthy(has_direct)) {
@@ -3947,6 +4057,7 @@ final class Core {
   }
 
   static Object _realtime_request_user_messages_impl(Object request) {
+    axirCoverageMark("_realtime_request_user_messages_impl");
     Object empty_prompt = new java.util.ArrayList<Object>();
     Object prompt = Core.get(request, "chat_prompt", empty_prompt);
     Object out = new java.util.ArrayList<Object>();
@@ -3976,6 +4087,7 @@ final class Core {
   }
 
   static Object _openai_realtime_content_parts_impl(Object content) {
+    axirCoverageMark("_openai_realtime_content_parts_impl");
     Object parts = new java.util.ArrayList<Object>();
     Object is_list = Core.typeIs(content, "list");
     if (Core.truthy(is_list)) {
@@ -4012,6 +4124,7 @@ final class Core {
   }
 
   static Object provider_build_chat_request(Object profile, Object request) {
+    axirCoverageMark("provider_build_chat_request");
     Object provider_id = Core.provider_normalize_profile(profile);
     Object is_responses = Core.eq(provider_id, "openai-responses");
     Object is_gemini = Core.eq(provider_id, "google-gemini");
@@ -4043,6 +4156,7 @@ final class Core {
   }
 
   static Object _provider_apply_openai_compatible_profile_quirks(Object profile, Object payload, Object request) {
+    axirCoverageMark("_provider_apply_openai_compatible_profile_quirks");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object model_config = Core.get(request, "model_config", empty_map);
     Object is_deepseek = Core.eq(profile, "deepseek");
@@ -4061,6 +4175,7 @@ final class Core {
   }
 
   static Object _provider_apply_deepseek_chat_quirks(Object payload, Object model_config) {
+    axirCoverageMark("_provider_apply_deepseek_chat_quirks");
     Object model = Core.get(payload, "model", "");
     Object is_flash = Core.eq(model, "deepseek-v4-flash");
     Object is_pro = Core.eq(model, "deepseek-v4-pro");
@@ -4120,6 +4235,7 @@ final class Core {
   }
 
   static Object _provider_apply_mistral_chat_quirks(Object payload) {
+    axirCoverageMark("_provider_apply_mistral_chat_quirks");
     Object max_completion = Core.get(payload, "max_completion_tokens", null);
     Object has_max_completion = Core.isNotNone(max_completion);
     if (Core.truthy(has_max_completion)) {
@@ -4150,6 +4266,7 @@ final class Core {
   }
 
   static Object _provider_apply_grok_chat_quirks(Object payload, Object request, Object model_config) {
+    axirCoverageMark("_provider_apply_grok_chat_quirks");
     Object model = Core.get(payload, "model", "");
     Object is_grok43 = Core.eq(model, "grok-4.3");
     Object is_grok43_latest = Core.eq(model, "grok-4.3-latest");
@@ -4284,6 +4401,7 @@ final class Core {
   }
 
   static Object provider_build_embed_request(Object profile, Object request) {
+    axirCoverageMark("provider_build_embed_request");
     Object provider_id = Core.provider_normalize_profile(profile);
     Object is_gemini = Core.eq(provider_id, "google-gemini");
     Object is_anthropic = Core.eq(provider_id, "anthropic");
@@ -4306,6 +4424,7 @@ final class Core {
   }
 
   static Object provider_normalize_chat_response(Object profile, Object raw, Object ai_name, Object model) {
+    axirCoverageMark("provider_normalize_chat_response");
     Object provider_id = Core.provider_normalize_profile(profile);
     Object is_responses = Core.eq(provider_id, "openai-responses");
     Object is_gemini = Core.eq(provider_id, "google-gemini");
@@ -4335,6 +4454,7 @@ final class Core {
   }
 
   static Object provider_normalize_stream_delta(Object profile, Object raw, Object state, Object ai_name, Object model) {
+    axirCoverageMark("provider_normalize_stream_delta");
     Object provider_id = Core.provider_normalize_profile(profile);
     Object is_responses = Core.eq(provider_id, "openai-responses");
     Object is_gemini = Core.eq(provider_id, "google-gemini");
@@ -4364,6 +4484,7 @@ final class Core {
   }
 
   static Object provider_normalize_embed_response(Object profile, Object raw, Object ai_name, Object model) {
+    axirCoverageMark("provider_normalize_embed_response");
     Object provider_id = Core.provider_normalize_profile(profile);
     Object is_gemini = Core.eq(provider_id, "google-gemini");
     Object response = new java.util.LinkedHashMap<String, Object>();
@@ -4379,6 +4500,7 @@ final class Core {
   }
 
   static Object provider_build_transcribe_request(Object profile, Object request) {
+    axirCoverageMark("provider_build_transcribe_request");
     Object provider_id = Core.provider_normalize_profile(profile);
     Object is_responses = Core.eq(provider_id, "openai-responses");
     Object is_gemini = Core.eq(provider_id, "google-gemini");
@@ -4402,6 +4524,7 @@ final class Core {
   }
 
   static Object provider_build_speak_request(Object profile, Object request) {
+    axirCoverageMark("provider_build_speak_request");
     Object provider_id = Core.provider_normalize_profile(profile);
     Object is_responses = Core.eq(provider_id, "openai-responses");
     Object is_gemini = Core.eq(provider_id, "google-gemini");
@@ -4425,6 +4548,7 @@ final class Core {
   }
 
   static Object provider_normalize_transcribe_response(Object profile, Object raw) {
+    axirCoverageMark("provider_normalize_transcribe_response");
     Object provider_id = Core.provider_normalize_profile(profile);
     Object is_gemini = Core.eq(provider_id, "google-gemini");
     if (Core.truthy(is_gemini)) {
@@ -4448,6 +4572,7 @@ final class Core {
   }
 
   static Object provider_normalize_speak_response(Object profile, Object raw, Object request) {
+    axirCoverageMark("provider_normalize_speak_response");
     Object provider_id = Core.provider_normalize_profile(profile);
     Object is_gemini = Core.eq(provider_id, "google-gemini");
     if (Core.truthy(is_gemini)) {
@@ -4463,6 +4588,7 @@ final class Core {
   }
 
   static Object provider_normalize_realtime_event(Object profile, Object event, Object state, Object ai_name, Object model) {
+    axirCoverageMark("provider_normalize_realtime_event");
     Object provider_id = Core.provider_normalize_profile(profile);
     Object descriptor = Core._provider_realtime_audio_descriptor(provider_id);
     Object grammar = Core.get(descriptor, "grammar", "openai_realtime_compatible");
@@ -4476,6 +4602,7 @@ final class Core {
   }
 
   static Object openai_responses_build_chat_request(Object request) {
+    axirCoverageMark("openai_responses_build_chat_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Object model = Core.get(request, "model", "gpt-4o");
     Core.set(payload, "model", model);
@@ -4555,6 +4682,7 @@ final class Core {
   }
 
   static Object _openai_responses_apply_model_config_impl(Object payload, Object model_config) {
+    axirCoverageMark("_openai_responses_apply_model_config_impl");
     Core._openai_copy_config_key_impl(payload, model_config, "maxTokens", "max_output_tokens");
     Core._openai_copy_config_key_impl(payload, model_config, "max_tokens", "max_output_tokens");
     Core._openai_copy_config_key_impl(payload, model_config, "temperature", "temperature");
@@ -4568,6 +4696,7 @@ final class Core {
   }
 
   static Object _openai_responses_tool_spec_impl(Object fn) {
+    axirCoverageMark("_openai_responses_tool_spec_impl");
     Object tool = new java.util.LinkedHashMap<String, Object>();
     Object name = Core.get(fn, "name", null);
     Object description = Core.get(fn, "description", "");
@@ -4581,6 +4710,7 @@ final class Core {
   }
 
   static Object _openai_responses_input_item_impl(Object message) {
+    axirCoverageMark("_openai_responses_input_item_impl");
     Object role = Core.get(message, "role", null);
     Object is_function = Core.eq(role, "function");
     if (Core.truthy(is_function)) {
@@ -4603,6 +4733,7 @@ final class Core {
   }
 
   static Object _openai_responses_content_parts_impl(Object content, Object role) {
+    axirCoverageMark("_openai_responses_content_parts_impl");
     Object is_list = Core.typeIs(content, "list");
     Object parts = new java.util.ArrayList<Object>();
     if (Core.truthy(is_list)) {
@@ -4626,6 +4757,7 @@ final class Core {
   }
 
   static Object _openai_responses_content_part_impl(Object part, Object role) {
+    axirCoverageMark("_openai_responses_content_part_impl");
     Object type = Core.get(part, "type", "text");
     Object is_assistant = Core.eq(role, "assistant");
     Object is_text = Core.eq(type, "text");
@@ -4675,6 +4807,7 @@ final class Core {
   }
 
   static Object openai_responses_normalize_chat_response(Object raw, Object ai_name, Object model) {
+    axirCoverageMark("openai_responses_normalize_chat_response");
     Object empty_output = new java.util.ArrayList<Object>();
     Object output = Core.get(raw, "output", empty_output);
     Object result = new java.util.LinkedHashMap<String, Object>();
@@ -4701,6 +4834,7 @@ final class Core {
   }
 
   static Object _openai_responses_merge_output_item_impl(Object result, Object item) {
+    axirCoverageMark("_openai_responses_merge_output_item_impl");
     Object type = Core.get(item, "type", null);
     Object is_message = Core.eq(type, "message");
     if (Core.truthy(is_message)) {
@@ -4728,6 +4862,7 @@ final class Core {
   }
 
   static Object _openai_responses_content_to_text_impl(Object content) {
+    axirCoverageMark("_openai_responses_content_to_text_impl");
     Object parts = new java.util.ArrayList<Object>();
     for (Object part : Core.iter(content)) {
       Object type = Core.get(part, "type", null);
@@ -4747,6 +4882,7 @@ final class Core {
   }
 
   static Object _openai_responses_extract_citations_impl(Object content) {
+    axirCoverageMark("_openai_responses_extract_citations_impl");
     Object out = new java.util.ArrayList<Object>();
     for (Object part : Core.iter(content)) {
       Object empty_annotations = new java.util.ArrayList<Object>();
@@ -4770,6 +4906,7 @@ final class Core {
   }
 
   static Object _openai_responses_function_call_impl(Object item) {
+    axirCoverageMark("_openai_responses_function_call_impl");
     Object empty_args = new java.util.LinkedHashMap<String, Object>();
     Object args = Core.get(item, "arguments", empty_args);
     Object args_is_string = Core.typeIs(args, "string");
@@ -4795,6 +4932,7 @@ final class Core {
   }
 
   static Object openai_responses_normalize_stream_delta(Object event, Object state, Object ai_name, Object model) {
+    axirCoverageMark("openai_responses_normalize_stream_delta");
     Object type = Core.get(event, "type", null);
     Object empty_response = new java.util.LinkedHashMap<String, Object>();
     Object event_response = Core.get(event, "response", empty_response);
@@ -4862,6 +5000,7 @@ final class Core {
   }
 
   static Object openai_responses_build_transcribe_request(Object request) {
+    axirCoverageMark("openai_responses_build_transcribe_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Object request_file = Core.get(request, "file", null);
     Object audio_file = Core.get(request, "audio", request_file);
@@ -4879,6 +5018,7 @@ final class Core {
   }
 
   static Object openai_responses_build_speak_request(Object request) {
+    axirCoverageMark("openai_responses_build_speak_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Object speak_model = Core.get(request, "model", "tts-1");
     Object request_input = Core.get(request, "input", "");
@@ -4893,6 +5033,7 @@ final class Core {
   }
 
   static Object _grok_build_transcribe_request(Object request) {
+    axirCoverageMark("_grok_build_transcribe_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Object request_file = Core.get(request, "file", null);
     Object audio_file = Core.get(request, "audio", request_file);
@@ -4912,6 +5053,7 @@ final class Core {
   }
 
   static Object _grok_build_speak_request(Object request) {
+    axirCoverageMark("_grok_build_speak_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Object request_input = Core.get(request, "input", "");
     Object text = Core.get(request, "text", request_input);
@@ -4948,6 +5090,7 @@ final class Core {
   }
 
   static Object _gemini_build_transcribe_request(Object request) {
+    axirCoverageMark("_gemini_build_transcribe_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Object contents = new java.util.ArrayList<Object>();
     Object turn = new java.util.LinkedHashMap<String, Object>();
@@ -4982,6 +5125,7 @@ final class Core {
   }
 
   static Object _gemini_build_speak_request(Object request) {
+    axirCoverageMark("_gemini_build_speak_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Object contents = new java.util.ArrayList<Object>();
     Object turn = new java.util.LinkedHashMap<String, Object>();
@@ -5013,6 +5157,7 @@ final class Core {
   }
 
   static Object _gemini_normalize_transcribe_response(Object raw) {
+    axirCoverageMark("_gemini_normalize_transcribe_response");
     Object empty_candidates = new java.util.ArrayList<Object>();
     Object candidates = Core.get(raw, "candidates", empty_candidates);
     Object text_parts = new java.util.ArrayList<Object>();
@@ -5035,6 +5180,7 @@ final class Core {
   }
 
   static Object _gemini_normalize_speak_response(Object raw, Object request) {
+    axirCoverageMark("_gemini_normalize_speak_response");
     Object audio = Core.get(raw, "audio", null);
     Object format = Core.get(request, "format", "wav");
     Object empty_candidates = new java.util.ArrayList<Object>();
@@ -5066,6 +5212,7 @@ final class Core {
   }
 
   static Object openai_responses_normalize_realtime_event(Object event, Object state, Object ai_name, Object model) {
+    axirCoverageMark("openai_responses_normalize_realtime_event");
     Object type = Core.get(event, "type", null);
     Object is_error_event = Core.contains(type, "error");
     if (Core.truthy(is_error_event)) {
@@ -5141,6 +5288,7 @@ final class Core {
   }
 
   static Object _gemini_live_bidi_normalize_realtime_event(Object event, Object state, Object ai_name, Object model) {
+    axirCoverageMark("_gemini_live_bidi_normalize_realtime_event");
     Object error_payload = Core.get(event, "error", null);
     Object has_error = Core.isNotNone(error_payload);
     if (Core.truthy(has_error)) {
@@ -5229,6 +5377,7 @@ final class Core {
   }
 
   static Object _gemini_build_chat_request(Object request) {
+    axirCoverageMark("_gemini_build_chat_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Object empty_prompt = new java.util.ArrayList<Object>();
     Object prompt = Core.get(request, "chat_prompt", empty_prompt);
@@ -5318,6 +5467,7 @@ final class Core {
   }
 
   static Object _gemini_apply_model_config_impl(Object payload, Object model_config) {
+    axirCoverageMark("_gemini_apply_model_config_impl");
     Core._openai_copy_config_key_impl(payload, model_config, "maxTokens", "maxOutputTokens");
     Core._openai_copy_config_key_impl(payload, model_config, "max_tokens", "maxOutputTokens");
     Core._openai_copy_config_key_impl(payload, model_config, "temperature", "temperature");
@@ -5334,6 +5484,7 @@ final class Core {
   }
 
   static Object _gemini_message_impl(Object message) {
+    axirCoverageMark("_gemini_message_impl");
     Object role = Core.get(message, "role", null);
     Object is_user = Core.eq(role, "user");
     if (Core.truthy(is_user)) {
@@ -5408,6 +5559,7 @@ final class Core {
   }
 
   static Object _gemini_content_parts_impl(Object content) {
+    axirCoverageMark("_gemini_content_parts_impl");
     Object parts = new java.util.ArrayList<Object>();
     Object is_list = Core.typeIs(content, "list");
     if (Core.truthy(is_list)) {
@@ -5425,6 +5577,7 @@ final class Core {
   }
 
   static Object _gemini_content_part_impl(Object part) {
+    axirCoverageMark("_gemini_content_part_impl");
     Object type = Core.get(part, "type", "text");
     Object is_text = Core.eq(type, "text");
     if (Core.truthy(is_text)) {
@@ -5488,6 +5641,7 @@ final class Core {
   }
 
   static Object _gemini_function_declaration_impl(Object fn) {
+    axirCoverageMark("_gemini_function_declaration_impl");
     Object decl = new java.util.LinkedHashMap<String, Object>();
     Object name = Core.get(fn, "name", null);
     Object description = Core.get(fn, "description", "");
@@ -5500,6 +5654,7 @@ final class Core {
   }
 
   static Object _gemini_tool_config_impl(Object request) {
+    axirCoverageMark("_gemini_tool_config_impl");
     Object function_call = Core.get(request, "function_call", "auto");
     Object config = new java.util.LinkedHashMap<String, Object>();
     Object function_calling = new java.util.LinkedHashMap<String, Object>();
@@ -5535,6 +5690,7 @@ final class Core {
   }
 
   static Object _gemini_build_embed_request(Object request) {
+    axirCoverageMark("_gemini_build_embed_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Object empty_texts = new java.util.ArrayList<Object>();
     Object texts = Core.get(request, "texts", empty_texts);
@@ -5558,6 +5714,7 @@ final class Core {
   }
 
   static Object _gemini_normalize_chat_response(Object raw, Object ai_name, Object model) {
+    axirCoverageMark("_gemini_normalize_chat_response");
     Object empty_candidates = new java.util.ArrayList<Object>();
     Object candidates = Core.get(raw, "candidates", empty_candidates);
     Object results = new java.util.ArrayList<Object>();
@@ -5643,6 +5800,7 @@ final class Core {
   }
 
   static Object _gemini_merge_response_part_impl(Object result, Object text_parts, Object function_calls, Object part) {
+    axirCoverageMark("_gemini_merge_response_part_impl");
     Object text = Core.get(part, "text", null);
     Object has_text = Core.isNotNone(text);
     if (Core.truthy(has_text)) {
@@ -5673,6 +5831,7 @@ final class Core {
   }
 
   static Object _gemini_extract_citations_impl(Object candidate) {
+    axirCoverageMark("_gemini_extract_citations_impl");
     Object out = new java.util.ArrayList<Object>();
     Object citation_meta = Core.get(candidate, "citationMetadata", null);
     Object empty_citations = new java.util.ArrayList<Object>();
@@ -5742,6 +5901,7 @@ final class Core {
   }
 
   static Object _gemini_usage_impl(Object usage) {
+    axirCoverageMark("_gemini_usage_impl");
     Object has_usage = Core.truthyValue(usage);
     if (Core.truthy(has_usage)) {
       // empty
@@ -5773,6 +5933,7 @@ final class Core {
   }
 
   static Object _gemini_normalize_embed_response(Object raw, Object ai_name, Object model) {
+    axirCoverageMark("_gemini_normalize_embed_response");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object embeddings = new java.util.ArrayList<Object>();
     Object empty_raw_embeddings = new java.util.ArrayList<Object>();
@@ -5793,6 +5954,7 @@ final class Core {
   }
 
   static Object _anthropic_build_chat_request(Object request) {
+    axirCoverageMark("_anthropic_build_chat_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Object model = Core.get(request, "model", "claude-3-7-sonnet-latest");
     Core.set(payload, "model", model);
@@ -5877,6 +6039,7 @@ final class Core {
   }
 
   static Object _anthropic_apply_model_config_impl(Object payload, Object model_config, Object model) {
+    axirCoverageMark("_anthropic_apply_model_config_impl");
     Core._openai_copy_config_key_impl(payload, model_config, "maxTokens", "max_tokens");
     Core._openai_copy_config_key_impl(payload, model_config, "max_tokens", "max_tokens");
     Core._openai_copy_config_key_impl(payload, model_config, "stopSequences", "stop_sequences");
@@ -5928,6 +6091,7 @@ final class Core {
   }
 
   static Object _anthropic_thinking_config_impl(Object model, Object level) {
+    axirCoverageMark("_anthropic_thinking_config_impl");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object is_none = Core.eq(level, "none");
     if (Core.truthy(is_none)) {
@@ -5990,6 +6154,7 @@ final class Core {
   }
 
   static Object _anthropic_message_impl(Object message) {
+    axirCoverageMark("_anthropic_message_impl");
     Object role = Core.get(message, "role", "user");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object is_system = Core.eq(role, "system");
@@ -6108,6 +6273,7 @@ final class Core {
   }
 
   static Object _anthropic_content_parts_impl(Object content) {
+    axirCoverageMark("_anthropic_content_parts_impl");
     Object parts = new java.util.ArrayList<Object>();
     Object is_list = Core.typeIs(content, "list");
     if (Core.truthy(is_list)) {
@@ -6126,6 +6292,7 @@ final class Core {
   }
 
   static Object _anthropic_content_part_impl(Object part) {
+    axirCoverageMark("_anthropic_content_part_impl");
     Object type = Core.get(part, "type", "text");
     Object is_text = Core.eq(type, "text");
     if (Core.truthy(is_text)) {
@@ -6165,6 +6332,7 @@ final class Core {
   }
 
   static Object _anthropic_tool_spec_impl(Object fn) {
+    axirCoverageMark("_anthropic_tool_spec_impl");
     Object tool = new java.util.LinkedHashMap<String, Object>();
     Object name = Core.get(fn, "name", null);
     Object description = Core.get(fn, "description", "");
@@ -6182,6 +6350,7 @@ final class Core {
   }
 
   static Object _anthropic_tool_choice_impl(Object request) {
+    axirCoverageMark("_anthropic_tool_choice_impl");
     Object function_call = Core.get(request, "function_call", "auto");
     Object choice = new java.util.LinkedHashMap<String, Object>();
     Object is_none = Core.eq(function_call, "none");
@@ -6212,6 +6381,7 @@ final class Core {
   }
 
   static Object _anthropic_normalize_chat_response(Object raw, Object ai_name, Object model) {
+    axirCoverageMark("_anthropic_normalize_chat_response");
     Object type = Core.get(raw, "type", "");
     Object is_error = Core.eq(type, "error");
     if (Core.truthy(is_error)) {
@@ -6278,6 +6448,7 @@ final class Core {
   }
 
   static Object _anthropic_merge_response_block_impl(Object text_parts, Object function_calls, Object thought_parts, Object thought_blocks, Object citations, Object block) {
+    axirCoverageMark("_anthropic_merge_response_block_impl");
     Object type = Core.get(block, "type", "");
     Object is_text = Core.eq(type, "text");
     if (Core.truthy(is_text)) {
@@ -6332,6 +6503,7 @@ final class Core {
   }
 
   static Object _anthropic_append_citations_impl(Object out, Object block) {
+    axirCoverageMark("_anthropic_append_citations_impl");
     Object empty = new java.util.ArrayList<Object>();
     Object citations = Core.get(block, "citations", empty);
     for (Object citation : Core.iter(citations)) {
@@ -6357,6 +6529,7 @@ final class Core {
   }
 
   static Object _anthropic_finish_reason_impl(Object reason) {
+    axirCoverageMark("_anthropic_finish_reason_impl");
     Object missing = Core.isNone(reason);
     if (Core.truthy(missing)) {
       Object none = Core.none();
@@ -6380,6 +6553,7 @@ final class Core {
   }
 
   static Object _anthropic_usage_impl(Object usage) {
+    axirCoverageMark("_anthropic_usage_impl");
     Object has_usage = Core.truthyValue(usage);
     if (Core.truthy(has_usage)) {
       // empty
@@ -6416,6 +6590,7 @@ final class Core {
   }
 
   static Object _anthropic_normalize_stream_delta(Object event, Object state, Object ai_name, Object model) {
+    axirCoverageMark("_anthropic_normalize_stream_delta");
     Object type = Core.get(event, "type", "");
     Object is_error = Core.eq(type, "error");
     if (Core.truthy(is_error)) {
@@ -6637,6 +6812,7 @@ final class Core {
   }
 
   static Object _build_gen_chat_request(Object gen, Object messages, Object options) {
+    axirCoverageMark("_build_gen_chat_request");
     Object model_config = new java.util.LinkedHashMap<String, Object>();
     Object stream_value = Core.get(options, "stream", Boolean.FALSE);
     Object stream_bool = Core.truthyValue(stream_value);
@@ -6699,6 +6875,7 @@ final class Core {
   }
 
   static Object fold_stream(Object events) {
+    axirCoverageMark("fold_stream");
     Object chunks = new java.util.ArrayList<Object>();
     for (Object event : Core.iter(events)) {
       Object parts = Core._stream_event_content_parts_impl(event);
@@ -6711,6 +6888,7 @@ final class Core {
   }
 
   static Object _execute_tool_call(Object functions, Object call) {
+    axirCoverageMark("_execute_tool_call");
     Object fn_call = Core.get(call, "function", null);
     Object direct_name = Core.get(call, "name", null);
     Object name = Core.get(fn_call, "name", direct_name);
@@ -6745,11 +6923,13 @@ final class Core {
   }
 
   static Object _stream_event_content_parts_impl(Object event) {
+    axirCoverageMark("_stream_event_content_parts_impl");
     Object parts = Core.streamEventContentParts(event);
     return parts;
   }
 
   static Object _validate_optimization_component_value(Object component, Object value) {
+    axirCoverageMark("_validate_optimization_component_value");
     Object current = Core.get(component, "current", null);
     Object current_is_string = Core.typeIs(current, "string");
     if (Core.truthy(current_is_string)) {
@@ -6820,6 +7000,7 @@ final class Core {
   }
 
   static Object _forward_impl(Object gen, Object client, Object values, Object options) {
+    axirCoverageMark("_forward_impl");
     Object base_options = Core.get(gen, "options", null);
     Object runtime_options = Core.mapMerge(base_options, options);
     Object signature = Core.get(gen, "signature", null);
@@ -6918,6 +7099,7 @@ final class Core {
   }
 
   static Object _validate_optimization_component_map(Object components, Object component_map) {
+    axirCoverageMark("_validate_optimization_component_map");
     Object known = new java.util.ArrayList<Object>();
     Object component_by_id = new java.util.LinkedHashMap<String, Object>();
     for (Object component : Core.iter(components)) {
@@ -6942,6 +7124,7 @@ final class Core {
   }
 
   static Object _validate_optimized_artifact_provenance(Object artifact, Object components) {
+    axirCoverageMark("_validate_optimized_artifact_provenance");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object provenance = Core.get(artifact, "provenance", empty_map);
     Object owners = Core.get(provenance, "componentOwners", empty_map);
@@ -6970,11 +7153,13 @@ final class Core {
   }
 
   static Object _set_examples(Object gen, Object examples) {
+    axirCoverageMark("_set_examples");
     Core.set(gen, "examples", examples);
     return gen;
   }
 
   static Object _validate_optimized_artifact(Object artifact, Object components) {
+    axirCoverageMark("_validate_optimized_artifact");
     Object is_object = Core.typeIs(artifact, "object");
     Object not_object = Core.not(is_object);
     if (Core.truthy(not_object)) {
@@ -7041,57 +7226,68 @@ final class Core {
   }
 
   static Object _set_demos(Object gen, Object demos) {
+    axirCoverageMark("_set_demos");
     Core.set(gen, "demos", demos);
     return gen;
   }
 
   static Object _render_examples(Object gen) {
+    axirCoverageMark("_render_examples");
     Object messages = Core.axgenRenderExamples(gen);
     return messages;
   }
 
   static Object _render_demos(Object gen) {
+    axirCoverageMark("_render_demos");
     Object messages = Core.axgenRenderDemos(gen);
     return messages;
   }
 
   static Object _apply_field_processors(Object gen, Object output) {
+    axirCoverageMark("_apply_field_processors");
     Object processed = Core.axgenApplyFieldProcessors(gen, output);
     return processed;
   }
 
   static Object _run_assertions(Object gen, Object output) {
+    axirCoverageMark("_run_assertions");
     Core.axgenRunAssertions(gen, output);
     return null;
   }
 
   static Object _append_assertion_retry_messages(Object messages, Object response, Object error) {
+    axirCoverageMark("_append_assertion_retry_messages");
     Core._append_validation_retry_messages_impl(messages, response, error);
     return null;
   }
 
   static Object _serialize_optimized_artifact(Object artifact) {
+    axirCoverageMark("_serialize_optimized_artifact");
     Object text = Core.jsonStringify(artifact);
     return text;
   }
 
   static Object _record_trace(Object gen, Object input, Object output, Object status) {
+    axirCoverageMark("_record_trace");
     Core.axgenRecordTrace(gen, input, output, status);
     return null;
   }
 
   static Object _deserialize_optimized_artifact(Object text, Object components) {
+    axirCoverageMark("_deserialize_optimized_artifact");
     Object artifact = Core.jsonParse(text);
     Object validated = Core._validate_optimized_artifact(artifact, components);
     return validated;
   }
 
   static Object _should_continue_steps(Object gen, Object calls) {
+    axirCoverageMark("_should_continue_steps");
     Object should_continue = Core.axgenShouldContinueSteps(gen, calls);
     return should_continue;
   }
 
   static Object _optimization_changed_components(Object components, Object component_map) {
+    axirCoverageMark("_optimization_changed_components");
     Object changes = new java.util.ArrayList<Object>();
     for (Object component : Core.iter(components)) {
       Object id = Core.get(component, "id", "");
@@ -7111,6 +7307,7 @@ final class Core {
   }
 
   static Object _complete_with_retries_impl(Object client, Object request, Object retries) {
+    axirCoverageMark("_complete_with_retries_impl");
     Object attempt = 0;
     Object last_error = Core.none();
     while (Core.truthy(Boolean.TRUE)) {
@@ -7133,6 +7330,7 @@ final class Core {
   }
 
   static Object _optimization_component_current_map(Object components) {
+    axirCoverageMark("_optimization_component_current_map");
     Object out = new java.util.LinkedHashMap<String, Object>();
     for (Object component : Core.iter(components)) {
       Object id = Core.get(component, "id", "");
@@ -7143,12 +7341,14 @@ final class Core {
   }
 
   static Object _parse_output_impl(Object content) {
+    axirCoverageMark("_parse_output_impl");
     Object text = Core.stringTrim(content);
     Object output = Core.jsonParse(text);
     return output;
   }
 
   static Object _normalize_optimization_dataset(Object dataset) {
+    axirCoverageMark("_normalize_optimization_dataset");
     Object empty_list = new java.util.ArrayList<Object>();
     Object is_object = Core.typeIs(dataset, "object");
     if (Core.truthy(is_object)) {
@@ -7166,6 +7366,7 @@ final class Core {
   }
 
   static Object _tool_spec_impl(Object fn) {
+    axirCoverageMark("_tool_spec_impl");
     Object spec = new java.util.LinkedHashMap<String, Object>();
     Object name = Core.get(fn, "name", null);
     Object description = Core.get(fn, "description", null);
@@ -7177,6 +7378,7 @@ final class Core {
   }
 
   static Object _normalize_optimization_metric_scores(Object raw) {
+    axirCoverageMark("_normalize_optimization_metric_scores");
     Object is_number = Core.typeIs(raw, "number");
     if (Core.truthy(is_number)) {
       Object out_number = new java.util.LinkedHashMap<String, Object>();
@@ -7193,6 +7395,7 @@ final class Core {
   }
 
   static Object _function_call_mode_impl(Object mode) {
+    axirCoverageMark("_function_call_mode_impl");
     Object missing = Core.isNone(mode);
     if (Core.truthy(missing)) {
       return "auto";
@@ -7211,6 +7414,7 @@ final class Core {
   }
 
   static Object _scalarize_optimization_scores(Object scores, Object options) {
+    axirCoverageMark("_scalarize_optimization_scores");
     Object metric_key = Core.get(options, "paretoMetricKey", "");
     Object has_metric = Core.ne(metric_key, "");
     if (Core.truthy(has_metric)) {
@@ -7235,12 +7439,14 @@ final class Core {
   }
 
   static Object _response_function_calls_impl(Object response) {
+    axirCoverageMark("_response_function_calls_impl");
     Object empty = new java.util.ArrayList<Object>();
     Object calls = Core.get(response, "function_calls", empty);
     return calls;
   }
 
   static Object _append_tool_call_messages_impl(Object messages, Object response, Object calls) {
+    axirCoverageMark("_append_tool_call_messages_impl");
     Object chat_calls = new java.util.ArrayList<Object>();
     for (Object call : Core.iter(calls)) {
       Object chat_call = Core._completion_call_to_chat_impl(call);
@@ -7256,6 +7462,7 @@ final class Core {
   }
 
   static Object _optimization_action_name_matches(Object expected, Object call) {
+    axirCoverageMark("_optimization_action_name_matches");
     Object qualified = Core.get(call, "qualifiedName", "");
     Object name = Core.get(call, "name", "");
     Object qualified_match = Core.eq(qualified, expected);
@@ -7268,6 +7475,7 @@ final class Core {
   }
 
   static Object _completion_call_to_chat_impl(Object call) {
+    axirCoverageMark("_completion_call_to_chat_impl");
     Object id = Core.get(call, "id", null);
     Object name = Core.get(call, "name", null);
     Object params = Core.get(call, "params", null);
@@ -7282,6 +7490,7 @@ final class Core {
   }
 
   static Object _adjust_optimization_score_for_actions(Object score, Object task, Object prediction) {
+    axirCoverageMark("_adjust_optimization_score_for_actions");
     Object empty_list = new java.util.ArrayList<Object>();
     Object function_calls = Core.get(prediction, "functionCalls", empty_list);
     Object expected_actions = Core.get(task, "expectedActions", empty_list);
@@ -7327,6 +7536,7 @@ final class Core {
   }
 
   static Object _tool_result_message_impl(Object call, Object result) {
+    axirCoverageMark("_tool_result_message_impl");
     Object id = Core.get(call, "id", null);
     Object result_json = Core.jsonStringify(result);
     Object message = new java.util.LinkedHashMap<String, Object>();
@@ -7337,6 +7547,7 @@ final class Core {
   }
 
   static Object _tool_error_message_impl(Object call, Object error) {
+    axirCoverageMark("_tool_error_message_impl");
     Object id = Core.get(call, "id", null);
     Object error_text = Core.exceptionMessage(error);
     Object payload = new java.util.LinkedHashMap<String, Object>();
@@ -7351,6 +7562,7 @@ final class Core {
   }
 
   static Object _append_validation_retry_messages_impl(Object messages, Object response, Object error) {
+    axirCoverageMark("_append_validation_retry_messages_impl");
     Object content = Core.get(response, "content", "");
     Object assistant_message = new java.util.LinkedHashMap<String, Object>();
     Core.set(assistant_message, "role", "assistant");
@@ -7367,6 +7579,7 @@ final class Core {
   }
 
   static Object _build_optimization_eval_row(Object task, Object prediction, Object scores, Object scalar, Object trace, Object error) {
+    axirCoverageMark("_build_optimization_eval_row");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "input", task);
     Core.set(out, "prediction", prediction);
@@ -7381,6 +7594,7 @@ final class Core {
   }
 
   static Object _build_optimization_eval_result(Object rows, Object candidate_map, Object phase) {
+    axirCoverageMark("_build_optimization_eval_result");
     Object sum = 0;
     Object count = 0;
     for (Object row : Core.iter(rows)) {
@@ -7407,6 +7621,7 @@ final class Core {
   }
 
   static Object _filter_optimization_components(Object components, Object target) {
+    axirCoverageMark("_filter_optimization_components");
     Object out = new java.util.ArrayList<Object>();
     Object is_list = Core.typeIs(target, "list");
     Object is_all = Core.eq(target, "all");
@@ -7467,6 +7682,7 @@ final class Core {
   }
 
   static Object _build_optimizer_request(Object program_kind, Object components, Object dataset, Object options, Object trace) {
+    axirCoverageMark("_build_optimizer_request");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "contractVersion", "axir-optimize-contract-v1");
     Core.set(out, "programKind", program_kind);
@@ -7486,6 +7702,7 @@ final class Core {
   }
 
   static Object _prepare_optimizer_run(Object program_kind, Object components, Object dataset, Object options, Object trace, Object evaluator_available) {
+    axirCoverageMark("_prepare_optimizer_run");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object opts_missing = Core.isNone(options);
     Object opts = options;
@@ -7514,6 +7731,7 @@ final class Core {
   }
 
   static Object _normalize_optimizer_engine_response(Object response, Object engine_name, Object engine_version, Object components) {
+    axirCoverageMark("_normalize_optimizer_engine_response");
     Object response_is_object = Core.typeIs(response, "object");
     Object bad_response = Core.not(response_is_object);
     if (Core.truthy(bad_response)) {
@@ -7584,6 +7802,7 @@ final class Core {
   }
 
   static Object _build_optimizer_evidence_batch(Object eval_result, Object components) {
+    axirCoverageMark("_build_optimizer_evidence_batch");
     Object empty_list = new java.util.ArrayList<Object>();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object rows = Core.get(eval_result, "rows", empty_list);
@@ -7652,6 +7871,7 @@ final class Core {
   }
 
   static Object _agent_factory(Object signature, Object options) {
+    axirCoverageMark("_agent_factory");
     Object empty_list = new java.util.ArrayList<Object>();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object sig = signature;
@@ -7773,6 +7993,7 @@ final class Core {
   }
 
   static Object _optimization_component(Object id, Object owner, Object kind, Object current, Object description, Object constraints, Object depends_on, Object preserve, Object format, Object validation) {
+    axirCoverageMark("_optimization_component");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "id", id);
     Core.set(out, "owner", owner);
@@ -7788,6 +8009,7 @@ final class Core {
   }
 
   static Object _optimized_artifact(Object optimizer_name, Object optimizer_version, Object component_map, Object metadata) {
+    axirCoverageMark("_optimized_artifact");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "artifactVersion", "axir-optimized-artifact-v1");
@@ -7808,6 +8030,7 @@ final class Core {
   }
 
   static Object _agent_reserved_runtime_names() {
+    axirCoverageMark("_agent_reserved_runtime_names");
     Object registry = Core._agent_policy_vocabulary_registry();
     Object names = Core.get(registry, "reserved_runtime_names", null);
     Object names_is_list = Core.typeIs(names, "list");
@@ -7821,6 +8044,7 @@ final class Core {
   }
 
   static Object _agent_runtime_language_tokens(Object language) {
+    axirCoverageMark("_agent_runtime_language_tokens");
     Object trimmed = Core.stringTrim(language);
     Object sharp_spaced = Core.regexReplace("#", " Sharp ", trimmed);
     Object plus_spaced = Core.regexReplace("\\+", " Plus ", sharp_spaced);
@@ -7830,12 +8054,14 @@ final class Core {
   }
 
   static Object _agent_runtime_language_alias_key(Object tokens) {
+    axirCoverageMark("_agent_runtime_language_alias_key");
     Object joined = Core.stringJoin("", tokens);
     Object alias_key = Core.stringLower(joined);
     return alias_key;
   }
 
   static Object _agent_runtime_is_javascript_alias(Object alias_key) {
+    axirCoverageMark("_agent_runtime_is_javascript_alias");
     Object is_javascript = Core.eq(alias_key, "javascript");
     Object is_js = Core.eq(alias_key, "js");
     Object is_ecmascript = Core.eq(alias_key, "ecmascript");
@@ -7845,6 +8071,7 @@ final class Core {
   }
 
   static Object _agent_runtime_code_field_name(Object tokens, Object is_javascript) {
+    axirCoverageMark("_agent_runtime_code_field_name");
     Object out = "javascriptCode";
     if (Core.truthy(is_javascript)) {
       out = "javascriptCode";
@@ -7864,6 +8091,7 @@ final class Core {
   }
 
   static Object _agent_runtime_code_fence_language(Object tokens, Object alias_key, Object is_javascript) {
+    axirCoverageMark("_agent_runtime_code_fence_language");
     Object out = "js";
     if (Core.truthy(is_javascript)) {
       out = "js";
@@ -7882,6 +8110,7 @@ final class Core {
   }
 
   static Object _normalize_agent_runtime(Object options) {
+    axirCoverageMark("_normalize_agent_runtime");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object runtime_camel = Core.get(options, "runtimeConfig", empty_map);
     Object runtime = Core.get(options, "runtime", runtime_camel);
@@ -7941,6 +8170,7 @@ final class Core {
   }
 
   static Object _normalize_agent_policy(Object options) {
+    axirCoverageMark("_normalize_agent_policy");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object policy_camel = Core.get(options, "agentPolicy", empty_map);
     Object policy_in = Core.get(options, "agent_policy", policy_camel);
@@ -7960,6 +8190,7 @@ final class Core {
   }
 
   static Object _agent_policy_flags(Object options) {
+    axirCoverageMark("_agent_policy_flags");
     Object function_discovery_camel = Core.get(options, "functionDiscovery", Boolean.FALSE);
     Object function_discovery = Core.get(options, "function_discovery", function_discovery_camel);
     Object skills_camel = Core.get(options, "skillsMode", Boolean.FALSE);
@@ -7992,6 +8223,7 @@ final class Core {
   }
 
   static Object _agent_policy_action(Object id, Object category, Object kind, Object stages, Object availability, Object effect, Object host_boundary, Object actor_visible) {
+    axirCoverageMark("_agent_policy_action");
     Object entry = new java.util.LinkedHashMap<String, Object>();
     Core.set(entry, "id", id);
     Core.set(entry, "public_name", id);
@@ -8007,6 +8239,7 @@ final class Core {
   }
 
   static Object _agent_policy_vocabulary_registry() {
+    axirCoverageMark("_agent_policy_vocabulary_registry");
     Object registry = new java.util.LinkedHashMap<String, Object>();
     Object none_value = Core.none();
     Core.set(registry, "policy_schema_version", "axir-agent-policy-vocabulary-v1");
@@ -8232,6 +8465,7 @@ final class Core {
   }
 
   static Object _map_optimization_judge_quality_to_score(Object quality) {
+    axirCoverageMark("_map_optimization_judge_quality_to_score");
     Object normalized = Core.stringLower(quality);
     Object is_excellent = Core.eq(normalized, "excellent");
     if (Core.truthy(is_excellent)) {
@@ -8257,6 +8491,7 @@ final class Core {
   }
 
   static Object _build_optimization_judge_payload(Object task, Object prediction, Object criteria) {
+    axirCoverageMark("_build_optimization_judge_payload");
     Object empty_list = new java.util.ArrayList<Object>();
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object task_input = Core.get(task, "input", task);
@@ -8295,6 +8530,7 @@ final class Core {
   }
 
   static Object _agent_context_policy_registry() {
+    axirCoverageMark("_agent_context_policy_registry");
     Object registry = Core._agent_policy_vocabulary_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object context = Core.get(registry, "context_policy", empty_map);
@@ -8302,6 +8538,7 @@ final class Core {
   }
 
   static Object _agent_context_policy_migration_error(Object key) {
+    axirCoverageMark("_agent_context_policy_migration_error");
     Object context = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object errors = Core.get(context, "migration_errors", empty_map);
@@ -8311,6 +8548,7 @@ final class Core {
   }
 
   static Object _agent_context_budget_profile(Object budget) {
+    axirCoverageMark("_agent_context_budget_profile");
     Object context = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object budgets = Core.get(context, "budgets", empty_map);
@@ -8328,6 +8566,7 @@ final class Core {
   }
 
   static Object _agent_context_preset_profile(Object preset) {
+    axirCoverageMark("_agent_context_preset_profile");
     Object context = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object presets = Core.get(context, "presets", empty_map);
@@ -8345,6 +8584,7 @@ final class Core {
   }
 
   static Object _agent_context_event_name(Object stable_id) {
+    axirCoverageMark("_agent_context_event_name");
     Object context = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object names = Core.get(context, "event_names", empty_map);
@@ -8353,6 +8593,7 @@ final class Core {
   }
 
   static Object _agent_context_event_reason(Object stable_id) {
+    axirCoverageMark("_agent_context_event_reason");
     Object context = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object names = Core.get(context, "event_reasons", empty_map);
@@ -8361,6 +8602,7 @@ final class Core {
   }
 
   static Object _agent_policy_registry(Object policy, Object flags) {
+    axirCoverageMark("_agent_policy_registry");
     Object vocabulary = Core._agent_policy_vocabulary_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object primitive_names = Core.get(vocabulary, "actor_primitive_names", empty_map);
@@ -8452,6 +8694,7 @@ final class Core {
   }
 
   static Object _policy_flag_enabled(Object flags, Object condition) {
+    axirCoverageMark("_policy_flag_enabled");
     Object out = Boolean.FALSE;
     Object always = Core.eq(condition, "always");
     if (Core.truthy(always)) {
@@ -8479,6 +8722,7 @@ final class Core {
   }
 
   static Object _select_actor_primitives(Object registry, Object stage) {
+    axirCoverageMark("_select_actor_primitives");
     Object empty_list = new java.util.ArrayList<Object>();
     Object out = new java.util.ArrayList<Object>();
     Object flags = Core.get(registry, "flags", empty_list);
@@ -8497,12 +8741,14 @@ final class Core {
   }
 
   static Object _select_protocol_actions(Object registry) {
+    axirCoverageMark("_select_protocol_actions");
     Object empty_list = new java.util.ArrayList<Object>();
     Object actions = Core.get(registry, "protocol_actions", empty_list);
     return actions;
   }
 
   static Object _build_agent_eval_prediction(Object output, Object action_log, Object usage, Object trace) {
+    axirCoverageMark("_build_agent_eval_prediction");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "completionType", "final");
     Core.set(out, "output", output);
@@ -8518,12 +8764,14 @@ final class Core {
   }
 
   static Object _select_runtime_globals(Object registry) {
+    axirCoverageMark("_select_runtime_globals");
     Object empty_list = new java.util.ArrayList<Object>();
     Object globals = Core.get(registry, "runtime_globals", empty_list);
     return globals;
   }
 
   static Object _validate_policy_reserved_names(Object registry, Object name) {
+    axirCoverageMark("_validate_policy_reserved_names");
     Object reserved = Core._agent_reserved_runtime_names();
     Object conflicts = Core.contains(reserved, name);
     if (Core.truthy(conflicts)) {
@@ -8536,6 +8784,7 @@ final class Core {
   }
 
   static Object _render_actor_primitive_guidance(Object registry, Object stage) {
+    axirCoverageMark("_render_actor_primitive_guidance");
     Object primitives = Core._select_actor_primitives(registry, stage);
     Object lines = new java.util.ArrayList<Object>();
     for (Object primitive : Core.iter(primitives)) {
@@ -8549,6 +8798,7 @@ final class Core {
   }
 
   static Object _record_policy_event(Object state, Object action, Object payload) {
+    axirCoverageMark("_record_policy_event");
     Object empty_list = new java.util.ArrayList<Object>();
     Object trace = Core.get(state, "policy_trace", empty_list);
     Object event = new java.util.LinkedHashMap<String, Object>();
@@ -8562,6 +8812,7 @@ final class Core {
   }
 
   static Object _normalize_policy_action_result(Object action, Object payload) {
+    axirCoverageMark("_normalize_policy_action_result");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object null_value = Core.none();
     Object vocabulary = Core._agent_policy_vocabulary_registry();
@@ -8582,6 +8833,7 @@ final class Core {
   }
 
   static Object _build_agent_actor_prompt_policy(Object state) {
+    axirCoverageMark("_build_agent_actor_prompt_policy");
     Object runtime_contract = Core.get(state, "runtime_contract", null);
     Object code_field_name = Core.get(runtime_contract, "code_field_name", "javascriptCode");
     Object code_field_title = Core.get(runtime_contract, "code_field_title", "Javascript Code");
@@ -8612,6 +8864,7 @@ final class Core {
   }
 
   static Object _resolve_agent_context_policy(Object options) {
+    axirCoverageMark("_resolve_agent_context_policy");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object context_registry = Core._agent_context_policy_registry();
     Object option_keys = Core.get(context_registry, "option_keys", empty_map);
@@ -8728,6 +8981,7 @@ final class Core {
   }
 
   static Object _resolve_agent_executor_model_policy(Object options) {
+    axirCoverageMark("_resolve_agent_executor_model_policy");
     Object empty_list = new java.util.ArrayList<Object>();
     Object context_registry = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -8843,6 +9097,7 @@ final class Core {
   }
 
   static Object _select_agent_executor_model(Object policy, Object actor_model_state) {
+    axirCoverageMark("_select_agent_executor_model");
     Object none = Core.none();
     Object is_list = Core.typeIs(policy, "list");
     if (Core.truthy(is_list)) {
@@ -8890,6 +9145,7 @@ final class Core {
   }
 
   static Object _agent_compute_effective_chat_budget(Object base_budget, Object fixed_overhead_chars) {
+    axirCoverageMark("_agent_compute_effective_chat_budget");
     Object context_registry = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object budget_math = Core.get(context_registry, "budget_math", empty_map);
@@ -8912,6 +9168,7 @@ final class Core {
   }
 
   static Object _agent_action_log_char_count(Object entries) {
+    axirCoverageMark("_agent_action_log_char_count");
     Object total = 0;
     for (Object entry : Core.iter(entries)) {
       Object code = Core.get(entry, "code", "");
@@ -8925,6 +9182,7 @@ final class Core {
   }
 
   static Object _agent_compute_dynamic_runtime_chars(Object entries, Object target_prompt_chars, Object max_runtime_chars) {
+    axirCoverageMark("_agent_compute_dynamic_runtime_chars");
     Object context_registry = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object runtime_budget = Core.get(context_registry, "runtime_output_budget", empty_map);
@@ -8960,6 +9218,7 @@ final class Core {
   }
 
   static Object _agent_context_pressure(Object mutable_prompt_chars, Object effective_budget_chars, Object checkpoint_active) {
+    axirCoverageMark("_agent_context_pressure");
     Object context_registry = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object pressure_levels = Core.get(context_registry, "pressure_levels", empty_map);
@@ -8991,6 +9250,7 @@ final class Core {
   }
 
   static Object _agent_render_context_pressure(Object pressure) {
+    axirCoverageMark("_agent_render_context_pressure");
     Object context_registry = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object pressure_levels = Core.get(context_registry, "pressure_levels", empty_map);
@@ -9005,6 +9265,7 @@ final class Core {
   }
 
   static Object _agent_smart_stringify(Object value, Object max_chars) {
+    axirCoverageMark("_agent_smart_stringify");
     Object context_registry = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object settings = Core.get(context_registry, "smart_stringify", empty_map);
@@ -9045,6 +9306,7 @@ final class Core {
   }
 
   static Object _agent_record_context_event(Object state, Object event) {
+    axirCoverageMark("_agent_record_context_event");
     Object empty_list = new java.util.ArrayList<Object>();
     Object events = Core.get(state, "context_events", empty_list);
     Core.append(events, event);
@@ -9053,11 +9315,13 @@ final class Core {
   }
 
   static Object _agent_entry_turn(Object entry, Object fallback) {
+    axirCoverageMark("_agent_entry_turn");
     Object turn = Core.get(entry, "turn", fallback);
     return turn;
   }
 
   static Object _agent_entry_is_error(Object entry) {
+    axirCoverageMark("_agent_entry_is_error");
     Object tags = Core.get(entry, "tags", null);
     Object tags_is_list = Core.typeIs(tags, "list");
     if (Core.truthy(tags_is_list)) {
@@ -9072,6 +9336,7 @@ final class Core {
   }
 
   static Object _agent_entry_summary(Object entry, Object fallback_turn) {
+    axirCoverageMark("_agent_entry_summary");
     Object tombstone = Core.get(entry, "tombstone", "");
     Object has_tombstone = Core.ne(tombstone, "");
     if (Core.truthy(has_tombstone)) {
@@ -9095,6 +9360,7 @@ final class Core {
   }
 
   static Object _agent_entry_callables_text(Object entry) {
+    axirCoverageMark("_agent_entry_callables_text");
     Object empty_list = new java.util.ArrayList<Object>();
     Object calls = Core.get(entry, "_functionCalls", empty_list);
     Object names = new java.util.ArrayList<Object>();
@@ -9136,6 +9402,7 @@ final class Core {
   }
 
   static Object _agent_distill_structured_action_output(Object output) {
+    axirCoverageMark("_agent_distill_structured_action_output");
     Object has_failed_line = Core.contains(output, "FAILED ");
     Object has_passed = Core.contains(output, " passed");
     Object has_failed_count = Core.contains(output, " failed");
@@ -9181,6 +9448,7 @@ final class Core {
   }
 
   static Object _agent_render_full_action_entry(Object state, Object entry) {
+    axirCoverageMark("_agent_render_full_action_entry");
     Object tombstone = Core.get(entry, "tombstone", "");
     Object has_tombstone = Core.ne(tombstone, "");
     if (Core.truthy(has_tombstone)) {
@@ -9199,6 +9467,7 @@ final class Core {
   }
 
   static Object _agent_render_compact_action_entry(Object entry, Object turn, Object reason) {
+    axirCoverageMark("_agent_render_compact_action_entry");
     Object kind = Core.get(entry, "kind", "result");
     Object state_delta = Core.get(entry, "stateDelta", "No durable runtime state update");
     Object output = Core.get(entry, "output", "");
@@ -9216,6 +9485,7 @@ final class Core {
   }
 
   static Object _agent_fallback_checkpoint_summary(Object entries, Object turns) {
+    axirCoverageMark("_agent_fallback_checkpoint_summary");
     Object empty_list = new java.util.ArrayList<Object>();
     Object evidence = new java.util.ArrayList<Object>();
     Object failures = new java.util.ArrayList<Object>();
@@ -9282,6 +9552,7 @@ final class Core {
   }
 
   static Object _agent_build_deterministic_tombstone(Object error_entry, Object resolution_entry) {
+    axirCoverageMark("_agent_build_deterministic_tombstone");
     Object output = Core.get(error_entry, "output", "");
     Object signature = Core.stringSlice(output, 0, 96);
     Object empty_signature = Core.eq(signature, "");
@@ -9294,6 +9565,7 @@ final class Core {
   }
 
   static Object _agent_apply_context_management(Object state) {
+    axirCoverageMark("_agent_apply_context_management");
     Object empty_list = new java.util.ArrayList<Object>();
     Object entries = Core.get(state, "action_log", empty_list);
     Object policy = Core.get(state, "context_policy", null);
@@ -9351,6 +9623,7 @@ final class Core {
   }
 
   static Object _agent_working_code_state(Object entries, Object turns) {
+    axirCoverageMark("_agent_working_code_state");
     Object empty_list = new java.util.ArrayList<Object>();
     Object working_turns = new java.util.ArrayList<Object>();
     Object coverable_count = 0;
@@ -9446,6 +9719,7 @@ final class Core {
   }
 
   static Object _agent_refresh_checkpoint_state(Object state) {
+    axirCoverageMark("_agent_refresh_checkpoint_state");
     Object empty_list = new java.util.ArrayList<Object>();
     Object context_registry = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -9551,6 +9825,7 @@ final class Core {
   }
 
   static Object _agent_build_action_log_parts(Object state, Object hygiene_mode) {
+    axirCoverageMark("_agent_build_action_log_parts");
     Object empty_list = new java.util.ArrayList<Object>();
     Object context_registry = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -9738,6 +10013,7 @@ final class Core {
   }
 
   static Object _agent_render_runtime_state_summary(Object state, Object policy) {
+    axirCoverageMark("_agent_render_runtime_state_summary");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object session_state = Core.get(state, "runtime_session_state", empty_map);
@@ -9862,6 +10138,7 @@ final class Core {
   }
 
   static Object _agent_prepare_actor_context(Object state) {
+    axirCoverageMark("_agent_prepare_actor_context");
     Object empty_list = new java.util.ArrayList<Object>();
     Object context_registry = Core._agent_context_policy_registry();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -9980,6 +10257,7 @@ final class Core {
   }
 
   static Object _agent_build_action_evidence_summary(Object state) {
+    axirCoverageMark("_agent_build_action_evidence_summary");
     Object empty_list = new java.util.ArrayList<Object>();
     Object entries = Core.get(state, "action_log", empty_list);
     Object checkpoint = Core.get(state, "checkpoint_state", null);
@@ -10032,6 +10310,7 @@ final class Core {
   }
 
   static Object _agent_sanitize_action_log_entries(Object entries) {
+    axirCoverageMark("_agent_sanitize_action_log_entries");
     Object out = new java.util.ArrayList<Object>();
     for (Object entry : Core.iter(entries)) {
       Object clean = new java.util.LinkedHashMap<String, Object>();
@@ -10176,6 +10455,7 @@ final class Core {
   }
 
   static Object _agent_context_fixture_result(Object state, Object fixture) {
+    axirCoverageMark("_agent_context_fixture_result");
     Object empty_list = new java.util.ArrayList<Object>();
     Object operation = Core.get(fixture, "context_operation", "prepare");
     Object is_policy = Core.eq(operation, "resolve_policy");
@@ -10278,6 +10558,7 @@ final class Core {
   }
 
   static Object _normalize_agent_callable(Object raw, Object namespace) {
+    axirCoverageMark("_normalize_agent_callable");
     Object name = Core.get(raw, "name", "");
     Object missing_name = Core.eq(name, "");
     if (Core.truthy(missing_name)) {
@@ -10302,6 +10583,7 @@ final class Core {
   }
 
   static Object _normalize_agent_group(Object raw) {
+    axirCoverageMark("_normalize_agent_group");
     Object empty_list = new java.util.ArrayList<Object>();
     Object name = Core.get(raw, "name", "tools");
     Object namespace = Core.get(raw, "namespace", name);
@@ -10335,6 +10617,7 @@ final class Core {
   }
 
   static Object _normalize_agent_callable_inventory(Object options) {
+    axirCoverageMark("_normalize_agent_callable_inventory");
     Object empty_list = new java.util.ArrayList<Object>();
     Object functions = Core.get(options, "functions", empty_list);
     Object groups = new java.util.ArrayList<Object>();
@@ -10379,6 +10662,7 @@ final class Core {
   }
 
   static Object _split_agent_callable_inventory(Object inventory) {
+    axirCoverageMark("_split_agent_callable_inventory");
     Object inline = new java.util.ArrayList<Object>();
     Object discoverable = new java.util.ArrayList<Object>();
     for (Object group : Core.iter(inventory)) {
@@ -10397,6 +10681,7 @@ final class Core {
   }
 
   static Object _render_agent_discovery_catalog(Object split) {
+    axirCoverageMark("_render_agent_discovery_catalog");
     Object empty_list = new java.util.ArrayList<Object>();
     Object catalog = new java.util.ArrayList<Object>();
     Object inline = Core.get(split, "inline", empty_list);
@@ -10428,6 +10713,7 @@ final class Core {
   }
 
   static Object _normalize_agent_string_list(Object value, Object label) {
+    axirCoverageMark("_normalize_agent_string_list");
     Object out = new java.util.ArrayList<Object>();
     Object is_string = Core.typeIs(value, "string");
     if (Core.truthy(is_string)) {
@@ -10489,6 +10775,7 @@ final class Core {
   }
 
   static Object _normalize_agent_discover_request(Object state, Object request) {
+    axirCoverageMark("_normalize_agent_discover_request");
     Object empty_list = new java.util.ArrayList<Object>();
     Object tools = new java.util.ArrayList<Object>();
     Object skills = new java.util.ArrayList<Object>();
@@ -10550,6 +10837,7 @@ final class Core {
   }
 
   static Object _agent_append_unique_by_field(Object items, Object item, Object field) {
+    axirCoverageMark("_agent_append_unique_by_field");
     Object value = Core.get(item, field, "");
     Object found = Boolean.FALSE;
     for (Object existing : Core.iter(items)) {
@@ -10567,6 +10855,7 @@ final class Core {
   }
 
   static Object _agent_render_discovered_tool_docs(Object docs) {
+    axirCoverageMark("_agent_render_discovered_tool_docs");
     Object lines = new java.util.ArrayList<Object>();
     for (Object doc : Core.iter(docs)) {
       Object qualified = Core.get(doc, "qualified_name", "");
@@ -10587,6 +10876,7 @@ final class Core {
   }
 
   static Object _agent_render_loaded_skills(Object skills) {
+    axirCoverageMark("_agent_render_loaded_skills");
     Object lines = new java.util.ArrayList<Object>();
     for (Object skill : Core.iter(skills)) {
       Object name = Core.get(skill, "name", "");
@@ -10607,6 +10897,7 @@ final class Core {
   }
 
   static Object _agent_discover(Object state, Object request) {
+    axirCoverageMark("_agent_discover");
     Object empty_list = new java.util.ArrayList<Object>();
     Object normalized = Core._normalize_agent_discover_request(state, request);
     Object inventory = Core.get(state, "callable_inventory", empty_list);
@@ -10704,6 +10995,7 @@ final class Core {
   }
 
   static Object _normalize_agent_recall_request(Object state, Object request) {
+    axirCoverageMark("_normalize_agent_recall_request");
     Object flags = Core.get(state, "policy_flags", null);
     Object enabled = Core.get(flags, "memoriesMode", Boolean.FALSE);
     Object disabled = Core.not(enabled);
@@ -10718,6 +11010,7 @@ final class Core {
   }
 
   static Object _agent_merge_memory_results(Object existing, Object incoming) {
+    axirCoverageMark("_agent_merge_memory_results");
     Object out = existing;
     for (Object memory : Core.iter(incoming)) {
       Object id = Core.get(memory, "id", "");
@@ -10733,6 +11026,7 @@ final class Core {
   }
 
   static Object _agent_recall(Object state, Object request) {
+    axirCoverageMark("_agent_recall");
     Object empty_list = new java.util.ArrayList<Object>();
     Object normalized = Core._normalize_agent_recall_request(state, request);
     Object searches = Core.get(normalized, "searches", empty_list);
@@ -10760,6 +11054,7 @@ final class Core {
   }
 
   static Object _normalize_agent_used_request(Object request, Object default_stage) {
+    axirCoverageMark("_normalize_agent_used_request");
     Object is_map = Core.typeIs(request, "object");
     Object id = "";
     Object reason = "";
@@ -10787,6 +11082,7 @@ final class Core {
   }
 
   static Object _agent_used(Object state, Object request, Object stage) {
+    axirCoverageMark("_agent_used");
     Object empty_list = new java.util.ArrayList<Object>();
     Object flags = Core.get(state, "policy_flags", null);
     Object enabled = Core.get(flags, "usageTrackingMode", Boolean.FALSE);
@@ -10853,6 +11149,7 @@ final class Core {
   }
 
   static Object _normalize_agent_guidance_payload(Object value, Object triggered_by) {
+    axirCoverageMark("_normalize_agent_guidance_payload");
     Object is_map = Core.typeIs(value, "object");
     Object guidance = "";
     Object trigger = triggered_by;
@@ -10880,6 +11177,7 @@ final class Core {
   }
 
   static Object _agent_append_guidance(Object state, Object payload) {
+    axirCoverageMark("_agent_append_guidance");
     Object empty_list = new java.util.ArrayList<Object>();
     Object entries = Core.get(state, "guidance_log", empty_list);
     Object count = Core.len(entries);
@@ -10907,6 +11205,7 @@ final class Core {
   }
 
   static Object _agent_execute_callable(Object state, Object request, Object options) {
+    axirCoverageMark("_agent_execute_callable");
     Object empty_list = new java.util.ArrayList<Object>();
     Object result = Core.agentCallableInvoke(state, request, options);
     Object qualified = Core.get(request, "qualified_name", "");
@@ -10942,6 +11241,7 @@ final class Core {
   }
 
   static Object _normalize_agent_final_payload(Object value) {
+    axirCoverageMark("_normalize_agent_final_payload");
     Object is_map = Core.typeIs(value, "object");
     if (Core.truthy(is_map)) {
       Object type = Core.get(value, "type", "");
@@ -10959,6 +11259,7 @@ final class Core {
   }
 
   static Object _normalize_agent_clarification_payload(Object value) {
+    axirCoverageMark("_normalize_agent_clarification_payload");
     Object is_map = Core.typeIs(value, "object");
     Object question = "";
     Object payload = new java.util.LinkedHashMap<String, Object>();
@@ -10990,6 +11291,7 @@ final class Core {
   }
 
   static Object _agent_optimizer_metadata(Object state) {
+    axirCoverageMark("_agent_optimizer_metadata");
     Object policy = Core.get(state, "policy", null);
     Object policy_version = Core.get(policy, "policy_version", "agent-runtime-decision-v1");
     Object stage_ids = new java.util.ArrayList<Object>();
@@ -11021,6 +11323,7 @@ final class Core {
   }
 
   static Object _agent_begin_trace(Object state, Object input) {
+    axirCoverageMark("_agent_begin_trace");
     Object events = new java.util.ArrayList<Object>();
     Object optimizer = Core.get(state, "optimizer_metadata", null);
     Object trace = new java.util.LinkedHashMap<String, Object>();
@@ -11036,6 +11339,7 @@ final class Core {
   }
 
   static Object _agent_record_trace_event(Object state, Object kind, Object payload) {
+    axirCoverageMark("_agent_record_trace_event");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object trace = Core.get(state, "trace", empty_map);
@@ -11070,6 +11374,7 @@ final class Core {
   }
 
   static Object _agent_normalize_host_boundary_event(Object boundary, Object request, Object result, Object status) {
+    axirCoverageMark("_agent_normalize_host_boundary_event");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "boundary", boundary);
     Core.set(out, "request", request);
@@ -11079,6 +11384,7 @@ final class Core {
   }
 
   static Object _agent_finalize_trace(Object state, Object status, Object output) {
+    axirCoverageMark("_agent_finalize_trace");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object trace = Core.get(state, "trace", empty_map);
@@ -11115,6 +11421,7 @@ final class Core {
   }
 
   static Object _agent_export_trace(Object state) {
+    axirCoverageMark("_agent_export_trace");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object trace = Core.get(state, "trace", empty_map);
@@ -11145,6 +11452,7 @@ final class Core {
   }
 
   static Object _agent_replay_trace(Object trace, Object fixtures) {
+    axirCoverageMark("_agent_replay_trace");
     Object empty_list = new java.util.ArrayList<Object>();
     Object events = Core.get(trace, "events", empty_list);
     Object event_kinds = new java.util.ArrayList<Object>();
@@ -11197,6 +11505,7 @@ final class Core {
   }
 
   static Object _agent_export_runtime_state(Object state) {
+    axirCoverageMark("_agent_export_runtime_state");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -11253,6 +11562,7 @@ final class Core {
   }
 
   static Object _agent_restore_runtime_state(Object state, Object snapshot) {
+    axirCoverageMark("_agent_restore_runtime_state");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object runtime_state = Core.get(snapshot, "runtime_state", empty_map);
@@ -11309,6 +11619,7 @@ final class Core {
   }
 
   static Object _agent_runtime_build_globals(Object state, Object values) {
+    axirCoverageMark("_agent_runtime_build_globals");
     Object empty_list = new java.util.ArrayList<Object>();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object reserved = Core._agent_reserved_runtime_names();
@@ -11350,6 +11661,7 @@ final class Core {
   }
 
   static Object _agent_runtime_sanitize_bindings(Object bindings) {
+    axirCoverageMark("_agent_runtime_sanitize_bindings");
     Object reserved = Core._agent_reserved_runtime_names();
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object bindings_is_map = Core.typeIs(bindings, "object");
@@ -11369,6 +11681,7 @@ final class Core {
   }
 
   static Object _normalize_agent_runtime_snapshot(Object snapshot) {
+    axirCoverageMark("_normalize_agent_runtime_snapshot");
     Object empty_list = new java.util.ArrayList<Object>();
     Object snapshot_is_map = Core.typeIs(snapshot, "object");
     if (Core.truthy(snapshot_is_map)) {
@@ -11415,6 +11728,7 @@ final class Core {
   }
 
   static Object _agent_runtime_append_action_log(Object state, Object entry) {
+    axirCoverageMark("_agent_runtime_append_action_log");
     Object empty_list = new java.util.ArrayList<Object>();
     Object log = Core.get(state, "action_log", empty_list);
     Object entry_is_map = Core.typeIs(entry, "object");
@@ -11447,6 +11761,7 @@ final class Core {
   }
 
   static Object _normalize_agent_runtime_step_result(Object raw, Object code) {
+    axirCoverageMark("_normalize_agent_runtime_step_result");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object none = Core.none();
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -11549,6 +11864,7 @@ final class Core {
   }
 
   static Object _agent_runtime_execution_options(Object state, Object options) {
+    axirCoverageMark("_agent_runtime_execution_options");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object reserved_names = Core._agent_reserved_runtime_names();
     Object runtime_options = Core.mapMerge(empty_map, options);
@@ -11583,6 +11899,7 @@ final class Core {
   }
 
   static Object _agent_runtime_lifecycle_event(Object state, Object action, Object details) {
+    axirCoverageMark("_agent_runtime_lifecycle_event");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object entry = Core.mapMerge(empty_map, details);
     Core.set(entry, "type", "runtime_session");
@@ -11593,6 +11910,7 @@ final class Core {
   }
 
   static Object _agent_runtime_create_session(Object state, Object runtime, Object globals, Object options) {
+    axirCoverageMark("_agent_runtime_create_session");
     Object runtime_options = Core._agent_runtime_execution_options(state, options);
     Object session = Core.agentRuntimeCreateSession(runtime, globals, runtime_options);
     Core.set(state, "runtime_session", session);
@@ -11605,6 +11923,7 @@ final class Core {
   }
 
   static Object _agent_runtime_execute_step(Object state, Object runtime, Object session, Object code, Object options) {
+    axirCoverageMark("_agent_runtime_execute_step");
     Object runtime_options = Core._agent_runtime_execution_options(state, options);
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object globals = Core.get(state, "runtime_globals", empty_map);
@@ -11685,6 +12004,7 @@ final class Core {
   }
 
   static Object _agent_runtime_inspect_state(Object state, Object session, Object options) {
+    axirCoverageMark("_agent_runtime_inspect_state");
     Object inspection = Core.agentRuntimeInspect(session, options);
     Core.set(state, "runtime_inspection", inspection);
     Object entry = new java.util.LinkedHashMap<String, Object>();
@@ -11696,6 +12016,7 @@ final class Core {
   }
 
   static Object _agent_runtime_export_session_state(Object state, Object session, Object options) {
+    axirCoverageMark("_agent_runtime_export_session_state");
     Object raw_snapshot = Core.agentRuntimeExportState(session, options);
     Object snapshot = Core._normalize_agent_runtime_snapshot(raw_snapshot);
     Core.set(state, "runtime_session_state", snapshot);
@@ -11711,6 +12032,7 @@ final class Core {
   }
 
   static Object _agent_runtime_restore_session_state(Object state, Object session, Object snapshot, Object options) {
+    axirCoverageMark("_agent_runtime_restore_session_state");
     Object normalized_snapshot = Core._normalize_agent_runtime_snapshot(snapshot);
     Object raw_restored = Core.agentRuntimeRestoreState(session, normalized_snapshot, options);
     Object restored = Core._normalize_agent_runtime_snapshot(raw_restored);
@@ -11727,6 +12049,7 @@ final class Core {
   }
 
   static Object _agent_runtime_close_session(Object state, Object session) {
+    axirCoverageMark("_agent_runtime_close_session");
     Object closed = Core.agentRuntimeClose(session);
     Core.set(state, "runtime_session_closed", Boolean.TRUE);
     Object entry = new java.util.LinkedHashMap<String, Object>();
@@ -11736,6 +12059,7 @@ final class Core {
   }
 
   static Object _agent_runtime_test(Object state, Object runtime, Object code, Object values, Object options) {
+    axirCoverageMark("_agent_runtime_test");
     Object globals = Core._agent_runtime_build_globals(state, values);
     Object runtime_options = Core._agent_runtime_execution_options(state, options);
     Object session = Core._agent_runtime_create_session(state, runtime, globals, runtime_options);
@@ -11753,6 +12077,7 @@ final class Core {
   }
 
   static Object _split_context_values(Object state, Object values) {
+    axirCoverageMark("_split_context_values");
     Object empty_list = new java.util.ArrayList<Object>();
     Object context_fields = Core.get(state, "context_fields", empty_list);
     Object ctx_values = new java.util.LinkedHashMap<String, Object>();
@@ -11774,6 +12099,7 @@ final class Core {
   }
 
   static Object _build_distiller_inputs(Object state, Object values) {
+    axirCoverageMark("_build_distiller_inputs");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object split = Core._split_context_values(state, values);
     Object context = Core.get(split, "context", empty_map);
@@ -11784,6 +12110,7 @@ final class Core {
   }
 
   static Object _build_executor_inputs(Object state, Object values, Object distiller_payload) {
+    axirCoverageMark("_build_executor_inputs");
     Object empty_list = new java.util.ArrayList<Object>();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object split = Core._split_context_values(state, values);
@@ -11825,6 +12152,7 @@ final class Core {
   }
 
   static Object _build_responder_inputs(Object state, Object values, Object executor_payload) {
+    axirCoverageMark("_build_responder_inputs");
     Object empty_list = new java.util.ArrayList<Object>();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object split = Core._split_context_values(state, values);
@@ -11846,6 +12174,7 @@ final class Core {
   }
 
   static Object _normalize_agent_completion_payload(Object output) {
+    axirCoverageMark("_normalize_agent_completion_payload");
     Object completion = Core.get(output, "completion", output);
     Object payload = Core.get(completion, "executorResult", completion);
     Object type = Core.get(payload, "type", null);
@@ -11862,6 +12191,7 @@ final class Core {
   }
 
   static Object _throw_agent_clarification(Object payload, Object state) {
+    axirCoverageMark("_throw_agent_clarification");
     Object type = Core.get(payload, "type", null);
     Object is_clarification = Core.eq(type, "askClarification");
     if (Core.truthy(is_clarification)) {
@@ -11873,6 +12203,7 @@ final class Core {
   }
 
   static Object _merge_agent_chat_log(Object state, Object distiller, Object executor, Object responder) {
+    axirCoverageMark("_merge_agent_chat_log");
     Object logs = new java.util.ArrayList<Object>();
     Object distiller_logs = Core.agentStageChatLog(distiller);
     for (Object entry : Core.iter(distiller_logs)) {
@@ -11897,6 +12228,7 @@ final class Core {
   }
 
   static Object _merge_agent_usage(Object state) {
+    axirCoverageMark("_merge_agent_usage");
     Object empty_list = new java.util.ArrayList<Object>();
     Object chat_log = Core.get(state, "chat_log", empty_list);
     Object count = Core.len(chat_log);
@@ -11907,17 +12239,20 @@ final class Core {
   }
 
   static Object _agent_get_state(Object state) {
+    axirCoverageMark("_agent_get_state");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object runtime_state = Core.get(state, "runtime_state", empty_map);
     return runtime_state;
   }
 
   static Object _agent_set_state(Object state, Object runtime_state) {
+    axirCoverageMark("_agent_set_state");
     Core.set(state, "runtime_state", runtime_state);
     return runtime_state;
   }
 
   static Object _agent_stage_options(Object state, Object stage, Object forward_options) {
+    axirCoverageMark("_agent_stage_options");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object base_options = Core.get(state, "options", empty_map);
     Object stage_options = new java.util.LinkedHashMap<String, Object>();
@@ -11961,6 +12296,7 @@ final class Core {
   }
 
   static Object _extract_agent_runtime_code(Object state, Object executor_output) {
+    axirCoverageMark("_extract_agent_runtime_code");
     Object runtime_contract = Core.get(state, "runtime_contract", null);
     Object code_field_name = Core.get(runtime_contract, "code_field_name", "javascriptCode");
     Object code = Core.get(executor_output, code_field_name, "");
@@ -11977,6 +12313,7 @@ final class Core {
   }
 
   static Object _agent_forward(Object state, Object distiller, Object executor, Object responder, Object client, Object values, Object options) {
+    axirCoverageMark("_agent_forward");
     Core._agent_begin_trace(state, values);
     Object state_options = Core.get(state, "options", null);
     Object runtime_from_state = Core.get(state_options, "runtime", null);
@@ -12080,6 +12417,7 @@ final class Core {
   }
 
   static Object _flow_factory(Object options) {
+    axirCoverageMark("_flow_factory");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object opts_missing = Core.isNone(options);
@@ -12107,6 +12445,7 @@ final class Core {
   }
 
   static Object _program_descriptor(Object kind, Object id, Object metadata) {
+    axirCoverageMark("_program_descriptor");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object meta_missing = Core.isNone(metadata);
     Object meta = metadata;
@@ -12121,6 +12460,7 @@ final class Core {
   }
 
   static Object _program_trace_event(Object program_id, Object kind, Object payload) {
+    axirCoverageMark("_program_trace_event");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object payload_missing = Core.isNone(payload);
     Object data = payload;
@@ -12135,6 +12475,7 @@ final class Core {
   }
 
   static Object _flow_step(Object kind, Object name, Object program, Object options) {
+    axirCoverageMark("_flow_step");
     Object trimmed = Core.stringTrim(name);
     Object missing_name = Core.eq(trimmed, "");
     if (Core.truthy(missing_name)) {
@@ -12189,11 +12530,13 @@ final class Core {
   }
 
   static Object _program_child_component_prefix(Object owner, Object node) {
+    axirCoverageMark("_program_child_component_prefix");
     Object path = Core.stringFormat("{}.{}::", owner, node);
     return path;
   }
 
   static Object _program_prefix_component(Object component, Object owner, Object node) {
+    axirCoverageMark("_program_prefix_component");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object child = Core.mapMerge(empty_map, component);
     Object child_owner = Core.stringFormat("{}.{}", owner, node);
@@ -12205,6 +12548,7 @@ final class Core {
   }
 
   static Object _program_slice_component_map(Object component_map, Object prefix) {
+    axirCoverageMark("_program_slice_component_map");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object keys = Core.mapKeys(component_map);
     for (Object key : Core.iter(keys)) {
@@ -12220,6 +12564,7 @@ final class Core {
   }
 
   static Object _flow_add_step(Object flow, Object step) {
+    axirCoverageMark("_flow_add_step");
     Object steps = Core.get(flow, "steps", null);
     Object name = Core.get(step, "name", "");
     for (Object existing : Core.iter(steps)) {
@@ -12237,6 +12582,7 @@ final class Core {
   }
 
   static Object _flow_set_returns(Object flow, Object returns) {
+    axirCoverageMark("_flow_set_returns");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object missing = Core.isNone(returns);
     Object spec = returns;
@@ -12248,6 +12594,7 @@ final class Core {
   }
 
   static Object _flow_plan_entry(Object step, Object step_index) {
+    axirCoverageMark("_flow_plan_entry");
     Object empty_list = new java.util.ArrayList<Object>();
     Object kind = Core.get(step, "kind", "execute");
     Object name = Core.get(step, "name", "");
@@ -12267,6 +12614,7 @@ final class Core {
   }
 
   static Object _flow_plan_can_share_group(Object group, Object candidate) {
+    axirCoverageMark("_flow_plan_can_share_group");
     Object empty_list = new java.util.ArrayList<Object>();
     Object candidate_barrier = Core.get(candidate, "barrier", Boolean.TRUE);
     Object candidate_writes = Core.get(candidate, "writes", empty_list);
@@ -12310,6 +12658,7 @@ final class Core {
   }
 
   static Object _flow_plan(Object flow) {
+    axirCoverageMark("_flow_plan");
     Object steps = Core.get(flow, "steps", null);
     Object plan_steps = new java.util.ArrayList<Object>();
     Object step_index = 0;
@@ -12408,11 +12757,13 @@ final class Core {
   }
 
   static Object _flow_cache_key(Object values) {
+    axirCoverageMark("_flow_cache_key");
     Object key = Core.jsonStableStringify(values);
     return key;
   }
 
   static Object _flow_cache_read_write(Object flow, Object values, Object options, Object mode, Object cached_value) {
+    axirCoverageMark("_flow_cache_read_write");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object opts_missing = Core.isNone(options);
     Object opts = options;
@@ -12468,6 +12819,7 @@ final class Core {
   }
 
   static Object _flow_check_abort(Object options, Object location) {
+    axirCoverageMark("_flow_check_abort");
     Object none = Core.none();
     Object abort_snake = Core.get(options, "abort_before_step", Boolean.FALSE);
     Object abort_camel = Core.get(options, "abortBeforeStep", abort_snake);
@@ -12482,6 +12834,7 @@ final class Core {
   }
 
   static Object _flow_project_returns(Object state, Object returns) {
+    axirCoverageMark("_flow_project_returns");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object spec = returns;
     Object missing = Core.isNone(returns);
@@ -12504,6 +12857,7 @@ final class Core {
   }
 
   static Object _flow_get_path(Object state, Object path) {
+    axirCoverageMark("_flow_get_path");
     Object none = Core.none();
     Object path_text = Core.stringStr(path);
     Object parts = Core.stringSplit(path_text, ".");
@@ -12521,6 +12875,7 @@ final class Core {
   }
 
   static Object _flow_record_child_chat_log(Object flow, Object node, Object program) {
+    axirCoverageMark("_flow_record_child_chat_log");
     Object empty_list = new java.util.ArrayList<Object>();
     Object chat_log = Core.get(flow, "chat_log", empty_list);
     Object child_log = Core.agentStageChatLog(program);
@@ -12541,6 +12896,7 @@ final class Core {
   }
 
   static Object _flow_record_child_usage(Object flow, Object node, Object program) {
+    axirCoverageMark("_flow_record_child_usage");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object usage = Core.get(flow, "usage", empty_map);
     Object child_usage = Core.agentStageUsage(program);
@@ -12553,6 +12909,7 @@ final class Core {
   }
 
   static Object _flow_record_child_traces(Object flow, Object node, Object program) {
+    axirCoverageMark("_flow_record_child_traces");
     Object empty_list = new java.util.ArrayList<Object>();
     Object traces = Core.get(flow, "traces", empty_list);
     Object child_traces = Core.agentStageTraces(program);
@@ -12568,6 +12925,7 @@ final class Core {
   }
 
   static Object _flow_execute_program_node(Object flow, Object step, Object client, Object state, Object options) {
+    axirCoverageMark("_flow_execute_program_node");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object name = Core.get(step, "name", "");
     Object kind = Core.get(step, "kind", "execute");
@@ -12613,6 +12971,7 @@ final class Core {
   }
 
   static Object _flow_execute_step(Object flow, Object step, Object plan_step, Object client, Object state, Object options) {
+    axirCoverageMark("_flow_execute_step");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object missing_step = Core.isNone(step);
     if (Core.truthy(missing_step)) {
@@ -12772,11 +13131,13 @@ final class Core {
   }
 
   static Object _flow_merge_parallel_results(Object state, Object result) {
+    axirCoverageMark("_flow_merge_parallel_results");
     Object merged = Core.mapMerge(state, result);
     return merged;
   }
 
   static Object _flow_execute_nested_steps(Object flow, Object client, Object steps, Object state, Object options) {
+    axirCoverageMark("_flow_execute_nested_steps");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object nested = Core.mapMerge(flow, empty_map);
     Object traces = Core.get(flow, "traces", null);
@@ -12798,6 +13159,7 @@ final class Core {
   }
 
   static Object _flow_execute_steps(Object flow, Object client, Object state, Object options) {
+    axirCoverageMark("_flow_execute_steps");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object steps = Core.get(flow, "steps", empty_list);
@@ -12868,6 +13230,7 @@ final class Core {
   }
 
   static Object _flow_forward(Object flow, Object client, Object values, Object options) {
+    axirCoverageMark("_flow_forward");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object opts_missing = Core.isNone(options);
     Object opts = options;
@@ -12905,6 +13268,7 @@ final class Core {
   }
 
   static Object _flow_get_optimizable_components(Object flow) {
+    axirCoverageMark("_flow_get_optimizable_components");
     Object empty_list = new java.util.ArrayList<Object>();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object owner = Core.get(flow, "program_id", "root.flow");
@@ -12932,6 +13296,7 @@ final class Core {
   }
 
   static Object _flow_apply_optimized_components(Object flow, Object component_map) {
+    axirCoverageMark("_flow_apply_optimized_components");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object updates_missing = Core.isNone(component_map);
@@ -12969,17 +13334,20 @@ final class Core {
   }
 
   static Object _flow_snapshot_components(Object flow) {
+    axirCoverageMark("_flow_snapshot_components");
     Object components = Core._flow_get_optimizable_components(flow);
     Object snapshot = Core._optimization_component_current_map(components);
     return snapshot;
   }
 
   static Object _flow_restore_components(Object flow, Object snapshot) {
+    axirCoverageMark("_flow_restore_components");
     Object restored = Core._flow_apply_optimized_components(flow, snapshot);
     return restored;
   }
 
   static Object _flow_evaluate_optimization(Object flow, Object client, Object dataset, Object candidate_map, Object options) {
+    axirCoverageMark("_flow_evaluate_optimization");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object opts_missing = Core.isNone(options);
@@ -13072,6 +13440,7 @@ final class Core {
   }
 
   static Object _flow_optimize_with(Object flow, Object dataset, Object options, Object evaluator_available) {
+    axirCoverageMark("_flow_optimize_with");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object components = Core._flow_get_optimizable_components(flow);
@@ -13086,6 +13455,7 @@ final class Core {
   }
 
   static Object mcp_protocol_constants() {
+    axirCoverageMark("mcp_protocol_constants");
     Object versions = new java.util.ArrayList<Object>();
     Core.append(versions, "2025-11-25");
     Core.append(versions, "2025-06-18");
@@ -13098,6 +13468,7 @@ final class Core {
   }
 
   static Object mcp_jsonrpc_request(Object id, Object method, Object params) {
+    axirCoverageMark("mcp_jsonrpc_request");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "jsonrpc", "2.0");
     Core.set(out, "id", id);
@@ -13113,6 +13484,7 @@ final class Core {
   }
 
   static Object mcp_jsonrpc_notification(Object method, Object params) {
+    axirCoverageMark("mcp_jsonrpc_notification");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "jsonrpc", "2.0");
     Core.set(out, "method", method);
@@ -13127,6 +13499,7 @@ final class Core {
   }
 
   static Object mcp_normalize_error(Object response) {
+    axirCoverageMark("mcp_normalize_error");
     Object err = Core.get(response, "error", null);
     Object missing = Core.isNone(err);
     if (Core.truthy(missing)) {

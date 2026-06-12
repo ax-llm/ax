@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 
 from abc import ABC, abstractmethod
 import copy
@@ -47,6 +48,18 @@ from .agent import (
     _core_agent_stage_usage,
     _optimization_component,
 )
+
+
+_CORE_COVERAGE_SEEN: set[str] = set()
+
+
+def _core_coverage_mark(name):
+    path = os.environ.get("AXIR_COVERAGE_FILE")
+    if not path or name in _CORE_COVERAGE_SEEN:
+        return
+    _CORE_COVERAGE_SEEN.add(name)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(name + "\n")
 
 
 class _FlowCallable:
@@ -412,6 +425,7 @@ def _core_program_apply_components(program, component_map):
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
 def _flow_factory(options: Any) -> Any:
+    _core_coverage_mark("_flow_factory")
     empty_map = {}
     empty_list = []
     opts_missing = _core_is_none(options)
@@ -440,6 +454,7 @@ def _flow_factory(options: Any) -> Any:
 
 
 def _program_descriptor(kind: str, id: str, metadata: Any) -> Any:
+    _core_coverage_mark("_program_descriptor")
     empty_map = {}
     meta_missing = _core_is_none(metadata)
     meta = metadata
@@ -455,6 +470,7 @@ def _program_descriptor(kind: str, id: str, metadata: Any) -> Any:
 
 
 def _program_trace_event(program_id: str, kind: str, payload: Any) -> Any:
+    _core_coverage_mark("_program_trace_event")
     empty_map = {}
     payload_missing = _core_is_none(payload)
     data = payload
@@ -470,6 +486,7 @@ def _program_trace_event(program_id: str, kind: str, payload: Any) -> Any:
 
 
 def _flow_step(kind: str, name: str, program: Any, options: Any) -> Any:
+    _core_coverage_mark("_flow_step")
     trimmed = str(name).strip()
     missing_name = _core_eq(trimmed, "")
     if missing_name:
@@ -531,11 +548,13 @@ def _flow_step(kind: str, name: str, program: Any, options: Any) -> Any:
 
 
 def _program_child_component_prefix(owner: str, node: str) -> str:
+    _core_coverage_mark("_program_child_component_prefix")
     path = _core_string_format("{}.{}::", owner, node)
     return path
 
 
 def _program_prefix_component(component: Any, owner: str, node: str) -> Any:
+    _core_coverage_mark("_program_prefix_component")
     empty_map = {}
     child = _core_map_merge(empty_map, component)
     child_owner = _core_string_format("{}.{}", owner, node)
@@ -547,6 +566,7 @@ def _program_prefix_component(component: Any, owner: str, node: str) -> Any:
 
 
 def _program_slice_component_map(component_map: Any, prefix: str) -> Any:
+    _core_coverage_mark("_program_slice_component_map")
     out = {}
     keys = _core_map_keys(component_map)
     for key in keys:
@@ -562,6 +582,7 @@ def _program_slice_component_map(component_map: Any, prefix: str) -> Any:
 
 
 def _flow_add_step(flow: Any, step: Any) -> Any:
+    _core_coverage_mark("_flow_add_step")
     steps = _core_get(flow, "steps", None)
     name = _core_get(step, "name", "")
     for existing in steps:
@@ -579,6 +600,7 @@ def _flow_add_step(flow: Any, step: Any) -> Any:
 
 
 def _flow_set_returns(flow: Any, returns: Any) -> Any:
+    _core_coverage_mark("_flow_set_returns")
     empty_map = {}
     missing = _core_is_none(returns)
     spec = returns
@@ -591,6 +613,7 @@ def _flow_set_returns(flow: Any, returns: Any) -> Any:
 
 
 def _flow_plan_entry(step: Any, step_index: int) -> Any:
+    _core_coverage_mark("_flow_plan_entry")
     empty_list = []
     kind = _core_get(step, "kind", "execute")
     name = _core_get(step, "name", "")
@@ -610,6 +633,7 @@ def _flow_plan_entry(step: Any, step_index: int) -> Any:
 
 
 def _flow_plan_can_share_group(group: Any, candidate: Any) -> bool:
+    _core_coverage_mark("_flow_plan_can_share_group")
     empty_list = []
     candidate_barrier = _core_get(candidate, "barrier", True)
     candidate_writes = _core_get(candidate, "writes", empty_list)
@@ -655,6 +679,7 @@ def _flow_plan_can_share_group(group: Any, candidate: Any) -> bool:
 
 
 def _flow_plan(flow: Any) -> Any:
+    _core_coverage_mark("_flow_plan")
     steps = _core_get(flow, "steps", None)
     plan_steps = []
     step_index = 0
@@ -751,11 +776,13 @@ def _flow_plan(flow: Any) -> Any:
 
 
 def _flow_cache_key(values: Any) -> str:
+    _core_coverage_mark("_flow_cache_key")
     key = _core_json_stable_stringify(values)
     return key
 
 
 def _flow_cache_read_write(flow: Any, values: Any, options: Any, mode: str, cached_value: Any) -> Any:
+    _core_coverage_mark("_flow_cache_read_write")
     empty_map = {}
     opts_missing = _core_is_none(options)
     opts = options
@@ -813,6 +840,7 @@ def _flow_cache_read_write(flow: Any, values: Any, options: Any, mode: str, cach
 
 
 def _flow_check_abort(options: Any, location: str) -> None:
+    _core_coverage_mark("_flow_check_abort")
     none = _core_none()
     abort_snake = _core_get(options, "abort_before_step", False)
     abort_camel = _core_get(options, "abortBeforeStep", abort_snake)
@@ -828,6 +856,7 @@ def _flow_check_abort(options: Any, location: str) -> None:
 
 
 def _flow_project_returns(state: Any, returns: Any) -> Any:
+    _core_coverage_mark("_flow_project_returns")
     empty_map = {}
     spec = returns
     missing = _core_is_none(returns)
@@ -851,6 +880,7 @@ def _flow_project_returns(state: Any, returns: Any) -> Any:
 
 
 def _flow_get_path(state: Any, path: Any) -> Any:
+    _core_coverage_mark("_flow_get_path")
     none = _core_none()
     path_text = _core_string_str(path)
     parts = _core_string_split(path_text, ".")
@@ -865,6 +895,7 @@ def _flow_get_path(state: Any, path: Any) -> Any:
 
 
 def _flow_record_child_chat_log(flow: Any, node: str, program: Any) -> Any:
+    _core_coverage_mark("_flow_record_child_chat_log")
     empty_list = []
     chat_log = _core_get(flow, "chat_log", empty_list)
     child_log = _core_agent_stage_chat_log(program)
@@ -882,6 +913,7 @@ def _flow_record_child_chat_log(flow: Any, node: str, program: Any) -> Any:
 
 
 def _flow_record_child_usage(flow: Any, node: str, program: Any) -> Any:
+    _core_coverage_mark("_flow_record_child_usage")
     empty_map = {}
     usage = _core_get(flow, "usage", empty_map)
     child_usage = _core_agent_stage_usage(program)
@@ -895,6 +927,7 @@ def _flow_record_child_usage(flow: Any, node: str, program: Any) -> Any:
 
 
 def _flow_record_child_traces(flow: Any, node: str, program: Any) -> Any:
+    _core_coverage_mark("_flow_record_child_traces")
     empty_list = []
     traces = _core_get(flow, "traces", empty_list)
     child_traces = _core_agent_stage_traces(program)
@@ -909,6 +942,7 @@ def _flow_record_child_traces(flow: Any, node: str, program: Any) -> Any:
 
 
 def _flow_execute_program_node(flow: Any, step: Any, client: Any, state: Any, options: Any) -> Any:
+    _core_coverage_mark("_flow_execute_program_node")
     empty_map = {}
     name = _core_get(step, "name", "")
     kind = _core_get(step, "kind", "execute")
@@ -957,6 +991,7 @@ def _flow_execute_program_node(flow: Any, step: Any, client: Any, state: Any, op
 
 
 def _flow_execute_step(flow: Any, step: Any, plan_step: Any, client: Any, state: Any, options: Any) -> Any:
+    _core_coverage_mark("_flow_execute_step")
     empty_map = {}
     missing_step = _core_is_none(step)
     if missing_step:
@@ -1130,11 +1165,13 @@ def _flow_execute_step(flow: Any, step: Any, plan_step: Any, client: Any, state:
 
 
 def _flow_merge_parallel_results(state: Any, result: Any) -> Any:
+    _core_coverage_mark("_flow_merge_parallel_results")
     merged = _core_map_merge(state, result)
     return merged
 
 
 def _flow_execute_nested_steps(flow: Any, client: Any, steps: Any, state: Any, options: Any) -> Any:
+    _core_coverage_mark("_flow_execute_nested_steps")
     empty_map = {}
     nested = _core_map_merge(flow, empty_map)
     traces = _core_get(flow, "traces", None)
@@ -1156,6 +1193,7 @@ def _flow_execute_nested_steps(flow: Any, client: Any, steps: Any, state: Any, o
 
 
 def _flow_execute_steps(flow: Any, client: Any, state: Any, options: Any) -> Any:
+    _core_coverage_mark("_flow_execute_steps")
     empty_map = {}
     empty_list = []
     steps = _core_get(flow, "steps", empty_list)
@@ -1219,6 +1257,7 @@ def _flow_execute_steps(flow: Any, client: Any, state: Any, options: Any) -> Any
 
 
 def _flow_forward(flow: Any, client: Any, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_flow_forward")
     empty_map = {}
     opts_missing = _core_is_none(options)
     opts = options
@@ -1258,6 +1297,7 @@ def _flow_forward(flow: Any, client: Any, values: Any, options: Any) -> Any:
 
 
 def _flow_get_optimizable_components(flow: Any) -> list[Any]:
+    _core_coverage_mark("_flow_get_optimizable_components")
     empty_list = []
     empty_map = {}
     owner = _core_get(flow, "program_id", "root.flow")
@@ -1283,6 +1323,7 @@ def _flow_get_optimizable_components(flow: Any) -> list[Any]:
 
 
 def _flow_apply_optimized_components(flow: Any, component_map: Any) -> Any:
+    _core_coverage_mark("_flow_apply_optimized_components")
     empty_map = {}
     empty_list = []
     updates_missing = _core_is_none(component_map)
@@ -1323,17 +1364,20 @@ def _flow_apply_optimized_components(flow: Any, component_map: Any) -> Any:
 
 
 def _flow_snapshot_components(flow: Any) -> Any:
+    _core_coverage_mark("_flow_snapshot_components")
     components = _flow_get_optimizable_components(flow)
     snapshot = _optimization_component_current_map(components)
     return snapshot
 
 
 def _flow_restore_components(flow: Any, snapshot: Any) -> Any:
+    _core_coverage_mark("_flow_restore_components")
     restored = _flow_apply_optimized_components(flow, snapshot)
     return restored
 
 
 def _flow_evaluate_optimization(flow: Any, client: Any, dataset: Any, candidate_map: Any, options: Any) -> Any:
+    _core_coverage_mark("_flow_evaluate_optimization")
     empty_map = {}
     empty_list = []
     opts_missing = _core_is_none(options)
@@ -1428,6 +1472,7 @@ def _flow_evaluate_optimization(flow: Any, client: Any, dataset: Any, candidate_
 
 
 def _flow_optimize_with(flow: Any, dataset: Any, options: Any, evaluator_available: bool) -> Any:
+    _core_coverage_mark("_flow_optimize_with")
     empty_map = {}
     empty_list = []
     components = _flow_get_optimizable_components(flow)

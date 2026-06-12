@@ -61,6 +61,25 @@ type coreFlow struct {
 // call sites that signal failure by panicking; the panic is recovered into
 // an error at the nearest safeValue boundary, exactly where the old
 // panic-based raise surfaced.
+
+var axirCoveragePath = os.Getenv("AXIR_COVERAGE_FILE")
+var axirCoverageSeen sync.Map
+
+func axirCoverageMark(name string) {
+	if axirCoveragePath == "" {
+		return
+	}
+	if _, loaded := axirCoverageSeen.LoadOrStore(name, true); loaded {
+		return
+	}
+	handle, err := os.OpenFile(axirCoveragePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer handle.Close()
+	_, _ = handle.WriteString(name + "\n")
+}
+
 func mustCore(value Value, err error) Value {
 	if err != nil {
 		panic(err)
@@ -754,6 +773,7 @@ func cloneValue(value Value) Value {
 
 // BEGIN AXIR CORE EMITTED FUNCTIONS
 func parse_signature(args ...Value) (Value, error) {
+	axirCoverageMark("parse_signature")
 	var v_signature Value
 	var v_parsed Value
 	if len(args) > 0 { v_signature = args[0] }
@@ -764,6 +784,7 @@ func parse_signature(args ...Value) (Value, error) {
 }
 
 func validate_signature(args ...Value) (Value, error) {
+	axirCoverageMark("validate_signature")
 	var v_signature Value
 	if len(args) > 0 { v_signature = args[0] }
 	_ = v_signature
@@ -772,6 +793,7 @@ func validate_signature(args ...Value) (Value, error) {
 }
 
 func _signature_parse_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_parse_impl")
 	var v_signature Value
 	var v_arrow Value
 	var v_attrs Value
@@ -874,6 +896,7 @@ func _signature_parse_impl(args ...Value) (Value, error) {
 }
 
 func _signature_parse_fields_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_parse_fields_impl")
 	var v_text Value
 	var v_output Value
 	var v_field Value
@@ -898,6 +921,7 @@ func _signature_parse_fields_impl(args ...Value) (Value, error) {
 }
 
 func _signature_parse_field_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_parse_field_impl")
 	var v_raw Value
 	var v_output Value
 	var v_array_info Value
@@ -1083,6 +1107,7 @@ func _signature_parse_field_impl(args ...Value) (Value, error) {
 }
 
 func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_validate_field_shape_impl")
 	var v_field Value
 	var v_output Value
 	var v_nested Value
@@ -1286,6 +1311,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 }
 
 func _signature_validate_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_validate_impl")
 	var v_signature Value
 	var v_collision Value
 	var v_duplicate Value
@@ -1375,6 +1401,7 @@ func _signature_validate_impl(args ...Value) (Value, error) {
 }
 
 func validate_fields(args ...Value) (Value, error) {
+	axirCoverageMark("validate_fields")
 	var v_fields Value
 	var v_values Value
 	var v_context Value
@@ -1389,6 +1416,7 @@ func validate_fields(args ...Value) (Value, error) {
 }
 
 func to_json_schema(args ...Value) (Value, error) {
+	axirCoverageMark("to_json_schema")
 	var v_fields Value
 	var v_schema_title Value
 	var v_options Value
@@ -1405,6 +1433,7 @@ func to_json_schema(args ...Value) (Value, error) {
 }
 
 func _schema_required_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_schema_required_impl")
 	var v_field Value
 	var v_options Value
 	var v_is_optional Value
@@ -1433,6 +1462,7 @@ func _schema_required_impl(args ...Value) (Value, error) {
 }
 
 func validate_output(args ...Value) (Value, error) {
+	axirCoverageMark("validate_output")
 	var v_fields Value
 	var v_values Value
 	var v_validated Value
@@ -1446,6 +1476,7 @@ func validate_output(args ...Value) (Value, error) {
 }
 
 func validate_value(args ...Value) (Value, error) {
+	axirCoverageMark("validate_value")
 	var v_field Value
 	var v_value Value
 	var v_path Value
@@ -1460,6 +1491,7 @@ func validate_value(args ...Value) (Value, error) {
 }
 
 func _schema_flexible_json_as_string_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_schema_flexible_json_as_string_impl")
 	var v_typ Value
 	var v_options Value
 	var v_as_string Value
@@ -1506,6 +1538,7 @@ func _schema_flexible_json_as_string_impl(args ...Value) (Value, error) {
 }
 
 func strip_internal(args ...Value) (Value, error) {
+	axirCoverageMark("strip_internal")
 	var v_fields Value
 	var v_values Value
 	var v_public_values Value
@@ -1519,6 +1552,7 @@ func strip_internal(args ...Value) (Value, error) {
 }
 
 func _validate_fields_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_fields_impl")
 	var v_fields Value
 	var v_values Value
 	var v_context Value
@@ -1594,6 +1628,7 @@ func _validate_fields_impl(args ...Value) (Value, error) {
 }
 
 func _schema_json_type_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_schema_json_type_impl")
 	var v_type_name Value
 	var v_flexible_names Value
 	var v_is_boolean Value
@@ -1660,6 +1695,7 @@ func _schema_json_type_impl(args ...Value) (Value, error) {
 }
 
 func _validate_output_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_output_impl")
 	var v_fields Value
 	var v_values Value
 	var v_alias_title Value
@@ -1704,6 +1740,7 @@ func _validate_output_impl(args ...Value) (Value, error) {
 }
 
 func _schema_enhance_description_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_schema_enhance_description_impl")
 	var v_base Value
 	var v_typ Value
 	var v_constraint_count Value
@@ -1912,6 +1949,7 @@ func _schema_enhance_description_impl(args ...Value) (Value, error) {
 }
 
 func _validate_string_constraints_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_string_constraints_impl")
 	var v_value Value
 	var v_field Value
 	var v_error Value
@@ -2047,6 +2085,7 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 }
 
 func _validate_number_constraints_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_number_constraints_impl")
 	var v_value Value
 	var v_field Value
 	var v_error Value
@@ -2107,6 +2146,7 @@ func _validate_number_constraints_impl(args ...Value) (Value, error) {
 }
 
 func _schema_apply_constraints_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_schema_apply_constraints_impl")
 	var v_schema Value
 	var v_typ Value
 	var v_default_date_format Value
@@ -2245,6 +2285,7 @@ func _schema_apply_constraints_impl(args ...Value) (Value, error) {
 }
 
 func _validate_value_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_value_impl")
 	var v_field Value
 	var v_value Value
 	var v_path Value
@@ -2581,6 +2622,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 }
 
 func _schema_nullable_optional_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_schema_nullable_optional_impl")
 	var v_schema Value
 	var v_field Value
 	var v_options Value
@@ -2663,6 +2705,7 @@ func _schema_nullable_optional_impl(args ...Value) (Value, error) {
 }
 
 func _schema_object_from_fields_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_schema_object_from_fields_impl")
 	var v_fields_map Value
 	var v_is_nested Value
 	var v_options Value
@@ -2721,6 +2764,7 @@ func _schema_object_from_fields_impl(args ...Value) (Value, error) {
 }
 
 func _schema_field_schema_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_schema_field_schema_impl")
 	var v_field Value
 	var v_is_nested Value
 	var v_options Value
@@ -2930,6 +2974,7 @@ func _schema_field_schema_impl(args ...Value) (Value, error) {
 }
 
 func _strip_internal_fields_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_strip_internal_fields_impl")
 	var v_fields Value
 	var v_values Value
 	var v_field Value
@@ -2970,6 +3015,7 @@ func _strip_internal_fields_impl(args ...Value) (Value, error) {
 }
 
 func _schema_to_json_schema_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_schema_to_json_schema_impl")
 	var v_fields Value
 	var v_schema_title Value
 	var v_options Value
@@ -3026,6 +3072,7 @@ func _schema_to_json_schema_impl(args ...Value) (Value, error) {
 }
 
 func render_template_content(args ...Value) (Value, error) {
+	axirCoverageMark("render_template_content")
 	var v_template Value
 	var v_vars Value
 	var v_context Value
@@ -3045,6 +3092,7 @@ func render_template_content(args ...Value) (Value, error) {
 }
 
 func collect_template_variable_names(args ...Value) (Value, error) {
+	axirCoverageMark("collect_template_variable_names")
 	var v_source Value
 	var v_context Value
 	var v_names Value
@@ -3061,6 +3109,7 @@ func collect_template_variable_names(args ...Value) (Value, error) {
 }
 
 func validate_prompt_template_syntax(args ...Value) (Value, error) {
+	axirCoverageMark("validate_prompt_template_syntax")
 	var v_source Value
 	var v_context Value
 	var v_required_variables Value
@@ -3077,6 +3126,7 @@ func validate_prompt_template_syntax(args ...Value) (Value, error) {
 }
 
 func _template_parse_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_template_parse_impl")
 	var v_template Value
 	var v_context Value
 	var v_nodes Value
@@ -3090,6 +3140,7 @@ func _template_parse_impl(args ...Value) (Value, error) {
 }
 
 func _template_render_tree_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_template_render_tree_impl")
 	var v_nodes Value
 	var v_vars Value
 	var v_source Value
@@ -3109,6 +3160,7 @@ func _template_render_tree_impl(args ...Value) (Value, error) {
 }
 
 func _template_collect_vars_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_template_collect_vars_impl")
 	var v_nodes Value
 	var v_names Value
 	if len(args) > 0 { v_nodes = args[0] }
@@ -3119,6 +3171,7 @@ func _template_collect_vars_impl(args ...Value) (Value, error) {
 }
 
 func _template_validate_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_template_validate_impl")
 	var v_source Value
 	var v_context Value
 	var v_required_variables Value
@@ -3135,6 +3188,7 @@ func _template_validate_impl(args ...Value) (Value, error) {
 }
 
 func render_prompt(args ...Value) (Value, error) {
+	axirCoverageMark("render_prompt")
 	var v_signature Value
 	var v_values Value
 	var v_functions Value
@@ -3172,6 +3226,7 @@ func render_prompt(args ...Value) (Value, error) {
 }
 
 func _prompt_structured_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_prompt_structured_impl")
 	var v_signature Value
 	var v_values Value
 	var v_functions Value
@@ -3191,6 +3246,7 @@ func _prompt_structured_impl(args ...Value) (Value, error) {
 }
 
 func _prompt_user_content_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_prompt_user_content_impl")
 	var v_signature Value
 	var v_values Value
 	var v_content Value
@@ -3204,6 +3260,7 @@ func _prompt_user_content_impl(args ...Value) (Value, error) {
 }
 
 func _prompt_messages_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_prompt_messages_impl")
 	var v_system Value
 	var v_user Value
 	var v_messages Value
@@ -3230,6 +3287,7 @@ func _prompt_messages_impl(args ...Value) (Value, error) {
 }
 
 func openai_build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("openai_build_chat_request")
 	var v_request Value
 	var v_chat_prompt Value
 	var v_empty_functions Value
@@ -3335,6 +3393,7 @@ func openai_build_chat_request(args ...Value) (Value, error) {
 }
 
 func merge_model_config(args ...Value) (Value, error) {
+	axirCoverageMark("merge_model_config")
 	var v_base Value
 	var v_override Value
 	var v_options Value
@@ -3380,6 +3439,7 @@ func merge_model_config(args ...Value) (Value, error) {
 }
 
 func validate_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("validate_chat_request")
 	var v_request Value
 	var v_bad_assistant Value
 	var v_bad_prompt Value
@@ -3492,6 +3552,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 }
 
 func _openai_apply_model_config_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_apply_model_config_impl")
 	var v_payload Value
 	var v_model_config Value
 	var v_has_stop Value
@@ -3542,6 +3603,7 @@ func _openai_apply_model_config_impl(args ...Value) (Value, error) {
 }
 
 func build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_chat_request")
 	var v_service Value
 	var v_request Value
 	var v_options Value
@@ -3559,6 +3621,7 @@ func build_chat_request(args ...Value) (Value, error) {
 }
 
 func _openai_copy_config_key_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_copy_config_key_impl")
 	var v_payload Value
 	var v_model_config Value
 	var v_source Value
@@ -3586,6 +3649,7 @@ func _openai_copy_config_key_impl(args ...Value) (Value, error) {
 }
 
 func normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_chat_response")
 	var v_raw Value
 	var v_response Value
 	if len(args) > 0 { v_raw = args[0] }
@@ -3596,6 +3660,7 @@ func normalize_chat_response(args ...Value) (Value, error) {
 }
 
 func normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_stream_delta")
 	var v_raw Value
 	var v_state Value
 	var v_response Value
@@ -3609,6 +3674,7 @@ func normalize_stream_delta(args ...Value) (Value, error) {
 }
 
 func _openai_message_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_message_impl")
 	var v_message Value
 	var v_assistant_content Value
 	var v_call Value
@@ -3752,6 +3818,7 @@ func _openai_message_impl(args ...Value) (Value, error) {
 }
 
 func build_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_embed_request")
 	var v_service Value
 	var v_request Value
 	var v_options Value
@@ -3768,6 +3835,7 @@ func build_embed_request(args ...Value) (Value, error) {
 }
 
 func normalize_embed_response(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_embed_response")
 	var v_raw Value
 	var v_response Value
 	if len(args) > 0 { v_raw = args[0] }
@@ -3778,6 +3846,7 @@ func normalize_embed_response(args ...Value) (Value, error) {
 }
 
 func normalize_token_usage(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_token_usage")
 	var v_usage Value
 	var v_cache_creation_tokens Value
 	var v_cache_creation_tokens_snake Value
@@ -3860,6 +3929,7 @@ func normalize_token_usage(args ...Value) (Value, error) {
 }
 
 func _ai_model_usage_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_ai_model_usage_impl")
 	var v_ai_name Value
 	var v_model Value
 	var v_usage Value
@@ -3896,6 +3966,7 @@ func _ai_model_usage_impl(args ...Value) (Value, error) {
 }
 
 func _openai_content_part_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_content_part_impl")
 	var v_part Value
 	var v_details Value
 	var v_error Value
@@ -3976,6 +4047,7 @@ func _openai_content_part_impl(args ...Value) (Value, error) {
 }
 
 func chat_response_to_completion(args ...Value) (Value, error) {
+	axirCoverageMark("chat_response_to_completion")
 	var v_response Value
 	var v_call Value
 	var v_calls Value
@@ -4042,6 +4114,7 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 }
 
 func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_tool_call_to_provider_impl")
 	var v_call Value
 	var v_fn Value
 	var v_function Value
@@ -4083,6 +4156,7 @@ func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
 }
 
 func _openai_tool_spec_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_tool_spec_impl")
 	var v_fn Value
 	var v_description Value
 	var v_function Value
@@ -4117,6 +4191,7 @@ func _openai_tool_spec_impl(args ...Value) (Value, error) {
 }
 
 func openai_build_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("openai_build_embed_request")
 	var v_request Value
 	var v_dimensions Value
 	var v_embed_model_snake Value
@@ -4152,6 +4227,7 @@ func openai_build_embed_request(args ...Value) (Value, error) {
 }
 
 func openai_normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_chat_response")
 	var v_raw Value
 	var v_ai_name Value
 	var v_model Value
@@ -4241,6 +4317,7 @@ func openai_normalize_chat_response(args ...Value) (Value, error) {
 }
 
 func _openai_normalize_choice_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_normalize_choice_impl")
 	var v_choice Value
 	var v_raw Value
 	var v_content Value
@@ -4314,6 +4391,7 @@ func _openai_normalize_choice_impl(args ...Value) (Value, error) {
 }
 
 func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_normalize_tool_calls_impl")
 	var v_calls Value
 	var v_call Value
 	var v_fn Value
@@ -4375,6 +4453,7 @@ func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
 }
 
 func _openai_finish_reason_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_finish_reason_impl")
 	var v_value Value
 	var v_is_call Value
 	var v_is_content_filter Value
@@ -4423,6 +4502,7 @@ func _openai_finish_reason_impl(args ...Value) (Value, error) {
 }
 
 func openai_normalize_embed_response(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_embed_response")
 	var v_raw Value
 	var v_ai_name Value
 	var v_model Value
@@ -4474,6 +4554,7 @@ func openai_normalize_embed_response(args ...Value) (Value, error) {
 }
 
 func openai_normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_stream_delta")
 	var v_raw Value
 	var v_state Value
 	var v_ai_name Value
@@ -4583,6 +4664,7 @@ func openai_normalize_stream_delta(args ...Value) (Value, error) {
 }
 
 func _openai_stream_choice_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_stream_choice_impl")
 	var v_choice Value
 	var v_index_ids Value
 	var v_arguments Value
@@ -4680,6 +4762,7 @@ func _openai_stream_choice_impl(args ...Value) (Value, error) {
 }
 
 func openai_normalize_error(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_error")
 	var v_status Value
 	var v_body Value
 	var v_request Value
@@ -4785,6 +4868,7 @@ func openai_normalize_error(args ...Value) (Value, error) {
 }
 
 func provider_normalize_profile(args ...Value) (Value, error) {
+	axirCoverageMark("provider_normalize_profile")
 	var v_profile Value
 	var v_aliases Value
 	var v_normalized Value
@@ -4801,6 +4885,7 @@ func provider_normalize_profile(args ...Value) (Value, error) {
 }
 
 func provider_profile_registry(args ...Value) (Value, error) {
+	axirCoverageMark("provider_profile_registry")
 	var v_registry Value
 	_ = v_registry
 	{ v, err := _core_json_parse("{\"deferredCatalogProviderIds\":[],\"profiles\":{\"anthropic\":{\"aliases\":[\"anthropic\",\"claude\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"AnthropicClient\",\"id\":\"anthropic\"},\"azure-openai\":{\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"AzureOpenAIClient\",\"id\":\"azure-openai\"},\"cohere\":{\"aliases\":[\"cohere\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"CohereClient\",\"id\":\"cohere\"},\"deepseek\":{\"aliases\":[\"deepseek\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"DeepSeekClient\",\"id\":\"deepseek\"},\"google-gemini\":{\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"GoogleGeminiClient\",\"id\":\"google-gemini\"},\"grok\":{\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"GrokClient\",\"id\":\"grok\"},\"mistral\":{\"aliases\":[\"mistral\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"MistralClient\",\"id\":\"mistral\"},\"openai-compatible\":{\"aliases\":[\"openai-compatible\",\"openai\",\"compatible\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"openai-compatible\"},\"openai-responses\":{\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAIResponsesClient\",\"id\":\"openai-responses\"},\"reka\":{\"aliases\":[\"reka\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"RekaClient\",\"id\":\"reka\"}},\"registryVersion\":\"provider-profile-registry-v1\",\"supportedProfileIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\",\"azure-openai\",\"deepseek\",\"mistral\",\"reka\",\"cohere\",\"grok\"]}"); if err != nil { return nil, err }; v_registry = v }
@@ -4808,6 +4893,7 @@ func provider_profile_registry(args ...Value) (Value, error) {
 }
 
 func provider_resolve_profile(args ...Value) (Value, error) {
+	axirCoverageMark("provider_resolve_profile")
 	var v_profile Value
 	var v_aliases Value
 	var v_is_known Value
@@ -4833,6 +4919,7 @@ func provider_resolve_profile(args ...Value) (Value, error) {
 }
 
 func provider_model_catalog_summary(args ...Value) (Value, error) {
+	axirCoverageMark("provider_model_catalog_summary")
 	var v_summary Value
 	_ = v_summary
 	{ v, err := _core_json_parse("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\",\"azure-openai\",\"deepseek\",\"mistral\",\"reka\",\"cohere\",\"grok\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":10,\"providerNames\":[\"google-gemini\",\"openai\",\"cohere\",\"mistral\",\"deepseek\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"azure-openai\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}"); if err != nil { return nil, err }; v_summary = v }
@@ -4840,6 +4927,7 @@ func provider_model_catalog_summary(args ...Value) (Value, error) {
 }
 
 func _provider_model_catalog_registry(args ...Value) (Value, error) {
+	axirCoverageMark("_provider_model_catalog_registry")
 	var v_catalog Value
 	_ = v_catalog
 	{ v, err := _core_json_parse("{\"all\":[{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.134,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-pro-image-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-image-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-mini\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-whisper\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-translate\",\"provider\":\"openai\",\"type\":\"audio\"}],\"name\":\"openai\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-light\",\"promptTokenCostPer1M\":0.3,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-r\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"command-r-plus\",\"promptTokenCostPer1M\":3,\"provider\":\"cohere\",\"type\":\"text\"}],\"name\":\"cohere\"},{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-nemo-latest\",\"promptTokenCostPer1M\":0.15,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-7b\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.3,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-nemo-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"mistral-small-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.7,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mixtral-8x7b\",\"promptTokenCostPer1M\":0.7,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-large-latest\",\"promptTokenCostPer1M\":2,\"provider\":\"mistral\",\"type\":\"text\"}],\"name\":\"mistral\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":80,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o3-pro\",\"promptTokenCostPer1M\":20,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":600,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o1-pro\",\"promptTokenCostPer1M\":150,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai-responses\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-non-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini\",\"promptTokenCostPer1M\":0.3,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-multi-agent\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-non-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.3\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini-fast\",\"promptTokenCostPer1M\":0.6,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"grok-3\",\"promptTokenCostPer1M\":3,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-fast\",\"promptTokenCostPer1M\":5,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-think-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"}],\"name\":\"grok\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-edge\",\"promptTokenCostPer1M\":0.4,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-flash\",\"promptTokenCostPer1M\":0.8,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"reka-core\",\"promptTokenCostPer1M\":3,\"provider\":\"reka\",\"type\":\"text\"}],\"name\":\"reka\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku-20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku@20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.24,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-instant-1.2\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.08,\"cacheWriteTokenCostPer1M\":1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku-latest\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku@20241022\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5@20251001\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-v2@20241022\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet@20240620\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet@20250219\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-sonnet-20240229\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5-20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5@20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4@20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5-20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5@20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-2.1\",\"promptTokenCostPer1M\":8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus-latest\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus@20240229\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1-20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1@20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4@20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"anthropic\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"}],\"audio\":[{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-mini\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-whisper\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-translate\",\"provider\":\"openai\",\"type\":\"audio\"}],\"name\":\"openai\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-think-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"}],\"name\":\"grok\"}],\"code\":[{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"}],\"name\":\"mistral\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"}],\"name\":\"openai\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"}],\"name\":\"openai-responses\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[],\"name\":\"google-gemini\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"}],\"embeddings\":[{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"}],\"name\":\"openai\"},{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"}],\"name\":\"google-gemini\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"}],\"name\":\"cohere\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"}],\"text\":[{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.134,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-pro-image-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-image-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"google-gemini\"},{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-nemo-latest\",\"promptTokenCostPer1M\":0.15,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-7b\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.3,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-nemo-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"mistral-small-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.7,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mixtral-8x7b\",\"promptTokenCostPer1M\":0.7,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-large-latest\",\"promptTokenCostPer1M\":2,\"provider\":\"mistral\",\"type\":\"text\"}],\"name\":\"mistral\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":80,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o3-pro\",\"promptTokenCostPer1M\":20,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":600,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o1-pro\",\"promptTokenCostPer1M\":150,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai-responses\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-non-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini\",\"promptTokenCostPer1M\":0.3,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-multi-agent\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-non-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.3\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini-fast\",\"promptTokenCostPer1M\":0.6,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"grok-3\",\"promptTokenCostPer1M\":3,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-fast\",\"promptTokenCostPer1M\":5,\"provider\":\"grok\",\"type\":\"text\"}],\"name\":\"grok\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-light\",\"promptTokenCostPer1M\":0.3,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-r\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"command-r-plus\",\"promptTokenCostPer1M\":3,\"provider\":\"cohere\",\"type\":\"text\"}],\"name\":\"cohere\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-edge\",\"promptTokenCostPer1M\":0.4,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-flash\",\"promptTokenCostPer1M\":0.8,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"reka-core\",\"promptTokenCostPer1M\":3,\"provider\":\"reka\",\"type\":\"text\"}],\"name\":\"reka\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku-20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku@20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.24,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-instant-1.2\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.08,\"cacheWriteTokenCostPer1M\":1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku-latest\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku@20241022\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5@20251001\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-v2@20241022\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet@20240620\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet@20250219\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-sonnet-20240229\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5-20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5@20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4@20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5-20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5@20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-2.1\",\"promptTokenCostPer1M\":8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus-latest\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus@20240229\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1-20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1@20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4@20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"anthropic\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"}]}"); if err != nil { return nil, err }; v_catalog = v }
@@ -4847,6 +4935,7 @@ func _provider_model_catalog_registry(args ...Value) (Value, error) {
 }
 
 func provider_model_catalog(args ...Value) (Value, error) {
+	axirCoverageMark("provider_model_catalog")
 	var v_options Value
 	var v_candidate Value
 	var v_candidate_is_list Value
@@ -4906,6 +4995,7 @@ func provider_model_catalog(args ...Value) (Value, error) {
 }
 
 func provider_route_request_requirements(args ...Value) (Value, error) {
+	axirCoverageMark("provider_route_request_requirements")
 	var v_request Value
 	var v_audio_config Value
 	var v_audio_output Value
@@ -5148,6 +5238,7 @@ func provider_route_request_requirements(args ...Value) (Value, error) {
 }
 
 func _provider_features_support(args ...Value) (Value, error) {
+	axirCoverageMark("_provider_features_support")
 	var v_features Value
 	var v_path Value
 	var v_audio Value
@@ -5253,6 +5344,7 @@ func _provider_features_support(args ...Value) (Value, error) {
 }
 
 func _provider_route_score(args ...Value) (Value, error) {
+	axirCoverageMark("_provider_route_score")
 	var v_provider Value
 	var v_requirements Value
 	var v_features Value
@@ -5426,6 +5518,7 @@ func _provider_route_score(args ...Value) (Value, error) {
 }
 
 func provider_route_recommendation(args ...Value) (Value, error) {
+	axirCoverageMark("provider_route_recommendation")
 	var v_providers Value
 	var v_request Value
 	var v_options Value
@@ -5678,6 +5771,7 @@ func provider_route_recommendation(args ...Value) (Value, error) {
 }
 
 func _provider_route_any_supports(args ...Value) (Value, error) {
+	axirCoverageMark("_provider_route_any_supports")
 	var v_providers Value
 	var v_path Value
 	var v_features Value
@@ -5706,6 +5800,7 @@ func _provider_route_any_supports(args ...Value) (Value, error) {
 }
 
 func provider_route_validation(args ...Value) (Value, error) {
+	axirCoverageMark("provider_route_validation")
 	var v_providers Value
 	var v_request Value
 	var v_processing Value
@@ -5838,6 +5933,7 @@ func provider_route_validation(args ...Value) (Value, error) {
 }
 
 func provider_balancer_retry_policy(args ...Value) (Value, error) {
+	axirCoverageMark("provider_balancer_retry_policy")
 	var v_options Value
 	var v_debug Value
 	var v_initial_backoff Value
@@ -5892,6 +5988,7 @@ func provider_balancer_retry_policy(args ...Value) (Value, error) {
 }
 
 func provider_balancer_metric_score(args ...Value) (Value, error) {
+	axirCoverageMark("provider_balancer_metric_score")
 	var v_metrics Value
 	var v_chat Value
 	var v_latency Value
@@ -5908,6 +6005,7 @@ func provider_balancer_metric_score(args ...Value) (Value, error) {
 }
 
 func provider_balancer_candidate_allowed(args ...Value) (Value, error) {
+	axirCoverageMark("provider_balancer_candidate_allowed")
 	var v_features Value
 	var v_request Value
 	var v_audio Value
@@ -6022,6 +6120,7 @@ func provider_balancer_candidate_allowed(args ...Value) (Value, error) {
 }
 
 func provider_routing_stats(args ...Value) (Value, error) {
+	axirCoverageMark("provider_routing_stats")
 	var v_providers Value
 	var v_audio Value
 	var v_audio_count Value
@@ -6211,6 +6310,7 @@ func provider_routing_stats(args ...Value) (Value, error) {
 }
 
 func provider_descriptor(args ...Value) (Value, error) {
+	axirCoverageMark("provider_descriptor")
 	var v_profile Value
 	var v_anthropic_caching Value
 	var v_anthropic_chat Value
@@ -6538,6 +6638,7 @@ func provider_descriptor(args ...Value) (Value, error) {
 }
 
 func provider_operation_descriptor(args ...Value) (Value, error) {
+	axirCoverageMark("provider_operation_descriptor")
 	var v_profile Value
 	var v_operation Value
 	var v_descriptor Value
@@ -6571,6 +6672,7 @@ func provider_operation_descriptor(args ...Value) (Value, error) {
 }
 
 func _provider_realtime_audio_descriptor(args ...Value) (Value, error) {
+	axirCoverageMark("_provider_realtime_audio_descriptor")
 	var v_profile Value
 	var v_descriptor Value
 	if len(args) > 0 { v_profile = args[0] }
@@ -6581,6 +6683,7 @@ func _provider_realtime_audio_descriptor(args ...Value) (Value, error) {
 }
 
 func provider_build_realtime_audio_setup(args ...Value) (Value, error) {
+	axirCoverageMark("provider_build_realtime_audio_setup")
 	var v_profile Value
 	var v_request Value
 	var v_descriptor Value
@@ -6611,6 +6714,7 @@ func provider_build_realtime_audio_setup(args ...Value) (Value, error) {
 }
 
 func provider_build_realtime_audio_input(args ...Value) (Value, error) {
+	axirCoverageMark("provider_build_realtime_audio_input")
 	var v_profile Value
 	var v_request Value
 	var v_descriptor Value
@@ -6641,6 +6745,7 @@ func provider_build_realtime_audio_input(args ...Value) (Value, error) {
 }
 
 func _openai_realtime_compatible_build_setup(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_realtime_compatible_build_setup")
 	var v_descriptor Value
 	var v_request Value
 	var v_audio Value
@@ -6770,6 +6875,7 @@ func _openai_realtime_compatible_build_setup(args ...Value) (Value, error) {
 }
 
 func _openai_realtime_compatible_build_input(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_realtime_compatible_build_input")
 	var v_descriptor Value
 	var v_request Value
 	var v_content Value
@@ -6821,6 +6927,7 @@ func _openai_realtime_compatible_build_input(args ...Value) (Value, error) {
 }
 
 func _gemini_live_bidi_build_setup(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_live_bidi_build_setup")
 	var v_descriptor Value
 	var v_request Value
 	var v_audio_descriptor Value
@@ -6946,6 +7053,7 @@ func _gemini_live_bidi_build_setup(args ...Value) (Value, error) {
 }
 
 func _gemini_live_bidi_build_input(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_live_bidi_build_input")
 	var v_descriptor Value
 	var v_request Value
 	var v_audio Value
@@ -7114,6 +7222,7 @@ func _gemini_live_bidi_build_input(args ...Value) (Value, error) {
 }
 
 func _realtime_request_system_instruction_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_realtime_request_system_instruction_impl")
 	var v_request Value
 	var v_content Value
 	var v_direct Value
@@ -7162,6 +7271,7 @@ func _realtime_request_system_instruction_impl(args ...Value) (Value, error) {
 }
 
 func _realtime_request_user_messages_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_realtime_request_user_messages_impl")
 	var v_request Value
 	var v_count Value
 	var v_empty_prompt Value
@@ -7217,6 +7327,7 @@ func _realtime_request_user_messages_impl(args ...Value) (Value, error) {
 }
 
 func _openai_realtime_content_parts_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_realtime_content_parts_impl")
 	var v_content Value
 	var v_audio_part Value
 	var v_data Value
@@ -7276,6 +7387,7 @@ func _openai_realtime_content_parts_impl(args ...Value) (Value, error) {
 }
 
 func provider_build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("provider_build_chat_request")
 	var v_profile Value
 	var v_request Value
 	var v_anthropic_payload Value
@@ -7330,6 +7442,7 @@ func provider_build_chat_request(args ...Value) (Value, error) {
 }
 
 func _provider_apply_openai_compatible_profile_quirks(args ...Value) (Value, error) {
+	axirCoverageMark("_provider_apply_openai_compatible_profile_quirks")
 	var v_profile Value
 	var v_payload Value
 	var v_request Value
@@ -7373,6 +7486,7 @@ func _provider_apply_openai_compatible_profile_quirks(args ...Value) (Value, err
 }
 
 func _provider_apply_deepseek_chat_quirks(args ...Value) (Value, error) {
+	axirCoverageMark("_provider_apply_deepseek_chat_quirks")
 	var v_payload Value
 	var v_model_config Value
 	var v_budget Value
@@ -7489,6 +7603,7 @@ func _provider_apply_deepseek_chat_quirks(args ...Value) (Value, error) {
 }
 
 func _provider_apply_mistral_chat_quirks(args ...Value) (Value, error) {
+	axirCoverageMark("_provider_apply_mistral_chat_quirks")
 	var v_payload Value
 	var v_content Value
 	var v_content_is_list Value
@@ -7556,6 +7671,7 @@ func _provider_apply_mistral_chat_quirks(args ...Value) (Value, error) {
 }
 
 func _provider_apply_grok_chat_quirks(args ...Value) (Value, error) {
+	axirCoverageMark("_provider_apply_grok_chat_quirks")
 	var v_payload Value
 	var v_request Value
 	var v_model_config Value
@@ -7843,6 +7959,7 @@ func _provider_apply_grok_chat_quirks(args ...Value) (Value, error) {
 }
 
 func provider_build_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("provider_build_embed_request")
 	var v_profile Value
 	var v_request Value
 	var v_error Value
@@ -7883,6 +8000,7 @@ func provider_build_embed_request(args ...Value) (Value, error) {
 }
 
 func provider_normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("provider_normalize_chat_response")
 	var v_profile Value
 	var v_raw Value
 	var v_ai_name Value
@@ -7939,6 +8057,7 @@ func provider_normalize_chat_response(args ...Value) (Value, error) {
 }
 
 func provider_normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("provider_normalize_stream_delta")
 	var v_profile Value
 	var v_raw Value
 	var v_state Value
@@ -7998,6 +8117,7 @@ func provider_normalize_stream_delta(args ...Value) (Value, error) {
 }
 
 func provider_normalize_embed_response(args ...Value) (Value, error) {
+	axirCoverageMark("provider_normalize_embed_response")
 	var v_profile Value
 	var v_raw Value
 	var v_ai_name Value
@@ -8034,6 +8154,7 @@ func provider_normalize_embed_response(args ...Value) (Value, error) {
 }
 
 func provider_build_transcribe_request(args ...Value) (Value, error) {
+	axirCoverageMark("provider_build_transcribe_request")
 	var v_profile Value
 	var v_request Value
 	var v_gemini_payload Value
@@ -8077,6 +8198,7 @@ func provider_build_transcribe_request(args ...Value) (Value, error) {
 }
 
 func provider_build_speak_request(args ...Value) (Value, error) {
+	axirCoverageMark("provider_build_speak_request")
 	var v_profile Value
 	var v_request Value
 	var v_gemini_payload Value
@@ -8120,6 +8242,7 @@ func provider_build_speak_request(args ...Value) (Value, error) {
 }
 
 func provider_normalize_transcribe_response(args ...Value) (Value, error) {
+	axirCoverageMark("provider_normalize_transcribe_response")
 	var v_profile Value
 	var v_raw Value
 	var v_duration Value
@@ -8173,6 +8296,7 @@ func provider_normalize_transcribe_response(args ...Value) (Value, error) {
 }
 
 func provider_normalize_speak_response(args ...Value) (Value, error) {
+	axirCoverageMark("provider_normalize_speak_response")
 	var v_profile Value
 	var v_raw Value
 	var v_request Value
@@ -8211,6 +8335,7 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 }
 
 func provider_normalize_realtime_event(args ...Value) (Value, error) {
+	axirCoverageMark("provider_normalize_realtime_event")
 	var v_profile Value
 	var v_event Value
 	var v_state Value
@@ -8253,6 +8378,7 @@ func provider_normalize_realtime_event(args ...Value) (Value, error) {
 }
 
 func openai_responses_build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("openai_responses_build_chat_request")
 	var v_request Value
 	var v_empty_functions Value
 	var v_empty_model_config Value
@@ -8415,6 +8541,7 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 }
 
 func _openai_responses_apply_model_config_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_apply_model_config_impl")
 	var v_payload Value
 	var v_model_config Value
 	if len(args) > 0 { v_payload = args[0] }
@@ -8434,6 +8561,7 @@ func _openai_responses_apply_model_config_impl(args ...Value) (Value, error) {
 }
 
 func _openai_responses_tool_spec_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_tool_spec_impl")
 	var v_fn Value
 	var v_description Value
 	var v_empty_parameters Value
@@ -8460,6 +8588,7 @@ func _openai_responses_tool_spec_impl(args ...Value) (Value, error) {
 }
 
 func _openai_responses_input_item_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_input_item_impl")
 	var v_message Value
 	var v_call_id Value
 	var v_content Value
@@ -8505,6 +8634,7 @@ func _openai_responses_input_item_impl(args ...Value) (Value, error) {
 }
 
 func _openai_responses_content_parts_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_content_parts_impl")
 	var v_content Value
 	var v_role Value
 	var v_is_assistant Value
@@ -8547,6 +8677,7 @@ func _openai_responses_content_parts_impl(args ...Value) (Value, error) {
 }
 
 func _openai_responses_content_part_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_content_part_impl")
 	var v_part Value
 	var v_role Value
 	var v_audio_alt Value
@@ -8650,6 +8781,7 @@ func _openai_responses_content_part_impl(args ...Value) (Value, error) {
 }
 
 func openai_responses_normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("openai_responses_normalize_chat_response")
 	var v_raw Value
 	var v_ai_name Value
 	var v_model Value
@@ -8707,6 +8839,7 @@ func openai_responses_normalize_chat_response(args ...Value) (Value, error) {
 }
 
 func _openai_responses_merge_output_item_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_merge_output_item_impl")
 	var v_result Value
 	var v_item Value
 	var v_call Value
@@ -8768,6 +8901,7 @@ func _openai_responses_merge_output_item_impl(args ...Value) (Value, error) {
 }
 
 func _openai_responses_content_to_text_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_content_to_text_impl")
 	var v_content Value
 	var v_is_refusal Value
 	var v_is_text Value
@@ -8808,6 +8942,7 @@ func _openai_responses_content_to_text_impl(args ...Value) (Value, error) {
 }
 
 func _openai_responses_extract_citations_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_extract_citations_impl")
 	var v_content Value
 	var v_annotation Value
 	var v_annotations Value
@@ -8858,6 +8993,7 @@ func _openai_responses_extract_citations_impl(args ...Value) (Value, error) {
 }
 
 func _openai_responses_function_call_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_function_call_impl")
 	var v_item Value
 	var v_args Value
 	var v_args_is_string Value
@@ -8914,6 +9050,7 @@ func _openai_responses_function_call_impl(args ...Value) (Value, error) {
 }
 
 func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("openai_responses_normalize_stream_delta")
 	var v_event Value
 	var v_state Value
 	var v_ai_name Value
@@ -9065,6 +9202,7 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 }
 
 func openai_responses_build_transcribe_request(args ...Value) (Value, error) {
+	axirCoverageMark("openai_responses_build_transcribe_request")
 	var v_request Value
 	var v_audio_file Value
 	var v_format Value
@@ -9101,6 +9239,7 @@ func openai_responses_build_transcribe_request(args ...Value) (Value, error) {
 }
 
 func openai_responses_build_speak_request(args ...Value) (Value, error) {
+	axirCoverageMark("openai_responses_build_speak_request")
 	var v_request Value
 	var v_payload Value
 	var v_request_input Value
@@ -9130,6 +9269,7 @@ func openai_responses_build_speak_request(args ...Value) (Value, error) {
 }
 
 func _grok_build_transcribe_request(args ...Value) (Value, error) {
+	axirCoverageMark("_grok_build_transcribe_request")
 	var v_request Value
 	var v_audio_file Value
 	var v_has_language Value
@@ -9170,6 +9310,7 @@ func _grok_build_transcribe_request(args ...Value) (Value, error) {
 }
 
 func _grok_build_speak_request(args ...Value) (Value, error) {
+	axirCoverageMark("_grok_build_speak_request")
 	var v_request Value
 	var v_codec Value
 	var v_format Value
@@ -9244,6 +9385,7 @@ func _grok_build_speak_request(args ...Value) (Value, error) {
 }
 
 func _gemini_build_transcribe_request(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_build_transcribe_request")
 	var v_request Value
 	var v_audio Value
 	var v_audio_part Value
@@ -9308,6 +9450,7 @@ func _gemini_build_transcribe_request(args ...Value) (Value, error) {
 }
 
 func _gemini_build_speak_request(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_build_speak_request")
 	var v_request Value
 	var v_contents Value
 	var v_generation_config Value
@@ -9370,6 +9513,7 @@ func _gemini_build_speak_request(args ...Value) (Value, error) {
 }
 
 func _gemini_normalize_transcribe_response(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_normalize_transcribe_response")
 	var v_raw Value
 	var v_candidate Value
 	var v_candidates Value
@@ -9419,6 +9563,7 @@ func _gemini_normalize_transcribe_response(args ...Value) (Value, error) {
 }
 
 func _gemini_normalize_speak_response(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_normalize_speak_response")
 	var v_raw Value
 	var v_request Value
 	var v_audio Value
@@ -9485,6 +9630,7 @@ func _gemini_normalize_speak_response(args ...Value) (Value, error) {
 }
 
 func openai_responses_normalize_realtime_event(args ...Value) (Value, error) {
+	axirCoverageMark("openai_responses_normalize_realtime_event")
 	var v_event Value
 	var v_state Value
 	var v_ai_name Value
@@ -9655,6 +9801,7 @@ func openai_responses_normalize_realtime_event(args ...Value) (Value, error) {
 }
 
 func _gemini_live_bidi_normalize_realtime_event(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_live_bidi_normalize_realtime_event")
 	var v_event Value
 	var v_state Value
 	var v_ai_name Value
@@ -9850,6 +9997,7 @@ func _gemini_live_bidi_normalize_realtime_event(args ...Value) (Value, error) {
 }
 
 func _gemini_build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_build_chat_request")
 	var v_request Value
 	var v_contents Value
 	var v_decl Value
@@ -10034,6 +10182,7 @@ func _gemini_build_chat_request(args ...Value) (Value, error) {
 }
 
 func _gemini_apply_model_config_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_apply_model_config_impl")
 	var v_payload Value
 	var v_model_config Value
 	if len(args) > 0 { v_payload = args[0] }
@@ -10056,6 +10205,7 @@ func _gemini_apply_model_config_impl(args ...Value) (Value, error) {
 }
 
 func _gemini_message_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_message_impl")
 	var v_message Value
 	var v_args Value
 	var v_args_is_string Value
@@ -10205,6 +10355,7 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 }
 
 func _gemini_content_parts_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_content_parts_impl")
 	var v_content Value
 	var v_is_list Value
 	var v_mapped Value
@@ -10232,6 +10383,7 @@ func _gemini_content_parts_impl(args ...Value) (Value, error) {
 }
 
 func _gemini_content_part_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_content_part_impl")
 	var v_part Value
 	var v_audio_alt Value
 	var v_data Value
@@ -10345,6 +10497,7 @@ func _gemini_content_part_impl(args ...Value) (Value, error) {
 }
 
 func _gemini_function_declaration_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_function_declaration_impl")
 	var v_fn Value
 	var v_decl Value
 	var v_description Value
@@ -10370,6 +10523,7 @@ func _gemini_function_declaration_impl(args ...Value) (Value, error) {
 }
 
 func _gemini_tool_config_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_tool_config_impl")
 	var v_request Value
 	var v_allowed Value
 	var v_config Value
@@ -10427,6 +10581,7 @@ func _gemini_tool_config_impl(args ...Value) (Value, error) {
 }
 
 func _gemini_build_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_build_embed_request")
 	var v_request Value
 	var v_content Value
 	var v_empty_texts Value
@@ -10475,6 +10630,7 @@ func _gemini_build_embed_request(args ...Value) (Value, error) {
 }
 
 func _gemini_normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_normalize_chat_response")
 	var v_raw Value
 	var v_ai_name Value
 	var v_model Value
@@ -10659,6 +10815,7 @@ func _gemini_normalize_chat_response(args ...Value) (Value, error) {
 }
 
 func _gemini_merge_response_part_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_merge_response_part_impl")
 	var v_result Value
 	var v_text_parts Value
 	var v_function_calls Value
@@ -10724,6 +10881,7 @@ func _gemini_merge_response_part_impl(args ...Value) (Value, error) {
 }
 
 func _gemini_extract_citations_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_extract_citations_impl")
 	var v_candidate Value
 	var v_chunk Value
 	var v_chunks Value
@@ -10868,6 +11026,7 @@ func _gemini_extract_citations_impl(args ...Value) (Value, error) {
 }
 
 func _gemini_usage_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_usage_impl")
 	var v_usage Value
 	var v_cached Value
 	var v_completion Value
@@ -10929,6 +11088,7 @@ func _gemini_usage_impl(args ...Value) (Value, error) {
 }
 
 func _gemini_normalize_embed_response(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_normalize_embed_response")
 	var v_raw Value
 	var v_ai_name Value
 	var v_model Value
@@ -10978,6 +11138,7 @@ func _gemini_normalize_embed_response(args ...Value) (Value, error) {
 }
 
 func _anthropic_build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_build_chat_request")
 	var v_request Value
 	var v_cache Value
 	var v_cache_control Value
@@ -11155,6 +11316,7 @@ func _anthropic_build_chat_request(args ...Value) (Value, error) {
 }
 
 func _anthropic_apply_model_config_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_apply_model_config_impl")
 	var v_payload Value
 	var v_model_config Value
 	var v_model Value
@@ -11261,6 +11423,7 @@ func _anthropic_apply_model_config_impl(args ...Value) (Value, error) {
 }
 
 func _anthropic_thinking_config_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_thinking_config_impl")
 	var v_model Value
 	var v_level Value
 	var v_budget Value
@@ -11373,6 +11536,7 @@ func _anthropic_thinking_config_impl(args ...Value) (Value, error) {
 }
 
 func _anthropic_message_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_message_impl")
 	var v_message Value
 	var v_block Value
 	var v_blocks Value
@@ -11602,6 +11766,7 @@ func _anthropic_message_impl(args ...Value) (Value, error) {
 }
 
 func _anthropic_content_parts_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_content_parts_impl")
 	var v_content Value
 	var v_is_list Value
 	var v_mapped Value
@@ -11630,6 +11795,7 @@ func _anthropic_content_parts_impl(args ...Value) (Value, error) {
 }
 
 func _anthropic_content_part_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_content_part_impl")
 	var v_part Value
 	var v_cache Value
 	var v_cache_control Value
@@ -11706,6 +11872,7 @@ func _anthropic_content_part_impl(args ...Value) (Value, error) {
 }
 
 func _anthropic_tool_spec_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_tool_spec_impl")
 	var v_fn Value
 	var v_cache Value
 	var v_cache_control Value
@@ -11742,6 +11909,7 @@ func _anthropic_tool_spec_impl(args ...Value) (Value, error) {
 }
 
 func _anthropic_tool_choice_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_tool_choice_impl")
 	var v_request Value
 	var v_choice Value
 	var v_error Value
@@ -11803,6 +11971,7 @@ func _anthropic_tool_choice_impl(args ...Value) (Value, error) {
 }
 
 func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_normalize_chat_response")
 	var v_raw Value
 	var v_ai_name Value
 	var v_model Value
@@ -11952,6 +12121,7 @@ func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 }
 
 func _anthropic_merge_response_block_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_merge_response_block_impl")
 	var v_text_parts Value
 	var v_function_calls Value
 	var v_thought_parts Value
@@ -12070,6 +12240,7 @@ func _anthropic_merge_response_block_impl(args ...Value) (Value, error) {
 }
 
 func _anthropic_append_citations_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_append_citations_impl")
 	var v_out Value
 	var v_block Value
 	var v_citation Value
@@ -12127,6 +12298,7 @@ func _anthropic_append_citations_impl(args ...Value) (Value, error) {
 }
 
 func _anthropic_finish_reason_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_finish_reason_impl")
 	var v_reason Value
 	var v_is_context Value
 	var v_is_length Value
@@ -12175,6 +12347,7 @@ func _anthropic_finish_reason_impl(args ...Value) (Value, error) {
 }
 
 func _anthropic_usage_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_usage_impl")
 	var v_usage Value
 	var v_cache_creation Value
 	var v_cache_read Value
@@ -12247,6 +12420,7 @@ func _anthropic_usage_impl(args ...Value) (Value, error) {
 }
 
 func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_normalize_stream_delta")
 	var v_event Value
 	var v_state Value
 	var v_ai_name Value
@@ -12620,6 +12794,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 }
 
 func _build_gen_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("_build_gen_chat_request")
 	var v_gen Value
 	var v_messages Value
 	var v_options Value
@@ -12759,6 +12934,7 @@ func _build_gen_chat_request(args ...Value) (Value, error) {
 }
 
 func fold_stream(args ...Value) (Value, error) {
+	axirCoverageMark("fold_stream")
 	var v_events Value
 	var v_chunks Value
 	var v_event Value
@@ -12784,6 +12960,7 @@ func fold_stream(args ...Value) (Value, error) {
 }
 
 func _execute_tool_call(args ...Value) (Value, error) {
+	axirCoverageMark("_execute_tool_call")
 	var v_functions Value
 	var v_call Value
 	var v_argument_params Value
@@ -12866,6 +13043,7 @@ func _execute_tool_call(args ...Value) (Value, error) {
 }
 
 func _stream_event_content_parts_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_stream_event_content_parts_impl")
 	var v_event Value
 	var v_parts Value
 	if len(args) > 0 { v_event = args[0] }
@@ -12876,6 +13054,7 @@ func _stream_event_content_parts_impl(args ...Value) (Value, error) {
 }
 
 func _validate_optimization_component_value(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_optimization_component_value")
 	var v_component Value
 	var v_value Value
 	var v_bad_boolean Value
@@ -13048,6 +13227,7 @@ func _validate_optimization_component_value(args ...Value) (Value, error) {
 }
 
 func _forward_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_forward_impl")
 	var v_gen Value
 	var v_client Value
 	var v_values Value
@@ -13256,6 +13436,7 @@ func _forward_impl(args ...Value) (Value, error) {
 }
 
 func _validate_optimization_component_map(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_optimization_component_map")
 	var v_components Value
 	var v_component_map Value
 	var v_bad Value
@@ -13308,6 +13489,7 @@ func _validate_optimization_component_map(args ...Value) (Value, error) {
 }
 
 func _validate_optimized_artifact_provenance(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_optimized_artifact_provenance")
 	var v_artifact Value
 	var v_components Value
 	var v_actual_owner Value
@@ -13378,6 +13560,7 @@ func _validate_optimized_artifact_provenance(args ...Value) (Value, error) {
 }
 
 func _set_examples(args ...Value) (Value, error) {
+	axirCoverageMark("_set_examples")
 	var v_gen Value
 	var v_examples Value
 	if len(args) > 0 { v_gen = args[0] }
@@ -13389,6 +13572,7 @@ func _set_examples(args ...Value) (Value, error) {
 }
 
 func _validate_optimized_artifact(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_optimized_artifact")
 	var v_artifact Value
 	var v_components Value
 	var v_bad_component_map Value
@@ -13549,6 +13733,7 @@ func _validate_optimized_artifact(args ...Value) (Value, error) {
 }
 
 func _set_demos(args ...Value) (Value, error) {
+	axirCoverageMark("_set_demos")
 	var v_gen Value
 	var v_demos Value
 	if len(args) > 0 { v_gen = args[0] }
@@ -13560,6 +13745,7 @@ func _set_demos(args ...Value) (Value, error) {
 }
 
 func _render_examples(args ...Value) (Value, error) {
+	axirCoverageMark("_render_examples")
 	var v_gen Value
 	var v_messages Value
 	if len(args) > 0 { v_gen = args[0] }
@@ -13570,6 +13756,7 @@ func _render_examples(args ...Value) (Value, error) {
 }
 
 func _render_demos(args ...Value) (Value, error) {
+	axirCoverageMark("_render_demos")
 	var v_gen Value
 	var v_messages Value
 	if len(args) > 0 { v_gen = args[0] }
@@ -13580,6 +13767,7 @@ func _render_demos(args ...Value) (Value, error) {
 }
 
 func _apply_field_processors(args ...Value) (Value, error) {
+	axirCoverageMark("_apply_field_processors")
 	var v_gen Value
 	var v_output Value
 	var v_processed Value
@@ -13593,6 +13781,7 @@ func _apply_field_processors(args ...Value) (Value, error) {
 }
 
 func _run_assertions(args ...Value) (Value, error) {
+	axirCoverageMark("_run_assertions")
 	var v_gen Value
 	var v_output Value
 	if len(args) > 0 { v_gen = args[0] }
@@ -13604,6 +13793,7 @@ func _run_assertions(args ...Value) (Value, error) {
 }
 
 func _append_assertion_retry_messages(args ...Value) (Value, error) {
+	axirCoverageMark("_append_assertion_retry_messages")
 	var v_messages Value
 	var v_response Value
 	var v_error Value
@@ -13618,6 +13808,7 @@ func _append_assertion_retry_messages(args ...Value) (Value, error) {
 }
 
 func _serialize_optimized_artifact(args ...Value) (Value, error) {
+	axirCoverageMark("_serialize_optimized_artifact")
 	var v_artifact Value
 	var v_text Value
 	if len(args) > 0 { v_artifact = args[0] }
@@ -13628,6 +13819,7 @@ func _serialize_optimized_artifact(args ...Value) (Value, error) {
 }
 
 func _record_trace(args ...Value) (Value, error) {
+	axirCoverageMark("_record_trace")
 	var v_gen Value
 	var v_input Value
 	var v_output Value
@@ -13645,6 +13837,7 @@ func _record_trace(args ...Value) (Value, error) {
 }
 
 func _deserialize_optimized_artifact(args ...Value) (Value, error) {
+	axirCoverageMark("_deserialize_optimized_artifact")
 	var v_text Value
 	var v_components Value
 	var v_artifact Value
@@ -13661,6 +13854,7 @@ func _deserialize_optimized_artifact(args ...Value) (Value, error) {
 }
 
 func _should_continue_steps(args ...Value) (Value, error) {
+	axirCoverageMark("_should_continue_steps")
 	var v_gen Value
 	var v_calls Value
 	var v_should_continue Value
@@ -13674,6 +13868,7 @@ func _should_continue_steps(args ...Value) (Value, error) {
 }
 
 func _optimization_changed_components(args ...Value) (Value, error) {
+	axirCoverageMark("_optimization_changed_components")
 	var v_components Value
 	var v_component_map Value
 	var v_changed Value
@@ -13717,6 +13912,7 @@ func _optimization_changed_components(args ...Value) (Value, error) {
 }
 
 func _complete_with_retries_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_complete_with_retries_impl")
 	var v_client Value
 	var v_request Value
 	var v_retries Value
@@ -13766,6 +13962,7 @@ func _complete_with_retries_impl(args ...Value) (Value, error) {
 }
 
 func _optimization_component_current_map(args ...Value) (Value, error) {
+	axirCoverageMark("_optimization_component_current_map")
 	var v_components Value
 	var v_component Value
 	var v_current Value
@@ -13787,6 +13984,7 @@ func _optimization_component_current_map(args ...Value) (Value, error) {
 }
 
 func _parse_output_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_output_impl")
 	var v_content Value
 	var v_output Value
 	var v_text Value
@@ -13800,6 +13998,7 @@ func _parse_output_impl(args ...Value) (Value, error) {
 }
 
 func _normalize_optimization_dataset(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_optimization_dataset")
 	var v_dataset Value
 	var v_empty_list Value
 	var v_is_object Value
@@ -13834,6 +14033,7 @@ func _normalize_optimization_dataset(args ...Value) (Value, error) {
 }
 
 func _tool_spec_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_tool_spec_impl")
 	var v_fn Value
 	var v_description Value
 	var v_name Value
@@ -13856,6 +14056,7 @@ func _tool_spec_impl(args ...Value) (Value, error) {
 }
 
 func _normalize_optimization_metric_scores(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_optimization_metric_scores")
 	var v_raw Value
 	var v_is_number Value
 	var v_is_object Value
@@ -13887,6 +14088,7 @@ func _normalize_optimization_metric_scores(args ...Value) (Value, error) {
 }
 
 func _function_call_mode_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_function_call_mode_impl")
 	var v_mode Value
 	var v_is_auto Value
 	var v_is_native Value
@@ -13924,6 +14126,7 @@ func _function_call_mode_impl(args ...Value) (Value, error) {
 }
 
 func _scalarize_optimization_scores(args ...Value) (Value, error) {
+	axirCoverageMark("_scalarize_optimization_scores")
 	var v_scores Value
 	var v_options Value
 	var v_avg Value
@@ -13980,6 +14183,7 @@ func _scalarize_optimization_scores(args ...Value) (Value, error) {
 }
 
 func _response_function_calls_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_response_function_calls_impl")
 	var v_response Value
 	var v_calls Value
 	var v_empty Value
@@ -13993,6 +14197,7 @@ func _response_function_calls_impl(args ...Value) (Value, error) {
 }
 
 func _append_tool_call_messages_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_append_tool_call_messages_impl")
 	var v_messages Value
 	var v_response Value
 	var v_calls Value
@@ -14027,6 +14232,7 @@ func _append_tool_call_messages_impl(args ...Value) (Value, error) {
 }
 
 func _optimization_action_name_matches(args ...Value) (Value, error) {
+	axirCoverageMark("_optimization_action_name_matches")
 	var v_expected Value
 	var v_call Value
 	var v_any_match Value
@@ -14061,6 +14267,7 @@ func _optimization_action_name_matches(args ...Value) (Value, error) {
 }
 
 func _completion_call_to_chat_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_completion_call_to_chat_impl")
 	var v_call Value
 	var v_function Value
 	var v_id Value
@@ -14088,6 +14295,7 @@ func _completion_call_to_chat_impl(args ...Value) (Value, error) {
 }
 
 func _adjust_optimization_score_for_actions(args ...Value) (Value, error) {
+	axirCoverageMark("_adjust_optimization_score_for_actions")
 	var v_score Value
 	var v_task Value
 	var v_prediction Value
@@ -14194,6 +14402,7 @@ func _adjust_optimization_score_for_actions(args ...Value) (Value, error) {
 }
 
 func _tool_result_message_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_tool_result_message_impl")
 	var v_call Value
 	var v_result Value
 	var v_id Value
@@ -14216,6 +14425,7 @@ func _tool_result_message_impl(args ...Value) (Value, error) {
 }
 
 func _tool_error_message_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_tool_error_message_impl")
 	var v_call Value
 	var v_error Value
 	var v_error_text Value
@@ -14246,6 +14456,7 @@ func _tool_error_message_impl(args ...Value) (Value, error) {
 }
 
 func _append_validation_retry_messages_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_append_validation_retry_messages_impl")
 	var v_messages Value
 	var v_response Value
 	var v_error Value
@@ -14283,6 +14494,7 @@ func _append_validation_retry_messages_impl(args ...Value) (Value, error) {
 }
 
 func _build_optimization_eval_row(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimization_eval_row")
 	var v_task Value
 	var v_prediction Value
 	var v_scores Value
@@ -14321,6 +14533,7 @@ func _build_optimization_eval_row(args ...Value) (Value, error) {
 }
 
 func _build_optimization_eval_result(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimization_eval_result")
 	var v_rows Value
 	var v_candidate_map Value
 	var v_phase Value
@@ -14378,6 +14591,7 @@ func _build_optimization_eval_result(args ...Value) (Value, error) {
 }
 
 func _filter_optimization_components(args ...Value) (Value, error) {
+	axirCoverageMark("_filter_optimization_components")
 	var v_components Value
 	var v_target Value
 	var v_actor_any_match Value
@@ -14514,6 +14728,7 @@ func _filter_optimization_components(args ...Value) (Value, error) {
 }
 
 func _build_optimizer_request(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimizer_request")
 	var v_program_kind Value
 	var v_components Value
 	var v_dataset Value
@@ -14554,6 +14769,7 @@ func _build_optimizer_request(args ...Value) (Value, error) {
 }
 
 func _prepare_optimizer_run(args ...Value) (Value, error) {
+	axirCoverageMark("_prepare_optimizer_run")
 	var v_program_kind Value
 	var v_components Value
 	var v_dataset Value
@@ -14622,6 +14838,7 @@ func _prepare_optimizer_run(args ...Value) (Value, error) {
 }
 
 func _normalize_optimizer_engine_response(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_optimizer_engine_response")
 	var v_response Value
 	var v_engine_name Value
 	var v_engine_version Value
@@ -14794,6 +15011,7 @@ func _normalize_optimizer_engine_response(args ...Value) (Value, error) {
 }
 
 func _build_optimizer_evidence_batch(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimizer_evidence_batch")
 	var v_eval_result Value
 	var v_components Value
 	var v_avg Value
@@ -14928,6 +15146,7 @@ func _build_optimizer_evidence_batch(args ...Value) (Value, error) {
 }
 
 func _agent_factory(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_factory")
 	var v_signature Value
 	var v_options Value
 	var v_action_log Value
@@ -15182,6 +15401,7 @@ func _agent_factory(args ...Value) (Value, error) {
 }
 
 func _optimization_component(args ...Value) (Value, error) {
+	axirCoverageMark("_optimization_component")
 	var v_id Value
 	var v_owner Value
 	var v_kind Value
@@ -15229,6 +15449,7 @@ func _optimization_component(args ...Value) (Value, error) {
 }
 
 func _optimized_artifact(args ...Value) (Value, error) {
+	axirCoverageMark("_optimized_artifact")
 	var v_optimizer_name Value
 	var v_optimizer_version Value
 	var v_component_map Value
@@ -15275,6 +15496,7 @@ func _optimized_artifact(args ...Value) (Value, error) {
 }
 
 func _agent_reserved_runtime_names(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_reserved_runtime_names")
 	var v_names Value
 	var v_names_is_list Value
 	var v_registry Value
@@ -15293,6 +15515,7 @@ func _agent_reserved_runtime_names(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_language_tokens(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_language_tokens")
 	var v_language Value
 	var v_plus_spaced Value
 	var v_sharp_spaced Value
@@ -15315,6 +15538,7 @@ func _agent_runtime_language_tokens(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_language_alias_key(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_language_alias_key")
 	var v_tokens Value
 	var v_alias_key Value
 	var v_joined Value
@@ -15328,6 +15552,7 @@ func _agent_runtime_language_alias_key(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_is_javascript_alias(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_is_javascript_alias")
 	var v_alias_key Value
 	var v_is_ecmascript Value
 	var v_is_javascript Value
@@ -15350,6 +15575,7 @@ func _agent_runtime_is_javascript_alias(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_code_field_name(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_code_field_name")
 	var v_tokens Value
 	var v_is_javascript Value
 	var v_count Value
@@ -15381,6 +15607,7 @@ func _agent_runtime_code_field_name(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_code_fence_language(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_code_fence_language")
 	var v_tokens Value
 	var v_alias_key Value
 	var v_is_javascript Value
@@ -15412,6 +15639,7 @@ func _agent_runtime_code_fence_language(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_runtime(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_runtime")
 	var v_options Value
 	var v_alias_key Value
 	var v_code_fence_camel Value
@@ -15534,6 +15762,7 @@ func _normalize_agent_runtime(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_policy(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_policy")
 	var v_options Value
 	var v_delegation_default Value
 	var v_discovery_default Value
@@ -15572,6 +15801,7 @@ func _normalize_agent_policy(args ...Value) (Value, error) {
 }
 
 func _agent_policy_flags(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_policy_flags")
 	var v_options Value
 	var v_context_config Value
 	var v_function_discovery Value
@@ -15651,6 +15881,7 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 }
 
 func _agent_policy_action(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_policy_action")
 	var v_id Value
 	var v_category Value
 	var v_kind Value
@@ -15692,6 +15923,7 @@ func _agent_policy_action(args ...Value) (Value, error) {
 }
 
 func _agent_policy_vocabulary_registry(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_policy_vocabulary_registry")
 	var v_adaptive_recent Value
 	var v_allowed_keys Value
 	var v_budget_balanced Value
@@ -15983,6 +16215,7 @@ func _agent_policy_vocabulary_registry(args ...Value) (Value, error) {
 }
 
 func _map_optimization_judge_quality_to_score(args ...Value) (Value, error) {
+	axirCoverageMark("_map_optimization_judge_quality_to_score")
 	var v_quality Value
 	var v_is_acceptable Value
 	var v_is_excellent Value
@@ -16033,6 +16266,7 @@ func _map_optimization_judge_quality_to_score(args ...Value) (Value, error) {
 }
 
 func _build_optimization_judge_payload(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimization_judge_payload")
 	var v_task Value
 	var v_prediction Value
 	var v_criteria Value
@@ -16116,6 +16350,7 @@ func _build_optimization_judge_payload(args ...Value) (Value, error) {
 }
 
 func _agent_context_policy_registry(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_context_policy_registry")
 	var v_context Value
 	var v_empty_map Value
 	var v_registry Value
@@ -16129,6 +16364,7 @@ func _agent_context_policy_registry(args ...Value) (Value, error) {
 }
 
 func _agent_context_policy_migration_error(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_context_policy_migration_error")
 	var v_key Value
 	var v_context Value
 	var v_default_message Value
@@ -16151,6 +16387,7 @@ func _agent_context_policy_migration_error(args ...Value) (Value, error) {
 }
 
 func _agent_context_budget_profile(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_context_budget_profile")
 	var v_budget Value
 	var v_budgets Value
 	var v_context Value
@@ -16184,6 +16421,7 @@ func _agent_context_budget_profile(args ...Value) (Value, error) {
 }
 
 func _agent_context_preset_profile(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_context_preset_profile")
 	var v_preset Value
 	var v_context Value
 	var v_empty_map Value
@@ -16217,6 +16455,7 @@ func _agent_context_preset_profile(args ...Value) (Value, error) {
 }
 
 func _agent_context_event_name(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_context_event_name")
 	var v_stable_id Value
 	var v_context Value
 	var v_empty_map Value
@@ -16236,6 +16475,7 @@ func _agent_context_event_name(args ...Value) (Value, error) {
 }
 
 func _agent_context_event_reason(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_context_event_reason")
 	var v_stable_id Value
 	var v_context Value
 	var v_empty_map Value
@@ -16255,6 +16495,7 @@ func _agent_context_event_reason(args ...Value) (Value, error) {
 }
 
 func _agent_policy_registry(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_policy_registry")
 	var v_policy Value
 	var v_flags Value
 	var v_actor_primitives Value
@@ -16450,6 +16691,7 @@ func _agent_policy_registry(args ...Value) (Value, error) {
 }
 
 func _policy_flag_enabled(args ...Value) (Value, error) {
+	axirCoverageMark("_policy_flag_enabled")
 	var v_flags Value
 	var v_condition Value
 	var v_always Value
@@ -16494,6 +16736,7 @@ func _policy_flag_enabled(args ...Value) (Value, error) {
 }
 
 func _select_actor_primitives(args ...Value) (Value, error) {
+	axirCoverageMark("_select_actor_primitives")
 	var v_registry Value
 	var v_stage Value
 	var v_condition Value
@@ -16540,6 +16783,7 @@ func _select_actor_primitives(args ...Value) (Value, error) {
 }
 
 func _select_protocol_actions(args ...Value) (Value, error) {
+	axirCoverageMark("_select_protocol_actions")
 	var v_registry Value
 	var v_actions Value
 	var v_empty_list Value
@@ -16553,6 +16797,7 @@ func _select_protocol_actions(args ...Value) (Value, error) {
 }
 
 func _build_agent_eval_prediction(args ...Value) (Value, error) {
+	axirCoverageMark("_build_agent_eval_prediction")
 	var v_output Value
 	var v_action_log Value
 	var v_usage Value
@@ -16584,6 +16829,7 @@ func _build_agent_eval_prediction(args ...Value) (Value, error) {
 }
 
 func _select_runtime_globals(args ...Value) (Value, error) {
+	axirCoverageMark("_select_runtime_globals")
 	var v_registry Value
 	var v_empty_list Value
 	var v_globals Value
@@ -16597,6 +16843,7 @@ func _select_runtime_globals(args ...Value) (Value, error) {
 }
 
 func _validate_policy_reserved_names(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_policy_reserved_names")
 	var v_registry Value
 	var v_name Value
 	var v_conflicts Value
@@ -16627,6 +16874,7 @@ func _validate_policy_reserved_names(args ...Value) (Value, error) {
 }
 
 func _render_actor_primitive_guidance(args ...Value) (Value, error) {
+	axirCoverageMark("_render_actor_primitive_guidance")
 	var v_registry Value
 	var v_stage Value
 	var v_effect Value
@@ -16660,6 +16908,7 @@ func _render_actor_primitive_guidance(args ...Value) (Value, error) {
 }
 
 func _record_policy_event(args ...Value) (Value, error) {
+	axirCoverageMark("_record_policy_event")
 	var v_state Value
 	var v_action Value
 	var v_payload Value
@@ -16690,6 +16939,7 @@ func _record_policy_event(args ...Value) (Value, error) {
 }
 
 func _normalize_policy_action_result(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_policy_action_result")
 	var v_action Value
 	var v_payload Value
 	var v_effect_only_actions Value
@@ -16727,6 +16977,7 @@ func _normalize_policy_action_result(args ...Value) (Value, error) {
 }
 
 func _build_agent_actor_prompt_policy(args ...Value) (Value, error) {
+	axirCoverageMark("_build_agent_actor_prompt_policy")
 	var v_state Value
 	var v_code_fence_language Value
 	var v_code_field_name Value
@@ -16774,6 +17025,7 @@ func _build_agent_actor_prompt_policy(args ...Value) (Value, error) {
 }
 
 func _resolve_agent_context_policy(args ...Value) (Value, error) {
+	axirCoverageMark("_resolve_agent_context_policy")
 	var v_options Value
 	var v_action_replay Value
 	var v_allowed Value
@@ -17014,6 +17266,7 @@ func _resolve_agent_context_policy(args ...Value) (Value, error) {
 }
 
 func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
+	axirCoverageMark("_resolve_agent_executor_model_policy")
 	var v_options Value
 	var v_above Value
 	var v_above_invalid Value
@@ -17255,6 +17508,7 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 }
 
 func _select_agent_executor_model(args ...Value) (Value, error) {
+	axirCoverageMark("_select_agent_executor_model")
 	var v_policy Value
 	var v_actor_model_state Value
 	var v_above Value
@@ -17348,6 +17602,7 @@ func _select_agent_executor_model(args ...Value) (Value, error) {
 }
 
 func _agent_compute_effective_chat_budget(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_compute_effective_chat_budget")
 	var v_base_budget Value
 	var v_fixed_overhead_chars Value
 	var v_budget Value
@@ -17402,6 +17657,7 @@ func _agent_compute_effective_chat_budget(args ...Value) (Value, error) {
 }
 
 func _agent_action_log_char_count(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_action_log_char_count")
 	var v_entries Value
 	var v_code Value
 	var v_code_len Value
@@ -17432,6 +17688,7 @@ func _agent_action_log_char_count(args ...Value) (Value, error) {
 }
 
 func _agent_compute_dynamic_runtime_chars(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_compute_dynamic_runtime_chars")
 	var v_entries Value
 	var v_target_prompt_chars Value
 	var v_max_runtime_chars Value
@@ -17518,6 +17775,7 @@ func _agent_compute_dynamic_runtime_chars(args ...Value) (Value, error) {
 }
 
 func _agent_context_pressure(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_context_pressure")
 	var v_mutable_prompt_chars Value
 	var v_effective_budget_chars Value
 	var v_checkpoint_active Value
@@ -17596,6 +17854,7 @@ func _agent_context_pressure(args ...Value) (Value, error) {
 }
 
 func _agent_render_context_pressure(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_render_context_pressure")
 	var v_pressure Value
 	var v_context_registry Value
 	var v_empty_map Value
@@ -17629,6 +17888,7 @@ func _agent_render_context_pressure(args ...Value) (Value, error) {
 }
 
 func _agent_smart_stringify(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_smart_stringify")
 	var v_value Value
 	var v_max_chars Value
 	var v_array_head_items Value
@@ -17729,6 +17989,7 @@ func _agent_smart_stringify(args ...Value) (Value, error) {
 }
 
 func _agent_record_context_event(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_record_context_event")
 	var v_state Value
 	var v_event Value
 	var v_empty_list Value
@@ -17747,6 +18008,7 @@ func _agent_record_context_event(args ...Value) (Value, error) {
 }
 
 func _agent_entry_turn(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_entry_turn")
 	var v_entry Value
 	var v_fallback Value
 	var v_turn Value
@@ -17760,6 +18022,7 @@ func _agent_entry_turn(args ...Value) (Value, error) {
 }
 
 func _agent_entry_is_error(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_entry_is_error")
 	var v_entry Value
 	var v_is_error Value
 	var v_tag_error Value
@@ -17784,6 +18047,7 @@ func _agent_entry_is_error(args ...Value) (Value, error) {
 }
 
 func _agent_entry_summary(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_entry_summary")
 	var v_entry Value
 	var v_fallback_turn Value
 	var v_has_summary Value
@@ -17839,6 +18103,7 @@ func _agent_entry_summary(args ...Value) (Value, error) {
 }
 
 func _agent_entry_callables_text(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_entry_callables_text")
 	var v_entry Value
 	var v_call Value
 	var v_calls Value
@@ -17933,6 +18198,7 @@ func _agent_entry_callables_text(args ...Value) (Value, error) {
 }
 
 func _agent_distill_structured_action_output(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_distill_structured_action_output")
 	var v_output Value
 	var v_clean_counts Value
 	var v_counts Value
@@ -18037,6 +18303,7 @@ func _agent_distill_structured_action_output(args ...Value) (Value, error) {
 }
 
 func _agent_render_full_action_entry(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_render_full_action_entry")
 	var v_state Value
 	var v_entry Value
 	var v_code Value
@@ -18081,6 +18348,7 @@ func _agent_render_full_action_entry(args ...Value) (Value, error) {
 }
 
 func _agent_render_compact_action_entry(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_render_compact_action_entry")
 	var v_entry Value
 	var v_turn Value
 	var v_reason Value
@@ -18129,6 +18397,7 @@ func _agent_render_compact_action_entry(args ...Value) (Value, error) {
 }
 
 func _agent_fallback_checkpoint_summary(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_fallback_checkpoint_summary")
 	var v_entries Value
 	var v_turns Value
 	var v_all_working Value
@@ -18280,6 +18549,7 @@ func _agent_fallback_checkpoint_summary(args ...Value) (Value, error) {
 }
 
 func _agent_build_deterministic_tombstone(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_build_deterministic_tombstone")
 	var v_error_entry Value
 	var v_resolution_entry Value
 	var v_empty_signature Value
@@ -18310,6 +18580,7 @@ func _agent_build_deterministic_tombstone(args ...Value) (Value, error) {
 }
 
 func _agent_apply_context_management(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_apply_context_management")
 	var v_state Value
 	var v_count Value
 	var v_current_is_error Value
@@ -18420,6 +18691,7 @@ func _agent_apply_context_management(args ...Value) (Value, error) {
 }
 
 func _agent_working_code_state(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_working_code_state")
 	var v_entries Value
 	var v_turns Value
 	var v_block Value
@@ -18633,6 +18905,7 @@ func _agent_working_code_state(args ...Value) (Value, error) {
 }
 
 func _agent_refresh_checkpoint_state(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_refresh_checkpoint_state")
 	var v_state Value
 	var v_chars Value
 	var v_checkpoint Value
@@ -18837,6 +19110,7 @@ func _agent_refresh_checkpoint_state(args ...Value) (Value, error) {
 }
 
 func _agent_build_action_log_parts(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_build_action_log_parts")
 	var v_state Value
 	var v_hygiene_mode Value
 	var v_action_replay Value
@@ -19215,6 +19489,7 @@ func _agent_build_action_log_parts(args ...Value) (Value, error) {
 }
 
 func _agent_render_runtime_state_summary(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_render_runtime_state_summary")
 	var v_state Value
 	var v_policy Value
 	var v_allowed_key Value
@@ -19486,6 +19761,7 @@ func _agent_render_runtime_state_summary(args ...Value) (Value, error) {
 }
 
 func _agent_prepare_actor_context(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_prepare_actor_context")
 	var v_state Value
 	var v_action_compacted_kind Value
 	var v_action_count Value
@@ -19736,6 +20012,7 @@ func _agent_prepare_actor_context(args ...Value) (Value, error) {
 }
 
 func _agent_build_action_evidence_summary(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_build_action_evidence_summary")
 	var v_state Value
 	var v_checkpoint Value
 	var v_checkpoint_summary Value
@@ -19845,6 +20122,7 @@ func _agent_build_action_evidence_summary(args ...Value) (Value, error) {
 }
 
 func _agent_sanitize_action_log_entries(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_sanitize_action_log_entries")
 	var v_entries Value
 	var v_clean Value
 	var v_code Value
@@ -20151,6 +20429,7 @@ func _agent_sanitize_action_log_entries(args ...Value) (Value, error) {
 }
 
 func _agent_context_fixture_result(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_context_fixture_result")
 	var v_state Value
 	var v_fixture Value
 	var v_actor_state Value
@@ -20389,6 +20668,7 @@ func _agent_context_fixture_result(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_callable(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_callable")
 	var v_raw Value
 	var v_namespace Value
 	var v_always_camel Value
@@ -20441,6 +20721,7 @@ func _normalize_agent_callable(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_group(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_group")
 	var v_raw Value
 	var v_always_camel Value
 	var v_always_include Value
@@ -20515,6 +20796,7 @@ func _normalize_agent_group(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_callable_inventory(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_callable_inventory")
 	var v_options Value
 	var v_callable Value
 	var v_empty_list Value
@@ -20597,6 +20879,7 @@ func _normalize_agent_callable_inventory(args ...Value) (Value, error) {
 }
 
 func _split_agent_callable_inventory(args ...Value) (Value, error) {
+	axirCoverageMark("_split_agent_callable_inventory")
 	var v_inventory Value
 	var v_always Value
 	var v_discoverable Value
@@ -20627,6 +20910,7 @@ func _split_agent_callable_inventory(args ...Value) (Value, error) {
 }
 
 func _render_agent_discovery_catalog(args ...Value) (Value, error) {
+	axirCoverageMark("_render_agent_discovery_catalog")
 	var v_split Value
 	var v_callable Value
 	var v_callable_names Value
@@ -20685,6 +20969,7 @@ func _render_agent_discovery_catalog(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_string_list(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_string_list")
 	var v_value Value
 	var v_label Value
 	var v_already Value
@@ -20785,6 +21070,7 @@ func _normalize_agent_string_list(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_discover_request(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_discover_request")
 	var v_state Value
 	var v_request Value
 	var v_bad Value
@@ -20914,6 +21200,7 @@ func _normalize_agent_discover_request(args ...Value) (Value, error) {
 }
 
 func _agent_append_unique_by_field(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_append_unique_by_field")
 	var v_items Value
 	var v_item Value
 	var v_field Value
@@ -20956,6 +21243,7 @@ func _agent_append_unique_by_field(args ...Value) (Value, error) {
 }
 
 func _agent_render_discovered_tool_docs(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_render_discovered_tool_docs")
 	var v_docs Value
 	var v_body Value
 	var v_description Value
@@ -20994,6 +21282,7 @@ func _agent_render_discovered_tool_docs(args ...Value) (Value, error) {
 }
 
 func _agent_render_loaded_skills(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_render_loaded_skills")
 	var v_skills Value
 	var v_body Value
 	var v_content Value
@@ -21032,6 +21321,7 @@ func _agent_render_loaded_skills(args ...Value) (Value, error) {
 }
 
 func _agent_discover(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_discover")
 	var v_state Value
 	var v_request Value
 	var v_action_event Value
@@ -21217,6 +21507,7 @@ func _agent_discover(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_recall_request(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_recall_request")
 	var v_state Value
 	var v_request Value
 	var v_disabled Value
@@ -21251,6 +21542,7 @@ func _normalize_agent_recall_request(args ...Value) (Value, error) {
 }
 
 func _agent_merge_memory_results(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_merge_memory_results")
 	var v_existing Value
 	var v_incoming Value
 	var v_content Value
@@ -21288,6 +21580,7 @@ func _agent_merge_memory_results(args ...Value) (Value, error) {
 }
 
 func _agent_recall(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_recall")
 	var v_state Value
 	var v_request Value
 	var v_action Value
@@ -21343,6 +21636,7 @@ func _agent_recall(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_used_request(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_used_request")
 	var v_request Value
 	var v_default_stage Value
 	var v_error Value
@@ -21391,6 +21685,7 @@ func _normalize_agent_used_request(args ...Value) (Value, error) {
 }
 
 func _agent_used(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_used")
 	var v_state Value
 	var v_request Value
 	var v_stage Value
@@ -21524,6 +21819,7 @@ func _agent_used(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_guidance_payload(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_guidance_payload")
 	var v_value Value
 	var v_triggered_by Value
 	var v_error Value
@@ -21574,6 +21870,7 @@ func _normalize_agent_guidance_payload(args ...Value) (Value, error) {
 }
 
 func _agent_append_guidance(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_append_guidance")
 	var v_state Value
 	var v_payload Value
 	var v_action Value
@@ -21629,6 +21926,7 @@ func _agent_append_guidance(args ...Value) (Value, error) {
 }
 
 func _agent_execute_callable(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_execute_callable")
 	var v_state Value
 	var v_request Value
 	var v_options Value
@@ -21703,6 +22001,7 @@ func _agent_execute_callable(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_final_payload(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_final_payload")
 	var v_value Value
 	var v_args Value
 	var v_is_final Value
@@ -21737,6 +22036,7 @@ func _normalize_agent_final_payload(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_clarification_payload(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_clarification_payload")
 	var v_value Value
 	var v_args Value
 	var v_error Value
@@ -21794,6 +22094,7 @@ func _normalize_agent_clarification_payload(args ...Value) (Value, error) {
 }
 
 func _agent_optimizer_metadata(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_optimizer_metadata")
 	var v_state Value
 	var v_components Value
 	var v_delegation_component Value
@@ -21846,6 +22147,7 @@ func _agent_optimizer_metadata(args ...Value) (Value, error) {
 }
 
 func _agent_begin_trace(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_begin_trace")
 	var v_state Value
 	var v_input Value
 	var v_events Value
@@ -21873,6 +22175,7 @@ func _agent_begin_trace(args ...Value) (Value, error) {
 }
 
 func _agent_record_trace_event(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_record_trace_event")
 	var v_state Value
 	var v_kind Value
 	var v_payload Value
@@ -21936,6 +22239,7 @@ func _agent_record_trace_event(args ...Value) (Value, error) {
 }
 
 func _agent_normalize_host_boundary_event(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_normalize_host_boundary_event")
 	var v_boundary Value
 	var v_request Value
 	var v_result Value
@@ -21959,6 +22263,7 @@ func _agent_normalize_host_boundary_event(args ...Value) (Value, error) {
 }
 
 func _agent_finalize_trace(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_finalize_trace")
 	var v_state Value
 	var v_status Value
 	var v_output Value
@@ -22029,6 +22334,7 @@ func _agent_finalize_trace(args ...Value) (Value, error) {
 }
 
 func _agent_export_trace(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_export_trace")
 	var v_state Value
 	var v_action_log Value
 	var v_chat_log Value
@@ -22085,6 +22391,7 @@ func _agent_export_trace(args ...Value) (Value, error) {
 }
 
 func _agent_replay_trace(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_replay_trace")
 	var v_trace Value
 	var v_fixtures Value
 	var v_action_log Value
@@ -22201,6 +22508,7 @@ func _agent_replay_trace(args ...Value) (Value, error) {
 }
 
 func _agent_export_runtime_state(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_export_runtime_state")
 	var v_state Value
 	var v_action_log Value
 	var v_actor_model_state Value
@@ -22316,6 +22624,7 @@ func _agent_export_runtime_state(args ...Value) (Value, error) {
 }
 
 func _agent_restore_runtime_state(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_restore_runtime_state")
 	var v_state Value
 	var v_snapshot Value
 	var v_action_log Value
@@ -22436,6 +22745,7 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_build_globals(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_build_globals")
 	var v_state Value
 	var v_values Value
 	var v_callable_inventory Value
@@ -22518,6 +22828,7 @@ func _agent_runtime_build_globals(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_sanitize_bindings(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_sanitize_bindings")
 	var v_bindings Value
 	var v_bindings_is_map Value
 	var v_conflict Value
@@ -22553,6 +22864,7 @@ func _agent_runtime_sanitize_bindings(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_runtime_snapshot")
 	var v_snapshot Value
 	var v_bindings Value
 	var v_clean_bindings Value
@@ -22633,6 +22945,7 @@ func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_append_action_log(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_append_action_log")
 	var v_state Value
 	var v_entry Value
 	var v_count Value
@@ -22691,6 +23004,7 @@ func _agent_runtime_append_action_log(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_runtime_step_result(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_runtime_step_result")
 	var v_raw Value
 	var v_code Value
 	var v_abort_like Value
@@ -22885,6 +23199,7 @@ func _normalize_agent_runtime_step_result(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_execution_options(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_execution_options")
 	var v_state Value
 	var v_options Value
 	var v_abort_signal Value
@@ -22965,6 +23280,7 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_lifecycle_event(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_lifecycle_event")
 	var v_state Value
 	var v_action Value
 	var v_details Value
@@ -22988,6 +23304,7 @@ func _agent_runtime_lifecycle_event(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_create_session(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_create_session")
 	var v_state Value
 	var v_runtime Value
 	var v_globals Value
@@ -23018,6 +23335,7 @@ func _agent_runtime_create_session(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_execute_step(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_execute_step")
 	var v_state Value
 	var v_runtime Value
 	var v_session Value
@@ -23194,6 +23512,7 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_inspect_state(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_inspect_state")
 	var v_state Value
 	var v_session Value
 	var v_options Value
@@ -23218,6 +23537,7 @@ func _agent_runtime_inspect_state(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_export_session_state(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_export_session_state")
 	var v_state Value
 	var v_session Value
 	var v_options Value
@@ -23250,6 +23570,7 @@ func _agent_runtime_export_session_state(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_restore_session_state(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_restore_session_state")
 	var v_state Value
 	var v_session Value
 	var v_snapshot Value
@@ -23288,6 +23609,7 @@ func _agent_runtime_restore_session_state(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_close_session(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_close_session")
 	var v_state Value
 	var v_session Value
 	var v_closed Value
@@ -23307,6 +23629,7 @@ func _agent_runtime_close_session(args ...Value) (Value, error) {
 }
 
 func _agent_runtime_test(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_test")
 	var v_state Value
 	var v_runtime Value
 	var v_code Value
@@ -23359,6 +23682,7 @@ func _agent_runtime_test(args ...Value) (Value, error) {
 }
 
 func _split_context_values(args ...Value) (Value, error) {
+	axirCoverageMark("_split_context_values")
 	var v_state Value
 	var v_values Value
 	var v_context_fields Value
@@ -23401,6 +23725,7 @@ func _split_context_values(args ...Value) (Value, error) {
 }
 
 func _build_distiller_inputs(args ...Value) (Value, error) {
+	axirCoverageMark("_build_distiller_inputs")
 	var v_state Value
 	var v_values Value
 	var v_context Value
@@ -23425,6 +23750,7 @@ func _build_distiller_inputs(args ...Value) (Value, error) {
 }
 
 func _build_executor_inputs(args ...Value) (Value, error) {
+	axirCoverageMark("_build_executor_inputs")
 	var v_state Value
 	var v_values Value
 	var v_distiller_payload Value
@@ -23521,6 +23847,7 @@ func _build_executor_inputs(args ...Value) (Value, error) {
 }
 
 func _build_responder_inputs(args ...Value) (Value, error) {
+	axirCoverageMark("_build_responder_inputs")
 	var v_state Value
 	var v_values Value
 	var v_executor_payload Value
@@ -23573,6 +23900,7 @@ func _build_responder_inputs(args ...Value) (Value, error) {
 }
 
 func _normalize_agent_completion_payload(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_completion_payload")
 	var v_output Value
 	var v_completion Value
 	var v_error Value
@@ -23612,6 +23940,7 @@ func _normalize_agent_completion_payload(args ...Value) (Value, error) {
 }
 
 func _throw_agent_clarification(args ...Value) (Value, error) {
+	axirCoverageMark("_throw_agent_clarification")
 	var v_payload Value
 	var v_state Value
 	var v_error Value
@@ -23639,6 +23968,7 @@ func _throw_agent_clarification(args ...Value) (Value, error) {
 }
 
 func _merge_agent_chat_log(args ...Value) (Value, error) {
+	axirCoverageMark("_merge_agent_chat_log")
 	var v_state Value
 	var v_distiller Value
 	var v_executor Value
@@ -23685,6 +24015,7 @@ func _merge_agent_chat_log(args ...Value) (Value, error) {
 }
 
 func _merge_agent_usage(args ...Value) (Value, error) {
+	axirCoverageMark("_merge_agent_usage")
 	var v_state Value
 	var v_chat_log Value
 	var v_count Value
@@ -23706,6 +24037,7 @@ func _merge_agent_usage(args ...Value) (Value, error) {
 }
 
 func _agent_get_state(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_get_state")
 	var v_state Value
 	var v_empty_map Value
 	var v_runtime_state Value
@@ -23719,6 +24051,7 @@ func _agent_get_state(args ...Value) (Value, error) {
 }
 
 func _agent_set_state(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_set_state")
 	var v_state Value
 	var v_runtime_state Value
 	if len(args) > 0 { v_state = args[0] }
@@ -23730,6 +24063,7 @@ func _agent_set_state(args ...Value) (Value, error) {
 }
 
 func _agent_stage_options(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_stage_options")
 	var v_state Value
 	var v_stage Value
 	var v_forward_options Value
@@ -23834,6 +24168,7 @@ func _agent_stage_options(args ...Value) (Value, error) {
 }
 
 func _extract_agent_runtime_code(args ...Value) (Value, error) {
+	axirCoverageMark("_extract_agent_runtime_code")
 	var v_state Value
 	var v_executor_output Value
 	var v_code Value
@@ -23874,6 +24209,7 @@ func _extract_agent_runtime_code(args ...Value) (Value, error) {
 }
 
 func _agent_forward(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_forward")
 	var v_state Value
 	var v_distiller Value
 	var v_executor Value
@@ -24069,6 +24405,7 @@ func _agent_forward(args ...Value) (Value, error) {
 }
 
 func _flow_factory(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_factory")
 	var v_options Value
 	var v_chat_log Value
 	var v_demos Value
@@ -24123,6 +24460,7 @@ func _flow_factory(args ...Value) (Value, error) {
 }
 
 func _program_descriptor(args ...Value) (Value, error) {
+	axirCoverageMark("_program_descriptor")
 	var v_kind Value
 	var v_id Value
 	var v_metadata Value
@@ -24156,6 +24494,7 @@ func _program_descriptor(args ...Value) (Value, error) {
 }
 
 func _program_trace_event(args ...Value) (Value, error) {
+	axirCoverageMark("_program_trace_event")
 	var v_program_id Value
 	var v_kind Value
 	var v_payload Value
@@ -24189,6 +24528,7 @@ func _program_trace_event(args ...Value) (Value, error) {
 }
 
 func _flow_step(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_step")
 	var v_kind Value
 	var v_name Value
 	var v_program Value
@@ -24311,6 +24651,7 @@ func _flow_step(args ...Value) (Value, error) {
 }
 
 func _program_child_component_prefix(args ...Value) (Value, error) {
+	axirCoverageMark("_program_child_component_prefix")
 	var v_owner Value
 	var v_node Value
 	var v_path Value
@@ -24324,6 +24665,7 @@ func _program_child_component_prefix(args ...Value) (Value, error) {
 }
 
 func _program_prefix_component(args ...Value) (Value, error) {
+	axirCoverageMark("_program_prefix_component")
 	var v_component Value
 	var v_owner Value
 	var v_node Value
@@ -24354,6 +24696,7 @@ func _program_prefix_component(args ...Value) (Value, error) {
 }
 
 func _program_slice_component_map(args ...Value) (Value, error) {
+	axirCoverageMark("_program_slice_component_map")
 	var v_component_map Value
 	var v_prefix Value
 	var v_key Value
@@ -24391,6 +24734,7 @@ func _program_slice_component_map(args ...Value) (Value, error) {
 }
 
 func _flow_add_step(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_add_step")
 	var v_flow Value
 	var v_step Value
 	var v_duplicate Value
@@ -24430,6 +24774,7 @@ func _flow_add_step(args ...Value) (Value, error) {
 }
 
 func _flow_set_returns(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_set_returns")
 	var v_flow Value
 	var v_returns Value
 	var v_empty_map Value
@@ -24455,6 +24800,7 @@ func _flow_set_returns(args ...Value) (Value, error) {
 }
 
 func _flow_plan_entry(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_plan_entry")
 	var v_step Value
 	var v_step_index Value
 	var v_barrier Value
@@ -24498,6 +24844,7 @@ func _flow_plan_entry(args ...Value) (Value, error) {
 }
 
 func _flow_plan_can_share_group(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_plan_can_share_group")
 	var v_group Value
 	var v_candidate Value
 	var v_can_share Value
@@ -24593,6 +24940,7 @@ func _flow_plan_can_share_group(args ...Value) (Value, error) {
 }
 
 func _flow_plan(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_plan")
 	var v_flow Value
 	var v_barrier Value
 	var v_bigger Value
@@ -24770,6 +25118,7 @@ func _flow_plan(args ...Value) (Value, error) {
 }
 
 func _flow_cache_key(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_cache_key")
 	var v_values Value
 	var v_key Value
 	if len(args) > 0 { v_values = args[0] }
@@ -24780,6 +25129,7 @@ func _flow_cache_key(args ...Value) (Value, error) {
 }
 
 func _flow_cache_read_write(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_cache_read_write")
 	var v_flow Value
 	var v_values Value
 	var v_options Value
@@ -24902,6 +25252,7 @@ func _flow_cache_read_write(args ...Value) (Value, error) {
 }
 
 func _flow_check_abort(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_check_abort")
 	var v_options Value
 	var v_location Value
 	var v_abort Value
@@ -24938,6 +25289,7 @@ func _flow_check_abort(args ...Value) (Value, error) {
 }
 
 func _flow_project_returns(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_project_returns")
 	var v_state Value
 	var v_returns Value
 	var v_empty_map Value
@@ -24990,6 +25342,7 @@ func _flow_project_returns(args ...Value) (Value, error) {
 }
 
 func _flow_get_path(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_get_path")
 	var v_state Value
 	var v_path Value
 	var v_current Value
@@ -25024,6 +25377,7 @@ func _flow_get_path(args ...Value) (Value, error) {
 }
 
 func _flow_record_child_chat_log(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_record_child_chat_log")
 	var v_flow Value
 	var v_node Value
 	var v_program Value
@@ -25066,6 +25420,7 @@ func _flow_record_child_chat_log(args ...Value) (Value, error) {
 }
 
 func _flow_record_child_usage(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_record_child_usage")
 	var v_flow Value
 	var v_node Value
 	var v_program Value
@@ -25097,6 +25452,7 @@ func _flow_record_child_usage(args ...Value) (Value, error) {
 }
 
 func _flow_record_child_traces(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_record_child_traces")
 	var v_flow Value
 	var v_node Value
 	var v_program Value
@@ -25131,6 +25487,7 @@ func _flow_record_child_traces(args ...Value) (Value, error) {
 }
 
 func _flow_execute_program_node(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_execute_program_node")
 	var v_flow Value
 	var v_step Value
 	var v_client Value
@@ -25249,6 +25606,7 @@ func _flow_execute_program_node(args ...Value) (Value, error) {
 }
 
 func _flow_execute_step(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_execute_step")
 	var v_flow Value
 	var v_step Value
 	var v_plan_step Value
@@ -25580,6 +25938,7 @@ func _flow_execute_step(args ...Value) (Value, error) {
 }
 
 func _flow_merge_parallel_results(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_merge_parallel_results")
 	var v_state Value
 	var v_result Value
 	var v_merged Value
@@ -25593,6 +25952,7 @@ func _flow_merge_parallel_results(args ...Value) (Value, error) {
 }
 
 func _flow_execute_nested_steps(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_execute_nested_steps")
 	var v_flow Value
 	var v_client Value
 	var v_steps Value
@@ -25647,6 +26007,7 @@ func _flow_execute_nested_steps(args ...Value) (Value, error) {
 }
 
 func _flow_execute_steps(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_execute_steps")
 	var v_flow Value
 	var v_client Value
 	var v_state Value
@@ -25795,6 +26156,7 @@ func _flow_execute_steps(args ...Value) (Value, error) {
 }
 
 func _flow_forward(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_forward")
 	var v_flow Value
 	var v_client Value
 	var v_values Value
@@ -25884,6 +26246,7 @@ func _flow_forward(args ...Value) (Value, error) {
 }
 
 func _flow_get_optimizable_components(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_get_optimizable_components")
 	var v_flow Value
 	var v_child Value
 	var v_child_components Value
@@ -25948,6 +26311,7 @@ func _flow_get_optimizable_components(args ...Value) (Value, error) {
 }
 
 func _flow_apply_optimized_components(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_apply_optimized_components")
 	var v_flow Value
 	var v_component_map Value
 	var v_bad_graph Value
@@ -26037,6 +26401,7 @@ func _flow_apply_optimized_components(args ...Value) (Value, error) {
 }
 
 func _flow_snapshot_components(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_snapshot_components")
 	var v_flow Value
 	var v_components Value
 	var v_snapshot Value
@@ -26050,6 +26415,7 @@ func _flow_snapshot_components(args ...Value) (Value, error) {
 }
 
 func _flow_restore_components(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_restore_components")
 	var v_flow Value
 	var v_snapshot Value
 	var v_restored Value
@@ -26063,6 +26429,7 @@ func _flow_restore_components(args ...Value) (Value, error) {
 }
 
 func _flow_evaluate_optimization(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_evaluate_optimization")
 	var v_flow Value
 	var v_client Value
 	var v_dataset Value
@@ -26280,6 +26647,7 @@ func _flow_evaluate_optimization(args ...Value) (Value, error) {
 }
 
 func _flow_optimize_with(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_optimize_with")
 	var v_flow Value
 	var v_dataset Value
 	var v_options Value
@@ -26322,6 +26690,7 @@ func _flow_optimize_with(args ...Value) (Value, error) {
 }
 
 func mcp_protocol_constants(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_protocol_constants")
 	var v_out Value
 	var v_versions Value
 	_ = v_out
@@ -26338,6 +26707,7 @@ func mcp_protocol_constants(args ...Value) (Value, error) {
 }
 
 func mcp_jsonrpc_request(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_jsonrpc_request")
 	var v_id Value
 	var v_method Value
 	var v_params Value
@@ -26365,6 +26735,7 @@ func mcp_jsonrpc_request(args ...Value) (Value, error) {
 }
 
 func mcp_jsonrpc_notification(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_jsonrpc_notification")
 	var v_method Value
 	var v_params Value
 	var v_missing Value
@@ -26388,6 +26759,7 @@ func mcp_jsonrpc_notification(args ...Value) (Value, error) {
 }
 
 func mcp_normalize_error(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_normalize_error")
 	var v_response Value
 	var v_code Value
 	var v_data Value

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 
 import json
 import re
@@ -66,6 +67,18 @@ def _core_truthy(value): return bool(value)
 def _core_is_none(value): return value is None
 def _core_is_not_none(value): return value is not None
 def _core_none(): return None
+
+
+def _core_coverage_mark(name):
+    path = os.environ.get("AXIR_COVERAGE_FILE")
+    if not path or name in _CORE_COVERAGE_SEEN:
+        return
+    _CORE_COVERAGE_SEEN.add(name)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(name + "\n")
+
+
+_CORE_COVERAGE_SEEN: set[str] = set()
 
 
 def _core_get(target, key, default=None):
@@ -534,43 +547,51 @@ def _core_prompt_user_content(signature, values):
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
 def render_template_content(template: str, vars: Any = None, context: str = "inline-template") -> str:
+    _core_coverage_mark("render_template_content")
     nodes = _template_parse_impl(template, context)
     rendered = _template_render_tree_impl(nodes, vars, template, context)
     return rendered
 
 
 def collect_template_variable_names(source: str, context: str = "template-vars") -> list[Any]:
+    _core_coverage_mark("collect_template_variable_names")
     nodes = _template_parse_impl(source, context)
     names = _template_collect_vars_impl(nodes)
     return names
 
 
 def validate_prompt_template_syntax(source: str, context: str = "template-validate", required_variables: Any = None) -> Any:
+    _core_coverage_mark("validate_prompt_template_syntax")
     result = _template_validate_impl(source, context, required_variables)
     return result
 
 
 def _template_parse_impl(template: str, context: str) -> Any:
+    _core_coverage_mark("_template_parse_impl")
     nodes = _core_template_parse(template, context)
     return nodes
 
 
 def _template_render_tree_impl(nodes: Any, vars: Any, source: str, context: str) -> str:
+    _core_coverage_mark("_template_render_tree_impl")
     rendered = _core_template_render_tree(nodes, vars, source, context)
     return rendered
 
 
 def _template_collect_vars_impl(nodes: Any) -> list[Any]:
+    _core_coverage_mark("_template_collect_vars_impl")
     names = _core_template_collect_vars(nodes)
     return names
 
 
 def _template_validate_impl(source: str, context: str, required_variables: Any) -> Any:
+    _core_coverage_mark("_template_validate_impl")
     result = _core_template_validate(source, context, required_variables)
     return result
 
 
 def render_prompt(signature: AxSignature, values: Any, functions: list[Any], options: Any = None) -> list[Any]:
+    _core_coverage_mark("render_prompt")
     instruction = _core_get(options, "instruction", None)
     has_instruction = _core_is_not_none(instruction)
     if has_instruction:
@@ -586,16 +607,19 @@ def render_prompt(signature: AxSignature, values: Any, functions: list[Any], opt
 
 
 def _prompt_structured_impl(signature: AxSignature, values: Any, functions: list[Any], options: Any) -> str:
+    _core_coverage_mark("_prompt_structured_impl")
     content = _core_prompt_structured(signature, values, functions, options)
     return content
 
 
 def _prompt_user_content_impl(signature: AxSignature, values: Any) -> Any:
+    _core_coverage_mark("_prompt_user_content_impl")
     content = _core_prompt_user_content(signature, values)
     return content
 
 
 def _prompt_messages_impl(system: str, user: Any) -> list[Any]:
+    _core_coverage_mark("_prompt_messages_impl")
     system_message = {}
     system_message["role"] = "system"
     system_message["content"] = system

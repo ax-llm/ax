@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 
 from abc import ABC, abstractmethod
 import copy
@@ -912,6 +913,18 @@ def _core_is_not_none(value): return value is not None
 def _core_none(): return None
 
 
+def _core_coverage_mark(name):
+    path = os.environ.get("AXIR_COVERAGE_FILE")
+    if not path or name in _CORE_COVERAGE_SEEN:
+        return
+    _CORE_COVERAGE_SEEN.add(name)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(name + "\n")
+
+
+_CORE_COVERAGE_SEEN: set[str] = set()
+
+
 def _core_get(target, key, default=None):
     if target is None:
         return default
@@ -1210,6 +1223,7 @@ def _core_agent_callable_invoke(state, request, options):
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
 def _agent_factory(signature: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_factory")
     empty_list = []
     empty_map = {}
     sig = signature
@@ -1330,6 +1344,7 @@ def _agent_factory(signature: Any, options: Any) -> Any:
 
 
 def _optimization_component(id: str, owner: str, kind: str, current: Any, description: str, constraints: Any, depends_on: Any, preserve: bool, format: str, validation: Any) -> Any:
+    _core_coverage_mark("_optimization_component")
     out = {}
     out["id"] = id
     out["owner"] = owner
@@ -1345,6 +1360,7 @@ def _optimization_component(id: str, owner: str, kind: str, current: Any, descri
 
 
 def _optimized_artifact(optimizer_name: str, optimizer_version: str, component_map: Any, metadata: Any) -> Any:
+    _core_coverage_mark("_optimized_artifact")
     empty_map = {}
     out = {}
     out["artifactVersion"] = "axir-optimized-artifact-v1"
@@ -1366,6 +1382,7 @@ def _optimized_artifact(optimizer_name: str, optimizer_version: str, component_m
 
 
 def _agent_reserved_runtime_names() -> list[Any]:
+    _core_coverage_mark("_agent_reserved_runtime_names")
     registry = _agent_policy_vocabulary_registry()
     names = _core_get(registry, "reserved_runtime_names", None)
     names_is_list = _core_type_is(names, "list")
@@ -1377,6 +1394,7 @@ def _agent_reserved_runtime_names() -> list[Any]:
 
 
 def _agent_runtime_language_tokens(language: str) -> list[Any]:
+    _core_coverage_mark("_agent_runtime_language_tokens")
     trimmed = str(language).strip()
     sharp_spaced = _core_regex_replace("#", " Sharp ", trimmed)
     plus_spaced = _core_regex_replace("\\+", " Plus ", sharp_spaced)
@@ -1386,12 +1404,14 @@ def _agent_runtime_language_tokens(language: str) -> list[Any]:
 
 
 def _agent_runtime_language_alias_key(tokens: Any) -> str:
+    _core_coverage_mark("_agent_runtime_language_alias_key")
     joined = _core_string_join("", tokens)
     alias_key = _core_string_lower(joined)
     return alias_key
 
 
 def _agent_runtime_is_javascript_alias(alias_key: str) -> bool:
+    _core_coverage_mark("_agent_runtime_is_javascript_alias")
     is_javascript = _core_eq(alias_key, "javascript")
     is_js = _core_eq(alias_key, "js")
     is_ecmascript = _core_eq(alias_key, "ecmascript")
@@ -1401,6 +1421,7 @@ def _agent_runtime_is_javascript_alias(alias_key: str) -> bool:
 
 
 def _agent_runtime_code_field_name(tokens: Any, is_javascript: bool) -> str:
+    _core_coverage_mark("_agent_runtime_code_field_name")
     out = "javascriptCode"
     if is_javascript:
         out = "javascriptCode"
@@ -1416,6 +1437,7 @@ def _agent_runtime_code_field_name(tokens: Any, is_javascript: bool) -> str:
 
 
 def _agent_runtime_code_fence_language(tokens: Any, alias_key: str, is_javascript: bool) -> str:
+    _core_coverage_mark("_agent_runtime_code_fence_language")
     out = "js"
     if is_javascript:
         out = "js"
@@ -1430,6 +1452,7 @@ def _agent_runtime_code_fence_language(tokens: Any, alias_key: str, is_javascrip
 
 
 def _normalize_agent_runtime(options: Any) -> Any:
+    _core_coverage_mark("_normalize_agent_runtime")
     empty_map = {}
     runtime_camel = _core_get(options, "runtimeConfig", empty_map)
     runtime = _core_get(options, "runtime", runtime_camel)
@@ -1494,6 +1517,7 @@ def _normalize_agent_runtime(options: Any) -> Any:
 
 
 def _normalize_agent_policy(options: Any) -> Any:
+    _core_coverage_mark("_normalize_agent_policy")
     empty_map = {}
     policy_camel = _core_get(options, "agentPolicy", empty_map)
     policy_in = _core_get(options, "agent_policy", policy_camel)
@@ -1513,6 +1537,7 @@ def _normalize_agent_policy(options: Any) -> Any:
 
 
 def _agent_policy_flags(options: Any) -> Any:
+    _core_coverage_mark("_agent_policy_flags")
     function_discovery_camel = _core_get(options, "functionDiscovery", False)
     function_discovery = _core_get(options, "function_discovery", function_discovery_camel)
     skills_camel = _core_get(options, "skillsMode", False)
@@ -1545,6 +1570,7 @@ def _agent_policy_flags(options: Any) -> Any:
 
 
 def _agent_policy_action(id: str, category: str, kind: str, stages: Any, availability: str, effect: str, host_boundary: str, actor_visible: bool) -> Any:
+    _core_coverage_mark("_agent_policy_action")
     entry = {}
     entry["id"] = id
     entry["public_name"] = id
@@ -1560,6 +1586,7 @@ def _agent_policy_action(id: str, category: str, kind: str, stages: Any, availab
 
 
 def _agent_policy_vocabulary_registry() -> Any:
+    _core_coverage_mark("_agent_policy_vocabulary_registry")
     registry = {}
     none_value = _core_none()
     registry["policy_schema_version"] = "axir-agent-policy-vocabulary-v1"
@@ -1785,6 +1812,7 @@ def _agent_policy_vocabulary_registry() -> Any:
 
 
 def _map_optimization_judge_quality_to_score(quality: str) -> f64:
+    _core_coverage_mark("_map_optimization_judge_quality_to_score")
     normalized = _core_string_lower(quality)
     is_excellent = _core_eq(normalized, "excellent")
     if is_excellent:
@@ -1815,6 +1843,7 @@ def _map_optimization_judge_quality_to_score(quality: str) -> f64:
 
 
 def _build_optimization_judge_payload(task: Any, prediction: Any, criteria: str) -> Any:
+    _core_coverage_mark("_build_optimization_judge_payload")
     empty_list = []
     out = {}
     task_input = _core_get(task, "input", task)
@@ -1853,6 +1882,7 @@ def _build_optimization_judge_payload(task: Any, prediction: Any, criteria: str)
 
 
 def _agent_context_policy_registry() -> Any:
+    _core_coverage_mark("_agent_context_policy_registry")
     registry = _agent_policy_vocabulary_registry()
     empty_map = {}
     context = _core_get(registry, "context_policy", empty_map)
@@ -1860,6 +1890,7 @@ def _agent_context_policy_registry() -> Any:
 
 
 def _agent_context_policy_migration_error(key: str) -> str:
+    _core_coverage_mark("_agent_context_policy_migration_error")
     context = _agent_context_policy_registry()
     empty_map = {}
     errors = _core_get(context, "migration_errors", empty_map)
@@ -1869,6 +1900,7 @@ def _agent_context_policy_migration_error(key: str) -> str:
 
 
 def _agent_context_budget_profile(budget: str) -> Any:
+    _core_coverage_mark("_agent_context_budget_profile")
     context = _agent_context_policy_registry()
     empty_map = {}
     budgets = _core_get(context, "budgets", empty_map)
@@ -1884,6 +1916,7 @@ def _agent_context_budget_profile(budget: str) -> Any:
 
 
 def _agent_context_preset_profile(preset: str) -> Any:
+    _core_coverage_mark("_agent_context_preset_profile")
     context = _agent_context_policy_registry()
     empty_map = {}
     presets = _core_get(context, "presets", empty_map)
@@ -1899,6 +1932,7 @@ def _agent_context_preset_profile(preset: str) -> Any:
 
 
 def _agent_context_event_name(stable_id: str) -> str:
+    _core_coverage_mark("_agent_context_event_name")
     context = _agent_context_policy_registry()
     empty_map = {}
     names = _core_get(context, "event_names", empty_map)
@@ -1907,6 +1941,7 @@ def _agent_context_event_name(stable_id: str) -> str:
 
 
 def _agent_context_event_reason(stable_id: str) -> str:
+    _core_coverage_mark("_agent_context_event_reason")
     context = _agent_context_policy_registry()
     empty_map = {}
     names = _core_get(context, "event_reasons", empty_map)
@@ -1915,6 +1950,7 @@ def _agent_context_event_reason(stable_id: str) -> str:
 
 
 def _agent_policy_registry(policy: Any, flags: Any) -> Any:
+    _core_coverage_mark("_agent_policy_registry")
     vocabulary = _agent_policy_vocabulary_registry()
     empty_map = {}
     primitive_names = _core_get(vocabulary, "actor_primitive_names", empty_map)
@@ -2006,6 +2042,7 @@ def _agent_policy_registry(policy: Any, flags: Any) -> Any:
 
 
 def _policy_flag_enabled(flags: Any, condition: str) -> bool:
+    _core_coverage_mark("_policy_flag_enabled")
     out = False
     always = _core_eq(condition, "always")
     if always:
@@ -2027,6 +2064,7 @@ def _policy_flag_enabled(flags: Any, condition: str) -> bool:
 
 
 def _select_actor_primitives(registry: Any, stage: str) -> Any:
+    _core_coverage_mark("_select_actor_primitives")
     empty_list = []
     out = []
     flags = _core_get(registry, "flags", empty_list)
@@ -2045,12 +2083,14 @@ def _select_actor_primitives(registry: Any, stage: str) -> Any:
 
 
 def _select_protocol_actions(registry: Any) -> Any:
+    _core_coverage_mark("_select_protocol_actions")
     empty_list = []
     actions = _core_get(registry, "protocol_actions", empty_list)
     return actions
 
 
 def _build_agent_eval_prediction(output: Any, action_log: Any, usage: Any, trace: Any) -> Any:
+    _core_coverage_mark("_build_agent_eval_prediction")
     out = {}
     out["completionType"] = "final"
     out["output"] = output
@@ -2066,12 +2106,14 @@ def _build_agent_eval_prediction(output: Any, action_log: Any, usage: Any, trace
 
 
 def _select_runtime_globals(registry: Any) -> Any:
+    _core_coverage_mark("_select_runtime_globals")
     empty_list = []
     globals = _core_get(registry, "runtime_globals", empty_list)
     return globals
 
 
 def _validate_policy_reserved_names(registry: Any, name: str) -> None:
+    _core_coverage_mark("_validate_policy_reserved_names")
     reserved = _agent_reserved_runtime_names()
     conflicts = _core_contains(reserved, name)
     if conflicts:
@@ -2085,6 +2127,7 @@ def _validate_policy_reserved_names(registry: Any, name: str) -> None:
 
 
 def _render_actor_primitive_guidance(registry: Any, stage: str) -> str:
+    _core_coverage_mark("_render_actor_primitive_guidance")
     primitives = _select_actor_primitives(registry, stage)
     lines = []
     for primitive in primitives:
@@ -2097,6 +2140,7 @@ def _render_actor_primitive_guidance(registry: Any, stage: str) -> str:
 
 
 def _record_policy_event(state: Any, action: str, payload: Any) -> None:
+    _core_coverage_mark("_record_policy_event")
     empty_list = []
     trace = _core_get(state, "policy_trace", empty_list)
     event = {}
@@ -2110,6 +2154,7 @@ def _record_policy_event(state: Any, action: str, payload: Any) -> None:
 
 
 def _normalize_policy_action_result(action: str, payload: Any) -> Any:
+    _core_coverage_mark("_normalize_policy_action_result")
     out = {}
     null_value = _core_none()
     vocabulary = _agent_policy_vocabulary_registry()
@@ -2128,6 +2173,7 @@ def _normalize_policy_action_result(action: str, payload: Any) -> Any:
 
 
 def _build_agent_actor_prompt_policy(state: Any) -> Any:
+    _core_coverage_mark("_build_agent_actor_prompt_policy")
     runtime_contract = _core_get(state, "runtime_contract", None)
     code_field_name = _core_get(runtime_contract, "code_field_name", "javascriptCode")
     code_field_title = _core_get(runtime_contract, "code_field_title", "Javascript Code")
@@ -2158,6 +2204,7 @@ def _build_agent_actor_prompt_policy(state: Any) -> Any:
 
 
 def _resolve_agent_context_policy(options: Any) -> Any:
+    _core_coverage_mark("_resolve_agent_context_policy")
     empty_map = {}
     context_registry = _agent_context_policy_registry()
     option_keys = _core_get(context_registry, "option_keys", empty_map)
@@ -2271,6 +2318,7 @@ def _resolve_agent_context_policy(options: Any) -> Any:
 
 
 def _resolve_agent_executor_model_policy(options: Any) -> Any:
+    _core_coverage_mark("_resolve_agent_executor_model_policy")
     empty_list = []
     context_registry = _agent_context_policy_registry()
     empty_map = {}
@@ -2390,6 +2438,7 @@ def _resolve_agent_executor_model_policy(options: Any) -> Any:
 
 
 def _select_agent_executor_model(policy: Any, actor_model_state: Any) -> Any:
+    _core_coverage_mark("_select_agent_executor_model")
     none = _core_none()
     is_list = _core_type_is(policy, "list")
     if is_list:
@@ -2436,6 +2485,7 @@ def _select_agent_executor_model(policy: Any, actor_model_state: Any) -> Any:
 
 
 def _agent_compute_effective_chat_budget(base_budget: Any, fixed_overhead_chars: Any) -> number:
+    _core_coverage_mark("_agent_compute_effective_chat_budget")
     context_registry = _agent_context_policy_registry()
     empty_map = {}
     budget_math = _core_get(context_registry, "budget_math", empty_map)
@@ -2460,6 +2510,7 @@ def _agent_compute_effective_chat_budget(base_budget: Any, fixed_overhead_chars:
 
 
 def _agent_action_log_char_count(entries: Any) -> number:
+    _core_coverage_mark("_agent_action_log_char_count")
     total = 0
     for entry in entries:
         code = _core_get(entry, "code", "")
@@ -2472,6 +2523,7 @@ def _agent_action_log_char_count(entries: Any) -> number:
 
 
 def _agent_compute_dynamic_runtime_chars(entries: Any, target_prompt_chars: Any, max_runtime_chars: Any) -> number:
+    _core_coverage_mark("_agent_compute_dynamic_runtime_chars")
     context_registry = _agent_context_policy_registry()
     empty_map = {}
     runtime_budget = _core_get(context_registry, "runtime_output_budget", empty_map)
@@ -2512,6 +2564,7 @@ def _agent_compute_dynamic_runtime_chars(entries: Any, target_prompt_chars: Any,
 
 
 def _agent_context_pressure(mutable_prompt_chars: Any, effective_budget_chars: Any, checkpoint_active: Any) -> str:
+    _core_coverage_mark("_agent_context_pressure")
     context_registry = _agent_context_policy_registry()
     empty_map = {}
     pressure_levels = _core_get(context_registry, "pressure_levels", empty_map)
@@ -2547,6 +2600,7 @@ def _agent_context_pressure(mutable_prompt_chars: Any, effective_budget_chars: A
 
 
 def _agent_render_context_pressure(pressure: str) -> str:
+    _core_coverage_mark("_agent_render_context_pressure")
     context_registry = _agent_context_policy_registry()
     empty_map = {}
     pressure_levels = _core_get(context_registry, "pressure_levels", empty_map)
@@ -2562,6 +2616,7 @@ def _agent_render_context_pressure(pressure: str) -> str:
 
 
 def _agent_smart_stringify(value: Any, max_chars: Any) -> str:
+    _core_coverage_mark("_agent_smart_stringify")
     context_registry = _agent_context_policy_registry()
     empty_map = {}
     settings = _core_get(context_registry, "smart_stringify", empty_map)
@@ -2605,6 +2660,7 @@ def _agent_smart_stringify(value: Any, max_chars: Any) -> str:
 
 
 def _agent_record_context_event(state: Any, event: Any) -> Any:
+    _core_coverage_mark("_agent_record_context_event")
     empty_list = []
     events = _core_get(state, "context_events", empty_list)
     events.append(event)
@@ -2613,11 +2669,13 @@ def _agent_record_context_event(state: Any, event: Any) -> Any:
 
 
 def _agent_entry_turn(entry: Any, fallback: Any) -> number:
+    _core_coverage_mark("_agent_entry_turn")
     turn = _core_get(entry, "turn", fallback)
     return turn
 
 
 def _agent_entry_is_error(entry: Any) -> bool:
+    _core_coverage_mark("_agent_entry_is_error")
     tags = _core_get(entry, "tags", None)
     tags_is_list = _core_type_is(tags, "list")
     if tags_is_list:
@@ -2630,6 +2688,7 @@ def _agent_entry_is_error(entry: Any) -> bool:
 
 
 def _agent_entry_summary(entry: Any, fallback_turn: Any) -> str:
+    _core_coverage_mark("_agent_entry_summary")
     tombstone = _core_get(entry, "tombstone", "")
     has_tombstone = _core_ne(tombstone, "")
     if has_tombstone:
@@ -2656,6 +2715,7 @@ def _agent_entry_summary(entry: Any, fallback_turn: Any) -> str:
 
 
 def _agent_entry_callables_text(entry: Any) -> str:
+    _core_coverage_mark("_agent_entry_callables_text")
     empty_list = []
     calls = _core_get(entry, "_functionCalls", empty_list)
     names = []
@@ -2702,6 +2762,7 @@ def _agent_entry_callables_text(entry: Any) -> str:
 
 
 def _agent_distill_structured_action_output(output: str) -> str:
+    _core_coverage_mark("_agent_distill_structured_action_output")
     has_failed_line = _core_contains(output, "FAILED ")
     has_passed = _core_contains(output, " passed")
     has_failed_count = _core_contains(output, " failed")
@@ -2750,6 +2811,7 @@ def _agent_distill_structured_action_output(output: str) -> str:
 
 
 def _agent_render_full_action_entry(state: Any, entry: Any) -> str:
+    _core_coverage_mark("_agent_render_full_action_entry")
     tombstone = _core_get(entry, "tombstone", "")
     has_tombstone = _core_ne(tombstone, "")
     if has_tombstone:
@@ -2770,6 +2832,7 @@ def _agent_render_full_action_entry(state: Any, entry: Any) -> str:
 
 
 def _agent_render_compact_action_entry(entry: Any, turn: Any, reason: str) -> str:
+    _core_coverage_mark("_agent_render_compact_action_entry")
     kind = _core_get(entry, "kind", "result")
     state_delta = _core_get(entry, "stateDelta", "No durable runtime state update")
     output = _core_get(entry, "output", "")
@@ -2788,6 +2851,7 @@ def _agent_render_compact_action_entry(entry: Any, turn: Any, reason: str) -> st
 
 
 def _agent_fallback_checkpoint_summary(entries: Any, turns: Any) -> str:
+    _core_coverage_mark("_agent_fallback_checkpoint_summary")
     empty_list = []
     evidence = []
     failures = []
@@ -2858,6 +2922,7 @@ def _agent_fallback_checkpoint_summary(entries: Any, turns: Any) -> str:
 
 
 def _agent_build_deterministic_tombstone(error_entry: Any, resolution_entry: Any) -> str:
+    _core_coverage_mark("_agent_build_deterministic_tombstone")
     output = _core_get(error_entry, "output", "")
     signature = _core_string_slice(output, 0, 96)
     empty_signature = _core_eq(signature, "")
@@ -2871,6 +2936,7 @@ def _agent_build_deterministic_tombstone(error_entry: Any, resolution_entry: Any
 
 
 def _agent_apply_context_management(state: Any) -> Any:
+    _core_coverage_mark("_agent_apply_context_management")
     empty_list = []
     entries = _core_get(state, "action_log", empty_list)
     policy = _core_get(state, "context_policy", None)
@@ -2926,6 +2992,7 @@ def _agent_apply_context_management(state: Any) -> Any:
 
 
 def _agent_working_code_state(entries: Any, turns: Any) -> Any:
+    _core_coverage_mark("_agent_working_code_state")
     empty_list = []
     working_turns = []
     coverable_count = 0
@@ -3022,6 +3089,7 @@ def _agent_working_code_state(entries: Any, turns: Any) -> Any:
 
 
 def _agent_refresh_checkpoint_state(state: Any) -> Any:
+    _core_coverage_mark("_agent_refresh_checkpoint_state")
     empty_list = []
     context_registry = _agent_context_policy_registry()
     empty_map = {}
@@ -3121,6 +3189,7 @@ def _agent_refresh_checkpoint_state(state: Any) -> Any:
 
 
 def _agent_build_action_log_parts(state: Any, hygiene_mode: str) -> Any:
+    _core_coverage_mark("_agent_build_action_log_parts")
     empty_list = []
     context_registry = _agent_context_policy_registry()
     empty_map = {}
@@ -3308,6 +3377,7 @@ def _agent_build_action_log_parts(state: Any, hygiene_mode: str) -> Any:
 
 
 def _agent_render_runtime_state_summary(state: Any, policy: Any) -> str:
+    _core_coverage_mark("_agent_render_runtime_state_summary")
     empty_map = {}
     empty_list = []
     session_state = _core_get(state, "runtime_session_state", empty_map)
@@ -3436,6 +3506,7 @@ def _agent_render_runtime_state_summary(state: Any, policy: Any) -> str:
 
 
 def _agent_prepare_actor_context(state: Any) -> Any:
+    _core_coverage_mark("_agent_prepare_actor_context")
     empty_list = []
     context_registry = _agent_context_policy_registry()
     empty_map = {}
@@ -3555,6 +3626,7 @@ def _agent_prepare_actor_context(state: Any) -> Any:
 
 
 def _agent_build_action_evidence_summary(state: Any) -> str:
+    _core_coverage_mark("_agent_build_action_evidence_summary")
     empty_list = []
     entries = _core_get(state, "action_log", empty_list)
     checkpoint = _core_get(state, "checkpoint_state", None)
@@ -3605,6 +3677,7 @@ def _agent_build_action_evidence_summary(state: Any) -> str:
 
 
 def _agent_sanitize_action_log_entries(entries: Any) -> list[Any]:
+    _core_coverage_mark("_agent_sanitize_action_log_entries")
     out = []
     for entry in entries:
         clean = {}
@@ -3770,6 +3843,7 @@ def _agent_sanitize_action_log_entries(entries: Any) -> list[Any]:
 
 
 def _agent_context_fixture_result(state: Any, fixture: Any) -> Any:
+    _core_coverage_mark("_agent_context_fixture_result")
     empty_list = []
     operation = _core_get(fixture, "context_operation", "prepare")
     is_policy = _core_eq(operation, "resolve_policy")
@@ -3883,6 +3957,7 @@ def _agent_context_fixture_result(state: Any, fixture: Any) -> Any:
 
 
 def _normalize_agent_callable(raw: Any, namespace: str) -> Any:
+    _core_coverage_mark("_normalize_agent_callable")
     name = _core_get(raw, "name", "")
     missing_name = _core_eq(name, "")
     if missing_name:
@@ -3908,6 +3983,7 @@ def _normalize_agent_callable(raw: Any, namespace: str) -> Any:
 
 
 def _normalize_agent_group(raw: Any) -> Any:
+    _core_coverage_mark("_normalize_agent_group")
     empty_list = []
     name = _core_get(raw, "name", "tools")
     namespace = _core_get(raw, "namespace", name)
@@ -3941,6 +4017,7 @@ def _normalize_agent_group(raw: Any) -> Any:
 
 
 def _normalize_agent_callable_inventory(options: Any) -> Any:
+    _core_coverage_mark("_normalize_agent_callable_inventory")
     empty_list = []
     functions = _core_get(options, "functions", empty_list)
     groups = []
@@ -3985,6 +4062,7 @@ def _normalize_agent_callable_inventory(options: Any) -> Any:
 
 
 def _split_agent_callable_inventory(inventory: Any) -> Any:
+    _core_coverage_mark("_split_agent_callable_inventory")
     inline = []
     discoverable = []
     for group in inventory:
@@ -4000,6 +4078,7 @@ def _split_agent_callable_inventory(inventory: Any) -> Any:
 
 
 def _render_agent_discovery_catalog(split: Any) -> Any:
+    _core_coverage_mark("_render_agent_discovery_catalog")
     empty_list = []
     catalog = []
     inline = _core_get(split, "inline", empty_list)
@@ -4028,6 +4107,7 @@ def _render_agent_discovery_catalog(split: Any) -> Any:
 
 
 def _normalize_agent_string_list(value: Any, label: str) -> list[Any]:
+    _core_coverage_mark("_normalize_agent_string_list")
     out = []
     is_string = _core_type_is(value, "string")
     if is_string:
@@ -4080,6 +4160,7 @@ def _normalize_agent_string_list(value: Any, label: str) -> list[Any]:
 
 
 def _normalize_agent_discover_request(state: Any, request: Any) -> Any:
+    _core_coverage_mark("_normalize_agent_discover_request")
     empty_list = []
     tools = []
     skills = []
@@ -4142,6 +4223,7 @@ def _normalize_agent_discover_request(state: Any, request: Any) -> Any:
 
 
 def _agent_append_unique_by_field(items: Any, item: Any, field: str) -> Any:
+    _core_coverage_mark("_agent_append_unique_by_field")
     value = _core_get(item, field, "")
     found = False
     for existing in items:
@@ -4160,6 +4242,7 @@ def _agent_append_unique_by_field(items: Any, item: Any, field: str) -> Any:
 
 
 def _agent_render_discovered_tool_docs(docs: Any) -> str:
+    _core_coverage_mark("_agent_render_discovered_tool_docs")
     lines = []
     for doc in docs:
         qualified = _core_get(doc, "qualified_name", "")
@@ -4177,6 +4260,7 @@ def _agent_render_discovered_tool_docs(docs: Any) -> str:
 
 
 def _agent_render_loaded_skills(skills: Any) -> str:
+    _core_coverage_mark("_agent_render_loaded_skills")
     lines = []
     for skill in skills:
         name = _core_get(skill, "name", "")
@@ -4194,6 +4278,7 @@ def _agent_render_loaded_skills(skills: Any) -> str:
 
 
 def _agent_discover(state: Any, request: Any) -> None:
+    _core_coverage_mark("_agent_discover")
     empty_list = []
     normalized = _normalize_agent_discover_request(state, request)
     inventory = _core_get(state, "callable_inventory", empty_list)
@@ -4283,6 +4368,7 @@ def _agent_discover(state: Any, request: Any) -> None:
 
 
 def _normalize_agent_recall_request(state: Any, request: Any) -> Any:
+    _core_coverage_mark("_normalize_agent_recall_request")
     flags = _core_get(state, "policy_flags", None)
     enabled = _core_get(flags, "memoriesMode", False)
     disabled = _core_not(enabled)
@@ -4298,6 +4384,7 @@ def _normalize_agent_recall_request(state: Any, request: Any) -> Any:
 
 
 def _agent_merge_memory_results(existing: Any, incoming: Any) -> Any:
+    _core_coverage_mark("_agent_merge_memory_results")
     out = existing
     for memory in incoming:
         id = _core_get(memory, "id", "")
@@ -4313,6 +4400,7 @@ def _agent_merge_memory_results(existing: Any, incoming: Any) -> Any:
 
 
 def _agent_recall(state: Any, request: Any) -> None:
+    _core_coverage_mark("_agent_recall")
     empty_list = []
     normalized = _normalize_agent_recall_request(state, request)
     searches = _core_get(normalized, "searches", empty_list)
@@ -4340,6 +4428,7 @@ def _agent_recall(state: Any, request: Any) -> None:
 
 
 def _normalize_agent_used_request(request: Any, default_stage: str) -> Any:
+    _core_coverage_mark("_normalize_agent_used_request")
     is_map = _core_type_is(request, "object")
     id = ""
     reason = ""
@@ -4366,6 +4455,7 @@ def _normalize_agent_used_request(request: Any, default_stage: str) -> Any:
 
 
 def _agent_used(state: Any, request: Any, stage: str) -> None:
+    _core_coverage_mark("_agent_used")
     empty_list = []
     flags = _core_get(state, "policy_flags", None)
     enabled = _core_get(flags, "usageTrackingMode", False)
@@ -4433,6 +4523,7 @@ def _agent_used(state: Any, request: Any, stage: str) -> None:
 
 
 def _normalize_agent_guidance_payload(value: Any, triggered_by: str) -> Any:
+    _core_coverage_mark("_normalize_agent_guidance_payload")
     is_map = _core_type_is(value, "object")
     guidance = ""
     trigger = triggered_by
@@ -4460,6 +4551,7 @@ def _normalize_agent_guidance_payload(value: Any, triggered_by: str) -> Any:
 
 
 def _agent_append_guidance(state: Any, payload: Any) -> Any:
+    _core_coverage_mark("_agent_append_guidance")
     empty_list = []
     entries = _core_get(state, "guidance_log", empty_list)
     count = _core_len(entries)
@@ -4488,6 +4580,7 @@ def _agent_append_guidance(state: Any, payload: Any) -> Any:
 
 
 def _agent_execute_callable(state: Any, request: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_execute_callable")
     empty_list = []
     result = _core_agent_callable_invoke(state, request, options)
     qualified = _core_get(request, "qualified_name", "")
@@ -4524,6 +4617,7 @@ def _agent_execute_callable(state: Any, request: Any, options: Any) -> Any:
 
 
 def _normalize_agent_final_payload(value: Any) -> Any:
+    _core_coverage_mark("_normalize_agent_final_payload")
     is_map = _core_type_is(value, "object")
     if is_map:
         type = _core_get(value, "type", "")
@@ -4543,6 +4637,7 @@ def _normalize_agent_final_payload(value: Any) -> Any:
 
 
 def _normalize_agent_clarification_payload(value: Any) -> Any:
+    _core_coverage_mark("_normalize_agent_clarification_payload")
     is_map = _core_type_is(value, "object")
     question = ""
     payload = {}
@@ -4574,6 +4669,7 @@ def _normalize_agent_clarification_payload(value: Any) -> Any:
 
 
 def _agent_optimizer_metadata(state: Any) -> Any:
+    _core_coverage_mark("_agent_optimizer_metadata")
     policy = _core_get(state, "policy", None)
     policy_version = _core_get(policy, "policy_version", "agent-runtime-decision-v1")
     stage_ids = []
@@ -4605,6 +4701,7 @@ def _agent_optimizer_metadata(state: Any) -> Any:
 
 
 def _agent_begin_trace(state: Any, input: Any) -> Any:
+    _core_coverage_mark("_agent_begin_trace")
     events = []
     optimizer = _core_get(state, "optimizer_metadata", None)
     trace = {}
@@ -4620,6 +4717,7 @@ def _agent_begin_trace(state: Any, input: Any) -> Any:
 
 
 def _agent_record_trace_event(state: Any, kind: str, payload: Any) -> Any:
+    _core_coverage_mark("_agent_record_trace_event")
     empty_map = {}
     empty_list = []
     trace = _core_get(state, "trace", empty_map)
@@ -4651,6 +4749,7 @@ def _agent_record_trace_event(state: Any, kind: str, payload: Any) -> Any:
 
 
 def _agent_normalize_host_boundary_event(boundary: str, request: Any, result: Any, status: str) -> Any:
+    _core_coverage_mark("_agent_normalize_host_boundary_event")
     out = {}
     out["boundary"] = boundary
     out["request"] = request
@@ -4660,6 +4759,7 @@ def _agent_normalize_host_boundary_event(boundary: str, request: Any, result: An
 
 
 def _agent_finalize_trace(state: Any, status: str, output: Any) -> Any:
+    _core_coverage_mark("_agent_finalize_trace")
     empty_map = {}
     empty_list = []
     trace = _core_get(state, "trace", empty_map)
@@ -4694,6 +4794,7 @@ def _agent_finalize_trace(state: Any, status: str, output: Any) -> Any:
 
 
 def _agent_export_trace(state: Any) -> Any:
+    _core_coverage_mark("_agent_export_trace")
     empty_map = {}
     empty_list = []
     trace = _core_get(state, "trace", empty_map)
@@ -4722,6 +4823,7 @@ def _agent_export_trace(state: Any) -> Any:
 
 
 def _agent_replay_trace(trace: Any, fixtures: Any) -> Any:
+    _core_coverage_mark("_agent_replay_trace")
     empty_list = []
     events = _core_get(trace, "events", empty_list)
     event_kinds = []
@@ -4777,6 +4879,7 @@ def _agent_replay_trace(trace: Any, fixtures: Any) -> Any:
 
 
 def _agent_export_runtime_state(state: Any) -> Any:
+    _core_coverage_mark("_agent_export_runtime_state")
     empty_map = {}
     empty_list = []
     out = {}
@@ -4833,6 +4936,7 @@ def _agent_export_runtime_state(state: Any) -> Any:
 
 
 def _agent_restore_runtime_state(state: Any, snapshot: Any) -> Any:
+    _core_coverage_mark("_agent_restore_runtime_state")
     empty_map = {}
     empty_list = []
     runtime_state = _core_get(snapshot, "runtime_state", empty_map)
@@ -4891,6 +4995,7 @@ def _agent_restore_runtime_state(state: Any, snapshot: Any) -> Any:
 
 
 def _agent_runtime_build_globals(state: Any, values: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_build_globals")
     empty_list = []
     empty_map = {}
     reserved = _agent_reserved_runtime_names()
@@ -4928,6 +5033,7 @@ def _agent_runtime_build_globals(state: Any, values: Any) -> Any:
 
 
 def _agent_runtime_sanitize_bindings(bindings: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_sanitize_bindings")
     reserved = _agent_reserved_runtime_names()
     out = {}
     bindings_is_map = _core_type_is(bindings, "object")
@@ -4945,6 +5051,7 @@ def _agent_runtime_sanitize_bindings(bindings: Any) -> Any:
 
 
 def _normalize_agent_runtime_snapshot(snapshot: Any) -> Any:
+    _core_coverage_mark("_normalize_agent_runtime_snapshot")
     empty_list = []
     snapshot_is_map = _core_type_is(snapshot, "object")
     if snapshot_is_map:
@@ -4986,6 +5093,7 @@ def _normalize_agent_runtime_snapshot(snapshot: Any) -> Any:
 
 
 def _agent_runtime_append_action_log(state: Any, entry: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_append_action_log")
     empty_list = []
     log = _core_get(state, "action_log", empty_list)
     entry_is_map = _core_type_is(entry, "object")
@@ -5016,6 +5124,7 @@ def _agent_runtime_append_action_log(state: Any, entry: Any) -> Any:
 
 
 def _normalize_agent_runtime_step_result(raw: Any, code: str) -> Any:
+    _core_coverage_mark("_normalize_agent_runtime_step_result")
     empty_map = {}
     none = _core_none()
     out = {}
@@ -5122,6 +5231,7 @@ def _normalize_agent_runtime_step_result(raw: Any, code: str) -> Any:
 
 
 def _agent_runtime_execution_options(state: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_execution_options")
     empty_map = {}
     reserved_names = _agent_reserved_runtime_names()
     runtime_options = _core_map_merge(empty_map, options)
@@ -5160,6 +5270,7 @@ def _agent_runtime_execution_options(state: Any, options: Any) -> Any:
 
 
 def _agent_runtime_lifecycle_event(state: Any, action: str, details: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_lifecycle_event")
     empty_map = {}
     entry = _core_map_merge(empty_map, details)
     entry["type"] = "runtime_session"
@@ -5170,6 +5281,7 @@ def _agent_runtime_lifecycle_event(state: Any, action: str, details: Any) -> Any
 
 
 def _agent_runtime_create_session(state: Any, runtime: Any, globals: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_create_session")
     runtime_options = _agent_runtime_execution_options(state, options)
     session = _core_agent_runtime_create_session(runtime, globals, runtime_options)
     state["runtime_session"] = session
@@ -5182,6 +5294,7 @@ def _agent_runtime_create_session(state: Any, runtime: Any, globals: Any, option
 
 
 def _agent_runtime_execute_step(state: Any, runtime: Any, session: Any, code: str, options: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_execute_step")
     runtime_options = _agent_runtime_execution_options(state, options)
     empty_map = {}
     globals = _core_get(state, "runtime_globals", empty_map)
@@ -5271,6 +5384,7 @@ def _agent_runtime_execute_step(state: Any, runtime: Any, session: Any, code: st
 
 
 def _agent_runtime_inspect_state(state: Any, session: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_inspect_state")
     inspection = _core_agent_runtime_inspect(session, options)
     state["runtime_inspection"] = inspection
     entry = {}
@@ -5282,6 +5396,7 @@ def _agent_runtime_inspect_state(state: Any, session: Any, options: Any) -> Any:
 
 
 def _agent_runtime_export_session_state(state: Any, session: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_export_session_state")
     raw_snapshot = _core_agent_runtime_export_state(session, options)
     snapshot = _normalize_agent_runtime_snapshot(raw_snapshot)
     state["runtime_session_state"] = snapshot
@@ -5297,6 +5412,7 @@ def _agent_runtime_export_session_state(state: Any, session: Any, options: Any) 
 
 
 def _agent_runtime_restore_session_state(state: Any, session: Any, snapshot: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_restore_session_state")
     normalized_snapshot = _normalize_agent_runtime_snapshot(snapshot)
     raw_restored = _core_agent_runtime_restore_state(session, normalized_snapshot, options)
     restored = _normalize_agent_runtime_snapshot(raw_restored)
@@ -5313,6 +5429,7 @@ def _agent_runtime_restore_session_state(state: Any, session: Any, snapshot: Any
 
 
 def _agent_runtime_close_session(state: Any, session: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_close_session")
     closed = _core_agent_runtime_close(session)
     state["runtime_session_closed"] = True
     entry = {}
@@ -5322,6 +5439,7 @@ def _agent_runtime_close_session(state: Any, session: Any) -> Any:
 
 
 def _agent_runtime_test(state: Any, runtime: Any, code: str, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_test")
     globals = _agent_runtime_build_globals(state, values)
     runtime_options = _agent_runtime_execution_options(state, options)
     session = _agent_runtime_create_session(state, runtime, globals, runtime_options)
@@ -5338,6 +5456,7 @@ def _agent_runtime_test(state: Any, runtime: Any, code: str, values: Any, option
 
 
 def _split_context_values(state: Any, values: Any) -> Any:
+    _core_coverage_mark("_split_context_values")
     empty_list = []
     context_fields = _core_get(state, "context_fields", empty_list)
     ctx_values = {}
@@ -5356,6 +5475,7 @@ def _split_context_values(state: Any, values: Any) -> Any:
 
 
 def _build_distiller_inputs(state: Any, values: Any) -> Any:
+    _core_coverage_mark("_build_distiller_inputs")
     empty_map = {}
     split = _split_context_values(state, values)
     context = _core_get(split, "context", empty_map)
@@ -5366,6 +5486,7 @@ def _build_distiller_inputs(state: Any, values: Any) -> Any:
 
 
 def _build_executor_inputs(state: Any, values: Any, distiller_payload: Any) -> Any:
+    _core_coverage_mark("_build_executor_inputs")
     empty_list = []
     empty_map = {}
     split = _split_context_values(state, values)
@@ -5406,6 +5527,7 @@ def _build_executor_inputs(state: Any, values: Any, distiller_payload: Any) -> A
 
 
 def _build_responder_inputs(state: Any, values: Any, executor_payload: Any) -> Any:
+    _core_coverage_mark("_build_responder_inputs")
     empty_list = []
     empty_map = {}
     split = _split_context_values(state, values)
@@ -5426,6 +5548,7 @@ def _build_responder_inputs(state: Any, values: Any, executor_payload: Any) -> A
 
 
 def _normalize_agent_completion_payload(output: Any) -> Any:
+    _core_coverage_mark("_normalize_agent_completion_payload")
     completion = _core_get(output, "completion", output)
     payload = _core_get(completion, "executorResult", completion)
     type = _core_get(payload, "type", None)
@@ -5443,6 +5566,7 @@ def _normalize_agent_completion_payload(output: Any) -> Any:
 
 
 def _throw_agent_clarification(payload: Any, state: Any) -> None:
+    _core_coverage_mark("_throw_agent_clarification")
     type = _core_get(payload, "type", None)
     is_clarification = _core_eq(type, "askClarification")
     if is_clarification:
@@ -5455,6 +5579,7 @@ def _throw_agent_clarification(payload: Any, state: Any) -> None:
 
 
 def _merge_agent_chat_log(state: Any, distiller: Any, executor: Any, responder: Any) -> list[Any]:
+    _core_coverage_mark("_merge_agent_chat_log")
     logs = []
     distiller_logs = _core_agent_stage_chat_log(distiller)
     for entry in distiller_logs:
@@ -5476,6 +5601,7 @@ def _merge_agent_chat_log(state: Any, distiller: Any, executor: Any, responder: 
 
 
 def _merge_agent_usage(state: Any) -> Any:
+    _core_coverage_mark("_merge_agent_usage")
     empty_list = []
     chat_log = _core_get(state, "chat_log", empty_list)
     count = _core_len(chat_log)
@@ -5486,17 +5612,20 @@ def _merge_agent_usage(state: Any) -> Any:
 
 
 def _agent_get_state(state: Any) -> Any:
+    _core_coverage_mark("_agent_get_state")
     empty_map = {}
     runtime_state = _core_get(state, "runtime_state", empty_map)
     return runtime_state
 
 
 def _agent_set_state(state: Any, runtime_state: Any) -> Any:
+    _core_coverage_mark("_agent_set_state")
     state["runtime_state"] = runtime_state
     return runtime_state
 
 
 def _agent_stage_options(state: Any, stage: str, forward_options: Any) -> Any:
+    _core_coverage_mark("_agent_stage_options")
     empty_map = {}
     base_options = _core_get(state, "options", empty_map)
     stage_options = {}
@@ -5546,6 +5675,7 @@ def _agent_stage_options(state: Any, stage: str, forward_options: Any) -> Any:
 
 
 def _extract_agent_runtime_code(state: Any, executor_output: Any) -> str:
+    _core_coverage_mark("_extract_agent_runtime_code")
     runtime_contract = _core_get(state, "runtime_contract", None)
     code_field_name = _core_get(runtime_contract, "code_field_name", "javascriptCode")
     code = _core_get(executor_output, code_field_name, "")
@@ -5563,6 +5693,7 @@ def _extract_agent_runtime_code(state: Any, executor_output: Any) -> str:
 
 
 def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_forward")
     _agent_begin_trace(state, values)
     state_options = _core_get(state, "options", None)
     runtime_from_state = _core_get(state_options, "runtime", None)

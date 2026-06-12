@@ -6757,6 +6757,32 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
 }
 
 // ----- AXIR CORE VALUE RUNTIME -----
+
+fn axir_coverage_mark(name: &'static str) {
+    use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+    type CoverageState = Option<(String, Mutex<std::collections::HashSet<&'static str>>)>;
+    static STATE: OnceLock<CoverageState> = OnceLock::new();
+    let state = STATE.get_or_init(|| {
+        std::env::var("AXIR_COVERAGE_FILE")
+            .ok()
+            .map(|path| (path, Mutex::new(std::collections::HashSet::new())))
+    });
+    let Some((path, seen)) = state.as_ref() else {
+        return;
+    };
+    if !seen.lock().map(|mut set| set.insert(name)).unwrap_or(false) {
+        return;
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{name}");
+    }
+}
+
 // Dynamic value model for IR-emitted Core functions. Lists and maps are
 // reference-shared (Rc<RefCell<...>>) so child values obtained via core_get
 // alias their parent, matching the Go and Python runtimes. Single-threaded
@@ -12242,6 +12268,7 @@ fn python_repr(value: &Value) -> String {
     clippy::all
 )]
 fn parse_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("parse_signature");
     let mut v_signature = core_arg(args, 0);
     let mut v_parsed = CoreValue::Null;
     v_parsed = _signature_parse_impl(&[v_signature.clone()])?;
@@ -12256,6 +12283,7 @@ fn parse_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn validate_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("validate_signature");
     let mut v_signature = core_arg(args, 0);
     _signature_validate_impl(&[v_signature.clone()])?;
     return Ok(CoreValue::Null);
@@ -12269,6 +12297,7 @@ fn validate_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _signature_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_parse_impl");
     let mut v_signature = core_arg(args, 0);
     let mut v_arrow = CoreValue::Null;
     let mut v_attrs = CoreValue::Null;
@@ -12349,6 +12378,7 @@ fn _signature_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _signature_parse_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_parse_fields_impl");
     let mut v_text = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
     let mut v_field = CoreValue::Null;
@@ -12373,6 +12403,7 @@ fn _signature_parse_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _signature_parse_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_parse_field_impl");
     let mut v_raw = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
     let mut v_array_info = CoreValue::Null;
@@ -12579,6 +12610,7 @@ fn _signature_parse_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _signature_validate_field_shape_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_validate_field_shape_impl");
     let mut v_field = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
     let mut v_nested = core_arg(args, 2);
@@ -12758,6 +12790,7 @@ fn _signature_validate_field_shape_impl(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _signature_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_validate_impl");
     let mut v_signature = core_arg(args, 0);
     let mut v_collision = CoreValue::Null;
     let mut v_duplicate = CoreValue::Null;
@@ -12855,6 +12888,7 @@ fn _signature_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn validate_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("validate_fields");
     let mut v_fields = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_context = core_arg(args, 2);
@@ -12870,6 +12904,7 @@ fn validate_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn to_json_schema(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("to_json_schema");
     let mut v_fields = core_arg(args, 0);
     let mut v_schema_title = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -12890,6 +12925,7 @@ fn to_json_schema(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _schema_required_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_schema_required_impl");
     let mut v_field = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
     let mut v_is_optional = CoreValue::Null;
@@ -12927,6 +12963,7 @@ fn _schema_required_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn validate_output(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("validate_output");
     let mut v_fields = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_validated = CoreValue::Null;
@@ -12942,6 +12979,7 @@ fn validate_output(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn validate_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("validate_value");
     let mut v_field = core_arg(args, 0);
     let mut v_value = core_arg(args, 1);
     let mut v_path = core_arg(args, 2);
@@ -12957,6 +12995,7 @@ fn validate_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _schema_flexible_json_as_string_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_schema_flexible_json_as_string_impl");
     let mut v_typ = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
     let mut v_as_string = CoreValue::Null;
@@ -13002,6 +13041,7 @@ fn _schema_flexible_json_as_string_impl(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn strip_internal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("strip_internal");
     let mut v_fields = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_public_values = CoreValue::Null;
@@ -13017,6 +13057,7 @@ fn strip_internal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _validate_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_fields_impl");
     let mut v_fields = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_context = core_arg(args, 2);
@@ -13087,6 +13128,7 @@ fn _validate_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _schema_json_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_schema_json_type_impl");
     let mut v_type_name = core_arg(args, 0);
     let mut v_flexible_names = CoreValue::Null;
     let mut v_is_boolean = CoreValue::Null;
@@ -13143,6 +13185,7 @@ fn _schema_json_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _validate_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_output_impl");
     let mut v_fields = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_alias_title = CoreValue::Null;
@@ -13184,6 +13227,7 @@ fn _validate_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _schema_enhance_description_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_schema_enhance_description_impl");
     let mut v_base = core_arg(args, 0);
     let mut v_typ = core_arg(args, 1);
     let mut v_constraint_count = CoreValue::Null;
@@ -13372,6 +13416,7 @@ fn _schema_enhance_description_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _validate_string_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_string_constraints_impl");
     let mut v_value = core_arg(args, 0);
     let mut v_field = core_arg(args, 1);
     let mut v_error = CoreValue::Null;
@@ -13492,6 +13537,7 @@ fn _validate_string_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _validate_number_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_number_constraints_impl");
     let mut v_value = core_arg(args, 0);
     let mut v_field = core_arg(args, 1);
     let mut v_error = CoreValue::Null;
@@ -13545,6 +13591,7 @@ fn _validate_number_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _schema_apply_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_schema_apply_constraints_impl");
     let mut v_schema = core_arg(args, 0);
     let mut v_typ = core_arg(args, 1);
     let mut v_default_date_format = CoreValue::Null;
@@ -13659,6 +13706,7 @@ fn _schema_apply_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_value_impl");
     let mut v_field = core_arg(args, 0);
     let mut v_value = core_arg(args, 1);
     let mut v_path = core_arg(args, 2);
@@ -13916,6 +13964,7 @@ fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _schema_nullable_optional_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_schema_nullable_optional_impl");
     let mut v_schema = core_arg(args, 0);
     let mut v_field = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -13988,6 +14037,7 @@ fn _schema_nullable_optional_impl(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _schema_object_from_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_schema_object_from_fields_impl");
     let mut v_fields_map = core_arg(args, 0);
     let mut v_is_nested = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -14054,6 +14104,7 @@ fn _schema_object_from_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _schema_field_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_schema_field_schema_impl");
     let mut v_field = core_arg(args, 0);
     let mut v_is_nested = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -14299,6 +14350,7 @@ fn _schema_field_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _strip_internal_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_strip_internal_fields_impl");
     let mut v_fields = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_field = CoreValue::Null;
@@ -14341,6 +14393,7 @@ fn _strip_internal_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _schema_to_json_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_schema_to_json_schema_impl");
     let mut v_fields = core_arg(args, 0);
     let mut v_schema_title = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -14406,6 +14459,7 @@ fn _schema_to_json_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn render_template_content(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("render_template_content");
     let mut v_template = core_arg(args, 0);
     let mut v_vars = core_arg(args, 1);
     let mut v_context = core_arg(args, 2);
@@ -14429,6 +14483,7 @@ fn render_template_content(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn collect_template_variable_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("collect_template_variable_names");
     let mut v_source = core_arg(args, 0);
     let mut v_context = core_arg(args, 1);
     let mut v_names = CoreValue::Null;
@@ -14446,6 +14501,7 @@ fn collect_template_variable_names(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn validate_prompt_template_syntax(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("validate_prompt_template_syntax");
     let mut v_source = core_arg(args, 0);
     let mut v_context = core_arg(args, 1);
     let mut v_required_variables = core_arg(args, 2);
@@ -14466,6 +14522,7 @@ fn validate_prompt_template_syntax(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _template_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_template_parse_impl");
     let mut v_template = core_arg(args, 0);
     let mut v_context = core_arg(args, 1);
     let mut v_nodes = CoreValue::Null;
@@ -14481,6 +14538,7 @@ fn _template_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _template_render_tree_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_template_render_tree_impl");
     let mut v_nodes = core_arg(args, 0);
     let mut v_vars = core_arg(args, 1);
     let mut v_source = core_arg(args, 2);
@@ -14503,6 +14561,7 @@ fn _template_render_tree_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     clippy::all
 )]
 fn _template_collect_vars_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_template_collect_vars_impl");
     let mut v_nodes = core_arg(args, 0);
     let mut v_names = CoreValue::Null;
     v_names = core_template_collect_vars(&[v_nodes.clone()])?;
@@ -14517,6 +14576,7 @@ fn _template_collect_vars_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _template_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_template_validate_impl");
     let mut v_source = core_arg(args, 0);
     let mut v_context = core_arg(args, 1);
     let mut v_required_variables = core_arg(args, 2);
@@ -14537,6 +14597,7 @@ fn _template_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn render_prompt(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("render_prompt");
     let mut v_signature = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_functions = core_arg(args, 2);
@@ -14574,6 +14635,7 @@ fn render_prompt(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _prompt_structured_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_prompt_structured_impl");
     let mut v_signature = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_functions = core_arg(args, 2);
@@ -14596,6 +14658,7 @@ fn _prompt_structured_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _prompt_user_content_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_prompt_user_content_impl");
     let mut v_signature = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_content = CoreValue::Null;
@@ -14611,6 +14674,7 @@ fn _prompt_user_content_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _prompt_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_prompt_messages_impl");
     let mut v_system = core_arg(args, 0);
     let mut v_user = core_arg(args, 1);
     let mut v_messages = CoreValue::Null;
@@ -14653,6 +14717,7 @@ fn _prompt_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn openai_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_build_chat_request");
     let mut v_request = core_arg(args, 0);
     let mut v_chat_prompt = CoreValue::Null;
     let mut v_empty_functions = CoreValue::Null;
@@ -14795,6 +14860,7 @@ fn openai_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn merge_model_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("merge_model_config");
     let mut v_base = core_arg(args, 0);
     let mut v_override = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -14831,6 +14897,7 @@ fn merge_model_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("validate_chat_request");
     let mut v_request = core_arg(args, 0);
     let mut v_bad_assistant = CoreValue::Null;
     let mut v_bad_prompt = CoreValue::Null;
@@ -14925,6 +14992,7 @@ fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _openai_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_apply_model_config_impl");
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
     let mut v_has_stop = CoreValue::Null;
@@ -15034,6 +15102,7 @@ fn _openai_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("build_chat_request");
     let mut v_service = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -15051,6 +15120,7 @@ fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_copy_config_key_impl");
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
     let mut v_source = core_arg(args, 2);
@@ -15073,6 +15143,7 @@ fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_chat_response");
     let mut v_raw = core_arg(args, 0);
     let mut v_response = CoreValue::Null;
     v_response = openai_normalize_chat_response(&[v_raw.clone()])?;
@@ -15087,6 +15158,7 @@ fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_stream_delta");
     let mut v_raw = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
     let mut v_response = CoreValue::Null;
@@ -15102,6 +15174,7 @@ fn normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _openai_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_message_impl");
     let mut v_message = core_arg(args, 0);
     let mut v_assistant_content = CoreValue::Null;
     let mut v_call = CoreValue::Null;
@@ -15237,6 +15310,7 @@ fn _openai_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("build_embed_request");
     let mut v_service = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -15253,6 +15327,7 @@ fn build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_embed_response");
     let mut v_raw = core_arg(args, 0);
     let mut v_response = CoreValue::Null;
     v_response = openai_normalize_embed_response(&[v_raw.clone()])?;
@@ -15267,6 +15342,7 @@ fn normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn normalize_token_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_token_usage");
     let mut v_usage = core_arg(args, 0);
     let mut v_cache_creation_tokens = CoreValue::Null;
     let mut v_cache_creation_tokens_snake = CoreValue::Null;
@@ -15409,6 +15485,7 @@ fn normalize_token_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ai_model_usage_impl");
     let mut v_ai_name = core_arg(args, 0);
     let mut v_model = core_arg(args, 1);
     let mut v_usage = core_arg(args, 2);
@@ -15439,6 +15516,7 @@ fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_content_part_impl");
     let mut v_part = core_arg(args, 0);
     let mut v_details = CoreValue::Null;
     let mut v_error = CoreValue::Null;
@@ -15518,6 +15596,7 @@ fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_response_to_completion");
     let mut v_response = core_arg(args, 0);
     let mut v_call = CoreValue::Null;
     let mut v_calls = CoreValue::Null;
@@ -15589,6 +15668,7 @@ fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _openai_tool_call_to_provider_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_tool_call_to_provider_impl");
     let mut v_call = core_arg(args, 0);
     let mut v_fn = CoreValue::Null;
     let mut v_function = CoreValue::Null;
@@ -15626,6 +15706,7 @@ fn _openai_tool_call_to_provider_impl(args: &[CoreValue]) -> Result<CoreValue, A
     clippy::all
 )]
 fn _openai_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_tool_spec_impl");
     let mut v_fn = core_arg(args, 0);
     let mut v_description = CoreValue::Null;
     let mut v_function = CoreValue::Null;
@@ -15665,6 +15746,7 @@ fn _openai_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_build_embed_request");
     let mut v_request = core_arg(args, 0);
     let mut v_dimensions = CoreValue::Null;
     let mut v_embed_model_snake = CoreValue::Null;
@@ -15704,6 +15786,7 @@ fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     clippy::all
 )]
 fn openai_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_normalize_chat_response");
     let mut v_raw = core_arg(args, 0);
     let mut v_ai_name = core_arg(args, 1);
     let mut v_model = core_arg(args, 2);
@@ -15786,6 +15869,7 @@ fn openai_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _openai_normalize_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_normalize_choice_impl");
     let mut v_choice = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
     let mut v_content = CoreValue::Null;
@@ -15864,6 +15948,7 @@ fn _openai_normalize_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_normalize_tool_calls_impl");
     let mut v_calls = core_arg(args, 0);
     let mut v_call = CoreValue::Null;
     let mut v_fn = CoreValue::Null;
@@ -15928,6 +16013,7 @@ fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_finish_reason_impl");
     let mut v_value = core_arg(args, 0);
     let mut v_is_call = CoreValue::Null;
     let mut v_is_content_filter = CoreValue::Null;
@@ -15966,6 +16052,7 @@ fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     clippy::all
 )]
 fn openai_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_normalize_embed_response");
     let mut v_raw = core_arg(args, 0);
     let mut v_ai_name = core_arg(args, 1);
     let mut v_model = core_arg(args, 2);
@@ -16013,6 +16100,7 @@ fn openai_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn openai_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_normalize_stream_delta");
     let mut v_raw = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
     let mut v_ai_name = core_arg(args, 2);
@@ -16117,6 +16205,7 @@ fn openai_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _openai_stream_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_stream_choice_impl");
     let mut v_choice = core_arg(args, 0);
     let mut v_index_ids = core_arg(args, 1);
     let mut v_arguments = CoreValue::Null;
@@ -16212,6 +16301,7 @@ fn _openai_stream_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     clippy::all
 )]
 fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_normalize_error");
     let mut v_status = core_arg(args, 0);
     let mut v_body = core_arg(args, 1);
     let mut v_request = core_arg(args, 2);
@@ -16313,6 +16403,7 @@ fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn provider_normalize_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_normalize_profile");
     let mut v_profile = core_arg(args, 0);
     let mut v_aliases = CoreValue::Null;
     let mut v_normalized = CoreValue::Null;
@@ -16335,6 +16426,7 @@ fn provider_normalize_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     clippy::all
 )]
 fn provider_profile_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_profile_registry");
     let mut v_registry = CoreValue::Null;
     v_registry = core_json_parse(&[CoreValue::from("{\"deferredCatalogProviderIds\":[],\"profiles\":{\"anthropic\":{\"aliases\":[\"anthropic\",\"claude\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"AnthropicClient\",\"id\":\"anthropic\"},\"azure-openai\":{\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"AzureOpenAIClient\",\"id\":\"azure-openai\"},\"cohere\":{\"aliases\":[\"cohere\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"CohereClient\",\"id\":\"cohere\"},\"deepseek\":{\"aliases\":[\"deepseek\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"DeepSeekClient\",\"id\":\"deepseek\"},\"google-gemini\":{\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"GoogleGeminiClient\",\"id\":\"google-gemini\"},\"grok\":{\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"GrokClient\",\"id\":\"grok\"},\"mistral\":{\"aliases\":[\"mistral\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"MistralClient\",\"id\":\"mistral\"},\"openai-compatible\":{\"aliases\":[\"openai-compatible\",\"openai\",\"compatible\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"openai-compatible\"},\"openai-responses\":{\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAIResponsesClient\",\"id\":\"openai-responses\"},\"reka\":{\"aliases\":[\"reka\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"RekaClient\",\"id\":\"reka\"}},\"registryVersion\":\"provider-profile-registry-v1\",\"supportedProfileIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\",\"azure-openai\",\"deepseek\",\"mistral\",\"reka\",\"cohere\",\"grok\"]}")])?;
     return Ok(v_registry.clone());
@@ -16348,6 +16440,7 @@ fn provider_profile_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn provider_resolve_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_resolve_profile");
     let mut v_profile = core_arg(args, 0);
     let mut v_aliases = CoreValue::Null;
     let mut v_is_known = CoreValue::Null;
@@ -16373,6 +16466,7 @@ fn provider_resolve_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn provider_model_catalog_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_model_catalog_summary");
     let mut v_summary = CoreValue::Null;
     v_summary = core_json_parse(&[CoreValue::from("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\",\"azure-openai\",\"deepseek\",\"mistral\",\"reka\",\"cohere\",\"grok\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":10,\"providerNames\":[\"google-gemini\",\"openai\",\"cohere\",\"mistral\",\"deepseek\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"azure-openai\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}")])?;
     return Ok(v_summary.clone());
@@ -16386,6 +16480,7 @@ fn provider_model_catalog_summary(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _provider_model_catalog_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_model_catalog_registry");
     let mut v_catalog = CoreValue::Null;
     v_catalog = core_json_parse(&[CoreValue::from("{\"all\":[{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.134,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-pro-image-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-image-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-mini\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-whisper\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-translate\",\"provider\":\"openai\",\"type\":\"audio\"}],\"name\":\"openai\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-light\",\"promptTokenCostPer1M\":0.3,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-r\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"command-r-plus\",\"promptTokenCostPer1M\":3,\"provider\":\"cohere\",\"type\":\"text\"}],\"name\":\"cohere\"},{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-nemo-latest\",\"promptTokenCostPer1M\":0.15,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-7b\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.3,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-nemo-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"mistral-small-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.7,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mixtral-8x7b\",\"promptTokenCostPer1M\":0.7,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-large-latest\",\"promptTokenCostPer1M\":2,\"provider\":\"mistral\",\"type\":\"text\"}],\"name\":\"mistral\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":80,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o3-pro\",\"promptTokenCostPer1M\":20,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":600,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o1-pro\",\"promptTokenCostPer1M\":150,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai-responses\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-non-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini\",\"promptTokenCostPer1M\":0.3,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-multi-agent\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-non-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.3\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini-fast\",\"promptTokenCostPer1M\":0.6,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"grok-3\",\"promptTokenCostPer1M\":3,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-fast\",\"promptTokenCostPer1M\":5,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-think-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"}],\"name\":\"grok\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-edge\",\"promptTokenCostPer1M\":0.4,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-flash\",\"promptTokenCostPer1M\":0.8,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"reka-core\",\"promptTokenCostPer1M\":3,\"provider\":\"reka\",\"type\":\"text\"}],\"name\":\"reka\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku-20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku@20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.24,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-instant-1.2\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.08,\"cacheWriteTokenCostPer1M\":1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku-latest\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku@20241022\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5@20251001\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-v2@20241022\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet@20240620\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet@20250219\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-sonnet-20240229\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5-20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5@20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4@20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5-20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5@20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-2.1\",\"promptTokenCostPer1M\":8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus-latest\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus@20240229\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1-20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1@20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4@20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"anthropic\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"}],\"audio\":[{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-mini\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-whisper\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-translate\",\"provider\":\"openai\",\"type\":\"audio\"}],\"name\":\"openai\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-think-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"}],\"name\":\"grok\"}],\"code\":[{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"}],\"name\":\"mistral\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"}],\"name\":\"openai\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"}],\"name\":\"openai-responses\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[],\"name\":\"google-gemini\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"}],\"embeddings\":[{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"}],\"name\":\"openai\"},{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"}],\"name\":\"google-gemini\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"}],\"name\":\"cohere\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"}],\"text\":[{\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.134,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-pro-image-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-image-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"google-gemini\"},{\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-nemo-latest\",\"promptTokenCostPer1M\":0.15,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-7b\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.3,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-nemo-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"mistral-small-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.7,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mixtral-8x7b\",\"promptTokenCostPer1M\":0.7,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-large-latest\",\"promptTokenCostPer1M\":2,\"provider\":\"mistral\",\"type\":\"text\"}],\"name\":\"mistral\"},{\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek\"},{\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai\"},{\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":80,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o3-pro\",\"promptTokenCostPer1M\":20,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":600,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o1-pro\",\"promptTokenCostPer1M\":150,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai-responses\"},{\"defaultModel\":\"grok-3\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-non-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":0.5,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini\",\"promptTokenCostPer1M\":0.3,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-multi-agent\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-non-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.3\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini-fast\",\"promptTokenCostPer1M\":0.6,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"grok-3\",\"promptTokenCostPer1M\":3,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-fast\",\"promptTokenCostPer1M\":5,\"provider\":\"grok\",\"type\":\"text\"}],\"name\":\"grok\"},{\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-light\",\"promptTokenCostPer1M\":0.3,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-r\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"command-r-plus\",\"promptTokenCostPer1M\":3,\"provider\":\"cohere\",\"type\":\"text\"}],\"name\":\"cohere\"},{\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-edge\",\"promptTokenCostPer1M\":0.4,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-flash\",\"promptTokenCostPer1M\":0.8,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"reka-core\",\"promptTokenCostPer1M\":3,\"provider\":\"reka\",\"type\":\"text\"}],\"name\":\"reka\"},{\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku-20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku@20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":2.24,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-instant-1.2\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.08,\"cacheWriteTokenCostPer1M\":1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku-latest\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku@20241022\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5@20251001\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-v2@20241022\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet@20240620\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet@20250219\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-sonnet-20240229\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5-20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5@20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4@20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5-20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5@20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-2.1\",\"promptTokenCostPer1M\":8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus-latest\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus@20240229\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1-20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1@20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4@20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"anthropic\"},{\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"}]}")])?;
     return Ok(v_catalog.clone());
@@ -16399,6 +16494,7 @@ fn _provider_model_catalog_registry(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn provider_model_catalog(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_model_catalog");
     let mut v_options = core_arg(args, 0);
     let mut v_candidate = CoreValue::Null;
     let mut v_candidate_is_list = CoreValue::Null;
@@ -16452,6 +16548,7 @@ fn provider_model_catalog(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn provider_route_request_requirements(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_route_request_requirements");
     let mut v_request = core_arg(args, 0);
     let mut v_audio_config = CoreValue::Null;
     let mut v_audio_output = CoreValue::Null;
@@ -16787,6 +16884,7 @@ fn provider_route_request_requirements(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn _provider_features_support(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_features_support");
     let mut v_features = core_arg(args, 0);
     let mut v_path = core_arg(args, 1);
     let mut v_audio = CoreValue::Null;
@@ -16889,6 +16987,7 @@ fn _provider_features_support(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     clippy::all
 )]
 fn _provider_route_score(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_route_score");
     let mut v_provider = core_arg(args, 0);
     let mut v_requirements = core_arg(args, 1);
     let mut v_features = CoreValue::Null;
@@ -17068,6 +17167,7 @@ fn _provider_route_score(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn provider_route_recommendation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_route_recommendation");
     let mut v_providers = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -17331,6 +17431,7 @@ fn provider_route_recommendation(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _provider_route_any_supports(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_route_any_supports");
     let mut v_providers = core_arg(args, 0);
     let mut v_path = core_arg(args, 1);
     let mut v_features = CoreValue::Null;
@@ -17357,6 +17458,7 @@ fn _provider_route_any_supports(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn provider_route_validation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_route_validation");
     let mut v_providers = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_processing = core_arg(args, 2);
@@ -17513,6 +17615,7 @@ fn provider_route_validation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn provider_balancer_retry_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_balancer_retry_policy");
     let mut v_options = core_arg(args, 0);
     let mut v_debug = CoreValue::Null;
     let mut v_initial_backoff = CoreValue::Null;
@@ -17589,6 +17692,7 @@ fn provider_balancer_retry_policy(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn provider_balancer_metric_score(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_balancer_metric_score");
     let mut v_metrics = core_arg(args, 0);
     let mut v_chat = CoreValue::Null;
     let mut v_latency = CoreValue::Null;
@@ -17607,6 +17711,7 @@ fn provider_balancer_metric_score(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn provider_balancer_candidate_allowed(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_balancer_candidate_allowed");
     let mut v_features = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_audio = CoreValue::Null;
@@ -17729,6 +17834,7 @@ fn provider_balancer_candidate_allowed(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn provider_routing_stats(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_routing_stats");
     let mut v_providers = core_arg(args, 0);
     let mut v_audio = CoreValue::Null;
     let mut v_audio_count = CoreValue::Null;
@@ -17871,6 +17977,7 @@ fn provider_routing_stats(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_descriptor");
     let mut v_profile = core_arg(args, 0);
     let mut v_anthropic_caching = CoreValue::Null;
     let mut v_anthropic_chat = CoreValue::Null;
@@ -18503,6 +18610,7 @@ fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn provider_operation_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_operation_descriptor");
     let mut v_profile = core_arg(args, 0);
     let mut v_operation = core_arg(args, 1);
     let mut v_descriptor = CoreValue::Null;
@@ -18538,6 +18646,7 @@ fn provider_operation_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _provider_realtime_audio_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_realtime_audio_descriptor");
     let mut v_profile = core_arg(args, 0);
     let mut v_descriptor = CoreValue::Null;
     v_descriptor =
@@ -18553,6 +18662,7 @@ fn _provider_realtime_audio_descriptor(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn provider_build_realtime_audio_setup(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_build_realtime_audio_setup");
     let mut v_profile = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_descriptor = CoreValue::Null;
@@ -18584,6 +18694,7 @@ fn provider_build_realtime_audio_setup(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn provider_build_realtime_audio_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_build_realtime_audio_input");
     let mut v_profile = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_descriptor = CoreValue::Null;
@@ -18615,6 +18726,7 @@ fn provider_build_realtime_audio_input(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn _openai_realtime_compatible_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_realtime_compatible_build_setup");
     let mut v_descriptor = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_audio = CoreValue::Null;
@@ -18805,6 +18917,7 @@ fn _openai_realtime_compatible_build_setup(args: &[CoreValue]) -> Result<CoreVal
     clippy::all
 )]
 fn _openai_realtime_compatible_build_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_realtime_compatible_build_input");
     let mut v_descriptor = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_content = CoreValue::Null;
@@ -18866,6 +18979,7 @@ fn _openai_realtime_compatible_build_input(args: &[CoreValue]) -> Result<CoreVal
     clippy::all
 )]
 fn _gemini_live_bidi_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_live_bidi_build_setup");
     let mut v_descriptor = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_audio_descriptor = CoreValue::Null;
@@ -19029,6 +19143,7 @@ fn _gemini_live_bidi_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _gemini_live_bidi_build_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_live_bidi_build_input");
     let mut v_descriptor = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_audio = CoreValue::Null;
@@ -19193,6 +19308,7 @@ fn _gemini_live_bidi_build_input(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _realtime_request_system_instruction_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_realtime_request_system_instruction_impl");
     let mut v_request = core_arg(args, 0);
     let mut v_content = CoreValue::Null;
     let mut v_direct = CoreValue::Null;
@@ -19241,6 +19357,7 @@ fn _realtime_request_system_instruction_impl(args: &[CoreValue]) -> Result<CoreV
     clippy::all
 )]
 fn _realtime_request_user_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_realtime_request_user_messages_impl");
     let mut v_request = core_arg(args, 0);
     let mut v_count = CoreValue::Null;
     let mut v_empty_prompt = CoreValue::Null;
@@ -19291,6 +19408,7 @@ fn _realtime_request_user_messages_impl(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _openai_realtime_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_realtime_content_parts_impl");
     let mut v_content = core_arg(args, 0);
     let mut v_audio_part = CoreValue::Null;
     let mut v_data = CoreValue::Null;
@@ -19365,6 +19483,7 @@ fn _openai_realtime_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_build_chat_request");
     let mut v_profile = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_anthropic_payload = CoreValue::Null;
@@ -19418,6 +19537,7 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
 fn _provider_apply_openai_compatible_profile_quirks(
     args: &[CoreValue],
 ) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_apply_openai_compatible_profile_quirks");
     let mut v_profile = core_arg(args, 0);
     let mut v_payload = core_arg(args, 1);
     let mut v_request = core_arg(args, 2);
@@ -19460,6 +19580,7 @@ fn _provider_apply_openai_compatible_profile_quirks(
     clippy::all
 )]
 fn _provider_apply_deepseek_chat_quirks(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_apply_deepseek_chat_quirks");
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
     let mut v_budget = CoreValue::Null;
@@ -19583,6 +19704,7 @@ fn _provider_apply_deepseek_chat_quirks(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _provider_apply_mistral_chat_quirks(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_apply_mistral_chat_quirks");
     let mut v_payload = core_arg(args, 0);
     let mut v_content = CoreValue::Null;
     let mut v_content_is_list = CoreValue::Null;
@@ -19653,6 +19775,7 @@ fn _provider_apply_mistral_chat_quirks(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn _provider_apply_grok_chat_quirks(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_apply_grok_chat_quirks");
     let mut v_payload = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_model_config = core_arg(args, 2);
@@ -19987,6 +20110,7 @@ fn _provider_apply_grok_chat_quirks(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn provider_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_build_embed_request");
     let mut v_profile = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_error = CoreValue::Null;
@@ -20025,6 +20149,7 @@ fn provider_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn provider_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_normalize_chat_response");
     let mut v_profile = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
     let mut v_ai_name = core_arg(args, 2);
@@ -20087,6 +20212,7 @@ fn provider_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn provider_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_normalize_stream_delta");
     let mut v_profile = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
     let mut v_state = core_arg(args, 2);
@@ -20153,6 +20279,7 @@ fn provider_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn provider_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_normalize_embed_response");
     let mut v_profile = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
     let mut v_ai_name = core_arg(args, 2);
@@ -20185,6 +20312,7 @@ fn provider_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn provider_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_build_transcribe_request");
     let mut v_profile = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_gemini_payload = CoreValue::Null;
@@ -20223,6 +20351,7 @@ fn provider_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn provider_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_build_speak_request");
     let mut v_profile = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_gemini_payload = CoreValue::Null;
@@ -20261,6 +20390,7 @@ fn provider_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn provider_normalize_transcribe_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_normalize_transcribe_response");
     let mut v_profile = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
     let mut v_duration = CoreValue::Null;
@@ -20302,6 +20432,7 @@ fn provider_normalize_transcribe_response(args: &[CoreValue]) -> Result<CoreValu
     clippy::all
 )]
 fn provider_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_normalize_speak_response");
     let mut v_profile = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
     let mut v_request = core_arg(args, 2);
@@ -20337,6 +20468,7 @@ fn provider_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn provider_normalize_realtime_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_normalize_realtime_event");
     let mut v_profile = core_arg(args, 0);
     let mut v_event = core_arg(args, 1);
     let mut v_state = core_arg(args, 2);
@@ -20382,6 +20514,7 @@ fn provider_normalize_realtime_event(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn openai_responses_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_responses_build_chat_request");
     let mut v_request = core_arg(args, 0);
     let mut v_empty_functions = CoreValue::Null;
     let mut v_empty_model_config = CoreValue::Null;
@@ -20573,6 +20706,7 @@ fn openai_responses_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn _openai_responses_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_apply_model_config_impl");
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
     _openai_copy_config_key_impl(&[
@@ -20640,6 +20774,7 @@ fn _openai_responses_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreV
     clippy::all
 )]
 fn _openai_responses_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_tool_spec_impl");
     let mut v_fn = core_arg(args, 0);
     let mut v_description = CoreValue::Null;
     let mut v_empty_parameters = CoreValue::Null;
@@ -20678,6 +20813,7 @@ fn _openai_responses_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _openai_responses_input_item_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_input_item_impl");
     let mut v_message = core_arg(args, 0);
     let mut v_call_id = CoreValue::Null;
     let mut v_content = CoreValue::Null;
@@ -20729,6 +20865,7 @@ fn _openai_responses_input_item_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _openai_responses_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_content_parts_impl");
     let mut v_content = core_arg(args, 0);
     let mut v_role = core_arg(args, 1);
     let mut v_is_assistant = CoreValue::Null;
@@ -20767,6 +20904,7 @@ fn _openai_responses_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _openai_responses_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_content_part_impl");
     let mut v_part = core_arg(args, 0);
     let mut v_role = core_arg(args, 1);
     let mut v_audio_alt = CoreValue::Null;
@@ -20872,6 +21010,7 @@ fn _openai_responses_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn openai_responses_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_responses_normalize_chat_response");
     let mut v_raw = core_arg(args, 0);
     let mut v_ai_name = core_arg(args, 1);
     let mut v_model = core_arg(args, 2);
@@ -20933,6 +21072,7 @@ fn openai_responses_normalize_chat_response(args: &[CoreValue]) -> Result<CoreVa
     clippy::all
 )]
 fn _openai_responses_merge_output_item_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_merge_output_item_impl");
     let mut v_result = core_arg(args, 0);
     let mut v_item = core_arg(args, 1);
     let mut v_call = CoreValue::Null;
@@ -20992,6 +21132,7 @@ fn _openai_responses_merge_output_item_impl(args: &[CoreValue]) -> Result<CoreVa
     clippy::all
 )]
 fn _openai_responses_content_to_text_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_content_to_text_impl");
     let mut v_content = core_arg(args, 0);
     let mut v_is_refusal = CoreValue::Null;
     let mut v_is_text = CoreValue::Null;
@@ -21027,6 +21168,7 @@ fn _openai_responses_content_to_text_impl(args: &[CoreValue]) -> Result<CoreValu
     clippy::all
 )]
 fn _openai_responses_extract_citations_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_extract_citations_impl");
     let mut v_content = core_arg(args, 0);
     let mut v_annotation = CoreValue::Null;
     let mut v_annotations = CoreValue::Null;
@@ -21074,6 +21216,7 @@ fn _openai_responses_extract_citations_impl(args: &[CoreValue]) -> Result<CoreVa
     clippy::all
 )]
 fn _openai_responses_function_call_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_function_call_impl");
     let mut v_item = core_arg(args, 0);
     let mut v_args = CoreValue::Null;
     let mut v_args_is_string = CoreValue::Null;
@@ -21129,6 +21272,7 @@ fn _openai_responses_function_call_impl(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_responses_normalize_stream_delta");
     let mut v_event = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
     let mut v_ai_name = core_arg(args, 2);
@@ -21308,6 +21452,7 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
     clippy::all
 )]
 fn openai_responses_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_responses_build_transcribe_request");
     let mut v_request = core_arg(args, 0);
     let mut v_audio_file = CoreValue::Null;
     let mut v_format = CoreValue::Null;
@@ -21360,6 +21505,7 @@ fn openai_responses_build_transcribe_request(args: &[CoreValue]) -> Result<CoreV
     clippy::all
 )]
 fn openai_responses_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_responses_build_speak_request");
     let mut v_request = core_arg(args, 0);
     let mut v_payload = CoreValue::Null;
     let mut v_request_input = CoreValue::Null;
@@ -21408,6 +21554,7 @@ fn openai_responses_build_speak_request(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _grok_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_grok_build_transcribe_request");
     let mut v_request = core_arg(args, 0);
     let mut v_audio_file = CoreValue::Null;
     let mut v_has_language = CoreValue::Null;
@@ -21446,6 +21593,7 @@ fn _grok_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _grok_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_grok_build_speak_request");
     let mut v_request = core_arg(args, 0);
     let mut v_codec = CoreValue::Null;
     let mut v_format = CoreValue::Null;
@@ -21533,6 +21681,7 @@ fn _grok_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _gemini_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_build_transcribe_request");
     let mut v_request = core_arg(args, 0);
     let mut v_audio = CoreValue::Null;
     let mut v_audio_part = CoreValue::Null;
@@ -21607,6 +21756,7 @@ fn _gemini_build_transcribe_request(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _gemini_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_build_speak_request");
     let mut v_request = core_arg(args, 0);
     let mut v_contents = CoreValue::Null;
     let mut v_generation_config = CoreValue::Null;
@@ -21692,6 +21842,7 @@ fn _gemini_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _gemini_normalize_transcribe_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_normalize_transcribe_response");
     let mut v_raw = core_arg(args, 0);
     let mut v_candidate = CoreValue::Null;
     let mut v_candidates = CoreValue::Null;
@@ -21739,6 +21890,7 @@ fn _gemini_normalize_transcribe_response(args: &[CoreValue]) -> Result<CoreValue
     clippy::all
 )]
 fn _gemini_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_normalize_speak_response");
     let mut v_raw = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_audio = CoreValue::Null;
@@ -21801,6 +21953,7 @@ fn _gemini_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn openai_responses_normalize_realtime_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_responses_normalize_realtime_event");
     let mut v_event = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
     let mut v_ai_name = core_arg(args, 2);
@@ -21997,6 +22150,7 @@ fn openai_responses_normalize_realtime_event(args: &[CoreValue]) -> Result<CoreV
     clippy::all
 )]
 fn _gemini_live_bidi_normalize_realtime_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_live_bidi_normalize_realtime_event");
     let mut v_event = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
     let mut v_ai_name = core_arg(args, 2);
@@ -22243,6 +22397,7 @@ fn _gemini_live_bidi_normalize_realtime_event(args: &[CoreValue]) -> Result<Core
     clippy::all
 )]
 fn _gemini_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_build_chat_request");
     let mut v_request = core_arg(args, 0);
     let mut v_contents = CoreValue::Null;
     let mut v_decl = CoreValue::Null;
@@ -22469,6 +22624,7 @@ fn _gemini_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     clippy::all
 )]
 fn _gemini_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_apply_model_config_impl");
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
     _openai_copy_config_key_impl(&[
@@ -22554,6 +22710,7 @@ fn _gemini_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_message_impl");
     let mut v_message = core_arg(args, 0);
     let mut v_args = CoreValue::Null;
     let mut v_args_is_string = CoreValue::Null;
@@ -22710,6 +22867,7 @@ fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _gemini_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_content_parts_impl");
     let mut v_content = core_arg(args, 0);
     let mut v_is_list = CoreValue::Null;
     let mut v_mapped = CoreValue::Null;
@@ -22739,6 +22897,7 @@ fn _gemini_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     clippy::all
 )]
 fn _gemini_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_content_part_impl");
     let mut v_part = core_arg(args, 0);
     let mut v_audio_alt = CoreValue::Null;
     let mut v_data = CoreValue::Null;
@@ -22844,6 +23003,7 @@ fn _gemini_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _gemini_function_declaration_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_function_declaration_impl");
     let mut v_fn = core_arg(args, 0);
     let mut v_decl = CoreValue::Null;
     let mut v_description = CoreValue::Null;
@@ -22877,6 +23037,7 @@ fn _gemini_function_declaration_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _gemini_tool_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_tool_config_impl");
     let mut v_request = core_arg(args, 0);
     let mut v_allowed = CoreValue::Null;
     let mut v_config = CoreValue::Null;
@@ -22959,6 +23120,7 @@ fn _gemini_tool_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _gemini_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_build_embed_request");
     let mut v_request = core_arg(args, 0);
     let mut v_content = CoreValue::Null;
     let mut v_empty_texts = CoreValue::Null;
@@ -23006,6 +23168,7 @@ fn _gemini_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _gemini_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_normalize_chat_response");
     let mut v_raw = core_arg(args, 0);
     let mut v_ai_name = core_arg(args, 1);
     let mut v_model = core_arg(args, 2);
@@ -23205,6 +23368,7 @@ fn _gemini_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _gemini_merge_response_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_merge_response_part_impl");
     let mut v_result = core_arg(args, 0);
     let mut v_text_parts = core_arg(args, 1);
     let mut v_function_calls = core_arg(args, 2);
@@ -23263,6 +23427,7 @@ fn _gemini_merge_response_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _gemini_extract_citations_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_extract_citations_impl");
     let mut v_candidate = core_arg(args, 0);
     let mut v_chunk = CoreValue::Null;
     let mut v_chunks = CoreValue::Null;
@@ -23393,6 +23558,7 @@ fn _gemini_extract_citations_impl(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _gemini_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_usage_impl");
     let mut v_usage = core_arg(args, 0);
     let mut v_cached = CoreValue::Null;
     let mut v_completion = CoreValue::Null;
@@ -23474,6 +23640,7 @@ fn _gemini_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _gemini_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_normalize_embed_response");
     let mut v_raw = core_arg(args, 0);
     let mut v_ai_name = core_arg(args, 1);
     let mut v_model = core_arg(args, 2);
@@ -23536,6 +23703,7 @@ fn _gemini_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _anthropic_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_build_chat_request");
     let mut v_request = core_arg(args, 0);
     let mut v_cache = CoreValue::Null;
     let mut v_cache_control = CoreValue::Null;
@@ -23738,6 +23906,7 @@ fn _anthropic_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _anthropic_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_apply_model_config_impl");
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
     let mut v_model = core_arg(args, 2);
@@ -23904,6 +24073,7 @@ fn _anthropic_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, A
     clippy::all
 )]
 fn _anthropic_thinking_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_thinking_config_impl");
     let mut v_model = core_arg(args, 0);
     let mut v_level = core_arg(args, 1);
     let mut v_budget = CoreValue::Null;
@@ -24022,6 +24192,7 @@ fn _anthropic_thinking_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _anthropic_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_message_impl");
     let mut v_message = core_arg(args, 0);
     let mut v_block = CoreValue::Null;
     let mut v_blocks = CoreValue::Null;
@@ -24269,6 +24440,7 @@ fn _anthropic_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _anthropic_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_content_parts_impl");
     let mut v_content = core_arg(args, 0);
     let mut v_is_list = CoreValue::Null;
     let mut v_mapped = CoreValue::Null;
@@ -24299,6 +24471,7 @@ fn _anthropic_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _anthropic_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_content_part_impl");
     let mut v_part = core_arg(args, 0);
     let mut v_cache = CoreValue::Null;
     let mut v_cache_control = CoreValue::Null;
@@ -24378,6 +24551,7 @@ fn _anthropic_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _anthropic_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_tool_spec_impl");
     let mut v_fn = core_arg(args, 0);
     let mut v_cache = CoreValue::Null;
     let mut v_cache_control = CoreValue::Null;
@@ -24426,6 +24600,7 @@ fn _anthropic_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _anthropic_tool_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_tool_choice_impl");
     let mut v_request = core_arg(args, 0);
     let mut v_choice = CoreValue::Null;
     let mut v_error = CoreValue::Null;
@@ -24482,6 +24657,7 @@ fn _anthropic_tool_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _anthropic_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_normalize_chat_response");
     let mut v_raw = core_arg(args, 0);
     let mut v_ai_name = core_arg(args, 1);
     let mut v_model = core_arg(args, 2);
@@ -24626,6 +24802,7 @@ fn _anthropic_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, A
     clippy::all
 )]
 fn _anthropic_merge_response_block_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_merge_response_block_impl");
     let mut v_text_parts = core_arg(args, 0);
     let mut v_function_calls = core_arg(args, 1);
     let mut v_thought_parts = core_arg(args, 2);
@@ -24738,6 +24915,7 @@ fn _anthropic_merge_response_block_impl(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _anthropic_append_citations_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_append_citations_impl");
     let mut v_out = core_arg(args, 0);
     let mut v_block = core_arg(args, 1);
     let mut v_citation = CoreValue::Null;
@@ -24783,6 +24961,7 @@ fn _anthropic_append_citations_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _anthropic_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_finish_reason_impl");
     let mut v_reason = core_arg(args, 0);
     let mut v_is_context = CoreValue::Null;
     let mut v_is_length = CoreValue::Null;
@@ -24824,6 +25003,7 @@ fn _anthropic_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _anthropic_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_usage_impl");
     let mut v_usage = core_arg(args, 0);
     let mut v_cache_creation = CoreValue::Null;
     let mut v_cache_read = CoreValue::Null;
@@ -24908,6 +25088,7 @@ fn _anthropic_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_normalize_stream_delta");
     let mut v_event = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
     let mut v_ai_name = core_arg(args, 2);
@@ -25292,6 +25473,7 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_gen_chat_request");
     let mut v_gen = core_arg(args, 0);
     let mut v_messages = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -25460,6 +25642,7 @@ fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn fold_stream(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("fold_stream");
     let mut v_events = core_arg(args, 0);
     let mut v_chunks = CoreValue::Null;
     let mut v_event = CoreValue::Null;
@@ -25487,6 +25670,7 @@ fn fold_stream(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _execute_tool_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_execute_tool_call");
     let mut v_functions = core_arg(args, 0);
     let mut v_call = core_arg(args, 1);
     let mut v_argument_params = CoreValue::Null;
@@ -25552,6 +25736,7 @@ fn _execute_tool_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _stream_event_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_stream_event_content_parts_impl");
     let mut v_event = core_arg(args, 0);
     let mut v_parts = CoreValue::Null;
     v_parts = core_stream_event_content_parts(&[v_event.clone()])?;
@@ -25566,6 +25751,7 @@ fn _stream_event_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _validate_optimization_component_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_optimization_component_value");
     let mut v_component = core_arg(args, 0);
     let mut v_value = core_arg(args, 1);
     let mut v_bad_boolean = CoreValue::Null;
@@ -25701,6 +25887,7 @@ fn _validate_optimization_component_value(args: &[CoreValue]) -> Result<CoreValu
     clippy::all
 )]
 fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_forward_impl");
     let mut v_gen = core_arg(args, 0);
     let mut v_client = core_arg(args, 1);
     let mut v_values = core_arg(args, 2);
@@ -25971,6 +26158,7 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _validate_optimization_component_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_optimization_component_map");
     let mut v_components = core_arg(args, 0);
     let mut v_component_map = core_arg(args, 1);
     let mut v_bad = CoreValue::Null;
@@ -26019,6 +26207,7 @@ fn _validate_optimization_component_map(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _validate_optimized_artifact_provenance(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_optimized_artifact_provenance");
     let mut v_artifact = core_arg(args, 0);
     let mut v_components = core_arg(args, 1);
     let mut v_actual_owner = CoreValue::Null;
@@ -26085,6 +26274,7 @@ fn _validate_optimized_artifact_provenance(args: &[CoreValue]) -> Result<CoreVal
     clippy::all
 )]
 fn _set_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_set_examples");
     let mut v_gen = core_arg(args, 0);
     let mut v_examples = core_arg(args, 1);
     core_set(&v_gen, CoreValue::from("examples"), v_examples.clone())?;
@@ -26099,6 +26289,7 @@ fn _set_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _validate_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_optimized_artifact");
     let mut v_artifact = core_arg(args, 0);
     let mut v_components = core_arg(args, 1);
     let mut v_bad_component_map = CoreValue::Null;
@@ -26245,6 +26436,7 @@ fn _validate_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _set_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_set_demos");
     let mut v_gen = core_arg(args, 0);
     let mut v_demos = core_arg(args, 1);
     core_set(&v_gen, CoreValue::from("demos"), v_demos.clone())?;
@@ -26259,6 +26451,7 @@ fn _set_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _render_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_render_examples");
     let mut v_gen = core_arg(args, 0);
     let mut v_messages = CoreValue::Null;
     v_messages = core_axgen_render_examples(&[v_gen.clone()])?;
@@ -26273,6 +26466,7 @@ fn _render_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _render_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_render_demos");
     let mut v_gen = core_arg(args, 0);
     let mut v_messages = CoreValue::Null;
     v_messages = core_axgen_render_demos(&[v_gen.clone()])?;
@@ -26287,6 +26481,7 @@ fn _render_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_apply_field_processors");
     let mut v_gen = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
     let mut v_processed = CoreValue::Null;
@@ -26302,6 +26497,7 @@ fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _run_assertions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_run_assertions");
     let mut v_gen = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
     core_axgen_run_assertions(&[v_gen.clone(), v_output.clone()])?;
@@ -26316,6 +26512,7 @@ fn _run_assertions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _append_assertion_retry_messages(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_append_assertion_retry_messages");
     let mut v_messages = core_arg(args, 0);
     let mut v_response = core_arg(args, 1);
     let mut v_error = core_arg(args, 2);
@@ -26335,6 +26532,7 @@ fn _append_assertion_retry_messages(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _serialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_serialize_optimized_artifact");
     let mut v_artifact = core_arg(args, 0);
     let mut v_text = CoreValue::Null;
     v_text = core_json_stringify(&[v_artifact.clone()])?;
@@ -26349,6 +26547,7 @@ fn _serialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _record_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_record_trace");
     let mut v_gen = core_arg(args, 0);
     let mut v_input = core_arg(args, 1);
     let mut v_output = core_arg(args, 2);
@@ -26370,6 +26569,7 @@ fn _record_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _deserialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_deserialize_optimized_artifact");
     let mut v_text = core_arg(args, 0);
     let mut v_components = core_arg(args, 1);
     let mut v_artifact = CoreValue::Null;
@@ -26387,6 +26587,7 @@ fn _deserialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _should_continue_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_should_continue_steps");
     let mut v_gen = core_arg(args, 0);
     let mut v_calls = core_arg(args, 1);
     let mut v_should_continue = CoreValue::Null;
@@ -26402,6 +26603,7 @@ fn _should_continue_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _optimization_changed_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_optimization_changed_components");
     let mut v_components = core_arg(args, 0);
     let mut v_component_map = core_arg(args, 1);
     let mut v_changed = CoreValue::Null;
@@ -26439,6 +26641,7 @@ fn _optimization_changed_components(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _complete_with_retries_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_complete_with_retries_impl");
     let mut v_client = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_retries = core_arg(args, 2);
@@ -26486,6 +26689,7 @@ fn _complete_with_retries_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _optimization_component_current_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_optimization_component_current_map");
     let mut v_components = core_arg(args, 0);
     let mut v_component = CoreValue::Null;
     let mut v_current = CoreValue::Null;
@@ -26509,6 +26713,7 @@ fn _optimization_component_current_map(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_output_impl");
     let mut v_content = core_arg(args, 0);
     let mut v_output = CoreValue::Null;
     let mut v_text = CoreValue::Null;
@@ -26525,6 +26730,7 @@ fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _normalize_optimization_dataset(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_optimization_dataset");
     let mut v_dataset = core_arg(args, 0);
     let mut v_empty_list = CoreValue::Null;
     let mut v_is_object = CoreValue::Null;
@@ -26568,6 +26774,7 @@ fn _normalize_optimization_dataset(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_tool_spec_impl");
     let mut v_fn = core_arg(args, 0);
     let mut v_description = CoreValue::Null;
     let mut v_name = CoreValue::Null;
@@ -26595,6 +26802,7 @@ fn _tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _normalize_optimization_metric_scores(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_optimization_metric_scores");
     let mut v_raw = core_arg(args, 0);
     let mut v_is_number = CoreValue::Null;
     let mut v_is_object = CoreValue::Null;
@@ -26623,6 +26831,7 @@ fn _normalize_optimization_metric_scores(args: &[CoreValue]) -> Result<CoreValue
     clippy::all
 )]
 fn _function_call_mode_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_function_call_mode_impl");
     let mut v_mode = core_arg(args, 0);
     let mut v_is_auto = CoreValue::Null;
     let mut v_is_native = CoreValue::Null;
@@ -26654,6 +26863,7 @@ fn _function_call_mode_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _scalarize_optimization_scores(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_scalarize_optimization_scores");
     let mut v_scores = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
     let mut v_avg = CoreValue::Null;
@@ -26703,6 +26913,7 @@ fn _scalarize_optimization_scores(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _response_function_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_response_function_calls_impl");
     let mut v_response = core_arg(args, 0);
     let mut v_calls = CoreValue::Null;
     let mut v_empty = CoreValue::Null;
@@ -26723,6 +26934,7 @@ fn _response_function_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _append_tool_call_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_append_tool_call_messages_impl");
     let mut v_messages = core_arg(args, 0);
     let mut v_response = core_arg(args, 1);
     let mut v_calls = core_arg(args, 2);
@@ -26766,6 +26978,7 @@ fn _append_tool_call_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _optimization_action_name_matches(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_optimization_action_name_matches");
     let mut v_expected = core_arg(args, 0);
     let mut v_call = core_arg(args, 1);
     let mut v_any_match = CoreValue::Null;
@@ -26799,6 +27012,7 @@ fn _optimization_action_name_matches(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _completion_call_to_chat_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_completion_call_to_chat_impl");
     let mut v_call = core_arg(args, 0);
     let mut v_function = CoreValue::Null;
     let mut v_id = CoreValue::Null;
@@ -26826,6 +27040,7 @@ fn _completion_call_to_chat_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _adjust_optimization_score_for_actions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_adjust_optimization_score_for_actions");
     let mut v_score = core_arg(args, 0);
     let mut v_task = core_arg(args, 1);
     let mut v_prediction = core_arg(args, 2);
@@ -26920,6 +27135,7 @@ fn _adjust_optimization_score_for_actions(args: &[CoreValue]) -> Result<CoreValu
     clippy::all
 )]
 fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_tool_result_message_impl");
     let mut v_call = core_arg(args, 0);
     let mut v_result = core_arg(args, 1);
     let mut v_id = CoreValue::Null;
@@ -26946,6 +27162,7 @@ fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _tool_error_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_tool_error_message_impl");
     let mut v_call = core_arg(args, 0);
     let mut v_error = core_arg(args, 1);
     let mut v_error_text = CoreValue::Null;
@@ -26986,6 +27203,7 @@ fn _tool_error_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _append_validation_retry_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_append_validation_retry_messages_impl");
     let mut v_messages = core_arg(args, 0);
     let mut v_response = core_arg(args, 1);
     let mut v_error = core_arg(args, 2);
@@ -27044,6 +27262,7 @@ fn _append_validation_retry_messages_impl(args: &[CoreValue]) -> Result<CoreValu
     clippy::all
 )]
 fn _build_optimization_eval_row(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_optimization_eval_row");
     let mut v_task = core_arg(args, 0);
     let mut v_prediction = core_arg(args, 1);
     let mut v_scores = core_arg(args, 2);
@@ -27073,6 +27292,7 @@ fn _build_optimization_eval_row(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _build_optimization_eval_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_optimization_eval_result");
     let mut v_rows = core_arg(args, 0);
     let mut v_candidate_map = core_arg(args, 1);
     let mut v_phase = core_arg(args, 2);
@@ -27124,6 +27344,7 @@ fn _build_optimization_eval_result(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _filter_optimization_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_filter_optimization_components");
     let mut v_components = core_arg(args, 0);
     let mut v_target = core_arg(args, 1);
     let mut v_actor_any_match = CoreValue::Null;
@@ -27225,6 +27446,7 @@ fn _filter_optimization_components(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _build_optimizer_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_optimizer_request");
     let mut v_program_kind = core_arg(args, 0);
     let mut v_components = core_arg(args, 1);
     let mut v_dataset = core_arg(args, 2);
@@ -27279,6 +27501,7 @@ fn _build_optimizer_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _prepare_optimizer_run(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_prepare_optimizer_run");
     let mut v_program_kind = core_arg(args, 0);
     let mut v_components = core_arg(args, 1);
     let mut v_dataset = core_arg(args, 2);
@@ -27352,6 +27575,7 @@ fn _prepare_optimizer_run(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _normalize_optimizer_engine_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_optimizer_engine_response");
     let mut v_response = core_arg(args, 0);
     let mut v_engine_name = core_arg(args, 1);
     let mut v_engine_version = core_arg(args, 2);
@@ -27536,6 +27760,7 @@ fn _normalize_optimizer_engine_response(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _build_optimizer_evidence_batch(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_optimizer_evidence_batch");
     let mut v_eval_result = core_arg(args, 0);
     let mut v_components = core_arg(args, 1);
     let mut v_avg = CoreValue::Null;
@@ -27700,6 +27925,7 @@ fn _build_optimizer_evidence_batch(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_factory");
     let mut v_signature = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
     let mut v_action_log = CoreValue::Null;
@@ -28077,6 +28303,7 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _optimization_component(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_optimization_component");
     let mut v_id = core_arg(args, 0);
     let mut v_owner = core_arg(args, 1);
     let mut v_kind = core_arg(args, 2);
@@ -28118,6 +28345,7 @@ fn _optimization_component(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_optimized_artifact");
     let mut v_optimizer_name = core_arg(args, 0);
     let mut v_optimizer_version = core_arg(args, 1);
     let mut v_component_map = core_arg(args, 2);
@@ -28171,6 +28399,7 @@ fn _optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_reserved_runtime_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_reserved_runtime_names");
     let mut v_names = CoreValue::Null;
     let mut v_names_is_list = CoreValue::Null;
     let mut v_registry = CoreValue::Null;
@@ -28196,6 +28425,7 @@ fn _agent_reserved_runtime_names(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _agent_runtime_language_tokens(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_language_tokens");
     let mut v_language = core_arg(args, 0);
     let mut v_plus_spaced = CoreValue::Null;
     let mut v_sharp_spaced = CoreValue::Null;
@@ -28230,6 +28460,7 @@ fn _agent_runtime_language_tokens(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _agent_runtime_language_alias_key(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_language_alias_key");
     let mut v_tokens = core_arg(args, 0);
     let mut v_alias_key = CoreValue::Null;
     let mut v_joined = CoreValue::Null;
@@ -28246,6 +28477,7 @@ fn _agent_runtime_language_alias_key(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _agent_runtime_is_javascript_alias(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_is_javascript_alias");
     let mut v_alias_key = core_arg(args, 0);
     let mut v_is_ecmascript = CoreValue::Null;
     let mut v_is_javascript = CoreValue::Null;
@@ -28268,6 +28500,7 @@ fn _agent_runtime_is_javascript_alias(args: &[CoreValue]) -> Result<CoreValue, A
     clippy::all
 )]
 fn _agent_runtime_code_field_name(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_code_field_name");
     let mut v_tokens = core_arg(args, 0);
     let mut v_is_javascript = core_arg(args, 1);
     let mut v_count = CoreValue::Null;
@@ -28298,6 +28531,7 @@ fn _agent_runtime_code_field_name(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _agent_runtime_code_fence_language(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_code_fence_language");
     let mut v_tokens = core_arg(args, 0);
     let mut v_alias_key = core_arg(args, 1);
     let mut v_is_javascript = core_arg(args, 2);
@@ -28327,6 +28561,7 @@ fn _agent_runtime_code_fence_language(args: &[CoreValue]) -> Result<CoreValue, A
     clippy::all
 )]
 fn _normalize_agent_runtime(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_runtime");
     let mut v_options = core_arg(args, 0);
     let mut v_alias_key = CoreValue::Null;
     let mut v_code_fence_camel = CoreValue::Null;
@@ -28492,6 +28727,7 @@ fn _normalize_agent_runtime(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _normalize_agent_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_policy");
     let mut v_options = core_arg(args, 0);
     let mut v_delegation_default = CoreValue::Null;
     let mut v_discovery_default = CoreValue::Null;
@@ -28579,6 +28815,7 @@ fn _normalize_agent_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_policy_flags(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_policy_flags");
     let mut v_options = core_arg(args, 0);
     let mut v_context_config = CoreValue::Null;
     let mut v_function_discovery = CoreValue::Null;
@@ -28712,6 +28949,7 @@ fn _agent_policy_flags(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_policy_action(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_policy_action");
     let mut v_id = core_arg(args, 0);
     let mut v_category = core_arg(args, 1);
     let mut v_kind = core_arg(args, 2);
@@ -28755,6 +28993,7 @@ fn _agent_policy_action(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_policy_vocabulary_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_policy_vocabulary_registry");
     let mut v_adaptive_recent = CoreValue::Null;
     let mut v_allowed_keys = CoreValue::Null;
     let mut v_budget_balanced = CoreValue::Null;
@@ -29655,6 +29894,7 @@ fn _agent_policy_vocabulary_registry(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _map_optimization_judge_quality_to_score(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_map_optimization_judge_quality_to_score");
     let mut v_quality = core_arg(args, 0);
     let mut v_is_acceptable = CoreValue::Null;
     let mut v_is_excellent = CoreValue::Null;
@@ -29694,6 +29934,7 @@ fn _map_optimization_judge_quality_to_score(args: &[CoreValue]) -> Result<CoreVa
     clippy::all
 )]
 fn _build_optimization_judge_payload(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_optimization_judge_payload");
     let mut v_task = core_arg(args, 0);
     let mut v_prediction = core_arg(args, 1);
     let mut v_criteria = core_arg(args, 2);
@@ -29836,6 +30077,7 @@ fn _build_optimization_judge_payload(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _agent_context_policy_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_context_policy_registry");
     let mut v_context = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_registry = CoreValue::Null;
@@ -29857,6 +30099,7 @@ fn _agent_context_policy_registry(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _agent_context_policy_migration_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_context_policy_migration_error");
     let mut v_key = core_arg(args, 0);
     let mut v_context = CoreValue::Null;
     let mut v_default_message = CoreValue::Null;
@@ -29887,6 +30130,7 @@ fn _agent_context_policy_migration_error(args: &[CoreValue]) -> Result<CoreValue
     clippy::all
 )]
 fn _agent_context_budget_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_context_budget_profile");
     let mut v_budget = core_arg(args, 0);
     let mut v_budgets = CoreValue::Null;
     let mut v_context = CoreValue::Null;
@@ -29921,6 +30165,7 @@ fn _agent_context_budget_profile(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _agent_context_preset_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_context_preset_profile");
     let mut v_preset = core_arg(args, 0);
     let mut v_context = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
@@ -29955,6 +30200,7 @@ fn _agent_context_preset_profile(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _agent_context_event_name(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_context_event_name");
     let mut v_stable_id = core_arg(args, 0);
     let mut v_context = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
@@ -29979,6 +30225,7 @@ fn _agent_context_event_name(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_context_event_reason(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_context_event_reason");
     let mut v_stable_id = core_arg(args, 0);
     let mut v_context = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
@@ -30003,6 +30250,7 @@ fn _agent_context_event_reason(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _agent_policy_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_policy_registry");
     let mut v_policy = core_arg(args, 0);
     let mut v_flags = core_arg(args, 1);
     let mut v_actor_primitives = CoreValue::Null;
@@ -30457,6 +30705,7 @@ fn _agent_policy_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _policy_flag_enabled(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_policy_flag_enabled");
     let mut v_flags = core_arg(args, 0);
     let mut v_condition = core_arg(args, 1);
     let mut v_always = CoreValue::Null;
@@ -30508,6 +30757,7 @@ fn _policy_flag_enabled(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _select_actor_primitives(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_select_actor_primitives");
     let mut v_registry = core_arg(args, 0);
     let mut v_stage = core_arg(args, 1);
     let mut v_condition = CoreValue::Null;
@@ -30558,6 +30808,7 @@ fn _select_actor_primitives(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _select_protocol_actions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_select_protocol_actions");
     let mut v_registry = core_arg(args, 0);
     let mut v_actions = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
@@ -30578,6 +30829,7 @@ fn _select_protocol_actions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _build_agent_eval_prediction(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_agent_eval_prediction");
     let mut v_output = core_arg(args, 0);
     let mut v_action_log = core_arg(args, 1);
     let mut v_usage = core_arg(args, 2);
@@ -30614,6 +30866,7 @@ fn _build_agent_eval_prediction(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _select_runtime_globals(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_select_runtime_globals");
     let mut v_registry = core_arg(args, 0);
     let mut v_empty_list = CoreValue::Null;
     let mut v_globals = CoreValue::Null;
@@ -30634,6 +30887,7 @@ fn _select_runtime_globals(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _validate_policy_reserved_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_policy_reserved_names");
     let mut v_registry = core_arg(args, 0);
     let mut v_name = core_arg(args, 1);
     let mut v_conflicts = CoreValue::Null;
@@ -30663,6 +30917,7 @@ fn _validate_policy_reserved_names(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _render_actor_primitive_guidance(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_render_actor_primitive_guidance");
     let mut v_registry = core_arg(args, 0);
     let mut v_stage = core_arg(args, 1);
     let mut v_effect = CoreValue::Null;
@@ -30698,6 +30953,7 @@ fn _render_actor_primitive_guidance(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _record_policy_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_record_policy_event");
     let mut v_state = core_arg(args, 0);
     let mut v_action = core_arg(args, 1);
     let mut v_payload = core_arg(args, 2);
@@ -30733,6 +30989,7 @@ fn _record_policy_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _normalize_policy_action_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_policy_action_result");
     let mut v_action = core_arg(args, 0);
     let mut v_payload = core_arg(args, 1);
     let mut v_effect_only_actions = CoreValue::Null;
@@ -30779,6 +31036,7 @@ fn _normalize_policy_action_result(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _build_agent_actor_prompt_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_agent_actor_prompt_policy");
     let mut v_state = core_arg(args, 0);
     let mut v_code_fence_language = CoreValue::Null;
     let mut v_code_field_name = CoreValue::Null;
@@ -30864,6 +31122,7 @@ fn _build_agent_actor_prompt_policy(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _resolve_agent_context_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_resolve_agent_context_policy");
     let mut v_options = core_arg(args, 0);
     let mut v_action_replay = CoreValue::Null;
     let mut v_allowed = CoreValue::Null;
@@ -31266,6 +31525,7 @@ fn _resolve_agent_context_policy(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _resolve_agent_executor_model_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_resolve_agent_executor_model_policy");
     let mut v_options = core_arg(args, 0);
     let mut v_above = CoreValue::Null;
     let mut v_above_invalid = CoreValue::Null;
@@ -31480,6 +31740,7 @@ fn _resolve_agent_executor_model_policy(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _select_agent_executor_model(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_select_agent_executor_model");
     let mut v_policy = core_arg(args, 0);
     let mut v_actor_model_state = core_arg(args, 1);
     let mut v_above = CoreValue::Null;
@@ -31562,6 +31823,7 @@ fn _select_agent_executor_model(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _agent_compute_effective_chat_budget(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_compute_effective_chat_budget");
     let mut v_base_budget = core_arg(args, 0);
     let mut v_fixed_overhead_chars = core_arg(args, 1);
     let mut v_budget = CoreValue::Null;
@@ -31616,6 +31878,7 @@ fn _agent_compute_effective_chat_budget(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _agent_action_log_char_count(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_action_log_char_count");
     let mut v_entries = core_arg(args, 0);
     let mut v_code = CoreValue::Null;
     let mut v_code_len = CoreValue::Null;
@@ -31645,6 +31908,7 @@ fn _agent_action_log_char_count(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _agent_compute_dynamic_runtime_chars(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_compute_dynamic_runtime_chars");
     let mut v_entries = core_arg(args, 0);
     let mut v_target_prompt_chars = core_arg(args, 1);
     let mut v_max_runtime_chars = core_arg(args, 2);
@@ -31718,6 +31982,7 @@ fn _agent_compute_dynamic_runtime_chars(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _agent_context_pressure(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_context_pressure");
     let mut v_mutable_prompt_chars = core_arg(args, 0);
     let mut v_effective_budget_chars = core_arg(args, 1);
     let mut v_checkpoint_active = core_arg(args, 2);
@@ -31809,6 +32074,7 @@ fn _agent_context_pressure(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_render_context_pressure(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_render_context_pressure");
     let mut v_pressure = core_arg(args, 0);
     let mut v_context_registry = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
@@ -31852,6 +32118,7 @@ fn _agent_render_context_pressure(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _agent_smart_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_smart_stringify");
     let mut v_value = core_arg(args, 0);
     let mut v_max_chars = core_arg(args, 1);
     let mut v_array_head_items = CoreValue::Null;
@@ -31946,6 +32213,7 @@ fn _agent_smart_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_record_context_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_record_context_event");
     let mut v_state = core_arg(args, 0);
     let mut v_event = core_arg(args, 1);
     let mut v_empty_list = CoreValue::Null;
@@ -31973,6 +32241,7 @@ fn _agent_record_context_event(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _agent_entry_turn(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_entry_turn");
     let mut v_entry = core_arg(args, 0);
     let mut v_fallback = core_arg(args, 1);
     let mut v_turn = CoreValue::Null;
@@ -31988,6 +32257,7 @@ fn _agent_entry_turn(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_entry_is_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_entry_is_error");
     let mut v_entry = core_arg(args, 0);
     let mut v_is_error = CoreValue::Null;
     let mut v_tag_error = CoreValue::Null;
@@ -32012,6 +32282,7 @@ fn _agent_entry_is_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_entry_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_entry_summary");
     let mut v_entry = core_arg(args, 0);
     let mut v_fallback_turn = core_arg(args, 1);
     let mut v_has_summary = CoreValue::Null;
@@ -32070,6 +32341,7 @@ fn _agent_entry_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_entry_callables_text(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_entry_callables_text");
     let mut v_entry = core_arg(args, 0);
     let mut v_call = CoreValue::Null;
     let mut v_calls = CoreValue::Null;
@@ -32151,6 +32423,7 @@ fn _agent_entry_callables_text(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _agent_distill_structured_action_output(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_distill_structured_action_output");
     let mut v_output = core_arg(args, 0);
     let mut v_clean_counts = CoreValue::Null;
     let mut v_counts = CoreValue::Null;
@@ -32266,6 +32539,7 @@ fn _agent_distill_structured_action_output(args: &[CoreValue]) -> Result<CoreVal
     clippy::all
 )]
 fn _agent_render_full_action_entry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_render_full_action_entry");
     let mut v_state = core_arg(args, 0);
     let mut v_entry = core_arg(args, 1);
     let mut v_code = CoreValue::Null;
@@ -32314,6 +32588,7 @@ fn _agent_render_full_action_entry(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _agent_render_compact_action_entry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_render_compact_action_entry");
     let mut v_entry = core_arg(args, 0);
     let mut v_turn = core_arg(args, 1);
     let mut v_reason = core_arg(args, 2);
@@ -32373,6 +32648,7 @@ fn _agent_render_compact_action_entry(args: &[CoreValue]) -> Result<CoreValue, A
     clippy::all
 )]
 fn _agent_fallback_checkpoint_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_fallback_checkpoint_summary");
     let mut v_entries = core_arg(args, 0);
     let mut v_turns = core_arg(args, 1);
     let mut v_all_working = CoreValue::Null;
@@ -32506,6 +32782,7 @@ fn _agent_fallback_checkpoint_summary(args: &[CoreValue]) -> Result<CoreValue, A
     clippy::all
 )]
 fn _agent_build_deterministic_tombstone(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_build_deterministic_tombstone");
     let mut v_error_entry = core_arg(args, 0);
     let mut v_resolution_entry = core_arg(args, 1);
     let mut v_empty_signature = CoreValue::Null;
@@ -32544,6 +32821,7 @@ fn _agent_build_deterministic_tombstone(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _agent_apply_context_management(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_apply_context_management");
     let mut v_state = core_arg(args, 0);
     let mut v_count = CoreValue::Null;
     let mut v_current_is_error = CoreValue::Null;
@@ -32662,6 +32940,7 @@ fn _agent_apply_context_management(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _agent_working_code_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_working_code_state");
     let mut v_entries = core_arg(args, 0);
     let mut v_turns = core_arg(args, 1);
     let mut v_block = CoreValue::Null;
@@ -32869,6 +33148,7 @@ fn _agent_working_code_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_refresh_checkpoint_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_refresh_checkpoint_state");
     let mut v_state = core_arg(args, 0);
     let mut v_chars = CoreValue::Null;
     let mut v_checkpoint = CoreValue::Null;
@@ -33102,6 +33382,7 @@ fn _agent_refresh_checkpoint_state(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _agent_build_action_log_parts(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_build_action_log_parts");
     let mut v_state = core_arg(args, 0);
     let mut v_hygiene_mode = core_arg(args, 1);
     let mut v_action_replay = CoreValue::Null;
@@ -33510,6 +33791,7 @@ fn _agent_build_action_log_parts(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _agent_render_runtime_state_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_render_runtime_state_summary");
     let mut v_state = core_arg(args, 0);
     let mut v_policy = core_arg(args, 1);
     let mut v_allowed_key = CoreValue::Null;
@@ -33790,6 +34072,7 @@ fn _agent_render_runtime_state_summary(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn _agent_prepare_actor_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_prepare_actor_context");
     let mut v_state = core_arg(args, 0);
     let mut v_action_compacted_kind = CoreValue::Null;
     let mut v_action_count = CoreValue::Null;
@@ -34165,6 +34448,7 @@ fn _agent_prepare_actor_context(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _agent_build_action_evidence_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_build_action_evidence_summary");
     let mut v_state = core_arg(args, 0);
     let mut v_checkpoint = CoreValue::Null;
     let mut v_checkpoint_summary = CoreValue::Null;
@@ -34281,6 +34565,7 @@ fn _agent_build_action_evidence_summary(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _agent_sanitize_action_log_entries(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_sanitize_action_log_entries");
     let mut v_entries = core_arg(args, 0);
     let mut v_clean = CoreValue::Null;
     let mut v_code = CoreValue::Null;
@@ -34548,6 +34833,7 @@ fn _agent_sanitize_action_log_entries(args: &[CoreValue]) -> Result<CoreValue, A
     clippy::all
 )]
 fn _agent_context_fixture_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_context_fixture_result");
     let mut v_state = core_arg(args, 0);
     let mut v_fixture = core_arg(args, 1);
     let mut v_actor_state = CoreValue::Null;
@@ -34841,6 +35127,7 @@ fn _agent_context_fixture_result(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _normalize_agent_callable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_callable");
     let mut v_raw = core_arg(args, 0);
     let mut v_namespace = core_arg(args, 1);
     let mut v_always_camel = CoreValue::Null;
@@ -34908,6 +35195,7 @@ fn _normalize_agent_callable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _normalize_agent_group(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_group");
     let mut v_raw = core_arg(args, 0);
     let mut v_always_camel = CoreValue::Null;
     let mut v_always_include = CoreValue::Null;
@@ -34999,6 +35287,7 @@ fn _normalize_agent_group(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _normalize_agent_callable_inventory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_callable_inventory");
     let mut v_options = core_arg(args, 0);
     let mut v_callable = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
@@ -35098,6 +35387,7 @@ fn _normalize_agent_callable_inventory(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn _split_agent_callable_inventory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_split_agent_callable_inventory");
     let mut v_inventory = core_arg(args, 0);
     let mut v_always = CoreValue::Null;
     let mut v_discoverable = CoreValue::Null;
@@ -35137,6 +35427,7 @@ fn _split_agent_callable_inventory(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _render_agent_discovery_catalog(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_render_agent_discovery_catalog");
     let mut v_split = core_arg(args, 0);
     let mut v_callable = CoreValue::Null;
     let mut v_callable_names = CoreValue::Null;
@@ -35215,6 +35506,7 @@ fn _render_agent_discovery_catalog(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _normalize_agent_string_list(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_string_list");
     let mut v_value = core_arg(args, 0);
     let mut v_label = core_arg(args, 1);
     let mut v_already = CoreValue::Null;
@@ -35313,6 +35605,7 @@ fn _normalize_agent_string_list(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _normalize_agent_discover_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_discover_request");
     let mut v_state = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_bad = CoreValue::Null;
@@ -35432,6 +35725,7 @@ fn _normalize_agent_discover_request(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _agent_append_unique_by_field(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_append_unique_by_field");
     let mut v_items = core_arg(args, 0);
     let mut v_item = core_arg(args, 1);
     let mut v_field = core_arg(args, 2);
@@ -35466,6 +35760,7 @@ fn _agent_append_unique_by_field(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _agent_render_discovered_tool_docs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_render_discovered_tool_docs");
     let mut v_docs = core_arg(args, 0);
     let mut v_body = CoreValue::Null;
     let mut v_description = CoreValue::Null;
@@ -35510,6 +35805,7 @@ fn _agent_render_discovered_tool_docs(args: &[CoreValue]) -> Result<CoreValue, A
     clippy::all
 )]
 fn _agent_render_loaded_skills(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_render_loaded_skills");
     let mut v_skills = core_arg(args, 0);
     let mut v_body = CoreValue::Null;
     let mut v_content = CoreValue::Null;
@@ -35550,6 +35846,7 @@ fn _agent_render_loaded_skills(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _agent_discover(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_discover");
     let mut v_state = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_action_event = CoreValue::Null;
@@ -35812,6 +36109,7 @@ fn _agent_discover(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _normalize_agent_recall_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_recall_request");
     let mut v_state = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_disabled = CoreValue::Null;
@@ -35848,6 +36146,7 @@ fn _normalize_agent_recall_request(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _agent_merge_memory_results(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_merge_memory_results");
     let mut v_existing = core_arg(args, 0);
     let mut v_incoming = core_arg(args, 1);
     let mut v_content = CoreValue::Null;
@@ -35884,6 +36183,7 @@ fn _agent_merge_memory_results(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _agent_recall(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_recall");
     let mut v_state = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_action = CoreValue::Null;
@@ -35960,6 +36260,7 @@ fn _agent_recall(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _normalize_agent_used_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_used_request");
     let mut v_request = core_arg(args, 0);
     let mut v_default_stage = core_arg(args, 1);
     let mut v_error = CoreValue::Null;
@@ -36008,6 +36309,7 @@ fn _normalize_agent_used_request(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _agent_used(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_used");
     let mut v_state = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_stage = core_arg(args, 2);
@@ -36191,6 +36493,7 @@ fn _agent_used(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _normalize_agent_guidance_payload(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_guidance_payload");
     let mut v_value = core_arg(args, 0);
     let mut v_triggered_by = core_arg(args, 1);
     let mut v_error = CoreValue::Null;
@@ -36243,6 +36546,7 @@ fn _normalize_agent_guidance_payload(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _agent_append_guidance(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_append_guidance");
     let mut v_state = core_arg(args, 0);
     let mut v_payload = core_arg(args, 1);
     let mut v_action = CoreValue::Null;
@@ -36325,6 +36629,7 @@ fn _agent_append_guidance(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_execute_callable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_execute_callable");
     let mut v_state = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -36430,6 +36735,7 @@ fn _agent_execute_callable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _normalize_agent_final_payload(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_final_payload");
     let mut v_value = core_arg(args, 0);
     let mut v_args = CoreValue::Null;
     let mut v_is_final = CoreValue::Null;
@@ -36460,6 +36766,7 @@ fn _normalize_agent_final_payload(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _normalize_agent_clarification_payload(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_clarification_payload");
     let mut v_value = core_arg(args, 0);
     let mut v_args = CoreValue::Null;
     let mut v_error = CoreValue::Null;
@@ -36513,6 +36820,7 @@ fn _normalize_agent_clarification_payload(args: &[CoreValue]) -> Result<CoreValu
     clippy::all
 )]
 fn _agent_optimizer_metadata(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_optimizer_metadata");
     let mut v_state = core_arg(args, 0);
     let mut v_components = CoreValue::Null;
     let mut v_delegation_component = CoreValue::Null;
@@ -36605,6 +36913,7 @@ fn _agent_optimizer_metadata(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_begin_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_begin_trace");
     let mut v_state = core_arg(args, 0);
     let mut v_input = core_arg(args, 1);
     let mut v_events = CoreValue::Null;
@@ -36656,6 +36965,7 @@ fn _agent_begin_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_record_trace_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_record_trace_event");
     let mut v_state = core_arg(args, 0);
     let mut v_kind = core_arg(args, 1);
     let mut v_payload = core_arg(args, 2);
@@ -36715,6 +37025,7 @@ fn _agent_record_trace_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_normalize_host_boundary_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_normalize_host_boundary_event");
     let mut v_boundary = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_result = core_arg(args, 2);
@@ -36736,6 +37047,7 @@ fn _agent_normalize_host_boundary_event(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _agent_finalize_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_finalize_trace");
     let mut v_state = core_arg(args, 0);
     let mut v_status = core_arg(args, 1);
     let mut v_output = core_arg(args, 2);
@@ -36837,6 +37149,7 @@ fn _agent_finalize_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_export_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_export_trace");
     let mut v_state = core_arg(args, 0);
     let mut v_action_log = CoreValue::Null;
     let mut v_chat_log = CoreValue::Null;
@@ -36921,6 +37234,7 @@ fn _agent_export_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_replay_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_replay_trace");
     let mut v_trace = core_arg(args, 0);
     let mut v_fixtures = core_arg(args, 1);
     let mut v_action_log = CoreValue::Null;
@@ -37045,6 +37359,7 @@ fn _agent_replay_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_export_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_export_runtime_state");
     let mut v_state = core_arg(args, 0);
     let mut v_action_log = CoreValue::Null;
     let mut v_actor_model_state = CoreValue::Null;
@@ -37309,6 +37624,7 @@ fn _agent_export_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _agent_restore_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_restore_runtime_state");
     let mut v_state = core_arg(args, 0);
     let mut v_snapshot = core_arg(args, 1);
     let mut v_action_log = CoreValue::Null;
@@ -37557,6 +37873,7 @@ fn _agent_restore_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _agent_runtime_build_globals(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_build_globals");
     let mut v_state = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_callable_inventory = CoreValue::Null;
@@ -37674,6 +37991,7 @@ fn _agent_runtime_build_globals(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _agent_runtime_sanitize_bindings(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_sanitize_bindings");
     let mut v_bindings = core_arg(args, 0);
     let mut v_bindings_is_map = CoreValue::Null;
     let mut v_conflict = CoreValue::Null;
@@ -37706,6 +38024,7 @@ fn _agent_runtime_sanitize_bindings(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _normalize_agent_runtime_snapshot(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_runtime_snapshot");
     let mut v_snapshot = core_arg(args, 0);
     let mut v_bindings = CoreValue::Null;
     let mut v_clean_bindings = CoreValue::Null;
@@ -37790,6 +38109,7 @@ fn _normalize_agent_runtime_snapshot(args: &[CoreValue]) -> Result<CoreValue, Ax
     clippy::all
 )]
 fn _agent_runtime_append_action_log(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_append_action_log");
     let mut v_state = core_arg(args, 0);
     let mut v_entry = core_arg(args, 1);
     let mut v_count = CoreValue::Null;
@@ -37844,6 +38164,7 @@ fn _agent_runtime_append_action_log(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _normalize_agent_runtime_step_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_runtime_step_result");
     let mut v_raw = core_arg(args, 0);
     let mut v_code = core_arg(args, 1);
     let mut v_abort_like = CoreValue::Null;
@@ -38045,6 +38366,7 @@ fn _normalize_agent_runtime_step_result(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _agent_runtime_execution_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_execution_options");
     let mut v_state = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
     let mut v_abort_signal = CoreValue::Null;
@@ -38148,6 +38470,7 @@ fn _agent_runtime_execution_options(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _agent_runtime_lifecycle_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_lifecycle_event");
     let mut v_state = core_arg(args, 0);
     let mut v_action = core_arg(args, 1);
     let mut v_details = core_arg(args, 2);
@@ -38178,6 +38501,7 @@ fn _agent_runtime_lifecycle_event(args: &[CoreValue]) -> Result<CoreValue, AxErr
     clippy::all
 )]
 fn _agent_runtime_create_session(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_create_session");
     let mut v_state = core_arg(args, 0);
     let mut v_runtime = core_arg(args, 1);
     let mut v_globals = core_arg(args, 2);
@@ -38224,6 +38548,7 @@ fn _agent_runtime_create_session(args: &[CoreValue]) -> Result<CoreValue, AxErro
     clippy::all
 )]
 fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_execute_step");
     let mut v_state = core_arg(args, 0);
     let mut v_runtime = core_arg(args, 1);
     let mut v_session = core_arg(args, 2);
@@ -38454,6 +38779,7 @@ fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _agent_runtime_inspect_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_inspect_state");
     let mut v_state = core_arg(args, 0);
     let mut v_session = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -38489,6 +38815,7 @@ fn _agent_runtime_inspect_state(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _agent_runtime_export_session_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_export_session_state");
     let mut v_state = core_arg(args, 0);
     let mut v_session = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -38538,6 +38865,7 @@ fn _agent_runtime_export_session_state(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn _agent_runtime_restore_session_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_restore_session_state");
     let mut v_state = core_arg(args, 0);
     let mut v_session = core_arg(args, 1);
     let mut v_snapshot = core_arg(args, 2);
@@ -38594,6 +38922,7 @@ fn _agent_runtime_restore_session_state(args: &[CoreValue]) -> Result<CoreValue,
     clippy::all
 )]
 fn _agent_runtime_close_session(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_close_session");
     let mut v_state = core_arg(args, 0);
     let mut v_session = core_arg(args, 1);
     let mut v_closed = CoreValue::Null;
@@ -38622,6 +38951,7 @@ fn _agent_runtime_close_session(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _agent_runtime_test(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_test");
     let mut v_state = core_arg(args, 0);
     let mut v_runtime = core_arg(args, 1);
     let mut v_code = core_arg(args, 2);
@@ -38686,6 +39016,7 @@ fn _agent_runtime_test(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _split_context_values(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_split_context_values");
     let mut v_state = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_context_fields = CoreValue::Null;
@@ -38728,6 +39059,7 @@ fn _split_context_values(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _build_distiller_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_distiller_inputs");
     let mut v_state = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_context = CoreValue::Null;
@@ -38751,6 +39083,7 @@ fn _build_distiller_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _build_executor_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_executor_inputs");
     let mut v_state = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_distiller_payload = core_arg(args, 2);
@@ -38907,6 +39240,7 @@ fn _build_executor_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _build_responder_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_responder_inputs");
     let mut v_state = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_executor_payload = core_arg(args, 2);
@@ -38962,6 +39296,7 @@ fn _build_responder_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _normalize_agent_completion_payload(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_completion_payload");
     let mut v_output = core_arg(args, 0);
     let mut v_completion = CoreValue::Null;
     let mut v_error = CoreValue::Null;
@@ -39002,6 +39337,7 @@ fn _normalize_agent_completion_payload(args: &[CoreValue]) -> Result<CoreValue, 
     clippy::all
 )]
 fn _throw_agent_clarification(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_throw_agent_clarification");
     let mut v_payload = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
     let mut v_error = CoreValue::Null;
@@ -39026,6 +39362,7 @@ fn _throw_agent_clarification(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     clippy::all
 )]
 fn _merge_agent_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_merge_agent_chat_log");
     let mut v_state = core_arg(args, 0);
     let mut v_distiller = core_arg(args, 1);
     let mut v_executor = core_arg(args, 2);
@@ -39081,6 +39418,7 @@ fn _merge_agent_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _merge_agent_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_merge_agent_usage");
     let mut v_state = core_arg(args, 0);
     let mut v_chat_log = CoreValue::Null;
     let mut v_count = CoreValue::Null;
@@ -39107,6 +39445,7 @@ fn _merge_agent_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_get_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_get_state");
     let mut v_state = core_arg(args, 0);
     let mut v_empty_map = CoreValue::Null;
     let mut v_runtime_state = CoreValue::Null;
@@ -39127,6 +39466,7 @@ fn _agent_get_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_set_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_set_state");
     let mut v_state = core_arg(args, 0);
     let mut v_runtime_state = core_arg(args, 1);
     core_set(
@@ -39145,6 +39485,7 @@ fn _agent_set_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _agent_stage_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_stage_options");
     let mut v_state = core_arg(args, 0);
     let mut v_stage = core_arg(args, 1);
     let mut v_forward_options = core_arg(args, 2);
@@ -39266,6 +39607,7 @@ fn _agent_stage_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _extract_agent_runtime_code(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_extract_agent_runtime_code");
     let mut v_state = core_arg(args, 0);
     let mut v_executor_output = core_arg(args, 1);
     let mut v_code = CoreValue::Null;
@@ -39318,6 +39660,7 @@ fn _extract_agent_runtime_code(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_forward");
     let mut v_state = core_arg(args, 0);
     let mut v_distiller = core_arg(args, 1);
     let mut v_executor = core_arg(args, 2);
@@ -39704,6 +40047,7 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_factory");
     let mut v_options = core_arg(args, 0);
     let mut v_chat_log = CoreValue::Null;
     let mut v_demos = CoreValue::Null;
@@ -39758,6 +40102,7 @@ fn _flow_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _program_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_program_descriptor");
     let mut v_kind = core_arg(args, 0);
     let mut v_id = core_arg(args, 1);
     let mut v_metadata = core_arg(args, 2);
@@ -39786,6 +40131,7 @@ fn _program_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _program_trace_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_program_trace_event");
     let mut v_program_id = core_arg(args, 0);
     let mut v_kind = core_arg(args, 1);
     let mut v_payload = core_arg(args, 2);
@@ -39814,6 +40160,7 @@ fn _program_trace_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_step");
     let mut v_kind = core_arg(args, 0);
     let mut v_name = core_arg(args, 1);
     let mut v_program = core_arg(args, 2);
@@ -39916,6 +40263,7 @@ fn _flow_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _program_child_component_prefix(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_program_child_component_prefix");
     let mut v_owner = core_arg(args, 0);
     let mut v_node = core_arg(args, 1);
     let mut v_path = CoreValue::Null;
@@ -39931,6 +40279,7 @@ fn _program_child_component_prefix(args: &[CoreValue]) -> Result<CoreValue, AxEr
     clippy::all
 )]
 fn _program_prefix_component(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_program_prefix_component");
     let mut v_component = core_arg(args, 0);
     let mut v_owner = core_arg(args, 1);
     let mut v_node = core_arg(args, 2);
@@ -39962,6 +40311,7 @@ fn _program_prefix_component(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _program_slice_component_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_program_slice_component_map");
     let mut v_component_map = core_arg(args, 0);
     let mut v_prefix = core_arg(args, 1);
     let mut v_key = CoreValue::Null;
@@ -39994,6 +40344,7 @@ fn _program_slice_component_map(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _flow_add_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_add_step");
     let mut v_flow = core_arg(args, 0);
     let mut v_step = core_arg(args, 1);
     let mut v_duplicate = CoreValue::Null;
@@ -40029,6 +40380,7 @@ fn _flow_add_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_set_returns(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_set_returns");
     let mut v_flow = core_arg(args, 0);
     let mut v_returns = core_arg(args, 1);
     let mut v_empty_map = CoreValue::Null;
@@ -40052,6 +40404,7 @@ fn _flow_set_returns(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_plan_entry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_plan_entry");
     let mut v_step = core_arg(args, 0);
     let mut v_step_index = core_arg(args, 1);
     let mut v_barrier = CoreValue::Null;
@@ -40105,6 +40458,7 @@ fn _flow_plan_entry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_plan_can_share_group(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_plan_can_share_group");
     let mut v_group = core_arg(args, 0);
     let mut v_candidate = core_arg(args, 1);
     let mut v_can_share = CoreValue::Null;
@@ -40199,6 +40553,7 @@ fn _flow_plan_can_share_group(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     clippy::all
 )]
 fn _flow_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_plan");
     let mut v_flow = core_arg(args, 0);
     let mut v_barrier = CoreValue::Null;
     let mut v_bigger = CoreValue::Null;
@@ -40389,6 +40744,7 @@ fn _flow_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_cache_key(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_cache_key");
     let mut v_values = core_arg(args, 0);
     let mut v_key = CoreValue::Null;
     v_key = core_json_stable_stringify(&[v_values.clone()])?;
@@ -40403,6 +40759,7 @@ fn _flow_cache_key(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_cache_read_write(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_cache_read_write");
     let mut v_flow = core_arg(args, 0);
     let mut v_values = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -40507,6 +40864,7 @@ fn _flow_cache_read_write(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_check_abort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_check_abort");
     let mut v_options = core_arg(args, 0);
     let mut v_location = core_arg(args, 1);
     let mut v_abort = CoreValue::Null;
@@ -40550,6 +40908,7 @@ fn _flow_check_abort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_project_returns(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_project_returns");
     let mut v_state = core_arg(args, 0);
     let mut v_returns = core_arg(args, 1);
     let mut v_empty_map = CoreValue::Null;
@@ -40592,6 +40951,7 @@ fn _flow_project_returns(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_get_path(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_get_path");
     let mut v_state = core_arg(args, 0);
     let mut v_path = core_arg(args, 1);
     let mut v_current = CoreValue::Null;
@@ -40624,6 +40984,7 @@ fn _flow_get_path(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_record_child_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_record_child_chat_log");
     let mut v_flow = core_arg(args, 0);
     let mut v_node = core_arg(args, 1);
     let mut v_program = core_arg(args, 2);
@@ -40669,6 +41030,7 @@ fn _flow_record_child_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _flow_record_child_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_record_child_usage");
     let mut v_flow = core_arg(args, 0);
     let mut v_node = core_arg(args, 1);
     let mut v_program = core_arg(args, 2);
@@ -40695,6 +41057,7 @@ fn _flow_record_child_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_record_child_traces(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_record_child_traces");
     let mut v_flow = core_arg(args, 0);
     let mut v_node = core_arg(args, 1);
     let mut v_program = core_arg(args, 2);
@@ -40730,6 +41093,7 @@ fn _flow_record_child_traces(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_execute_program_node(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_execute_program_node");
     let mut v_flow = core_arg(args, 0);
     let mut v_step = core_arg(args, 1);
     let mut v_client = core_arg(args, 2);
@@ -40853,6 +41217,7 @@ fn _flow_execute_program_node(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     clippy::all
 )]
 fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_execute_step");
     let mut v_flow = core_arg(args, 0);
     let mut v_step = core_arg(args, 1);
     let mut v_plan_step = core_arg(args, 2);
@@ -41235,6 +41600,7 @@ fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_merge_parallel_results(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_merge_parallel_results");
     let mut v_state = core_arg(args, 0);
     let mut v_result = core_arg(args, 1);
     let mut v_merged = CoreValue::Null;
@@ -41250,6 +41616,7 @@ fn _flow_merge_parallel_results(args: &[CoreValue]) -> Result<CoreValue, AxError
     clippy::all
 )]
 fn _flow_execute_nested_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_execute_nested_steps");
     let mut v_flow = core_arg(args, 0);
     let mut v_client = core_arg(args, 1);
     let mut v_steps = core_arg(args, 2);
@@ -41301,6 +41668,7 @@ fn _flow_execute_nested_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     clippy::all
 )]
 fn _flow_execute_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_execute_steps");
     let mut v_flow = core_arg(args, 0);
     let mut v_client = core_arg(args, 1);
     let mut v_state = core_arg(args, 2);
@@ -41480,6 +41848,7 @@ fn _flow_execute_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_forward");
     let mut v_flow = core_arg(args, 0);
     let mut v_client = core_arg(args, 1);
     let mut v_values = core_arg(args, 2);
@@ -41587,6 +41956,7 @@ fn _flow_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_get_optimizable_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_get_optimizable_components");
     let mut v_flow = core_arg(args, 0);
     let mut v_child = CoreValue::Null;
     let mut v_child_components = CoreValue::Null;
@@ -41668,6 +42038,7 @@ fn _flow_get_optimizable_components(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _flow_apply_optimized_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_apply_optimized_components");
     let mut v_flow = core_arg(args, 0);
     let mut v_component_map = core_arg(args, 1);
     let mut v_bad_graph = CoreValue::Null;
@@ -41744,6 +42115,7 @@ fn _flow_apply_optimized_components(args: &[CoreValue]) -> Result<CoreValue, AxE
     clippy::all
 )]
 fn _flow_snapshot_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_snapshot_components");
     let mut v_flow = core_arg(args, 0);
     let mut v_components = CoreValue::Null;
     let mut v_snapshot = CoreValue::Null;
@@ -41760,6 +42132,7 @@ fn _flow_snapshot_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_restore_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_restore_components");
     let mut v_flow = core_arg(args, 0);
     let mut v_snapshot = core_arg(args, 1);
     let mut v_restored = CoreValue::Null;
@@ -41775,6 +42148,7 @@ fn _flow_restore_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn _flow_evaluate_optimization(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_evaluate_optimization");
     let mut v_flow = core_arg(args, 0);
     let mut v_client = core_arg(args, 1);
     let mut v_dataset = core_arg(args, 2);
@@ -42020,6 +42394,7 @@ fn _flow_evaluate_optimization(args: &[CoreValue]) -> Result<CoreValue, AxError>
     clippy::all
 )]
 fn _flow_optimize_with(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_optimize_with");
     let mut v_flow = core_arg(args, 0);
     let mut v_dataset = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
@@ -42060,6 +42435,7 @@ fn _flow_optimize_with(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn mcp_protocol_constants(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_protocol_constants");
     let mut v_out = CoreValue::Null;
     let mut v_versions = CoreValue::Null;
     v_versions = CoreValue::new_list();
@@ -42089,6 +42465,7 @@ fn mcp_protocol_constants(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn mcp_jsonrpc_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_jsonrpc_request");
     let mut v_id = core_arg(args, 0);
     let mut v_method = core_arg(args, 1);
     let mut v_params = core_arg(args, 2);
@@ -42114,6 +42491,7 @@ fn mcp_jsonrpc_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn mcp_jsonrpc_notification(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_jsonrpc_notification");
     let mut v_method = core_arg(args, 0);
     let mut v_params = core_arg(args, 1);
     let mut v_missing = CoreValue::Null;
@@ -42137,6 +42515,7 @@ fn mcp_jsonrpc_notification(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     clippy::all
 )]
 fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_normalize_error");
     let mut v_response = core_arg(args, 0);
     let mut v_code = CoreValue::Null;
     let mut v_data = CoreValue::Null;

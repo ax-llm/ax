@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 
 import json
 import re
@@ -415,6 +416,18 @@ def _core_truthy(value): return bool(value)
 def _core_is_none(value): return value is None
 def _core_is_not_none(value): return value is not None
 def _core_none(): return None
+
+
+def _core_coverage_mark(name):
+    path = os.environ.get("AXIR_COVERAGE_FILE")
+    if not path or name in _CORE_COVERAGE_SEEN:
+        return
+    _CORE_COVERAGE_SEEN.add(name)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(name + "\n")
+
+
+_CORE_COVERAGE_SEEN: set[str] = set()
 
 
 def _core_get(target, key, default=None):
@@ -844,6 +857,7 @@ def _core_axgen_record_function_call(gen, call, result, status):
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
 def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any) -> AxChatRequest:
+    _core_coverage_mark("_build_gen_chat_request")
     model_config = {}
     stream_value = _core_get(options, "stream", False)
     stream_bool = _core_truthy(stream_value)
@@ -912,6 +926,7 @@ def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any) -> Ax
 
 
 def fold_stream(events: list[Any]) -> str:
+    _core_coverage_mark("fold_stream")
     chunks = []
     for event in events:
         parts = _stream_event_content_parts_impl(event)
@@ -922,6 +937,7 @@ def fold_stream(events: list[Any]) -> str:
 
 
 def _execute_tool_call(functions: list[Any], call: Any) -> Any:
+    _core_coverage_mark("_execute_tool_call")
     fn_call = _core_get(call, "function", None)
     direct_name = _core_get(call, "name", None)
     name = _core_get(fn_call, "name", direct_name)
@@ -959,11 +975,13 @@ def _execute_tool_call(functions: list[Any], call: Any) -> Any:
 
 
 def _stream_event_content_parts_impl(event: Any) -> list[Any]:
+    _core_coverage_mark("_stream_event_content_parts_impl")
     parts = _core_stream_event_content_parts(event)
     return parts
 
 
 def _validate_optimization_component_value(component: Any, value: Any) -> bool:
+    _core_coverage_mark("_validate_optimization_component_value")
     current = _core_get(component, "current", None)
     current_is_string = _core_type_is(current, "string")
     if current_is_string:
@@ -1046,6 +1064,7 @@ def _validate_optimization_component_value(component: Any, value: Any) -> bool:
 
 
 def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_forward_impl")
     base_options = _core_get(gen, "options", None)
     runtime_options = _core_map_merge(base_options, options)
     signature = _core_get(gen, "signature", None)
@@ -1135,6 +1154,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
 
 
 def _validate_optimization_component_map(components: Any, component_map: Any) -> bool:
+    _core_coverage_mark("_validate_optimization_component_map")
     known = []
     component_by_id = {}
     for component in components:
@@ -1158,6 +1178,7 @@ def _validate_optimization_component_map(components: Any, component_map: Any) ->
 
 
 def _validate_optimized_artifact_provenance(artifact: Any, components: Any) -> bool:
+    _core_coverage_mark("_validate_optimized_artifact_provenance")
     empty_map = {}
     provenance = _core_get(artifact, "provenance", empty_map)
     owners = _core_get(provenance, "componentOwners", empty_map)
@@ -1188,11 +1209,13 @@ def _validate_optimized_artifact_provenance(artifact: Any, components: Any) -> b
 
 
 def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
+    _core_coverage_mark("_set_examples")
     gen["examples"] = examples
     return gen
 
 
 def _validate_optimized_artifact(artifact: Any, components: Any) -> Any:
+    _core_coverage_mark("_validate_optimized_artifact")
     is_object = _core_type_is(artifact, "object")
     not_object = _core_not(is_object)
     if not_object:
@@ -1267,57 +1290,68 @@ def _validate_optimized_artifact(artifact: Any, components: Any) -> Any:
 
 
 def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
+    _core_coverage_mark("_set_demos")
     gen["demos"] = demos
     return gen
 
 
 def _render_examples(gen: AxGen) -> list[Any]:
+    _core_coverage_mark("_render_examples")
     messages = _core_axgen_render_examples(gen)
     return messages
 
 
 def _render_demos(gen: AxGen) -> list[Any]:
+    _core_coverage_mark("_render_demos")
     messages = _core_axgen_render_demos(gen)
     return messages
 
 
 def _apply_field_processors(gen: AxGen, output: Any) -> Any:
+    _core_coverage_mark("_apply_field_processors")
     processed = _core_axgen_apply_field_processors(gen, output)
     return processed
 
 
 def _run_assertions(gen: AxGen, output: Any) -> None:
+    _core_coverage_mark("_run_assertions")
     _core_axgen_run_assertions(gen, output)
     return None
 
 
 def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> None:
+    _core_coverage_mark("_append_assertion_retry_messages")
     _append_validation_retry_messages_impl(messages, response, error)
     return None
 
 
 def _serialize_optimized_artifact(artifact: Any) -> str:
+    _core_coverage_mark("_serialize_optimized_artifact")
     text = _core_json_stringify(artifact)
     return text
 
 
 def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
+    _core_coverage_mark("_record_trace")
     _core_axgen_record_trace(gen, input, output, status)
     return None
 
 
 def _deserialize_optimized_artifact(text: str, components: Any) -> Any:
+    _core_coverage_mark("_deserialize_optimized_artifact")
     artifact = _core_json_parse(text)
     validated = _validate_optimized_artifact(artifact, components)
     return validated
 
 
 def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
+    _core_coverage_mark("_should_continue_steps")
     should_continue = _core_axgen_should_continue_steps(gen, calls)
     return should_continue
 
 
 def _optimization_changed_components(components: Any, component_map: Any) -> list[Any]:
+    _core_coverage_mark("_optimization_changed_components")
     changes = []
     for component in components:
         id = _core_get(component, "id", "")
@@ -1337,6 +1371,7 @@ def _optimization_changed_components(components: Any, component_map: Any) -> lis
 
 
 def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, retries: int) -> Any:
+    _core_coverage_mark("_complete_with_retries_impl")
     attempt = 0
     last_error = _core_none()
     while True:
@@ -1358,6 +1393,7 @@ def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, retrie
 
 
 def _optimization_component_current_map(components: Any) -> Any:
+    _core_coverage_mark("_optimization_component_current_map")
     out = {}
     for component in components:
         id = _core_get(component, "id", "")
@@ -1367,12 +1403,14 @@ def _optimization_component_current_map(components: Any) -> Any:
 
 
 def _parse_output_impl(content: str) -> Any:
+    _core_coverage_mark("_parse_output_impl")
     text = str(content).strip()
     output = _core_json_parse(text)
     return output
 
 
 def _normalize_optimization_dataset(dataset: Any) -> Any:
+    _core_coverage_mark("_normalize_optimization_dataset")
     empty_list = []
     is_object = _core_type_is(dataset, "object")
     if is_object:
@@ -1391,6 +1429,7 @@ def _normalize_optimization_dataset(dataset: Any) -> Any:
 
 
 def _tool_spec_impl(fn: Tool) -> Any:
+    _core_coverage_mark("_tool_spec_impl")
     spec = {}
     name = _core_get(fn, "name", None)
     description = _core_get(fn, "description", None)
@@ -1402,6 +1441,7 @@ def _tool_spec_impl(fn: Tool) -> Any:
 
 
 def _normalize_optimization_metric_scores(raw: Any) -> Any:
+    _core_coverage_mark("_normalize_optimization_metric_scores")
     is_number = _core_type_is(raw, "number")
     if is_number:
         out_number = {}
@@ -1420,6 +1460,7 @@ def _normalize_optimization_metric_scores(raw: Any) -> Any:
 
 
 def _function_call_mode_impl(mode: Any) -> str:
+    _core_coverage_mark("_function_call_mode_impl")
     missing = _core_is_none(mode)
     if missing:
         return "auto"
@@ -1441,6 +1482,7 @@ def _function_call_mode_impl(mode: Any) -> str:
 
 
 def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
+    _core_coverage_mark("_scalarize_optimization_scores")
     metric_key = _core_get(options, "paretoMetricKey", "")
     has_metric = _core_ne(metric_key, "")
     if has_metric:
@@ -1466,12 +1508,14 @@ def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
 
 
 def _response_function_calls_impl(response: Any) -> list[Any]:
+    _core_coverage_mark("_response_function_calls_impl")
     empty = []
     calls = _core_get(response, "function_calls", empty)
     return calls
 
 
 def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> None:
+    _core_coverage_mark("_append_tool_call_messages_impl")
     chat_calls = []
     for call in calls:
         chat_call = _completion_call_to_chat_impl(call)
@@ -1486,6 +1530,7 @@ def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: l
 
 
 def _optimization_action_name_matches(expected: str, call: Any) -> bool:
+    _core_coverage_mark("_optimization_action_name_matches")
     qualified = _core_get(call, "qualifiedName", "")
     name = _core_get(call, "name", "")
     qualified_match = _core_eq(qualified, expected)
@@ -1498,6 +1543,7 @@ def _optimization_action_name_matches(expected: str, call: Any) -> bool:
 
 
 def _completion_call_to_chat_impl(call: Any) -> Any:
+    _core_coverage_mark("_completion_call_to_chat_impl")
     id = _core_get(call, "id", None)
     name = _core_get(call, "name", None)
     params = _core_get(call, "params", None)
@@ -1512,6 +1558,7 @@ def _completion_call_to_chat_impl(call: Any) -> Any:
 
 
 def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: Any) -> f64:
+    _core_coverage_mark("_adjust_optimization_score_for_actions")
     empty_list = []
     function_calls = _core_get(prediction, "functionCalls", empty_list)
     expected_actions = _core_get(task, "expectedActions", empty_list)
@@ -1558,6 +1605,7 @@ def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: An
 
 
 def _tool_result_message_impl(call: Any, result: Any) -> Any:
+    _core_coverage_mark("_tool_result_message_impl")
     id = _core_get(call, "id", None)
     result_json = _core_json_stringify(result)
     message = {}
@@ -1568,6 +1616,7 @@ def _tool_result_message_impl(call: Any, result: Any) -> Any:
 
 
 def _tool_error_message_impl(call: Any, error: error) -> Any:
+    _core_coverage_mark("_tool_error_message_impl")
     id = _core_get(call, "id", None)
     error_text = _core_exception_message(error)
     payload = {}
@@ -1582,6 +1631,7 @@ def _tool_error_message_impl(call: Any, error: error) -> Any:
 
 
 def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> None:
+    _core_coverage_mark("_append_validation_retry_messages_impl")
     content = _core_get(response, "content", "")
     assistant_message = {}
     assistant_message["role"] = "assistant"
@@ -1598,6 +1648,7 @@ def _append_validation_retry_messages_impl(messages: list[Any], response: Any, e
 
 
 def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
+    _core_coverage_mark("_build_optimization_eval_row")
     out = {}
     out["input"] = task
     out["prediction"] = prediction
@@ -1613,6 +1664,7 @@ def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar
 
 
 def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -> Any:
+    _core_coverage_mark("_build_optimization_eval_result")
     sum = 0
     count = 0
     for row in rows:
@@ -1639,6 +1691,7 @@ def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -
 
 
 def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
+    _core_coverage_mark("_filter_optimization_components")
     out = []
     is_list = _core_type_is(target, "list")
     is_all = _core_eq(target, "all")
@@ -1710,6 +1763,7 @@ def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
 
 
 def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any) -> Any:
+    _core_coverage_mark("_build_optimizer_request")
     out = {}
     out["contractVersion"] = "axir-optimize-contract-v1"
     out["programKind"] = program_kind
@@ -1729,6 +1783,7 @@ def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, o
 
 
 def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any, evaluator_available: bool) -> Any:
+    _core_coverage_mark("_prepare_optimizer_run")
     empty_map = {}
     opts_missing = _core_is_none(options)
     opts = options
@@ -1758,6 +1813,7 @@ def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, opt
 
 
 def _normalize_optimizer_engine_response(response: Any, engine_name: str, engine_version: str, components: Any) -> Any:
+    _core_coverage_mark("_normalize_optimizer_engine_response")
     response_is_object = _core_type_is(response, "object")
     bad_response = _core_not(response_is_object)
     if bad_response:
@@ -1838,6 +1894,7 @@ def _normalize_optimizer_engine_response(response: Any, engine_name: str, engine
 
 
 def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
+    _core_coverage_mark("_build_optimizer_evidence_batch")
     empty_list = []
     empty_map = {}
     rows = _core_get(eval_result, "rows", empty_list)

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 
 from dataclasses import dataclass, field as dataclass_field
 import copy
@@ -291,6 +292,18 @@ def _core_signature_error(message):
     return AxSignatureError(message)
 
 
+def _core_coverage_mark(name):
+    path = os.environ.get("AXIR_COVERAGE_FILE")
+    if not path or name in _CORE_COVERAGE_SEEN:
+        return
+    _CORE_COVERAGE_SEEN.add(name)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(name + "\n")
+
+
+_CORE_COVERAGE_SEEN: set[str] = set()
+
+
 def _core_get(target, key, default=None):
     if target is None:
         return default
@@ -505,16 +518,19 @@ def _render_field(field: Field) -> str:
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
 def parse_signature(signature: str) -> AxSignature:
+    _core_coverage_mark("parse_signature")
     parsed = _signature_parse_impl(signature)
     return parsed
 
 
 def validate_signature(signature: AxSignature) -> None:
+    _core_coverage_mark("validate_signature")
     _signature_validate_impl(signature)
     return None
 
 
 def _signature_parse_impl(signature: str) -> AxSignature:
+    _core_coverage_mark("_signature_parse_impl")
     text = str(signature).strip()
     text_len = _core_len(text)
     is_empty = _core_eq(text_len, 0)
@@ -564,6 +580,7 @@ def _signature_parse_impl(signature: str) -> AxSignature:
 
 
 def _signature_parse_fields_impl(text: str, output: bool) -> list[Any]:
+    _core_coverage_mark("_signature_parse_fields_impl")
     parts = _core_string_split_outside_quotes(text, ",")
     fields = []
     for part in parts:
@@ -573,6 +590,7 @@ def _signature_parse_fields_impl(text: str, output: bool) -> list[Any]:
 
 
 def _signature_parse_field_impl(raw: str, output: bool) -> Field:
+    _core_coverage_mark("_signature_parse_field_impl")
     text = str(raw).strip()
     quoted_info = _core_string_extract_quoted_suffix(text)
     quoted = _core_get(quoted_info, "value", None)
@@ -666,6 +684,7 @@ def _signature_parse_field_impl(raw: str, output: bool) -> Field:
 
 
 def _signature_validate_field_shape_impl(field: Field, output: bool, nested: bool) -> None:
+    _core_coverage_mark("_signature_validate_field_shape_impl")
     name = _core_get(field, "name", None)
     valid_name = _core_regex_match("^[A-Za-z_][A-Za-z0-9_]*$", name)
     invalid_name = _core_not(valid_name)
@@ -778,6 +797,7 @@ def _signature_validate_field_shape_impl(field: Field, output: bool, nested: boo
 
 
 def _signature_validate_impl(signature: AxSignature) -> None:
+    _core_coverage_mark("_signature_validate_impl")
     inputs = _core_get(signature, "input_fields", None)
     outputs = _core_get(signature, "output_fields", None)
     input_count = _core_len(inputs)
