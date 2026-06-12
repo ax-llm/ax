@@ -638,6 +638,8 @@ impl AxTransport for ScriptedTransport {
 pub struct OpenAICompatibleClient {
     pub api_key: String,
     pub api_url: String,
+    pub base_url_override: Option<String>,
+    pub api_version: String,
     pub model: String,
     pub embed_model: String,
     pub profile: String,
@@ -650,6 +652,8 @@ impl OpenAICompatibleClient {
         Self {
             api_key: api_key.into(),
             api_url: "https://api.openai.com/v1".to_string(),
+            base_url_override: None,
+            api_version: String::new(),
             model: model.into(),
             embed_model: "text-embedding-3-small".to_string(),
             profile: "openai-compatible".to_string(),
@@ -681,6 +685,131 @@ impl OpenAICompatibleClient {
     pub fn with_profile(mut self, profile: impl Into<String>) -> Self {
         self.profile = profile.into();
         self
+    }
+
+    fn prepare_chat_request(&self, request: &Value) -> AxResult<Value> {
+        let mut req = if request.is_object() { request.clone() } else { json!({}) };
+        if req.get("chat_prompt").is_none() {
+            if let Some(prompt) = request.get("chatPrompt").or_else(|| request.get("messages")) {
+                req["chat_prompt"] = prompt.clone();
+            }
+        }
+        if req.get("model").is_none() {
+            req["model"] = json!(self.model.clone());
+        }
+        let mut base_config = if self.model_config.is_object() { self.model_config.clone() } else { json!({}) };
+        if base_config.get("temperature").is_none() {
+            base_config["temperature"] = json!(0);
+        }
+        let override_config = req
+            .get("model_config")
+            .or_else(|| req.get("modelConfig"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let merged = merge_model_config(&[
+            core_value_from_json(&base_config),
+            core_value_from_json(&override_config),
+            CoreValue::new_map(),
+        ])?;
+        req["model_config"] = core_value_to_json(&merged);
+        Ok(req)
+    }
+
+    fn provider_transport_request(&self, operation: &str, payload: &Value, model: &str, stream: bool) -> AxResult<Value> {
+        let operation_descriptor = core_value_to_json(&provider_operation_descriptor(&[
+            CoreValue::from(self.profile.as_str()),
+            CoreValue::from(operation),
+        ])?);
+        let descriptor = core_value_to_json(&provider_descriptor(&[CoreValue::from(self.profile.as_str())])?);
+        let mut path = operation_descriptor
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or("/chat/completions")
+            .to_string();
+        path = path.replace("{model}", &url_component_escape(model));
+        let auth = descriptor.get("auth").and_then(Value::as_str).unwrap_or("bearer");
+        if auth == "api_key_query" {
+            let key_name = descriptor.get("apiKeyQuery").and_then(Value::as_str).unwrap_or("key");
+            let separator = if path.contains('?') { "&" } else { "?" };
+            path = format!(
+                "{path}{separator}{}={}",
+                url_component_escape(key_name),
+                url_component_escape(&self.api_key)
+            );
+        }
+        let base = self
+            .base_url_override
+            .clone()
+            .unwrap_or_else(|| {
+                descriptor
+                    .get("baseUrl")
+                    .and_then(Value::as_str)
+                    .unwrap_or("https://api.openai.com/v1")
+                    .to_string()
+            });
+        let mut url = format!("{}{path}", base.trim_end_matches('/'));
+        if !self.api_version.is_empty() {
+            let separator = if url.contains('?') { "&" } else { "?" };
+            url = format!("{url}{separator}api-version={}", url_component_escape(&self.api_version));
+        }
+        let mut headers = serde_json::Map::new();
+        headers.insert("Content-Type".to_string(), json!("application/json"));
+        match auth {
+            "bearer" => {
+                if !self.api_key.is_empty() {
+                    headers.insert("Authorization".to_string(), json!(format!("Bearer {}", self.api_key)));
+                }
+            }
+            "anthropic_key" => {
+                headers.insert("x-api-key".to_string(), json!(self.api_key.clone()));
+            }
+            "api_key_header" => {
+                let key_name = descriptor.get("apiKeyHeader").and_then(Value::as_str).unwrap_or("api-key");
+                headers.insert(key_name.to_string(), json!(self.api_key.clone()));
+            }
+            _ => {}
+        }
+        if let Some(extra) = descriptor.get("headers").and_then(Value::as_object) {
+            for (key, value) in extra {
+                let text = value.as_str().map(ToString::to_string).unwrap_or_else(|| value.to_string());
+                headers.insert(key.clone(), json!(text));
+            }
+        }
+        let body_key = if operation_descriptor.get("body").and_then(Value::as_str) == Some("multipart") {
+            "data"
+        } else {
+            "json"
+        };
+        let mut out = json!({"method": "POST", "url": url, "headers": Value::Object(headers), "stream": stream});
+        out[body_key] = payload.clone();
+        Ok(out)
+    }
+
+    fn dispatch_transport_request(&mut self, call: Value) -> AxResult<Value> {
+        if let Some(transport) = self.transport.as_mut() {
+            return transport.send(call);
+        }
+        let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
+        let mut builder = HttpClient::builder()
+            .timeout(Duration::from_secs(60))
+            .build()?
+            .post(url);
+        if let Some(headers) = call.get("headers").and_then(Value::as_object) {
+            for (key, value) in headers {
+                builder = builder.header(key.as_str(), value.as_str().unwrap_or_default());
+            }
+        }
+        let body = call
+            .get("json")
+            .or_else(|| call.get("data"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let response: Value = builder
+            .json(&body)
+            .send()?
+            .error_for_status()?
+            .json()?;
+        Ok(json!({"status": 200, "json": response}))
     }
 
     fn request_body(&self, request: &Value) -> Value {
@@ -967,11 +1096,21 @@ impl OpenAICompatibleClient {
 
 impl AxAIClient for OpenAICompatibleClient {
     fn chat(&mut self, request: Value) -> AxResult<Value> {
-        let body = self.request_body(&request);
-        let path = self.chat_path().to_string();
+        let req = self.prepare_chat_request(&request)?;
+        let payload = core_value_to_json(&provider_build_chat_request(&[
+            CoreValue::from(self.profile.as_str()),
+            core_value_from_json(&req),
+        ])?);
+        let model = req
+            .get("model")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .or_else(|| payload.get("model").and_then(Value::as_str).map(ToString::to_string))
+            .unwrap_or_else(|| self.model.clone());
+        let call = self.provider_transport_request("chat", &payload, &model, false)?;
+        let raw = self.dispatch_transport_request(call)?;
         let profile = self.profile.clone();
-        let model = self.model.clone();
-        normalize_openai_response(&profile, &model, self.post_json(&path, body)?)
+        normalize_openai_response(&profile, &model, raw)
     }
 
     fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
@@ -1004,10 +1143,36 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
     let model = string_at(&options, "model").unwrap_or_else(|| defaults.model.to_string());
     let api_url = string_at(&options, "api_url").unwrap_or_else(|| defaults.api_url.to_string());
     let embed_model = string_at(&options, "embed_model").unwrap_or_else(|| defaults.embed_model.to_string());
-    let client = OpenAICompatibleClient::new(api_key, model)
+    let mut client = OpenAICompatibleClient::new(api_key, model)
         .with_api_url(api_url)
         .with_embed_model(embed_model)
         .with_profile(defaults.profile);
+    client.base_url_override = string_at(&options, "base_url")
+        .or_else(|| string_at(&options, "baseUrl"))
+        .or_else(|| string_at(&options, "api_url"));
+    if defaults.profile == "azure-openai" {
+        let version = string_at(&options, "api_version")
+            .or_else(|| string_at(&options, "apiVersion"))
+            .or_else(|| string_at(&options, "version"))
+            .unwrap_or_else(|| "2024-02-15-preview".to_string());
+        client.api_version = version.trim_start_matches("api-version=").to_string();
+        if client.base_url_override.is_none() {
+            let resource = string_at(&options, "resource_name").or_else(|| string_at(&options, "resourceName"));
+            let deployment = string_at(&options, "deployment_name").or_else(|| string_at(&options, "deploymentName"));
+            if let (Some(resource), Some(deployment)) = (resource, deployment) {
+                let host = if resource.contains("://") {
+                    resource
+                } else {
+                    format!("https://{resource}.openai.azure.com")
+                };
+                client.base_url_override = Some(format!(
+                    "{}/openai/deployments/{}",
+                    host.trim_end_matches('/'),
+                    url_component_escape(&deployment)
+                ));
+            }
+        }
+    }
     Ok(client.with_model_config(options.get("model_config").cloned().unwrap_or_else(|| json!({}))))
 }
 
@@ -2583,6 +2748,7 @@ fn run_signature_error_fixture(fixture: &Value) -> AxResult<()> {
     match build_fixture_signature(fixture) {
         Ok(_) => Err(AxError::new("fixture", "expected signature construction to fail")),
         Err(err) => {
+            expect_error_category(&err, fixture)?;
             if let Some(expected) = fixture.get("expected_error_contains").and_then(Value::as_str) {
                 if !err.message.contains(expected) {
                     return Err(AxError::new(
@@ -2809,11 +2975,6 @@ fn run_ai_support_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
                 .and_then(Value::as_str)
                 .unwrap_or("AI validation error");
             expect_validation_result(Err(AxError::validation(message)), fixture)?;
-            if let Some(expected) = fixture.get("expected_error_category").and_then(Value::as_str) {
-                if expected.is_empty() {
-                    return Err(AxError::new("fixture", "expected_error_category must not be empty"));
-                }
-            }
             Ok(())
         }
         _ => Err(AxError::new("fixture", format!("unsupported Rust AI support fixture {kind}"))),
@@ -4320,8 +4481,11 @@ fn run_agent_runtime_policy_operations(fixture: &Value) -> AxResult<AxAgent> {
 }
 
 fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
-    if let Some(message) = fixture.get("expected_error_contains").and_then(Value::as_str) {
-        return Err(AxError::runtime(message));
+    if fixture.get("expected_error_contains").is_some() {
+        // Error fixtures must reproduce the failure by really building and
+        // forwarding the flow; the caller matches the resulting error message.
+        conformance_flow_error_forward(fixture)?;
+        return Err(AxError::new("fixture", "expected flow fixture to fail"));
     }
     let plan = conformance_flow_plan(fixture);
     let output = fixture
@@ -4352,6 +4516,143 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         "cache_keys_equal": cache_keys_equal,
         "cache_keys_distinct": sorted.len() == cache_keys.len(),
     }))
+}
+
+fn conformance_flow_error_forward(fixture: &Value) -> AxResult<Value> {
+    conformance_validate_flow_demos(fixture)?;
+    let state = conformance_build_flow_state(fixture)?;
+    let responses = fixture
+        .get("responses")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut client = FixtureClient {
+        responses: responses.into(),
+        requests: Vec::new(),
+    };
+    let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
+    let forward_options = fixture
+        .get("forward_options")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let mut chat = |request: Value| client.chat(request);
+    let result = with_core_client(&mut chat, || {
+        _flow_forward(&[
+            state.clone(),
+            CoreValue::Null,
+            core_value_from_json(&input),
+            core_value_from_json(&forward_options),
+        ])
+    })?;
+    Ok(core_value_to_json(&result))
+}
+
+fn conformance_build_flow_state(fixture: &Value) -> AxResult<CoreValue> {
+    let mut options = fixture
+        .get("flow_options")
+        .or_else(|| fixture.get("options"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    if options.get("id").is_none() {
+        options["id"] = fixture
+            .get("program_id")
+            .cloned()
+            .unwrap_or_else(|| json!("root.flow"));
+    }
+    let state = _flow_factory(&[core_value_from_json(&options)])?;
+    for step in fixture
+        .get("steps")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        let step_value = conformance_build_flow_step(&step, fixture)?;
+        _flow_add_step(&[state.clone(), step_value])?;
+    }
+    if let Some(returns) = fixture.get("returns") {
+        _flow_set_returns(&[state.clone(), core_value_from_json(returns)])?;
+    }
+    Ok(state)
+}
+
+fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreValue> {
+    let kind = step.get("kind").and_then(Value::as_str).unwrap_or("execute");
+    let name = step.get("name").and_then(Value::as_str).unwrap_or("step");
+    let options = step.get("options").cloned().unwrap_or_else(|| json!({}));
+    match kind {
+        "parallel" | "parallelMerge" => _flow_step(&[
+            CoreValue::from(kind),
+            CoreValue::from(name),
+            CoreValue::Null,
+            core_value_from_json(&options),
+        ]),
+        "execute" => {
+            let signature = step
+                .get("extended_signature")
+                .or_else(|| step.get("extendedSignature"))
+                .or_else(|| step.get("signature"))
+                .or_else(|| fixture.get("signature"))
+                .and_then(Value::as_str)
+                .unwrap_or("question:string -> answer:string");
+            let mut step_options = step
+                .get("forward_options")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            if let (Some(step_obj), Some(opt_obj)) = (step_options.as_object_mut(), options.as_object()) {
+                for (key, value) in opt_obj {
+                    step_obj.insert(key.clone(), value.clone());
+                }
+            }
+            _flow_step(&[
+                CoreValue::from("execute"),
+                CoreValue::from(name),
+                GenHost::new(ax(signature)?),
+                core_value_from_json(&step_options),
+            ])
+        }
+        other => Err(AxError::new(
+            "fixture",
+            format!("unsupported Rust conformance flow error step kind {other}"),
+        )),
+    }
+}
+
+fn conformance_validate_flow_demos(fixture: &Value) -> AxResult<()> {
+    let Some(demos) = fixture.get("demos").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    let mut valid = vec!["root".to_string()];
+    for step in fixture
+        .get("steps")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        if let Some(name) = step.get("name").and_then(Value::as_str) {
+            valid.push(format!("root.{name}"));
+        }
+    }
+    let unknown = demos
+        .iter()
+        .map(|demo| {
+            demo.get("programId")
+                .or_else(|| demo.get("program_id"))
+                .and_then(Value::as_str)
+                .unwrap_or("root")
+                .to_string()
+        })
+        .filter(|program_id| !valid.iter().any(|item| item == program_id))
+        .collect::<Vec<_>>();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    let mut ids = valid;
+    ids.sort();
+    Err(AxError::runtime(format!(
+        "Unknown program ID(s) in demos: {}. Valid IDs: {}. Use namedPrograms() to discover available IDs.",
+        unknown.join(", "),
+        ids.join(", ")
+    )))
 }
 
 fn conformance_flow_plan(fixture: &Value) -> Value {
@@ -5443,6 +5744,7 @@ fn expect_validation_result(result: AxResult<()>, fixture: &Value) -> AxResult<(
     let expected = fixture.get("expected_error_contains").and_then(Value::as_str);
     if let Some(expected) = expected {
         if let Err(err) = result {
+            expect_error_category(&err, fixture)?;
             if err.message.contains(expected) {
                 return Ok(());
             }
@@ -5457,6 +5759,19 @@ fn expect_validation_result(result: AxResult<()>, fixture: &Value) -> AxResult<(
         ));
     }
     result
+}
+
+fn expect_error_category(err: &AxError, fixture: &Value) -> AxResult<()> {
+    let Some(expected) = fixture.get("expected_error_category").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    if err.category != expected {
+        return Err(AxError::new(
+            "fixture",
+            format!("expected error category {expected:?}, got {:?}", err.category),
+        ));
+    }
+    Ok(())
 }
 
 fn render_fixture_template(template: &str, vars: &Value) -> AxResult<String> {
@@ -5748,12 +6063,10 @@ fn run_ai_chat_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
     let output = client.chat(request)?;
-    if should_compare_ai_fixture(fixture) {
-        if let Some(expected) = fixture.get("expected_output") {
-            expect_json_equal("ai chat output", &output, expected)?;
-        }
-        expect_transport_request_subset(fixture, &requests)?;
+    if let Some(expected) = fixture.get("expected_output") {
+        expect_json_equal("ai chat output", &output, expected)?;
     }
+    expect_transport_request_subset(fixture, &requests)?;
     Ok(())
 }
 
@@ -5838,18 +6151,23 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
     if let Some(config) = fixture.get("model_config").or_else(|| fixture.get("modelConfig")) {
         options["model_config"] = config.clone();
     }
+    for key in [
+        "base_url",
+        "baseUrl",
+        "resource_name",
+        "resourceName",
+        "deployment_name",
+        "deploymentName",
+        "api_version",
+        "apiVersion",
+        "version",
+    ] {
+        if let Some(value) = fixture.get(key) {
+            options[key] = value.clone();
+        }
+    }
     let client = ai(provider, options)?.with_transport(transport);
     Ok((client, requests))
-}
-
-fn should_compare_ai_fixture(fixture: &Value) -> bool {
-    matches!(
-        fixture.get("name").and_then(Value::as_str),
-        Some("simple-chat")
-            | Some("model-config-merge")
-            | Some("model-config-aliases")
-            | Some("usage-normalization-edge")
-    )
 }
 
 fn expect_transport_request_subset(
@@ -5991,6 +6309,19 @@ fn merge_object(target: &mut Value, source: &Value) {
 
 fn string_at(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(ToString::to_string)
+}
+
+// Percent-encode every byte outside the RFC 3986 unreserved set, matching
+// python's urllib.parse.quote(value, safe="").
+fn url_component_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
 }
 
 

@@ -569,11 +569,27 @@ public final class Conformance {
     try {
       buildSignature(fixture);
     } catch (RuntimeException e) {
+      assertErrorCategory(e, fixture);
       String expected = (String) fixture.get("expected_error_contains");
       if (expected != null && !String.valueOf(e.getMessage()).contains(expected)) throw new FixtureError("expected error containing " + expected + ", got " + e);
       return;
     }
     throw new FixtureError("expected signature construction to fail");
+  }
+
+  static String errorCategory(RuntimeException e) {
+    String name = e.getClass().getSimpleName();
+    if (name.equals("AxSignatureError")) return "signature";
+    if (name.equals("AxValidationError")) return "validation";
+    if (name.startsWith("AxAI")) return "ai";
+    return "runtime";
+  }
+
+  static void assertErrorCategory(RuntimeException e, Map<String, Object> fixture) {
+    String expected = (String) fixture.get("expected_error_category");
+    if (expected == null || expected.isEmpty()) return;
+    String category = errorCategory(e);
+    if (!category.equals(expected)) throw new FixtureError("expected error category " + expected + ", got " + category);
   }
 
   static void runJsonSchema(Map<String, Object> fixture) {
@@ -1688,6 +1704,7 @@ public final class Conformance {
       return value;
     } catch (RuntimeException e) {
       if (!fixture.containsKey("expected_error_contains")) throw e;
+      assertErrorCategory(e, fixture);
       String expected = (String) fixture.get("expected_error_contains");
       if (expected != null && !String.valueOf(e.getMessage()).contains(expected)) throw new FixtureError("expected error containing " + expected + ", got " + e);
       return null;

@@ -45,6 +45,7 @@ pub trait AxMCPTransport: Send {
     fn send_response(&mut self, message: Value) -> AxResult<()> { self.send_notification(message) }
     fn set_protocol_version(&mut self, _protocol_version: &str) {}
     fn connect(&mut self) -> AxResult<()> { Ok(()) }
+    fn sent_notifications(&self) -> Vec<Value> { Vec::new() }
 }
 
 #[derive(Clone)]
@@ -351,6 +352,7 @@ impl AxMCPTransport for AxMCPScriptedTransport {
     fn send_notification(&mut self, message: Value) -> AxResult<()> { self.notifications.push(message); Ok(()) }
     fn send_response(&mut self, message: Value) -> AxResult<()> { self.sent_responses.push(message); Ok(()) }
     fn set_protocol_version(&mut self, protocol_version: &str) { self.protocol_version = Some(protocol_version.to_string()); }
+    fn sent_notifications(&self) -> Vec<Value> { self.notifications.clone() }
 }
 
 pub fn ax_mcp_stdio_encode(message: &Value) -> AxResult<String> { Ok(format!("{}\n", serde_json::to_string(message)?)) }
@@ -562,7 +564,12 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                     }
                     Ok(())
                 }
-                "cancellation" => client.cancel_request(fixture.get("request_id").cloned().unwrap_or_else(|| json!("1")), fixture.get("reason").and_then(Value::as_str)),
+                "cancellation" => {
+                    client.cancel_request(fixture.get("request_id").cloned().unwrap_or_else(|| json!("1")), fixture.get("reason").and_then(Value::as_str))?;
+                    let notifications = client.transport.lock().unwrap().sent_notifications();
+                    let last = notifications.last().ok_or_else(|| AxError::new("fixture", "expected a cancel notification"))?;
+                    expect_subset("cancel notification", last, fixture.get("expected_notification").unwrap_or(&Value::Null))
+                }
                 "roots_notifications" => Ok(()),
                 _ => Err(AxError::new("fixture", format!("unsupported MCP conformance operation {operation}"))),
             }
