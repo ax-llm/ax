@@ -7,9 +7,14 @@
   },
   "files": {
     "ignoreUnknown": false,
-    // AxIR data blobs must stay byte-identical to their original embedded
-    // form; formatting them changes the generated packages.
-    "includes": ["**", "!ir/axcore/data/**"]
+    // AxIR data blobs and embedded template sources must stay byte-identical
+    // to their original embedded form; formatting them changes the generated
+    // packages.
+    "includes": [
+      "**",
+      "!ir/axcore/data/**",
+      "!tools/axir/internal/axir/templates/**"
+    ]
   },
   "formatter": {
     "enabled": true,

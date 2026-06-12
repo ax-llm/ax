@@ -15,6 +15,7 @@
     "./scripts",
     "./build",
     "./dist",
-    "src/**/dist"
+    "src/**/dist",
+    "tools/axir/internal/axir/templates"
   ]
 }

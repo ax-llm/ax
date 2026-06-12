@@ -97,7 +97,14 @@ function axirSourceFiles() {
 
 function isGoBuildInput(file) {
   const base = path.basename(file);
-  return base === 'go.mod' || base === 'go.sum' || file.endsWith('.go');
+  if (base === 'go.mod' || base === 'go.sum' || file.endsWith('.go')) {
+    return true;
+  }
+  // Embedded template sources compile into the binary via go:embed; a stale
+  // cached binary would silently ignore template edits without this.
+  return file.includes(
+    `${path.sep}internal${path.sep}axir${path.sep}templates${path.sep}`
+  );
 }
 
 function withDefaultVerifyRoot(args) {
