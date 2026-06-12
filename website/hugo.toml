@@ -1,0 +1,44 @@
+baseURL = "https://axllm.dev/"
+locale = "en-us"
+title = "Ax"
+disableKinds = ["taxonomy", "term"]
+enableGitInfo = false
+relativeURLs = false
+canonifyURLs = false
+
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = true
+  [markup.highlight]
+    noClasses = false
+    style = "github"
+  [markup.tableOfContents]
+    startLevel = 2
+    endLevel = 2
+    ordered = false
+
+[params]
+  description = "Markdown-first documentation for Ax across TypeScript, Python, Java, C++, Go, and Rust."
+  github = "https://github.com/ax-llm/ax"
+  playground = "https://ax-llm.github.io/ax/playground/"
+
+[[module.mounts]]
+  source = "content"
+  target = "content"
+
+[[module.mounts]]
+  source = ".generated/content"
+  target = "content"
+
+[[module.mounts]]
+  source = "layouts"
+  target = "layouts"
+
+[[module.mounts]]
+  source = "static"
+  target = "static"
+
+[[module.mounts]]
+  source = "assets"
+  target = "assets"

@@ -218,5 +218,5 @@ When changing Ax behavior:
 5. Update the relevant docs in `docs/` and skills in `src/ax/skills/` when the
    public behavior changes.
 
-Do not edit generated docs under `src/docs/`, and do not hand-edit generated
-AxIR target output.
+Do not edit generated docs under `website/.generated/`, and do not hand-edit
+generated AxIR target output.

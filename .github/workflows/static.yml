@@ -1,5 +1,5 @@
-# Simple workflow for deploying static content to GitHub Pages
-name: Deploy static content to Pages
+# Build the Hugo documentation site (with Pagefind search index) and deploy to GitHub Pages
+name: Deploy documentation site to Pages
 
 on:
   # Runs on pushes targeting the default branch
@@ -21,29 +21,47 @@ concurrency:
   group: 'pages'
   cancel-in-progress: false
 
+env:
+  HUGO_VERSION: '0.162.0'
+
 jobs:
-  # Single deploy job since we're just deploying
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
+    name: Build site
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - uses: actions/setup-node@v6
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
         with:
           node-version: '20.x'
-          registry-url: 'https://registry.npmjs.org'
-      - run: npm ci
-      - run: npm run doc:build
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install Hugo
+        run: |
+          curl -sL "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_${HUGO_VERSION}_linux-amd64.tar.gz" -o /tmp/hugo.tar.gz
+          tar -C /tmp -xzf /tmp/hugo.tar.gz hugo
+          sudo mv /tmp/hugo /usr/local/bin/hugo
+          hugo version
+      - name: Install dependencies
+        run: npm ci
+      - name: Build site (TypeDoc API → Hugo → Pagefind index)
+        run: npm run website:build
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
-          path: './src/docs/dist'
+          path: './website/public'
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

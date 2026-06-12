@@ -13,17 +13,15 @@ Do not turn this file into a second full API manual.
 - `src/ax/` - main library package: `@ax-llm/ax`
 - `src/ai-sdk-provider/` - Vercel AI SDK provider: `@ax-llm/ax-ai-sdk-provider`
 - `src/examples/` - runnable examples and integration-style demos
-- `src/docs/` - docs site sources
+- `website/` - Hugo documentation site, deployed to axllm.dev via GitHub Pages
 - `docs/` - canonical markdown docs
 
 ## Canonical Docs
 
-Edit files in `docs/`, not the generated copies under `src/docs/`.
-
-Example:
-
-- edit `docs/AI.md`
-- do not edit `src/docs/src/content/docs/ai.md`
+`docs/` holds the canonical maintainer markdown. The public site under
+`website/` is built separately with `npm run website:build` (TypeDoc API
+markdown → `npm run website:prepare` → Hugo → Pagefind); never edit the
+generated copies under `website/.generated/` or `website/public/`.
 
 ## Current Project Defaults
 

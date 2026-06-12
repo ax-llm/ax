@@ -1,5 +1,5 @@
 {
   "extends": ["../../typedoc.json"],
   "entryPoints": ["./index.ts"],
-  "out": "../docs/src/content/apidocs"
+  "out": "../../build/apidocs"
 }

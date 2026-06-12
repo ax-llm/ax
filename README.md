@@ -495,16 +495,16 @@ npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extr
 - [Runnable examples](src/examples/README.md)
 - [Multi-language release shape](docs/RELEASE.md)
 - [Compiler architecture](docs/COMPILER.md)
-- [DSPy concepts](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/dspy.md)
+- [DSPy concepts](https://axllm.dev/typescript/concepts/dspy/)
 - [Signatures](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-signature.md)
 
 **Deep dives**
 - [AI providers](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-ai.md)
 - [Audio I/O](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-audio.md)
 - [AxFlow workflows](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-flow.md)
-- [Optimization (GEPA, ACE)](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/optimize.md)
+- [Optimization (GEPA, ACE)](https://axllm.dev/typescript/concepts/optimization/)
 - [AxAgent & RLM](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-agent.md)
-- [Advanced RAG](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/axrag.md)
+- [Advanced RAG](https://axllm.dev/typescript/examples/)
 
 ## Run examples
 

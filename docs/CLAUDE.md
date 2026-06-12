@@ -21,7 +21,7 @@ This is a **multi-repository monorepo** with the following structure:
 - `src/ax/` - Main Ax library (`@ax-llm/ax`)
 - `src/ai-sdk-provider/` - Vercel AI SDK provider (`@ax-llm/ax-ai-sdk-provider`)
 - `src/examples/` - Example implementations (`@ax-llm/ax-examples`)
-- `src/docs/` - Documentation site (`@ax-llm/ax-docs`)
+- `website/` - Hugo documentation site (deployed to axllm.dev via GitHub Pages)
 
 Each sub-repository under `src/` has its own `package.json` and can be developed
 independently.
@@ -760,7 +760,7 @@ export * from "./prompts/index.js";
 ## Documentation
 
 - TypeDoc for API documentation
-- Markdown documentation in `src/docs/`
+- Markdown documentation site in `website/`
 - Examples serve as living documentation
 - Include prompt signature examples in code comments
 
@@ -855,7 +855,7 @@ PINECONE_API_KEY=your_key_here
 - **ALL examples must use current recommended patterns** (factory functions,
   string-based signatures) instead of deprecated patterns
 - **IMPORTANT**: Only edit the top-level `README.md` file. Never edit files
-  under `src/docs/src/content/` as they are auto-generated and will be
+  under `website/.generated/` as they are auto-generated and will be
   overwritten
 
 Remember: This is a production-ready library used by startups in production.

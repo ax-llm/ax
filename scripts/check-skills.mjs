@@ -149,7 +149,7 @@ async function checkWebsiteIndexes(languageIds) {
   for (const languageId of languageIds) {
     const root = path.join(
       repoRoot,
-      'website-md/static',
+      'website/static',
       languageId,
       '.well-known',
       'agent-skills'
