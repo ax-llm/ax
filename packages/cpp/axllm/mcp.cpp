@@ -339,6 +339,8 @@ void run_mcp_conformance_fixture(Value fixture) {
       }
     } else if (op == "cancellation") {
       client.cancel_request(Core::get(fixture, "request_id", "1"), display(Core::get(fixture, "reason", "cancelled")));
+      if (transport->notifications.empty()) throw AxError("fixture", "expected a cancel notification");
+      expect_subset_local(transport->notifications.back(), Core::get(fixture, "expected_notification", Value::object()), "cancel notification");
     } else if (op == "initialize" || op == "protocol_negotiation" || op == "prompts_resources" || op == "roots_notifications") {
       return;
     } else {

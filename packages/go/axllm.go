@@ -30063,6 +30063,19 @@ func runConformanceAgentRuntimePolicy(fixture map[string]Value) {
 	// subsets when the fixture provides direct setup data; full actor runtime fixtures
 	// are covered by runtime-profile verification in existing targets.
 	if expected := coreGet(fixture, "expected_state", nil); expected != nil { assertSubset(state, expected, "agent state") }
+	var ag *AxAgent
+	_, err := safeValue(func() Value {
+		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), asMap(coreGet(fixture, "options", Object())))
+		if snapshot := coreGet(fixture, "restore_runtime_state", nil); snapshot != nil { ag.RestoreRuntimeState(snapshot) }
+		return nil
+	})
+	if err != nil {
+		expectedErr := display(coreGet(fixture, "expected_error_contains", ""))
+		if expectedErr != "" && strings.Contains(err.Error(), expectedErr) { return }
+		panic(err)
+	}
+	if expected := coreGet(fixture, "expected_runtime_contract_subset", nil); expected != nil { assertSubset(ag.GetRuntimeContract(), expected, "runtime contract") }
+	if expected := coreGet(fixture, "expected_exported_state_subset", nil); expected != nil { assertSubset(ag.ExportRuntimeState(), expected, "exported runtime state") }
 }
 
 func runConformanceAgentForward(fixture map[string]Value) {
@@ -30443,6 +30456,7 @@ func expectFixtureError(fn func(), fixture map[string]Value) {
 	var caught any
 	func(){ defer func(){ if r:=recover(); r!=nil { caught=r } }(); fn() }()
 	if caught == nil { panic(AxError{Category:"fixture", Message:"expected operation to fail"}) }
+	assertExpectedErrorCategory(caught, fixture)
 	expected := display(coreGet(fixture, "expected_error_contains", ""))
 	if expected != "" && !strings.Contains(display(errorValue(caught)), expected) && !strings.Contains(display(caught), expected) { panic(AxError{Category:"fixture", Message:"expected error containing "+expected+", got "+display(caught)}) }
 }
@@ -30453,11 +30467,18 @@ func expectMaybeFixtureError(fn func() Value, fixture map[string]Value, fallback
 	func(){ defer func(){ if r:=recover(); r!=nil { caught=r } }(); out = fn() }()
 	if expected != "" {
 		if caught == nil { panic(AxError{Category:"fixture", Message:"expected operation to fail"}) }
+		assertExpectedErrorCategory(caught, fixture)
 		if !strings.Contains(display(errorValue(caught)), expected) && !strings.Contains(display(caught), expected) { panic(AxError{Category:"fixture", Message:"expected error containing "+expected+", got "+display(caught)}) }
 		return fallback
 	}
 	if caught != nil { panic(caught) }
 	return out
+}
+func assertExpectedErrorCategory(caught any, fixture map[string]Value) {
+	expected := display(coreGet(fixture, "expected_error_category", ""))
+	if expected == "" { return }
+	category := asAxError(errorValue(caught)).Category
+	if category != expected { panic(AxError{Category:"fixture", Message:"expected error category "+expected+", got "+category}) }
 }
 func assertEqual(actual Value, expected Value, label string) {
 	if !equal(actual, expected) { panic(AxError{Category:"fixture", Message:label+" mismatch\nactual: "+stableStringify(actual)+"\nexpected: "+stableStringify(expected)}) }

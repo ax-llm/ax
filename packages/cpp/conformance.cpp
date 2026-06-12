@@ -564,8 +564,13 @@ static Value expect_maybe_error(const std::function<Value()>& fn, Value fixture)
     if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected operation to fail");
     return out;
   } catch (const AxError& e) {
+    if (e.category == "fixture") throw;
     Value expected = Core::get(fixture, "expected_error_contains");
     if (expected.is_null()) throw;
+    Value expected_category = Core::get(fixture, "expected_error_category");
+    if (!expected_category.is_null() && e.category != display(expected_category)) {
+      throw AxError("fixture", std::string("expected error category ") + display(expected_category) + ", got " + e.category);
+    }
     if (std::string(e.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", std::string("expected error containing ") + display(expected) + ", got " + e.what());
     return Value();
   }
