@@ -37,8 +37,12 @@ func lintModuleSource(mod Module) Diagnostics {
 		line := strings.Count(text[:loc[0]], "\n") + 1
 		d = append(d, diag("error", mod.File, line, "empty else block; omit it (run axir fmt)"))
 	}
-	if FormatModuleCompact(mod) != text {
-		d = append(d, diag("warning", mod.File, 0, "module is not canonically formatted; run axir fmt"))
+	// Reparse the raw source: the bundle module has file arguments already
+	// substituted, which never matches the on-disk spelling.
+	if parsed, err := ParseModule(text, mod.File); err == nil {
+		if FormatModuleCompact(parsed) != text {
+			d = append(d, diag("warning", mod.File, 0, "module is not canonically formatted; run axir fmt"))
+		}
 	}
 	if lines := strings.Count(text, "\n"); lines > 4000 {
 		d = append(d, diag("warning", mod.File, 0, "module has %d lines; consider splitting or extracting data", lines))

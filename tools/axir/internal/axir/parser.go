@@ -665,6 +665,16 @@ func (p *parser) parseCompactCallTail() (interface{}, []interface{}, error) {
 	}
 	var args []interface{}
 	for !p.match(")") {
+		if tok := p.peek(); tok.kind == "ident" && tok.text == "file" {
+			p.next()
+			path, err := p.expectString()
+			if err != nil {
+				return nil, nil, err
+			}
+			args = append(args, FileArg{Path: path})
+			p.match(",")
+			continue
+		}
 		arg, err := p.parseNoNestedLiteral()
 		if err != nil {
 			return nil, nil, err
@@ -673,6 +683,12 @@ func (p *parser) parseCompactCallTail() (interface{}, []interface{}, error) {
 		p.match(",")
 	}
 	return callee, args, nil
+}
+
+// FileArg is a compact-call argument whose value lives in a sibling file;
+// LoadBundle substitutes the file content, the formatter round-trips the path.
+type FileArg struct {
+	Path string
 }
 
 func (p *parser) parseCompactIndex() (interface{}, interface{}, error) {

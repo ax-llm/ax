@@ -305,7 +305,6 @@ func formatCompactCoreOp(b *strings.Builder, op Operation, indent int, opts Form
 	}
 }
 
-
 func regionHasOps(region Region) bool {
 	for _, block := range region.Blocks {
 		if len(block.Ops) > 0 {
@@ -365,6 +364,8 @@ func formatValue(v interface{}) string {
 			return x
 		}
 		return quote(x)
+	case FileArg:
+		return "file " + quote(x.Path)
 	case bool:
 		if x {
 			return "true"
