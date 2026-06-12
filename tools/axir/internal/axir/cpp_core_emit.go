@@ -94,6 +94,7 @@ func emitCppCoreFunction(names map[string]string, op Operation, name string) (st
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Value Core::%s(%s) {\n", name, strings.Join(args, ", "))
+	fmt.Fprintf(&b, "  axir_coverage_mark(%q);\n", name)
 	for _, stmt := range block.Stmts {
 		lines, err := emitCppCoreStmt(names, stmt, declared)
 		if err != nil {

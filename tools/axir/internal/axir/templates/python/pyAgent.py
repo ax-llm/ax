@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 
 from abc import ABC, abstractmethod
 import copy
@@ -911,6 +912,18 @@ def _core_contains(container, item): return False if container is None else item
 def _core_is_none(value): return value is None
 def _core_is_not_none(value): return value is not None
 def _core_none(): return None
+
+
+def _core_coverage_mark(name):
+    path = os.environ.get("AXIR_COVERAGE_FILE")
+    if not path or name in _CORE_COVERAGE_SEEN:
+        return
+    _CORE_COVERAGE_SEEN.add(name)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(name + "\n")
+
+
+_CORE_COVERAGE_SEEN: set[str] = set()
 
 
 def _core_get(target, key, default=None):

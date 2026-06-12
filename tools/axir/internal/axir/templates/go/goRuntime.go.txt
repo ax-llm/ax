@@ -61,6 +61,25 @@ type coreFlow struct {
 // call sites that signal failure by panicking; the panic is recovered into
 // an error at the nearest safeValue boundary, exactly where the old
 // panic-based raise surfaced.
+
+var axirCoveragePath = os.Getenv("AXIR_COVERAGE_FILE")
+var axirCoverageSeen sync.Map
+
+func axirCoverageMark(name string) {
+	if axirCoveragePath == "" {
+		return
+	}
+	if _, loaded := axirCoverageSeen.LoadOrStore(name, true); loaded {
+		return
+	}
+	handle, err := os.OpenFile(axirCoveragePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer handle.Close()
+	_, _ = handle.WriteString(name + "\n")
+}
+
 func mustCore(value Value, err error) Value {
 	if err != nil {
 		panic(err)

@@ -12,6 +12,26 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class Core {
+
+  private static final String AXIR_COVERAGE_PATH = System.getenv("AXIR_COVERAGE_FILE");
+  private static final java.util.Set<String> AXIR_COVERAGE_SEEN =
+      java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+  static void axirCoverageMark(String name) {
+    if (AXIR_COVERAGE_PATH == null || !AXIR_COVERAGE_SEEN.add(name)) {
+      return;
+    }
+    try {
+      java.nio.file.Files.writeString(
+          java.nio.file.Path.of(AXIR_COVERAGE_PATH),
+          name + "\n",
+          java.nio.file.StandardOpenOption.CREATE,
+          java.nio.file.StandardOpenOption.APPEND);
+    } catch (java.io.IOException ignored) {
+      // coverage tracing must never affect behavior
+    }
+  }
+
   private Core() {}
 
   static boolean truthy(Object value) {

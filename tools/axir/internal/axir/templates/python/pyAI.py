@@ -1223,6 +1223,18 @@ def _core_coalesce(value, fallback): return fallback if value is None else value
 def _core_runtime_error(message): return RuntimeError(str(message))
 
 
+def _core_coverage_mark(name):
+    path = os.environ.get("AXIR_COVERAGE_FILE")
+    if not path or name in _CORE_COVERAGE_SEEN:
+        return
+    _CORE_COVERAGE_SEEN.add(name)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(name + "\n")
+
+
+_CORE_COVERAGE_SEEN: set[str] = set()
+
+
 def _core_get(target, key, default=None):
     if target is None:
         return default

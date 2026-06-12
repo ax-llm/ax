@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/ax-llm/ax/tools/axir/internal/axir"
@@ -233,11 +234,15 @@ func runAudit(args []string) error {
 	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	targets := fs.String("targets", "python,java,cpp,go,rust", "comma-separated targets to audit")
+	conformanceRoot := fs.String("conformance", "ir/conformance", "conformance suite root (coverage audit)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if fs.NArg() == 2 && fs.Arg(0) == "coverage" {
+		return runCoverageAudit(fs.Arg(1), *targets, *conformanceRoot)
+	}
 	if fs.NArg() != 2 || fs.Arg(0) != "provenance" {
-		return fmt.Errorf("usage: axir audit provenance [--targets t1,t2] <root.axir>")
+		return fmt.Errorf("usage: axir audit provenance|coverage [--targets t1,t2] [--conformance dir] <root.axir>")
 	}
 	bundle, err := axir.LoadBundle(fs.Arg(1))
 	if err != nil {
@@ -294,6 +299,92 @@ func runAudit(args []string) error {
 	}
 	if failed {
 		return fmt.Errorf("provenance audit failed")
+	}
+	return nil
+}
+
+func runCoverageAudit(root, targets, conformanceRoot string) error {
+	bundle, err := axir.LoadBundle(root)
+	if err != nil {
+		return err
+	}
+	if ds := axir.Check(bundle); ds.HasErrors() {
+		return ds
+	}
+	model, err := axir.BuildRuntimeModel(axir.LowerToCore(bundle))
+	if err != nil {
+		return err
+	}
+	specs, err := axir.BuildCoreFuncRegistry(model)
+	if err != nil {
+		return err
+	}
+	absConformance, err := filepath.Abs(conformanceRoot)
+	if err != nil {
+		return err
+	}
+	emitters := map[string]func(axir.AxRuntimeModel, string) error{
+		"python": axir.EmitPython,
+		"java":   axir.EmitJava,
+		"cpp":    axir.EmitCpp,
+		"go":     axir.EmitGo,
+		"rust":   axir.EmitRust,
+	}
+	var reports []axir.CoverageReport
+	for _, target := range strings.Split(targets, ",") {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+		emit, ok := emitters[target]
+		if !ok {
+			return fmt.Errorf("unknown coverage target %q", target)
+		}
+		dir, err := os.MkdirTemp("", "axir-coverage-"+target+"-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(dir)
+		if err := emit(model, dir); err != nil {
+			return fmt.Errorf("%s: emit failed: %w", target, err)
+		}
+		traceFile := filepath.Join(dir, "axir-coverage-trace.txt")
+		if err := axir.RunCoverageConformance(target, dir, absConformance, traceFile); err != nil {
+			return fmt.Errorf("%s: %w", target, err)
+		}
+		traced, err := axir.ParseCoverageTrace(traceFile)
+		if err != nil {
+			return fmt.Errorf("%s: reading trace: %w", target, err)
+		}
+		report := axir.AuditCoverage(specs, target, traced)
+		reports = append(reports, report)
+		fmt.Printf("%s: %d/%d core functions exercised by conformance\n",
+			target, len(report.Exercised), report.Total)
+		grouped := axir.UnexercisedByModule(specs, report)
+		modules := make([]string, 0, len(grouped))
+		for module := range grouped {
+			modules = append(modules, module)
+		}
+		sort.Strings(modules)
+		for _, module := range modules {
+			fmt.Printf("  %s (%d unexercised): %s\n", module, len(grouped[module]), strings.Join(grouped[module], ", "))
+		}
+	}
+	if len(reports) > 1 {
+		asymmetries := axir.CoverageAsymmetries(reports)
+		if len(asymmetries) == 0 {
+			fmt.Println("cross-target: every exercised function is exercised by all audited targets")
+		} else {
+			names := make([]string, 0, len(asymmetries))
+			for name := range asymmetries {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			fmt.Printf("cross-target asymmetries (%d):\n", len(names))
+			for _, name := range names {
+				fmt.Printf("  %s: only %s\n", name, strings.Join(asymmetries[name], ", "))
+			}
+		}
 	}
 	return nil
 }

@@ -118,6 +118,7 @@ func emitGoCoreFunction(names map[string]string, op Operation, name string) (str
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "func %s(args ...Value) (Value, error) {\n", name)
+	fmt.Fprintf(&b, "\taxirCoverageMark(%q)\n", name)
 	for _, arg := range block.Args {
 		fmt.Fprintf(&b, "	var %s Value\n", goName("%"+arg.Name))
 	}

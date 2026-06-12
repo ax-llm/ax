@@ -185,6 +185,7 @@ func emitRustCoreFunction(names map[string]string, op Operation, name string) (s
 	var b strings.Builder
 	b.WriteString("#[allow(unused_variables, unused_assignments, unused_mut, unreachable_code, clippy::all)]\n")
 	fmt.Fprintf(&b, "fn %s(args: &[CoreValue]) -> Result<CoreValue, AxError> {\n", name)
+	fmt.Fprintf(&b, "    axir_coverage_mark(%q);\n", name)
 	declared := map[string]bool{}
 	for i, arg := range block.Args {
 		argName := rustName("%" + arg.Name)

@@ -1,7 +1,9 @@
 #include "axllm.hpp"
 
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <set>
 
 #if defined(AXLLM_ENABLE_CURL)
@@ -277,6 +279,22 @@ bool Core::truthy(const Value& value) {
   if (auto p = std::get_if<std::shared_ptr<Array>>(&value.data)) return !(*p)->empty();
   if (value.is_object()) return !entries(value).empty();
   return true;
+}
+
+
+static void axir_coverage_mark(const char* name) {
+  static const char* path = std::getenv("AXIR_COVERAGE_FILE");
+  if (path == nullptr) {
+    return;
+  }
+  static std::mutex axir_coverage_mutex;
+  static std::set<std::string> seen;
+  std::lock_guard<std::mutex> lock(axir_coverage_mutex);
+  if (!seen.insert(name).second) {
+    return;
+  }
+  std::ofstream out(path, std::ios::app);
+  out << name << "\n";
 }
 
 Value Core::truthy_value(Value value) { return Value(truthy(value)); }

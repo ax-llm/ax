@@ -26,6 +26,7 @@
     "axir:conformance:write": "node --import=tsx scripts/axir-conformance-sync.mjs write",
     "axir:generate-packages": "node scripts/generate-axir-packages.mjs",
     "axir:check-packages": "node scripts/check-axir-packages.mjs",
+    "axir:audit:coverage": "node scripts/run-axir.mjs audit coverage ir/axcore/root.axir",
     "skills:check": "node scripts/check-skills.mjs",
     "axir:verify:dev": "node scripts/run-axir.mjs verify --mode dev --jobs 0 --progress",
     "axir:verify:release": "node scripts/run-axir.mjs verify --mode release --jobs 0 --progress",

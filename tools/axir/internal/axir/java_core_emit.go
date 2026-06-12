@@ -58,6 +58,7 @@ func emitJavaCoreFunction(names map[string]string, op Operation, name string) (s
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "  static Object %s(%s) {\n", name, strings.Join(args, ", "))
+	fmt.Fprintf(&b, "    axirCoverageMark(%q);\n", name)
 	for _, stmt := range block.Stmts {
 		lines, err := emitJavaCoreStmt(names, stmt, declared)
 		if err != nil {

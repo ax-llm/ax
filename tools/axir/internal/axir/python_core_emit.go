@@ -202,6 +202,7 @@ func emitPythonCoreFunction(st *pythonEmitState, op Operation, name string) (str
 	ret := pythonReturnType(AttrString(op, "signature"))
 	var b strings.Builder
 	fmt.Fprintf(&b, "def %s(%s) -> %s:\n", name, strings.Join(args, ", "), ret)
+	fmt.Fprintf(&b, "    _core_coverage_mark(%q)\n", name)
 	for _, stmt := range block.Stmts {
 		lines, err := emitPythonCoreStmt(st, stmt)
 		if err != nil {

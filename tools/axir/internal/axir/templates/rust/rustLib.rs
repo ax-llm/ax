@@ -5995,6 +5995,28 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
 
 
 // ----- AXIR CORE VALUE RUNTIME -----
+
+fn axir_coverage_mark(name: &'static str) {
+    use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+    type CoverageState = Option<(String, Mutex<std::collections::HashSet<&'static str>>)>;
+    static STATE: OnceLock<CoverageState> = OnceLock::new();
+    let state = STATE.get_or_init(|| {
+        std::env::var("AXIR_COVERAGE_FILE")
+            .ok()
+            .map(|path| (path, Mutex::new(std::collections::HashSet::new())))
+    });
+    let Some((path, seen)) = state.as_ref() else {
+        return;
+    };
+    if !seen.lock().map(|mut set| set.insert(name)).unwrap_or(false) {
+        return;
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new().append(true).create(true).open(path) {
+        let _ = writeln!(file, "{name}");
+    }
+}
+
 // Dynamic value model for IR-emitted Core functions. Lists and maps are
 // reference-shared (Rc<RefCell<...>>) so child values obtained via core_get
 // alias their parent, matching the Go and Python runtimes. Single-threaded
