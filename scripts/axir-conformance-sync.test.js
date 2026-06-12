@@ -1,13 +1,12 @@
+import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   compareValues,
   normalizeCatalog,
-  parseAxirProviderCatalog,
-  parseAxirProviderCatalogSummary,
-  parseAxirProviderProfileRegistry,
-  replaceAxirProviderCatalog,
-  replaceAxirProviderCatalogSummary,
-  replaceAxirProviderProfileRegistry,
+  readProviderDataJson,
+  writeProviderDataJson,
 } from './axir-conformance-sync.mjs';
 
 describe('axir-conformance-sync helpers', () => {
@@ -47,18 +46,32 @@ describe('axir-conformance-sync helpers', () => {
     ]);
   });
 
-  it('round-trips the embedded provider catalog in provider.axir text', () => {
+  it('round-trips the provider catalog through its data file', () => {
+    const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'axir-sync-'));
+    mkdirSync(path.join(repoRoot, 'ir', 'axcore', 'data'), { recursive: true });
     const catalog = normalizeCatalog({
       all: [{ name: 'openai', models: [{ name: 'gpt-4o' }] }],
     });
-    const source =
-      'body @entry() {\n      %catalog = core.call intrinsic.json.parse("{}")\n      core.return %catalog\n    }';
 
-    const updated = replaceAxirProviderCatalog(source, catalog);
-    expect(parseAxirProviderCatalog(updated)).toEqual(catalog);
+    writeProviderDataJson(repoRoot, 'catalog', catalog);
+    expect(readProviderDataJson(repoRoot, 'catalog')).toEqual(catalog);
+    expect(
+      readFileSync(
+        path.join(
+          repoRoot,
+          'ir',
+          'axcore',
+          'data',
+          'provider-model-catalog.json'
+        ),
+        'utf8'
+      )
+    ).not.toContain('\n');
   });
 
-  it('round-trips the embedded provider profile registry and summary', () => {
+  it('round-trips the profile registry and summary data files', () => {
+    const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'axir-sync-'));
+    mkdirSync(path.join(repoRoot, 'ir', 'axcore', 'data'), { recursive: true });
     const registry = normalizeCatalog({
       registryVersion: 'provider-profile-registry-v1',
       supportedProfileIds: ['openai-compatible'],
@@ -70,14 +83,10 @@ describe('axir-conformance-sync helpers', () => {
       providerNames: ['openai'],
       deferredProviderIds: [],
     });
-    const source =
-      'body @entry() {\n      %registry = core.call intrinsic.json.parse("{}")\n      %summary = core.call intrinsic.json.parse("{}")\n      core.return %summary\n    }';
 
-    const updated = replaceAxirProviderCatalogSummary(
-      replaceAxirProviderProfileRegistry(source, registry),
-      summary
-    );
-    expect(parseAxirProviderProfileRegistry(updated)).toEqual(registry);
-    expect(parseAxirProviderCatalogSummary(updated)).toEqual(summary);
+    writeProviderDataJson(repoRoot, 'registry', registry);
+    writeProviderDataJson(repoRoot, 'summary', summary);
+    expect(readProviderDataJson(repoRoot, 'registry')).toEqual(registry);
+    expect(readProviderDataJson(repoRoot, 'summary')).toEqual(summary);
   });
 });
