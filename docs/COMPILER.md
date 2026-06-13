@@ -255,3 +255,8 @@ npm run axir:conformance:check
 npm run test:axir
 npm run axir:backlog -- done <id> --commit <sha> --verification "npm run test:axir"
 ```
+
+For generated-backend integrity, use the three verification instruments in
+[`docs/AXIR_VERIFICATION.md`](./AXIR_VERIFICATION.md): provenance confirms the
+functions are emitted from IR, coverage confirms conformance executes them, and
+perturbation confirms runners reject changed expected values.

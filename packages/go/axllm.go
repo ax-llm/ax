@@ -29,6 +29,7 @@ type AxError struct {
 	Status   int
 	Code     string
 	Retryable bool
+	Payload  Value
 }
 
 func (e AxError) Error() string {
@@ -145,9 +146,7 @@ func asSlice(value Value) []Value {
 		if v == nil { return []Value{} }
 		return v.Items
 	case []any:
-		out := make([]Value, 0, len(v))
-		for _, item := range v { out = append(out, normalizeJSON(item)) }
-		return out
+		return append([]Value(nil), v...)
 	case []string:
 		out := make([]Value, 0, len(v))
 		for _, item := range v { out = append(out, item) }
@@ -550,7 +549,7 @@ func asAxError(value Value) AxError {
 	if err, ok := value.(AxError); ok { return err }
 	m := asMap(value)
 	if cat := display(m["__error"]); cat != "" {
-		return AxError{Category: cat, Message: display(m["message"]), Type: display(m["__type"]), Status: int(num(m["status"])), Code: display(m["code"]), Retryable: coreTruthy(m["retryable"])}
+		return AxError{Category: cat, Message: display(m["message"]), Type: display(m["__type"]), Status: int(num(m["status"])), Code: display(m["code"]), Retryable: coreTruthy(m["retryable"]), Payload: m["payload"]}
 	}
 	return AxError{Category: "runtime", Message: display(value)}
 }
@@ -700,7 +699,7 @@ func _core_json_pretty(value Value) Value { data,_:=json.MarshalIndent(value,"",
 func _core_template_parse(template Value, context Value) Value { return templateParse(display(template), display(context)) }
 func _core_template_render_tree(nodes Value, vars Value, source Value, context Value) Value { return templateRender(asSlice(nodes), asMap(vars), display(source), display(context)) }
 func _core_template_collect_vars(nodes Value) Value { return templateCollect(asSlice(nodes)) }
-func _core_template_validate(source Value, context Value, required Value) Value { templateValidate(display(source), display(context), asSlice(required)); return true }
+func _core_template_validate(source Value, context Value, required Value) Value { return templateValidate(display(source), display(context), asSlice(required)) }
 // _core_prompt_structured recovers at the host boundary because custom
 // template rendering reports template errors via panic inside a
 // regexp.ReplaceAllStringFunc callback, which cannot propagate an error.
@@ -732,11 +731,24 @@ func _valid_url_shape(value Value) Value { if _, ok:=value.(string); ok { return
 
 func aiError(kind string, message Value, rest ...Value) Value {
 	out := Object("__error", "ai", "__type", kind, "message", display(message))
-	if len(rest) > 0 { coreSet(out, "response_body", rest[0]) }
-	if len(rest) > 1 { coreSet(out, "status", rest[1]) }
-	if len(rest) > 2 { coreSet(out, "code", rest[2]) }
-	if len(rest) > 3 { coreSet(out, "request", rest[3]) }
-	if len(rest) > 4 { coreSet(out, "retryable", coreTruthy(rest[4])) }
+	if len(rest) > 0 {
+		switch rest[0].(type) {
+		case int, int64, float64:
+			coreSet(out, "status", rest[0])
+			if len(rest) > 1 { coreSet(out, "code", rest[1]) }
+			if len(rest) > 2 { coreSet(out, "response_body", rest[2]) }
+			if len(rest) > 3 { coreSet(out, "request", rest[3]) }
+			if len(rest) > 4 { coreSet(out, "retryable", coreTruthy(rest[4])) }
+		default:
+			coreSet(out, "response_body", rest[0])
+			if len(rest) > 1 {
+				if _, ok := rest[1].(bool); ok { coreSet(out, "retryable", coreTruthy(rest[1])) } else { coreSet(out, "status", rest[1]) }
+			}
+			if len(rest) > 2 { coreSet(out, "code", rest[2]) }
+			if len(rest) > 3 { coreSet(out, "request", rest[3]) }
+			if len(rest) > 4 { coreSet(out, "retryable", coreTruthy(rest[4])) }
+		}
+	}
 	return out
 }
 
@@ -26844,7 +26856,7 @@ func NewSignature(signature string) AxSignature {
 }
 func (s AxSignature) ToJSONSchema(options map[string]Value) Value {
 	if options == nil { options = map[string]Value{} }
-	return goToJSONSchema(s.Outputs, "Schema", options)
+	return mustCore(to_json_schema(s.Outputs, "Schema", options))
 }
 func (s AxSignature) GetInputFields() []Field { return append([]Field(nil), s.Inputs...) }
 func (s AxSignature) GetOutputFields() []Field { return append([]Field(nil), s.Outputs...) }
@@ -26854,134 +26866,17 @@ func (s AxSignature) toMap() map[string]Value {
 	return Object("description", s.Description, "inputs", inputs, "outputs", outputs)
 }
 
-func goToJSONSchema(fields []Field, schemaTitle string, options map[string]Value) Value {
-	schema := Object("type", "object", "title", schemaTitle)
-	properties := Object()
-	required := Array()
-	for _, field := range fields {
-		if field.IsInternal { continue }
-		coreSet(properties, field.Name, goFieldSchema(field, options, false))
-		if !field.IsOptional || coreTruthy(coreGet(options, "strictStructuredOutputs", false)) {
-			required = append(required, field.Name)
-		}
-	}
-	coreSet(schema, "properties", properties)
-	coreSet(schema, "required", required)
-	coreSet(schema, "additionalProperties", false)
-	return schema
+func nilIfEmpty(text string) Value {
+	if text == "" { return nil }
+	return text
 }
-
-func goFieldSchema(field Field, options map[string]Value, nested bool) Value {
-	t := field.Type
-	if t.IsArray {
-		itemType := t
-		itemType.IsArray = false
-		itemField := field
-		itemField.Type = itemType
-		itemField.Description = t.Description
-		out := Object("type", "array", "items", goFieldSchema(itemField, options, true))
-		if field.Description != "" { coreSet(out, "description", field.Description) } else if desc := goConstraintDescription(t, false); desc != "" { coreSet(out, "description", desc) }
-		return out
-	}
-	out := Object()
-	switch t.Name {
-	case "number":
-		coreSet(out, "type", "number")
-	case "boolean":
-		coreSet(out, "type", "boolean")
-	case "class":
-		coreSet(out, "type", "string")
-		opts := Array(); for _, item := range t.Options { opts = append(opts, item) }
-		coreSet(out, "enum", opts)
-	case "object":
-		if len(t.Fields) == 0 && coreTruthy(coreGet(options, "flexibleJsonFieldsAsString", false)) {
-			coreSet(out, "type", "string")
-			if field.Description != "" { coreSet(out, "description", field.Description+". Return this field as a JSON-encoded string that can be parsed with JSON.parse.") }
-			return out
-		}
-		if len(t.Fields) == 0 {
-			coreSet(out, "type", Array("object", "array", "string", "number", "boolean", "null"))
-			if field.Description != "" { coreSet(out, "description", field.Description) }
-			return out
-		}
-		coreSet(out, "type", "object")
-		props := Object()
-		req := Array()
-		keys := append([]string(nil), t.FieldOrder...)
-		if len(keys) == 0 { for key := range t.Fields { keys = append(keys, key) }; sort.Strings(keys) }
-		for _, key := range keys {
-			child := t.Fields[key]
-			coreSet(props, key, goFieldSchema(child, options, true))
-			if !child.IsOptional { req = append(req, child.Name) }
-		}
-		coreSet(out, "properties", props)
-		coreSet(out, "required", req)
-		coreSet(out, "additionalProperties", false)
-	case "json":
-		if coreTruthy(coreGet(options, "flexibleJsonFieldsAsString", false)) {
-			coreSet(out, "type", "string")
-			if field.Description != "" { coreSet(out, "description", field.Description+". Return this field as a JSON-encoded string that can be parsed with JSON.parse.") }
-		} else {
-			coreSet(out, "type", Array("object", "array", "string", "number", "boolean", "null"))
-		}
-	case "url":
-		coreSet(out, "type", "string")
-		coreSet(out, "format", "uri")
-	case "date":
-		coreSet(out, "type", "string")
-		coreSet(out, "format", "date")
-	case "datetime":
-		coreSet(out, "type", "string")
-		coreSet(out, "format", "date-time")
-	case "dateRange", "datetimeRange", "audio":
-		coreSet(out, "type", "string")
-	default:
-		coreSet(out, "type", "string")
-	}
-	if t.Minimum != nil { coreSet(out, "minimum", t.Minimum) }
-	if t.Maximum != nil { coreSet(out, "maximum", t.Maximum) }
-	if t.MinLength != nil { coreSet(out, "minLength", t.MinLength) }
-	if t.MaxLength != nil { coreSet(out, "maxLength", t.MaxLength) }
-	if t.Pattern != "" { coreSet(out, "pattern", t.Pattern) }
-	if t.Format != "" { coreSet(out, "format", t.Format) }
-	if field.IsOptional && coreTruthy(coreGet(options, "strictStructuredOutputs", false)) {
-		coreSet(out, "type", Array(coreGet(out, "type", "string"), "null"))
-	}
-	if t.Name != "json" || !coreTruthy(coreGet(options, "flexibleJsonFieldsAsString", false)) {
-		description := field.Description
-		constraint := goConstraintDescription(t, nested)
-		if description != "" && constraint != "" { description = strings.TrimRight(description, ".") + ". " + constraint }
-		if description == "" { description = constraint }
-		if description != "" { coreSet(out, "description", description) }
-	}
-	return out
-}
-
-func goConstraintDescription(t FieldType, nested bool) string {
-	parts := []string{}
-	if t.MinLength != nil && t.MaxLength != nil { parts = append(parts, fmt.Sprintf("Minimum length: %s characters, maximum length: %s characters", display(t.MinLength), display(t.MaxLength))) } else if t.MinLength != nil { parts = append(parts, fmt.Sprintf("Minimum length: %s characters", display(t.MinLength))) } else if t.MaxLength != nil { parts = append(parts, fmt.Sprintf("Maximum length: %s characters", display(t.MaxLength))) }
-	if t.Minimum != nil && t.Maximum != nil { parts = append(parts, fmt.Sprintf("Minimum value: %s, maximum value: %s", display(t.Minimum), display(t.Maximum))) } else if t.Minimum != nil { parts = append(parts, fmt.Sprintf("Minimum value: %s", display(t.Minimum))) } else if t.Maximum != nil { parts = append(parts, fmt.Sprintf("Maximum value: %s", display(t.Maximum))) }
-	if t.Format == "email" { parts = append(parts, "Must be a valid email address format") }
-	if t.Format == "uri" { parts = append(parts, "Must be a valid URL format") }
-	if t.Name == "url" { parts = append(parts, "Must be a valid URL format") }
-	if t.Name == "date" { parts = append(parts, "Format: YYYY-MM-DD") }
-	if t.Name == "datetime" { parts = append(parts, "Format: ISO 8601 date-time") }
-	if t.Name == "dateRange" { parts = append(parts, "Format: JSON object with start and end dates, or YYYY-MM-DD/YYYY-MM-DD") }
-	if t.Name == "datetimeRange" { parts = append(parts, "Format: JSON object with start and end ISO 8601 date-times, or ISO interval start/end") }
-	if t.Name == "audio" { parts = append(parts, "Return plain text to synthesize as speech; do not return audio bytes or JSON audio objects.") }
-	if t.PatternDescription != "" {
-		if strings.HasPrefix(t.PatternDescription, "Must ") { parts = append(parts, t.PatternDescription) } else { parts = append(parts, "Must contain only "+t.PatternDescription) }
-	}
-	return strings.Join(parts, ", ")
-}
-
 func (f Field) toMap() map[string]Value {
-	return Object("name", f.Name, "title", f.Title, "type", f.Type, "description", f.Description, "isOptional", f.IsOptional, "isInternal", f.IsInternal, "isCached", f.IsCached)
+	return Object("name", f.Name, "title", f.Title, "type", f.Type, "description", nilIfEmpty(f.Description), "isOptional", f.IsOptional, "isInternal", f.IsInternal, "isCached", f.IsCached)
 }
 func (t FieldType) toMap() map[string]Value {
 	fields:=Object(); keys:=append([]string(nil), t.FieldOrder...); if len(keys)==0 { for k:= range t.Fields { keys=append(keys,k) }; sort.Strings(keys) }; for _, k := range keys { coreSet(fields,k,t.Fields[k]) }
 	opts:=Array(); for _, o:= range t.Options { opts=append(opts,o) }
-	return Object("name", t.Name, "isArray", t.IsArray, "options", opts, "fields", fields, "minLength", t.MinLength, "maxLength", t.MaxLength, "minimum", t.Minimum, "maximum", t.Maximum, "pattern", t.Pattern, "patternDescription", t.PatternDescription, "format", t.Format, "description", t.Description)
+	return Object("name", t.Name, "isArray", t.IsArray, "options", opts, "fields", fields, "minLength", t.MinLength, "maxLength", t.MaxLength, "minimum", t.Minimum, "maximum", t.Maximum, "pattern", nilIfEmpty(t.Pattern), "patternDescription", nilIfEmpty(t.PatternDescription), "format", nilIfEmpty(t.Format), "description", nilIfEmpty(t.Description))
 }
 
 func recordNew(name string, values map[string]Value) Value {
@@ -27098,7 +26993,7 @@ func (t Tool) get(key string, fallback Value) Value {
 	}
 }
 func (t Tool) Schema() Value {
-	return goToJSONSchema(toolFields(t.Args), "", Object("strict", true))
+	return mustCore(to_json_schema(toolFields(t.Args), "", Object("strict", true)))
 }
 
 type AIClient interface {
@@ -27228,13 +27123,13 @@ func normalizeAzureOptions(options map[string]Value) map[string]Value {
 }
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	return safeValue(func() Value { req:=c.prepareChatRequest(request, options); opts:=c.optionsSnapshot(); model:=coreGet(req,"model",coreGet(opts,"model",nil)); config:=coreGet(req,"model_config",Object()); c.setLastChat(model, config); transportReq := c.requestJSON("chat", req, false); raw, err := c.Transport.Call(ctx, transportReq); if err != nil { panic(AxError{Category:"network", Message:err.Error()}) }; return mustCore(provider_normalize_chat_response(c.Profile, coreGet(raw,"json",raw), c.Name, model)) })
+	return safeValue(func() Value { req:=c.prepareChatRequest(request, options); mustCore(validate_chat_request(req)); opts:=c.optionsSnapshot(); model:=coreGet(req,"model",coreGet(opts,"model",nil)); config:=coreGet(req,"model_config",Object()); c.setLastChat(model, config); transportReq := c.requestJSON("chat", req, false); raw, err := c.Transport.Call(ctx, transportReq); if err != nil { panic(AxError{Category:"network", Message:err.Error()}) }; body := normalizeTransportPayload(raw); return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model)) })
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	return safeValue(func() Value { req:=cloneMap(request); opts:=c.optionsSnapshot(); if coreGet(req,"embed_model",coreGet(req,"embedModel",nil))==nil { coreSet(req,"embed_model",coreGet(opts,"embed_model",nil)) }; model:=coreGet(req,"embed_model",coreGet(req,"embedModel",coreGet(opts,"embed_model",nil))); c.setLastEmbed(model); transportReq := c.requestJSON("embed", req, false); raw, err := c.Transport.Call(ctx, transportReq); if err != nil { panic(AxError{Category:"network", Message:err.Error()}) }; return mustCore(provider_normalize_embed_response(c.Profile, coreGet(raw,"json",raw), c.Name, model)) })
 }
 func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
-	value, err := safeValue(func() Value { req:=c.prepareChatRequest(request, Object("stream", true)); opts:=c.optionsSnapshot(); model:=coreGet(req,"model",coreGet(opts,"model",nil)); transportReq := c.requestJSON("stream_chat", req, true); raw, err := c.Transport.Call(ctx, transportReq); if err != nil { panic(AxError{Category:"network", Message:err.Error()}) }; out:=Array(); state:=Object(); for _, event := range iterSSE(coreGet(raw,"body","")) { out=append(out, mustCore(provider_normalize_stream_delta(c.Profile,event,state,c.Name,model))) }; return out })
+	value, err := safeValue(func() Value { req:=c.prepareChatRequest(request, Object("stream", true)); mustCore(validate_chat_request(req)); opts:=c.optionsSnapshot(); model:=coreGet(req,"model",coreGet(opts,"model",nil)); transportReq := c.requestJSON("stream_chat", req, true); raw, err := c.Transport.Call(ctx, transportReq); if err != nil { panic(AxError{Category:"network", Message:err.Error()}) }; body := normalizeTransportPayload(raw); out:=Array(); state:=Object(); for _, event := range iterSSE(body) { out=append(out, mustCore(provider_normalize_stream_delta(c.Profile,event,state,c.Name,model))) }; return out })
 	return asSlice(value), err
 }
 func (c *OpenAICompatibleClient) prepareChatRequest(request map[string]Value, options map[string]Value) map[string]Value {
@@ -27296,6 +27191,15 @@ func (c *OpenAICompatibleClient) requestJSON(operation string, request map[strin
 	if display(coreGet(operationDescriptor, "body", "json")) == "multipart" { bodyKey = "data" }
 	coreSet(out, bodyKey, payload)
 	return out
+}
+
+func normalizeTransportPayload(raw Value) Value {
+	status := int(num(coreGet(raw, "status", 200)))
+	body := coreGet(raw, "json", coreGet(raw, "body", coreGet(raw, "data", raw)))
+	if status >= 400 {
+		panic(asAxError(mustCore(openai_normalize_error(float64(status), body, nil))))
+	}
+	return body
 }
 
 func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
@@ -27979,6 +27883,102 @@ func (a *AxAgent) ApplyOptimizedComponents(m map[string]Value) {
 	if value := coreGet(m, "root.agent.runtime", nil); value != nil { coreSet(a.State, "runtime_contract", value) }
 	if value := coreGet(m, "root.agent.policy", nil); value != nil { coreSet(a.State, "policy", value) }
 }
+func scoreOptimizationPrediction(task map[string]Value, prediction Value, options map[string]Value) (Value, Value) {
+	opts := options
+	if opts == nil { opts = Object() }
+	var rawScores Value
+	if value, ok := task["metric_score"]; ok {
+		rawScores = value
+	} else if value, ok := task["scores"]; ok {
+		rawScores = value
+	} else if value, ok := task["score"]; ok {
+		rawScores = value
+	} else if display(coreGet(prediction, "completionType", nil)) == "error" {
+		rawScores = float64(0)
+	} else {
+		rawScores = float64(1)
+	}
+	scores := mustCore(_normalize_optimization_metric_scores(rawScores))
+	scalar := mustCore(_scalarize_optimization_scores(scores, opts))
+	scalar = mustCore(_adjust_optimization_score_for_actions(scalar, task, prediction))
+	return scores, scalar
+}
+func agentClarificationFromError(err error) (Value, bool) {
+	ax, ok := err.(AxError)
+	if !ok || ax.Category != "clarification" { return nil, false }
+	clarification := ax.Payload
+	if args := asSlice(coreGet(ax.Payload, "args", Array())); len(args) > 0 { clarification = args[0] }
+	return clarification, true
+}
+func (a *AxAgent) EvaluateOptimizationTask(client AIClient, task map[string]Value, options map[string]Value) Value {
+	opts := options
+	if opts == nil { opts = Object() }
+	input := coreGet(task, "input", nil)
+	if !coreTruthy(input) { input = task }
+	output, err := a.Forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
+	if err == nil {
+		return mustCore(_build_agent_eval_prediction(output, a.GetActionLog(), a.GetUsage(), a.ExportTrace()))
+	}
+	if clarification, ok := agentClarificationFromError(err); ok {
+		return Object("completionType", "askClarification", "clarification", clarification, "actionLog", a.GetActionLog(), "functionCalls", coreGet(a.State, "function_call_traces", Array()), "toolErrors", Array(), "turnCount", float64(0), "usage", a.GetUsage(), "trace", a.ExportTrace())
+	}
+	return Object("completionType", "error", "error", Object("message", err.Error()), "actionLog", a.GetActionLog(), "functionCalls", coreGet(a.State, "function_call_traces", Array()), "toolErrors", Array(err.Error()), "turnCount", float64(0), "usage", a.GetUsage(), "trace", a.ExportTrace())
+}
+func (a *AxAgent) EvaluateOptimization(client AIClient, dataset Value, candidateMap map[string]Value, options map[string]Value) Value {
+	opts := options
+	if opts == nil { opts = Object() }
+	normalized := asMap(mustCore(_normalize_optimization_dataset(dataset)))
+	rows := MutableArray()
+	original := asMap(mustCore(_optimization_component_current_map(a.GetOptimizableComponents())))
+	candidate := cloneMap(candidateMap)
+	phase := coreGet(opts, "phase", "train")
+	maxMetricCalls := int(num(coreGet(opts, "maxMetricCalls", coreGet(opts, "max_metric_calls", float64(1000000000)))))
+	calls := 0
+	defer a.ApplyOptimizedComponents(original)
+	if coreTruthy(candidate) { a.ApplyOptimizedComponents(candidate) }
+	for _, rawTask := range asSlice(coreGet(normalized, "train", Array())) {
+		if calls >= maxMetricCalls { panic(AxError{Category:"runtime", Message:fmt.Sprintf("max metric calls exceeded: %d", maxMetricCalls)}) }
+		calls++
+		task, isMap := rawTask.(map[string]Value)
+		if !isMap { task = Object("input", rawTask) }
+		prediction := a.EvaluateOptimizationTask(client, task, opts)
+		errVal := coreGet(prediction, "error", nil)
+		scoreTask := task
+		if !isMap { scoreTask = Object() }
+		scores, scalar := scoreOptimizationPrediction(scoreTask, prediction, opts)
+		rows = coreAppend(rows, mustCore(_build_optimization_eval_row(rawTask, prediction, scores, scalar, coreGet(prediction, "trace", nil), errVal))).(*AxArray)
+	}
+	return mustCore(_build_optimization_eval_result(rows, candidate, phase))
+}
+func (g *AxGen) EvaluateOptimization(client AIClient, dataset Value, candidateMap map[string]Value, options map[string]Value) Value {
+	opts := options
+	if opts == nil { opts = Object() }
+	normalized := asMap(mustCore(_normalize_optimization_dataset(dataset)))
+	rows := MutableArray()
+	original := asMap(mustCore(_optimization_component_current_map(g.GetOptimizableComponents())))
+	candidate := cloneMap(candidateMap)
+	phase := coreGet(opts, "phase", "train")
+	defer g.ApplyOptimizedComponents(original)
+	if coreTruthy(candidate) { g.ApplyOptimizedComponents(candidate) }
+	for _, rawTask := range asSlice(coreGet(normalized, "train", Array())) {
+		task, isMap := rawTask.(map[string]Value)
+		if !isMap { task = Object() }
+		var errVal Value
+		var prediction Value
+		input := rawTask
+		if isMap { input = coreGet(task, "input", task) }
+		output, err := g.Forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
+		if err == nil {
+			prediction = Object("completionType", "final", "output", output, "finalOutput", output, "functionCalls", g.FunctionCallTraces, "actionLog", g.ChatLog, "usage", Object(), "trace", Object("traces", g.Traces))
+		} else {
+			errVal = Object("message", err.Error())
+			prediction = Object("completionType", "error", "error", errVal, "functionCalls", g.FunctionCallTraces, "actionLog", g.ChatLog, "usage", Object(), "trace", Object("traces", g.Traces))
+		}
+		scores, scalar := scoreOptimizationPrediction(task, prediction, opts)
+		rows = coreAppend(rows, mustCore(_build_optimization_eval_row(rawTask, prediction, scores, scalar, coreGet(prediction, "trace", nil), errVal))).(*AxArray)
+	}
+	return mustCore(_build_optimization_eval_result(rows, candidate, phase))
+}
 
 type AxFlow struct { State map[string]Value; Steps Value; Options map[string]Value }
 func NewFlow(options map[string]Value) *AxFlow {
@@ -28001,6 +28001,11 @@ func (f *AxFlow) GetPlan() Value { return mustCore(_flow_plan(f.State)) }
 func (f *AxFlow) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value,error) { return safeValue(func() Value { return mustCore(_flow_forward(f.State, bindAIClientContext(ctx, client), values, options)) }) }
 func (f *AxFlow) GetOptimizableComponents() Value { return mustCore(_flow_get_optimizable_components(f.State)) }
 func (f *AxFlow) ApplyOptimizedComponents(m map[string]Value) { mustCore(_flow_apply_optimized_components(f.State, m)) }
+func (f *AxFlow) EvaluateOptimization(client AIClient, dataset Value, candidateMap map[string]Value, options map[string]Value) Value {
+	if candidateMap == nil { candidateMap = Object() }
+	if options == nil { options = Object() }
+	return mustCore(_flow_evaluate_optimization(f.State, client, dataset, candidateMap, options))
+}
 
 type OptimizerEngine interface { Optimize(map[string]Value, OptimizerEvaluator) (Value,error) }
 type OptimizerEvaluator interface { Evaluate(map[string]Value, map[string]Value) (Value,error) }
@@ -28744,7 +28749,21 @@ func _core_agent_stage_usage(stage Value) Value {
 	}
 }
 func _core_agent_stage_traces(stage Value) Value { return coreGet(stage,"traces",Array()) }
-func _core_agent_clarification_error(values ...Value) Value { var payload Value = Object(); if len(values)==1 { payload=values[0] } else { for i,value:=range values { coreSet(payload, fmt.Sprintf("item%d", i), value) } }; return Object("__error","clarification","message",stableStringify(payload),"payload",payload) }
+func _core_agent_clarification_error(values ...Value) Value {
+	var payload Value = Object()
+	if len(values) > 0 { payload = values[0] }
+	clarification := payload
+	if args := asSlice(coreGet(payload, "args", Array())); len(args) > 0 { clarification = args[0] }
+	message := ""
+	if m, ok := clarification.(map[string]Value); ok {
+		message = display(coreGet(m, "question", nil))
+		if message == "" { message = display(coreGet(m, "message", nil)) }
+		if message == "" { message = stableStringify(m) }
+	} else {
+		message = display(clarification)
+	}
+	return Object("__error", "clarification", "message", message, "payload", payload)
+}
 func _core_agent_runtime_create_session(values ...Value) (Value, error) {
 	if len(values)<1 { return nil, AxError{Category:"runtime",Message:"agent runtime create session missing arguments"} }
 	runtime:=values[0]; globals:=Object(); options:=Object()
@@ -28823,7 +28842,50 @@ func _core_agent_skill_search(values ...Value) Value {
 	scripted := coreGet(options, "skill_search_results", coreGet(options, "skillSearchResults", Object()))
 	return scriptedAgentSearchResults(scripted, searches, true)
 }
-func _core_agent_callable_invoke(values ...Value) Value { if len(values)==0 { return Object("kind","error","error",Object("category","runtime","message","callable unavailable")) }; callable:=values[0]; args:=Object(); if len(values)>1 { args=asMap(values[1]) }; if fn, ok:=callable.(func(map[string]Value) Value); ok { return fn(args) }; return Object("kind","error","error",Object("category","runtime","message","callable unavailable")) }
+func _core_agent_callable_invoke(values ...Value) Value {
+	if len(values) == 0 { return Object("status", "error", "error", "unknown callable: ") }
+	state := values[0]
+	request := Object()
+	if len(values) > 1 { request = asMap(values[1]) }
+	options := asMap(coreGet(state, "options", Object()))
+	qualified := display(coreGet(request, "qualified_name", coreGet(request, "name", "")))
+	name := display(coreGet(request, "name", ""))
+	args := asMap(coreGet(request, "args", Object()))
+	for _, rawGroup := range asSlice(coreGet(state, "callable_inventory", Array())) {
+		for _, rawCallable := range asSlice(coreGet(rawGroup, "callables", Array())) {
+			callable := asMap(rawCallable)
+			if display(coreGet(callable, "qualified_name", "")) != qualified { continue }
+			handler := coreGet(callable, "handler", nil)
+			if fn, ok := handler.(func(map[string]Value) Value); ok { return Object("status", "ok", "value", fn(args)) }
+			if fn, ok := handler.(func(map[string]Value) (Value, error)); ok {
+				value, err := fn(args)
+				if err != nil { return Object("status", "error", "error", err.Error()) }
+				return Object("status", "ok", "value", value)
+			}
+		}
+	}
+	scripted := asMap(coreGet(options, "callable_results", coreGet(options, "callableResults", Object())))
+	result := Value(nil)
+	if value, ok := scripted[qualified]; ok { result = value }
+	if result == nil && name != "" {
+		if value, ok := scripted[name]; ok { result = value }
+	}
+	if result == nil {
+		if value, ok := scripted["*"]; ok { result = value }
+	}
+	if result != nil {
+		copied := cloneValue(result)
+		if m, ok := copied.(map[string]Value); ok {
+			if errValue := coreGet(m, "error", nil); errValue != nil && coreTruthy(errValue) {
+				return Object("status", "error", "error", errValue)
+			}
+			if coreGet(m, "status", nil) == nil { coreSet(m, "status", "ok") }
+			return m
+		}
+		return Object("status", "ok", "value", copied)
+	}
+	return Object("status", "error", "error", "unknown callable: "+qualified)
+}
 
 // Generated conformance harness. It lives in the library package so it can
 // exercise the same Core helpers as user-facing APIs without target-template
@@ -28880,7 +28942,7 @@ func runConformanceFixture(fixture map[string]Value) {
 		sig := conformanceBuildSignature(fixture)
 		fields := sig.Outputs
 		if display(coreGet(fixture, "target", "outputs")) == "inputs" { fields = sig.Inputs }
-		assertEqual(goToJSONSchema(fields, display(coreGet(fixture, "schema_title", "Schema")), asMap(coreGet(fixture, "schema_options", Object()))), coreGet(fixture, "expected_schema", nil), "json schema")
+		assertEqual(mustCore(to_json_schema(fields, display(coreGet(fixture, "schema_title", "Schema")), asMap(coreGet(fixture, "schema_options", Object())))), coreGet(fixture, "expected_schema", nil), "json schema")
 	case "validate_value":
 		field := conformanceFieldFromSpec(display(coreGet(fixture, "field_name", "value")), asMap(coreGet(fixture, "field", Object())))
 		expectMaybeFixtureError(func() Value { return mustCore(validate_value(field, coreGet(fixture, "value", nil), nil)) }, fixture, nil)
@@ -28896,19 +28958,14 @@ func runConformanceFixture(fixture map[string]Value) {
 	case "prompt":
 		runConformancePrompt(fixture)
 	case "template":
-		assertEqual(goPromptRenderTemplate(display(coreGet(fixture, "template", "")), asMap(coreGet(fixture, "vars", Object()))), coreGet(fixture, "expected_output", ""), "template output")
+		assertEqual(mustCore(render_template_content(coreGet(fixture, "template", ""), coreGet(fixture, "vars", Object()), coreGet(fixture, "context", "fixture-template"))), coreGet(fixture, "expected_output", ""), "template output")
 	case "template_error":
 		expectFixtureError(func(){
 			if display(coreGet(fixture, "operation", "")) == "validate" {
-				source := display(coreGet(fixture, "template", ""))
-				for _, required := range asSlice(coreGet(fixture, "required_variables", Array())) {
-					name := display(required)
-					if !strings.Contains(source, "{{ "+name+" }}") && !strings.Contains(source, "{{"+name+"}}") {
-						panic(AxError{Category:"template", Message:"custom template must preserve template variable {{" + name + "}}"})
-					}
-				}
+				result := mustCore(validate_prompt_template_syntax(coreGet(fixture, "template", ""), coreGet(fixture, "context", "fixture-template"), coreGet(fixture, "required_variables", Array())))
+				if flag, ok := result.(bool); !ok || !flag { panic(AxError{Category:"template", Message:display(result)}) }
 			} else {
-				_ = goPromptRenderTemplate(display(coreGet(fixture, "template", "")), asMap(coreGet(fixture, "vars", Object())))
+				_ = mustCore(render_template_content(coreGet(fixture, "template", ""), coreGet(fixture, "vars", Object()), coreGet(fixture, "context", "fixture-template")))
 			}
 		}, fixture)
 	case "template_validate":
@@ -29536,9 +29593,36 @@ func conformanceProviderDefaultModel(profile string) string {
 	}
 }
 func runConformanceAIError(fixture map[string]Value) {
-	if msg := coreGet(fixture, "expected_error_contains", nil); msg != nil {
-		// Error fixtures are provider mapping checks; make sure expected text is stable.
-		if display(msg) == "" { panic(AxError{Category:"fixture", Message:"empty expected error"}) }
+	client, _ := conformanceAIClient(fixture)
+	method := display(coreGet(fixture, "method", "chat"))
+	request := asMap(coreGet(fixture, "request", Object()))
+	var err error
+	switch method {
+	case "stream":
+		_, err = client.Stream(context.Background(), request, Object())
+	case "embed":
+		_, err = client.Embed(context.Background(), request, Object())
+	case "transcribe":
+		_, err = client.Transcribe(context.Background(), request, Object())
+	case "speak":
+		_, err = client.Speak(context.Background(), request, Object())
+	default:
+		_, err = client.Chat(context.Background(), request, Object())
+	}
+	if err == nil { panic(AxError{Category:"fixture", Message:"expected AI call to fail"}) }
+	if expected := display(coreGet(fixture, "expected_error_contains", "")); expected != "" && !strings.Contains(err.Error(), expected) {
+		panic(AxError{Category:"fixture", Message:"expected error containing "+expected+", got "+err.Error()})
+	}
+	axErr, ok := err.(AxError)
+	if !ok {
+		if wrapped, ok := err.(FixtureError); ok { panic(wrapped) }
+		axErr = AxError{Category:"runtime", Message:err.Error()}
+	}
+	if expected := display(coreGet(fixture, "expected_error_type", "")); expected != "" && axErr.Type != expected {
+		panic(AxError{Category:"fixture", Message:"expected error type "+expected+", got "+axErr.Type})
+	}
+	if expected := coreGet(fixture, "expected_status", nil); expected != nil && axErr.Status != int(num(expected)) {
+		panic(AxError{Category:"fixture", Message:fmt.Sprintf("expected status %d, got %d", int(num(expected)), axErr.Status)})
 	}
 }
 
@@ -29651,6 +29735,8 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 	operation := display(coreGet(fixture, "operation", "components"))
 	program := conformanceBuildProgram(fixture)
 	switch operation {
+	case "verification":
+		assertEqual(conformanceVerificationSummary(), coreGet(fixture, "expected_output", nil), "verification instruments")
 	case "components":
 		components := program.GetOptimizableComponents()
 		if expected := coreGet(fixture, "expected_component_ids", nil); expected != nil { ids:=Array(); for _, c:= range asSlice(components) { ids=append(ids, coreGet(c,"id",nil)) }; assertEqual(ids, expected, "component ids") }
@@ -29691,20 +29777,40 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		evidence := mustCore(_build_optimizer_evidence_batch(coreGet(fixture, "eval_result", Object()), components))
 		if expected := coreGet(fixture, "expected_evidence_subset", nil); expected != nil { assertSubset(evidence, expected, "optimizer evidence") }
 	case "evaluate":
-		evalOptions := asMap(coreGet(fixture, "eval_options", Object()))
-		if rawMax := coreGet(evalOptions, "maxMetricCalls", nil); rawMax != nil && num(rawMax) <= 0 {
-			panic(AxError{Category:"optimize", Message:"max metric calls exceeded"})
-		}
-		result := conformanceEvaluateOptimization(fixture, coreGet(fixture, "candidate_map", Object()), evalOptions)
+		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+		result := conformanceProgramEvaluateOptimization(program, client, coreGet(fixture, "dataset", Array()), asMap(coreGet(fixture, "candidate_map", Object())), asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_evaluation_subset", nil); expected != nil { assertSubset(result, expected, "optimization evaluation") }
 		if expected := coreGet(fixture, "expected_evaluation_rows_subset", nil); expected != nil { assertListSubset(coreGet(result, "rows", Array()), expected, "optimization evaluation rows") }
 		if expected := coreGet(fixture, "expected_components_subset_after", nil); expected != nil { assertListSubset(program.GetOptimizableComponents(), expected, "post-eval components") }
 	case "engine":
 		components := program.GetOptimizableComponents()
-		opts := asMap(coreGet(fixture, "optimize_options", Object()))
-		run := asMap(mustCore(_prepare_optimizer_run(conformanceProgramKind(fixture), components, coreGet(fixture, "dataset", Array()), opts, Object(), coreTruthy(coreGet(fixture, "engine_uses_evaluator", false)))))
-		request := coreGet(run, "request", Object())
-		engineResponse, evaluations, transcripts := conformanceRunScriptedOptimizer(fixture, request)
+		opts := cloneMap(asMap(coreGet(fixture, "optimize_options", Object())))
+		usesEvaluator := coreTruthy(coreGet(fixture, "engine_uses_evaluator", false))
+		var request Value
+		if flow, ok := program.(*AxFlow); ok {
+			request = mustCore(_flow_optimize_with(flow.State, coreGet(fixture, "dataset", Array()), opts, usesEvaluator))
+		} else {
+			trace := Object()
+			if ag, ok := program.(*AxAgent); ok { trace = asMap(ag.ExportTrace()) } else if gen, ok := program.(*AxGen); ok { trace = Object("traces", gen.Traces, "chat_log", gen.ChatLog) }
+			run := asMap(mustCore(_prepare_optimizer_run(conformanceProgramKind(fixture), components, coreGet(fixture, "dataset", Array()), opts, trace, usesEvaluator)))
+			request = coreGet(run, "request", Object())
+		}
+		var evaluate func(Value, map[string]Value) Value
+		if usesEvaluator {
+			client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+			evaluate = func(candidateMap Value, stepOptions map[string]Value) Value {
+				merged := cloneMap(opts)
+				for _, key := range orderedKeys(stepOptions) { if key != "__order" { coreSet(merged, key, stepOptions[key]) } }
+				var evalDataset Value
+				if value, ok := merged["dataset"]; ok { delete(merged, "dataset"); evalDataset = value }
+				if !coreTruthy(evalDataset) {
+					if value, ok := merged["_dataset"]; ok { delete(merged, "_dataset"); evalDataset = value }
+				}
+				if !coreTruthy(evalDataset) { evalDataset = coreGet(fixture, "dataset", Array()) }
+				return conformanceProgramEvaluateOptimization(program, client, evalDataset, asMap(candidateMap), merged)
+			}
+		}
+		engineResponse, evaluations, transcripts := conformanceRunScriptedOptimizer(fixture, request, evaluate)
 		artifact := mustCore(_normalize_optimizer_engine_response(engineResponse, "scripted", "1", components))
 		if rawApply := coreGet(opts, "apply", nil); rawApply == nil || coreTruthy(rawApply) {
 			program.ApplyOptimizedComponents(asMap(coreGet(artifact, "componentMap", Object())))
@@ -29715,8 +29821,11 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_artifact_subset", nil); expected != nil { assertSubset(artifact, expected, "optimizer artifact") }
 		if expected := coreGet(fixture, "expected_components_subset", nil); expected != nil { assertListSubset(program.GetOptimizableComponents(), expected, "optimized components") }
 	case "eval":
+		ag, ok := program.(*AxAgent)
+		if !ok { panic(AxError{Category:"fixture", Message:"eval operation requires agent program"}) }
+		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
 		task := asMap(coreGet(fixture, "task", Object("input", coreGet(fixture, "input", Object()))))
-		prediction := conformanceOptimizationPrediction(fixture, task, 0)
+		prediction := ag.EvaluateOptimizationTask(client, task, asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_prediction_subset", nil); expected != nil { assertSubset(prediction, expected, "eval prediction") }
 	case "gepa":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
@@ -29755,6 +29864,91 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 	default:
 		panic(AxError{Category:"fixture", Message:"unsupported Go optimize operation "+operation})
 	}
+}
+
+func conformanceVerificationSummary() Value {
+	promptVars := mustCore(collect_template_variable_names("Hello {{name}} and {{count}}", "verification"))
+	promptVarStrings := []string{}
+	for _, item := range asSlice(promptVars) { promptVarStrings = append(promptVarStrings, display(item)) }
+	sort.Strings(promptVarStrings)
+	promptVarsSorted := Array()
+	for _, item := range promptVarStrings { promptVarsSorted = append(promptVarsSorted, item) }
+	chatRequest := Object("model", "gpt-fixture", "chat_prompt", Array(Object("role", "user", "content", "hello")), "model_config", Object())
+	chatPayload := mustCore(build_chat_request(nil, chatRequest, Object()))
+	chatResponse := mustCore(normalize_chat_response(Object(
+		"id", "chat-1",
+		"model", "gpt-fixture",
+		"choices", Array(Object("index", 0, "message", Object("content", "hello"), "finish_reason", "stop")),
+		"usage", Object("prompt_tokens", 1, "completion_tokens", 2, "total_tokens", 3),
+	)))
+	embedPayload := mustCore(build_embed_request(nil, Object("embedModel", "embed-fixture", "texts", Array("hello")), Object()))
+	embedResponse := mustCore(normalize_embed_response(Object(
+		"id", "embed-1",
+		"model", "embed-fixture",
+		"data", Array(Object("embedding", Array(0.1, 0.2))),
+		"usage", Object("prompt_tokens", 1, "total_tokens", 1),
+	)))
+	streamResponse := mustCore(normalize_stream_delta(Object(
+		"id", "stream-1",
+		"model", "gpt-fixture",
+		"choices", Array(Object("index", 0, "delta", Object("content", "delta"))),
+	), Object()))
+	toolCall := mustCore(_openai_tool_call_to_provider_impl(Object("id", "call-1", "function", Object("name", "lookup", "params", Object("term", "ax")))))
+	profile := mustCore(provider_resolve_profile("openai"))
+	_ = mustCore(_gemini_build_transcribe_request(Object("audio", Object("data", "audio-bytes", "mimeType", "audio/wav"))))
+	_ = mustCore(_gemini_build_speak_request(Object("text", "speak", "voice", "Kore", "format", "wav")))
+	geminiTranscript := mustCore(_gemini_normalize_transcribe_response(Object("candidates", Array(Object("content", Object("parts", Array(Object("text", "transcript"))))))))
+	geminiSpeech := mustCore(_gemini_normalize_speak_response(Object("candidates", Array(Object("content", Object("parts", Array(Object("inlineData", Object("data", "audio-bytes"))))))), Object("format", "wav")))
+	grokTranscribe := mustCore(_grok_build_transcribe_request(Object("audio", "audio-bytes", "language", "en", "prompt", "names")))
+	grokSpeak := mustCore(_grok_build_speak_request(Object("text", "speak", "voice", Object("id", "eve"), "format", "pcm16", "sampleRate", 16000)))
+	registry := Object(
+		"flags", Object("skillsMode", true),
+		"protocol_actions", Array(Object("id", "respond")),
+		"runtime_globals", Array(Object("id", "runtime")),
+		"actor_primitives", Array(Object("id", "speak", "effect", "fixture guidance", "stages", Array("actor"), "availability_condition", "always")),
+	)
+	_ = mustCore(_validate_policy_reserved_names(registry, "fixtureCallable"))
+	guidance := mustCore(_render_actor_primitive_guidance(registry, "actor"))
+	policyState := Object()
+	_ = mustCore(_record_policy_event(policyState, "respond", Object("ok", true)))
+	policyResult := mustCore(_normalize_policy_action_result("respond", Object("ok", true)))
+	descriptor := mustCore(_program_descriptor("fixture", "core", Object("source", "verification")))
+	merged := mustCore(_flow_merge_parallel_results(Object("base", "keep"), Object("answer", "ok")))
+	genMarker := Object()
+	_ = mustCore(_set_examples(genMarker, Array(Object("input", Object("question", "q"), "output", Object("answer", "a")))))
+	_ = mustCore(_set_demos(genMarker, Array(Object("traces", Array()))))
+	constants := mustCore(mcp_protocol_constants())
+	request := mustCore(mcp_jsonrpc_request("1", "ping", Object("ok", true)))
+	notification := mustCore(mcp_jsonrpc_notification("progress", Object("pct", 1)))
+	mcpError := mustCore(mcp_normalize_error(Object("jsonrpc", "2.0", "id", "1", "error", Object("code", -32000, "message", "nope"))))
+	return Object(
+		"promptVars", promptVarsSorted,
+		"chatModel", coreGet(chatPayload, "model", nil),
+		"chatContent", coreGet(coreGet(coreGet(chatResponse, "results", Array()), 0, Object()), "content", nil),
+		"embedModel", coreGet(embedPayload, "model", nil),
+		"embedCount", len(asSlice(coreGet(embedResponse, "embeddings", Array()))),
+		"streamContent", coreGet(coreGet(coreGet(streamResponse, "results", Array()), 0, Object()), "content", nil),
+		"toolName", coreGet(coreGet(toolCall, "function", Object()), "name", nil),
+		"profileId", coreGet(profile, "id", nil),
+		"geminiText", coreGet(geminiTranscript, "text", nil),
+		"geminiAudio", coreGet(geminiSpeech, "audio", nil),
+		"grokCodec", coreGet(coreGet(grokSpeak, "output_format", Object()), "codec", nil),
+		"grokFormat", coreGet(grokTranscribe, "format", nil),
+		"policyActions", len(asSlice(mustCore(_select_protocol_actions(registry)))),
+		"runtimeGlobals", len(asSlice(mustCore(_select_runtime_globals(registry)))),
+		"qualityScore", mustCore(_map_optimization_judge_quality_to_score("good")),
+		"policyTrace", len(asSlice(coreGet(policyState, "policy_trace", Array()))),
+		"policyEffectOnly", coreGet(policyResult, "effect_only", nil),
+		"guidance", guidance,
+		"programKind", coreGet(descriptor, "kind", nil),
+		"flowAnswer", coreGet(merged, "answer", nil),
+		"mcpVersion", coreGet(constants, "protocolVersion", nil),
+		"mcpRequest", coreGet(request, "method", nil),
+		"mcpNotification", coreGet(notification, "method", nil),
+		"mcpError", coreGet(mcpError, "code", nil),
+		"genExamples", len(asSlice(coreGet(genMarker, "examples", Array()))),
+		"genDemos", len(asSlice(coreGet(genMarker, "demos", Array()))),
+	)
 }
 
 type conformanceGEPAEvaluator struct { Fixture map[string]Value; Evaluations *AxArray }
@@ -29811,11 +30005,23 @@ func conformanceProgramKind(fixture map[string]Value) string {
 	}
 }
 
-func conformanceRunScriptedOptimizer(fixture map[string]Value, request Value) (Value, Value, Value) {
+func conformanceProgramEvaluateOptimization(program AxProgram, client AIClient, dataset Value, candidateMap map[string]Value, options map[string]Value) Value {
+	switch p := program.(type) {
+	case *AxAgent:
+		return p.EvaluateOptimization(client, dataset, candidateMap, options)
+	case *AxFlow:
+		return p.EvaluateOptimization(client, dataset, candidateMap, options)
+	case *AxGen:
+		return p.EvaluateOptimization(client, dataset, candidateMap, options)
+	}
+	panic(AxError{Category:"fixture", Message:"evaluate operation requires an optimizable program"})
+}
+
+func conformanceRunScriptedOptimizer(fixture map[string]Value, request Value, evaluate func(Value, map[string]Value) Value) (Value, Value, Value) {
 	response := cloneValue(coreGet(fixture, "engine_response", Object()))
 	evaluations := MutableArray()
 	transcripts := MutableArray()
-	if !coreTruthy(coreGet(fixture, "engine_uses_evaluator", false)) {
+	if evaluate == nil {
 		return response, evaluations, transcripts
 	}
 	respMap := asMap(response)
@@ -29827,7 +30033,7 @@ func conformanceRunScriptedOptimizer(fixture map[string]Value, request Value) (V
 			step := asMap(rawStep)
 			candidateMap := conformanceCandidateMapFromStep(step)
 			evalOptions := asMap(coreGet(step, "options", Object()))
-			result := conformanceEvaluateOptimization(fixture, candidateMap, evalOptions)
+			result := evaluate(candidateMap, evalOptions)
 			evidence := mustCore(_build_optimizer_evidence_batch(result, coreGet(request, "components", Array())))
 			evaluations = coreAppend(evaluations, result).(*AxArray)
 			transcripts = coreAppend(transcripts, Object("candidateMap", candidateMap, "options", evalOptions, "result", result, "evidence", evidence)).(*AxArray)
@@ -29844,7 +30050,7 @@ func conformanceRunScriptedOptimizer(fixture map[string]Value, request Value) (V
 		step := asMap(rawStep)
 		candidateMap := conformanceCandidateMapFromStep(step)
 		evalOptions := asMap(coreGet(step, "options", Object()))
-		result := conformanceEvaluateOptimization(fixture, candidateMap, evalOptions)
+		result := evaluate(candidateMap, evalOptions)
 		evidence := mustCore(_build_optimizer_evidence_batch(result, coreGet(request, "components", Array())))
 		evaluations = coreAppend(evaluations, result).(*AxArray)
 		transcripts = coreAppend(transcripts, Object("candidateMap", candidateMap, "options", evalOptions, "result", result, "evidence", evidence)).(*AxArray)
@@ -29856,51 +30062,6 @@ func conformanceCandidateMapFromStep(step map[string]Value) Value {
 	if value := coreGet(step, "componentMap", nil); value != nil { return value }
 	if value := coreGet(step, "component_map", nil); value != nil { return value }
 	return Object()
-}
-
-func conformanceEvaluateOptimization(fixture map[string]Value, candidateMap Value, options map[string]Value) Value {
-	normalized := asMap(mustCore(_normalize_optimization_dataset(coreGet(fixture, "dataset", Array()))))
-	rows := MutableArray()
-	scoreOptions := asMap(coreGet(fixture, "score_options", Object()))
-	for index, rawTask := range asSlice(coreGet(normalized, "train", Array())) {
-		task := asMap(rawTask)
-		var rawScore Value
-		prediction := conformanceOptimizationPrediction(fixture, task, index)
-		if display(coreGet(prediction, "completionType", "")) == "error" {
-			rawScore = 0
-		} else {
-			rawScore = coreGet(task, "score", 1)
-		}
-		if explicitScores := asSlice(coreGet(fixture, "scores", Array())); index < len(explicitScores) {
-			rawScore = explicitScores[index]
-		}
-		scores := mustCore(_normalize_optimization_metric_scores(rawScore))
-		scalar := mustCore(_scalarize_optimization_scores(scores, scoreOptions))
-		row := mustCore(_build_optimization_eval_row(task, prediction, scores, scalar, coreGet(prediction, "trace", nil), nil))
-		rows = coreAppend(rows, row).(*AxArray)
-	}
-	return mustCore(_build_optimization_eval_result(rows, candidateMap, coreGet(options, "phase", "train")))
-}
-
-func conformanceOptimizationPrediction(fixture map[string]Value, task map[string]Value, index int) Value {
-	responses := asSlice(coreGet(fixture, "responses", Array()))
-	if len(responses) == 0 && coreGet(task, "score", nil) == nil && coreGet(task, "expectedOutput", nil) == nil && coreGet(task, "output", nil) == nil {
-		return Object("completionType", "error", "functionCalls", Array(), "toolErrors", Array(), "turnCount", 0, "usage", Array(), "trace", Object())
-	}
-	output := coreGet(task, "expectedOutput", coreGet(task, "output", nil))
-	if output == nil {
-		for _, rawResponse := range responses {
-			content := display(coreGet(rawResponse, "content", ""))
-			parsed := parseJSON(content)
-			answer := coreGet(parsed, "answer", nil)
-			if answer != nil {
-				output = Object("answer", answer)
-				break
-			}
-		}
-		if output == nil { output = Object() }
-	}
-	return Object("completionType", "final", "output", output, "finalOutput", output, "functionCalls", Array(), "toolErrors", Array(), "turnCount", 1, "usage", Array(), "trace", Object())
 }
 
 func conformanceBuildProgram(fixture map[string]Value) AxProgram {
@@ -30057,25 +30218,82 @@ func conformanceFlowStateValue(state map[string]Value, field string, fallback Va
 }
 
 func runConformanceAgentRuntimePolicy(fixture map[string]Value) {
-	state := Object()
-	if setState := coreGet(fixture, "set_state", nil); setState != nil { state = asMap(setState) }
-	// Policy fixtures mostly target deterministic Core helpers. Validate expected state
-	// subsets when the fixture provides direct setup data; full actor runtime fixtures
-	// are covered by runtime-profile verification in existing targets.
-	if expected := coreGet(fixture, "expected_state", nil); expected != nil { assertSubset(state, expected, "agent state") }
 	var ag *AxAgent
 	_, err := safeValue(func() Value {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), asMap(coreGet(fixture, "options", Object())))
+		if request := coreGet(fixture, "discover", nil); request != nil {
+			result := ag.Discover(request)
+			if expected, ok := fixture["expected_discover_result"]; ok { assertEqual(result, expected, "discover result") }
+		}
+		if request := coreGet(fixture, "recall", nil); request != nil {
+			result := ag.Recall(request)
+			if expected, ok := fixture["expected_recall_result"]; ok { assertEqual(result, expected, "recall result") }
+		}
+		if rawUsed := coreGet(fixture, "used", nil); rawUsed != nil {
+			used := asMap(rawUsed)
+			result := ag.Used(coreGet(used, "id", nil), display(coreGet(used, "reason", "")), display(coreGet(used, "stage", "executor")))
+			if expected, ok := fixture["expected_used_result"]; ok { assertEqual(result, expected, "used result") }
+		}
+		if rawCall := coreGet(fixture, "invoke_callable", nil); rawCall != nil {
+			call := asMap(rawCall)
+			name := display(coreGet(call, "qualified_name", ""))
+			if name == "" { name = display(coreGet(call, "name", "")) }
+			result := ag.InvokeCallable(name, asMap(coreGet(call, "args", Object())), Object())
+			if expected := coreGet(fixture, "expected_callable_result_subset", nil); expected != nil { assertSubset(result, expected, "callable result") }
+		}
+		if trace := coreGet(fixture, "replay_trace_input", nil); trace != nil {
+			result := ag.ReplayTrace(trace, coreGet(fixture, "replay_fixtures", Object()))
+			if expected := coreGet(fixture, "expected_replay_result_subset", nil); expected != nil { assertSubset(result, expected, "agent replay") }
+		}
 		if snapshot := coreGet(fixture, "restore_runtime_state", nil); snapshot != nil { ag.RestoreRuntimeState(snapshot) }
+		if coreGet(fixture, "context_operation", nil) != nil {
+			result := mustCore(_agent_context_fixture_result(ag.State, fixture))
+			if expected, ok := fixture["expected_context_result"]; ok { assertEqual(result, expected, "agent context result") }
+			if expected := coreGet(fixture, "expected_context_result_subset", nil); expected != nil { assertSubset(result, expected, "agent context result") }
+			if expected := coreGet(fixture, "expected_context_events_subset", nil); expected != nil {
+				exported := coreGet(result, "exported", Object())
+				assertListSubset(coreGet(exported, "context_events", Array()), expected, "agent context events")
+			}
+		}
+		if _, ok := fixture["final_payload"]; ok {
+			normalized := mustCore(_normalize_agent_final_payload(coreGet(fixture, "final_payload", nil)))
+			assertEqual(normalized, coreGet(fixture, "expected_final_payload", nil), "final payload")
+		}
+		if _, ok := fixture["clarification_payload"]; ok {
+			normalized := mustCore(_normalize_agent_clarification_payload(coreGet(fixture, "clarification_payload", nil)))
+			assertEqual(normalized, coreGet(fixture, "expected_clarification_payload", nil), "clarification payload")
+		}
 		return nil
 	})
+	expectedErr := display(coreGet(fixture, "expected_error_contains", ""))
 	if err != nil {
-		expectedErr := display(coreGet(fixture, "expected_error_contains", ""))
 		if expectedErr != "" && strings.Contains(err.Error(), expectedErr) { return }
 		panic(err)
 	}
+	if expectedErr != "" { panic(AxError{Category:"fixture", Message:"expected agent runtime policy fixture to fail"}) }
 	if expected := coreGet(fixture, "expected_runtime_contract_subset", nil); expected != nil { assertSubset(ag.GetRuntimeContract(), expected, "runtime contract") }
-	if expected := coreGet(fixture, "expected_exported_state_subset", nil); expected != nil { assertSubset(ag.ExportRuntimeState(), expected, "exported runtime state") }
+	if expected := coreGet(fixture, "expected_policy_subset", nil); expected != nil { assertSubset(ag.GetPolicy(), expected, "agent policy") }
+	if expected := coreGet(fixture, "expected_policy_registry_subset", nil); expected != nil { assertSubset(ag.GetPolicyRegistry(), expected, "policy registry") }
+	registry := ag.GetPolicyRegistry()
+	if expected := coreGet(fixture, "expected_actor_primitives_subset", nil); expected != nil { assertListSubset(coreGet(registry, "actor_primitives", Array()), expected, "actor primitives") }
+	if expected := coreGet(fixture, "expected_protocol_actions_subset", nil); expected != nil { assertListSubset(coreGet(registry, "protocol_actions", Array()), expected, "protocol actions") }
+	if expected := coreGet(fixture, "expected_runtime_globals_subset", nil); expected != nil { assertListSubset(coreGet(registry, "runtime_globals", Array()), expected, "runtime globals") }
+	if expected := coreGet(fixture, "expected_host_boundaries_subset", nil); expected != nil { assertListSubset(coreGet(registry, "host_boundaries", Array()), expected, "host boundaries") }
+	if expected := coreGet(fixture, "expected_callable_inventory_subset", nil); expected != nil { assertListSubset(ag.GetCallableInventory(), expected, "callable inventory") }
+	if expected := coreGet(fixture, "expected_discovery_catalog_subset", nil); expected != nil { assertListSubset(ag.GetDiscoveryCatalog(), expected, "discovery catalog") }
+	state := ag.ExportRuntimeState()
+	if expected := coreGet(fixture, "expected_discovered_tool_docs_subset", nil); expected != nil { assertListSubset(coreGet(state, "discovered_tool_docs", Array()), expected, "discovered tools") }
+	if expected := coreGet(fixture, "expected_loaded_skill_docs_subset", nil); expected != nil { assertListSubset(coreGet(state, "loaded_skill_docs", Array()), expected, "loaded skills") }
+	if expected := coreGet(fixture, "expected_loaded_memories_subset", nil); expected != nil { assertListSubset(coreGet(state, "loaded_memories", Array()), expected, "loaded memories") }
+	if expected := coreGet(fixture, "expected_used_memories_subset", nil); expected != nil { assertListSubset(coreGet(state, "used_memories", Array()), expected, "used memories") }
+	if expected := coreGet(fixture, "expected_used_skills_subset", nil); expected != nil { assertListSubset(coreGet(state, "used_skills", Array()), expected, "used skills") }
+	if expected := coreGet(fixture, "expected_guidance_log_subset", nil); expected != nil { assertListSubset(coreGet(state, "guidance_log", Array()), expected, "guidance log") }
+	if expected := coreGet(fixture, "expected_function_call_traces_subset", nil); expected != nil { assertListSubset(coreGet(state, "function_call_traces", Array()), expected, "function call traces") }
+	if expected := coreGet(fixture, "expected_policy_trace_subset", nil); expected != nil { assertListSubset(coreGet(state, "policy_trace", Array()), expected, "policy trace") }
+	if expected := coreGet(fixture, "expected_action_log_subset", nil); expected != nil { assertListSubset(coreGet(state, "action_log", Array()), expected, "action log") }
+	if expected := coreGet(fixture, "expected_exported_state_subset", nil); expected != nil { assertSubset(state, expected, "exported runtime state") }
+	if expected := coreGet(fixture, "expected_optimizer_metadata_subset", nil); expected != nil { assertSubset(ag.GetOptimizerMetadata(), expected, "optimizer metadata") }
+	assertAgentTrace(ag, fixture)
 }
 
 func runConformanceAgentForward(fixture map[string]Value) {
@@ -30517,15 +30735,167 @@ func valueContains(actual Value, expected Value) bool {
 	}
 }
 
-func templateParse(template string, context string) Value { return Array(Object("kind","text","value",template)) }
+var templateTagPattern = regexp.MustCompile(`\{\{\s*([^}]+?)\s*\}\}`)
+var templateIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$`)
+var templateStringEqualityPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*===\s*(?:'([^']*)'|"([^"]*)")$`)
+
+func templateErrorMessage(context string, source string, index int, message string) string {
+	if index < 0 { index = 0 }
+	if index > len(source) { index = len(source) }
+	lines := strings.Split(source[:index], "\n")
+	line := len(lines)
+	column := len([]rune(lines[len(lines)-1])) + 1
+	return fmt.Sprintf("%s:%d:%d %s", context, line, column, message)
+}
+func templateError(context string, source string, index int, message string) AxError {
+	return AxError{Category: "template", Message: templateErrorMessage(context, source, index, message)}
+}
+func templateTokenize(template string) []Value {
+	tokens := []Value{}
+	lastIndex := 0
+	for _, match := range templateTagPattern.FindAllStringSubmatchIndex(template, -1) {
+		start := match[0]
+		if start > lastIndex { tokens = append(tokens, Object("type", "text", "value", template[lastIndex:start])) }
+		tokens = append(tokens, Object("type", "tag", "value", strings.TrimSpace(template[match[2]:match[3]]), "index", start))
+		lastIndex = match[1]
+	}
+	if lastIndex < len(template) { tokens = append(tokens, Object("type", "text", "value", template[lastIndex:])) }
+	return tokens
+}
+func templateParseRange(tokens []Value, source string, context string, startIndex int, terminators map[string]bool) ([]Value, int, string) {
+	nodes := []Value{}
+	i := startIndex
+	for i < len(tokens) {
+		token := asMap(tokens[i])
+		if display(coreGet(token, "type", "")) == "text" {
+			nodes = append(nodes, Object("type", "text", "value", coreGet(token, "value", "")))
+			i++
+			continue
+		}
+		tag := display(coreGet(token, "value", ""))
+		tokenIndex := int(num(coreGet(token, "index", 0)))
+		if terminators[tag] { return nodes, i, tag }
+		if strings.HasPrefix(tag, "if ") {
+			condition := strings.TrimSpace(tag[len("if "):])
+			if !templateIdentifierPattern.MatchString(condition) && !templateStringEqualityPattern.MatchString(condition) {
+				panic(templateError(context, source, tokenIndex, "Invalid if condition '"+condition+"'"))
+			}
+			thenNodes, nextIndex, terminator := templateParseRange(tokens, source, context, i+1, map[string]bool{"else": true, "/if": true})
+			if terminator == "" { panic(templateError(context, source, tokenIndex, "Unclosed 'if' block")) }
+			elseNodes := []Value{}
+			if terminator == "else" {
+				branchNodes, branchIndex, branchTerminator := templateParseRange(tokens, source, context, nextIndex+1, map[string]bool{"/if": true})
+				if branchTerminator != "/if" { panic(templateError(context, source, tokenIndex, "Unclosed 'if' block")) }
+				elseNodes = branchNodes
+				nextIndex = branchIndex
+			}
+			nodes = append(nodes, Object("type", "if", "condition", condition, "then", thenNodes, "else", elseNodes, "index", tokenIndex))
+			i = nextIndex + 1
+			continue
+		}
+		if tag == "else" { panic(templateError(context, source, tokenIndex, "Unexpected 'else'")) }
+		if tag == "/if" { panic(templateError(context, source, tokenIndex, "Unexpected '/if'")) }
+		if strings.HasPrefix(tag, "!") { i++; continue }
+		if strings.HasPrefix(tag, "include ") { panic(templateError(context, source, tokenIndex, "Unexpected 'include' directive at runtime (includes must be compiled)")) }
+		if !templateIdentifierPattern.MatchString(tag) { panic(templateError(context, source, tokenIndex, "Invalid tag '"+tag+"'")) }
+		nodes = append(nodes, Object("type", "var", "name", tag, "index", tokenIndex))
+		i++
+	}
+	return nodes, i, ""
+}
+func templateParse(template string, context string) Value {
+	nodes, _, terminator := templateParseRange(templateTokenize(template), template, context, 0, nil)
+	if terminator != "" { panic(AxError{Category: "template", Message: "Unexpected template terminator '" + terminator + "' in " + context}) }
+	return nodes
+}
+func templateResolveVar(vars Value, path string, source string, context string, index int) Value {
+	current := vars
+	for _, part := range strings.Split(path, ".") {
+		m, ok := current.(map[string]Value)
+		if !ok { panic(templateError(context, source, index, "Missing template variable '"+path+"'")) }
+		value, exists := m[part]
+		if !exists { panic(templateError(context, source, index, "Missing template variable '"+path+"'")) }
+		current = value
+	}
+	return current
+}
 func templateRender(nodes []Value, vars map[string]Value, source string, context string) Value {
-	out := ""
-	for _, node := range nodes { out += display(coreGet(node,"value","")) }
-	for key,value := range vars { out = strings.ReplaceAll(out, "{{"+key+"}}", display(value)) }
+	var out strings.Builder
+	for _, raw := range nodes {
+		node := asMap(raw)
+		nodeType := display(coreGet(node, "type", ""))
+		if nodeType == "text" {
+			out.WriteString(display(coreGet(node, "value", "")))
+			continue
+		}
+		index := int(num(coreGet(node, "index", 0)))
+		if nodeType == "var" {
+			name := display(coreGet(node, "name", ""))
+			value := templateResolveVar(vars, name, source, context, index)
+			switch value.(type) {
+			case string, bool, int, int64, float64:
+				out.WriteString(display(value))
+			default:
+				panic(templateError(context, source, index, "Variable '"+name+"' must be string, number, or boolean"))
+			}
+			continue
+		}
+		condition := display(coreGet(node, "condition", ""))
+		conditionValue := false
+		if match := templateStringEqualityPattern.FindStringSubmatchIndex(condition); match != nil {
+			path := condition[match[2]:match[3]]
+			expected := ""
+			if match[4] >= 0 { expected = condition[match[4]:match[5]] } else if match[6] >= 0 { expected = condition[match[6]:match[7]] }
+			text, isString := templateResolveVar(vars, path, source, context, index).(string)
+			conditionValue = isString && text == expected
+		} else {
+			resolved := templateResolveVar(vars, condition, source, context, index)
+			flag, isBool := resolved.(bool)
+			if !isBool { panic(templateError(context, source, index, "Condition '"+condition+"' must be boolean")) }
+			conditionValue = flag
+		}
+		branch := coreGet(node, "then", Array())
+		if !conditionValue { branch = coreGet(node, "else", Array()) }
+		out.WriteString(display(templateRender(asSlice(branch), vars, source, context)))
+	}
+	return out.String()
+}
+func templateCollectInto(nodes []Value, out map[string]bool) {
+	for _, raw := range nodes {
+		node := asMap(raw)
+		switch display(coreGet(node, "type", "")) {
+		case "var":
+			out[display(coreGet(node, "name", ""))] = true
+		case "if":
+			condition := display(coreGet(node, "condition", ""))
+			if match := templateStringEqualityPattern.FindStringSubmatch(condition); match != nil { out[match[1]] = true } else { out[condition] = true }
+			templateCollectInto(asSlice(coreGet(node, "then", Array())), out)
+			templateCollectInto(asSlice(coreGet(node, "else", Array())), out)
+		}
+	}
+}
+func templateCollect(nodes []Value) Value {
+	seen := map[string]bool{}
+	templateCollectInto(nodes, seen)
+	names := make([]string, 0, len(seen))
+	for name := range seen { names = append(names, name) }
+	sort.Strings(names)
+	out := Array()
+	for _, name := range names { out = append(out, name) }
 	return out
 }
-func templateCollect(nodes []Value) Value { return Array() }
-func templateValidate(source string, context string, required []Value) {}
+func templateValidate(source string, context string, required []Value) (result Value) {
+	defer func() {
+		if r := recover(); r != nil { result = display(errorValue(r)) }
+	}()
+	present := map[string]bool{}
+	for _, name := range asSlice(templateCollect(asSlice(templateParse(source, context)))) { present[display(name)] = true }
+	for _, variable := range required {
+		name := display(variable)
+		if !present[name] { return "must preserve template variable {{" + name + "}}" }
+	}
+	return true
+}
 func promptStructured(signature Value, values map[string]Value, functions []Value, options map[string]Value) Value {
 	sig := signatureFromValue(signature)
 	return goPromptSystem(sig, values, functions, options)
@@ -30570,8 +30940,7 @@ func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value,
 	}
 	custom := coreGet(options, "custom_template", coreGet(options, "customTemplate", nil))
 	if custom == nil { return strings.TrimSpace(goPromptDefaultSystem(vars)) }
-	source := display(custom)
-	return strings.TrimSpace(goPromptRenderTemplate(source, vars))
+	return strings.TrimSpace(display(mustCore(render_template_content(custom, vars, "inline-template"))))
 }
 func goPromptDefaultSystem(vars map[string]Value) string {
 	var b strings.Builder
@@ -30612,87 +30981,6 @@ func goPromptDefaultSystem(vars map[string]Value) string {
 		b.WriteString("\n\n## Example Demonstrations\nThe following User/Assistant turns are examples only until --- END OF EXAMPLES ---, not context for the current task.")
 	}
 	return b.String()
-}
-func goPromptRenderTemplate(source string, vars map[string]Value) string {
-	source = regexp.MustCompile("\\{\\{\\s*![^}]*\\}\\}").ReplaceAllString(source, "")
-	for {
-		start := strings.Index(source, "{{ if ")
-		if start < 0 { break }
-		nameStart := start + len("{{ if ")
-		nameEnd := strings.Index(source[nameStart:], "}}")
-		if nameEnd < 0 { break }
-		nameEnd += nameStart
-		name := strings.TrimSpace(source[nameStart:nameEnd])
-		bodyStart := nameEnd + 2
-		depth := 1
-		pos := bodyStart
-		elsePos := -1
-		endStart := -1
-		endEnd := -1
-		for pos < len(source) {
-			nextIf := strings.Index(source[pos:], "{{ if ")
-			nextElse := strings.Index(source[pos:], "{{ else }}")
-			nextEnd := strings.Index(source[pos:], "{{ /if }}")
-			if nextEnd < 0 { break }
-			absEnd := pos + nextEnd
-			absNextIf := -1; if nextIf >= 0 { absNextIf = pos + nextIf }
-			absNextElse := -1; if nextElse >= 0 { absNextElse = pos + nextElse }
-			if absNextIf >= 0 && absNextIf < absEnd { depth++; pos = absNextIf + len("{{ if "); continue }
-			if absNextElse >= 0 && absNextElse < absEnd && depth == 1 && elsePos < 0 { elsePos = absNextElse; pos = absNextElse + len("{{ else }}"); continue }
-			depth--
-			if depth == 0 { endStart = absEnd; endEnd = absEnd + len("{{ /if }}"); break }
-			pos = absEnd + len("{{ /if }}")
-		}
-		if endStart < 0 { break }
-		truePart := source[bodyStart:endStart]
-		falsePart := ""
-		if elsePos >= 0 { truePart = source[bodyStart:elsePos]; falsePart = source[elsePos+len("{{ else }}"):endStart] }
-		chosen := falsePart
-		if goTemplateCondition(name, vars) { chosen = truePart }
-		source = source[:start] + goPromptRenderTemplate(chosen, vars) + source[endEnd:]
-	}
-	tagRe := regexp.MustCompile("\\{\\{\\s*([^{}\\s][^{}]*?)\\s*\\}\\}")
-	source = tagRe.ReplaceAllStringFunc(source, func(tag string) string {
-		match := tagRe.FindStringSubmatch(tag)
-		if len(match) != 2 { return tag }
-		name := strings.TrimSpace(match[1])
-		if strings.HasPrefix(name, "/") || name == "else" || strings.HasPrefix(name, "if ") { return tag }
-		if !regexp.MustCompile("^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$").MatchString(name) {
-			panic(AxError{Category:"template", Message:"Invalid tag '"+name+"'"})
-		}
-		value, ok := goTemplateValue(vars, name)
-		if !ok { panic(AxError{Category:"template", Message:"Missing template variable '"+name+"'"}) }
-		return display(value)
-	})
-	return source
-}
-func goTemplateCondition(expr string, vars map[string]Value) bool {
-	expr = strings.TrimSpace(expr)
-	if strings.Contains(expr, "===") {
-		parts := strings.SplitN(expr, "===", 2)
-		left := strings.TrimSpace(parts[0])
-		right := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
-		value, ok := goTemplateValue(vars, left)
-		if !ok { panic(AxError{Category:"template", Message:"Missing template variable '"+left+"'"}) }
-		return display(value) == right
-	}
-	value, ok := goTemplateValue(vars, expr)
-	if !ok { panic(AxError{Category:"template", Message:"Missing template variable '"+expr+"'"}) }
-	if b, ok := value.(bool); ok { return b }
-	panic(AxError{Category:"template", Message:"Condition '"+expr+"' must be boolean"})
-}
-func goTemplateValue(vars map[string]Value, path string) (Value,bool) {
-	parts := strings.Split(path, ".")
-	var cur Value = vars[parts[0]]
-	if cur == nil {
-		if _, ok := vars[parts[0]]; !ok { return nil, false }
-	}
-	for _, part := range parts[1:] {
-		m := asMap(cur)
-		if _, ok := m[part]; !ok { return nil, false }
-		cur = m[part]
-	}
-	return cur, true
 }
 func goPromptInputFields(sig AxSignature, values map[string]Value) []Field {
 	fields := append([]Field(nil), sig.Inputs...)

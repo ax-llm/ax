@@ -1,6 +1,7 @@
 #include "axllm/axllm.hpp"
 #include "axllm/mcp.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 
@@ -715,6 +716,7 @@ static Value optimize_component_ids(Value components) {
 }
 
 static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& programs, std::vector<std::unique_ptr<AxFlow>>& flows, std::vector<std::unique_ptr<AxAgent>>& agents);
+static Value verification_instruments_summary();
 
 static void run_optimize(Value fixture) {
   std::string program_kind = display(Core::get(fixture, "program", "agent"));
@@ -723,6 +725,10 @@ static void run_optimize(Value fixture) {
   if (!as_array(tool_build.values).empty()) Core::set(options, "functions", tool_build.values);
   std::string op = display(Core::get(fixture, "operation", "components"));
   try {
+    if (op == "verification") {
+      assert_equal(verification_instruments_summary(), Core::get(fixture, "expected_output"), "verification instruments");
+      return;
+    }
     if (op == "dataset") {
       Value normalized = Core::_normalize_optimization_dataset(Core::get(fixture, "dataset", Value::array()));
       assert_equal(normalized, Core::get(fixture, "expected_dataset"), "normalized dataset");
@@ -1003,6 +1009,90 @@ static void run_optimize(Value fixture) {
     throw;
   }
   throw AxError("fixture", "unknown optimize operation " + op);
+}
+
+static Value verification_instruments_summary() {
+  Array prompt_var_items = Core::iter(Core::collect_template_variable_names("Hello {{name}} and {{count}}", "verification"));
+  std::sort(prompt_var_items.begin(), prompt_var_items.end(), [](const Value& left, const Value& right) {
+    return display(left) < display(right);
+  });
+  Value prompt_vars = Value(prompt_var_items);
+  Value chat_request = object({{"model", "gpt-fixture"}, {"chat_prompt", Value(Array{object({{"role", "user"}, {"content", "hello"}})})}, {"model_config", Value::object()}});
+  Value chat_payload = Core::build_chat_request(Value(), chat_request, Value::object());
+  Value chat_response = Core::normalize_chat_response(object({
+      {"id", "chat-1"},
+      {"model", "gpt-fixture"},
+      {"choices", Value(Array{object({{"index", 0}, {"message", object({{"content", "hello"}})}, {"finish_reason", "stop"}})})},
+      {"usage", object({{"prompt_tokens", 1}, {"completion_tokens", 2}, {"total_tokens", 3}})},
+  }));
+  Value embed_payload = Core::build_embed_request(Value(), object({{"embedModel", "embed-fixture"}, {"texts", Value(Array{"hello"})}}), Value::object());
+  Value embed_response = Core::normalize_embed_response(object({
+      {"id", "embed-1"},
+      {"model", "embed-fixture"},
+      {"data", Value(Array{object({{"embedding", Value(Array{0.1, 0.2})}})})},
+      {"usage", object({{"prompt_tokens", 1}, {"total_tokens", 1}})},
+  }));
+  Value stream_response = Core::normalize_stream_delta(object({
+      {"id", "stream-1"},
+      {"model", "gpt-fixture"},
+      {"choices", Value(Array{object({{"index", 0}, {"delta", object({{"content", "delta"}})}})})},
+  }), Value::object());
+  Value tool_call = Core::_openai_tool_call_to_provider_impl(object({{"id", "call-1"}, {"function", object({{"name", "lookup"}, {"params", object({{"term", "ax"}})}})}}));
+  Value profile = Core::provider_resolve_profile("openai");
+  (void)Core::_gemini_build_transcribe_request(object({{"audio", object({{"data", "audio-bytes"}, {"mimeType", "audio/wav"}})}}));
+  (void)Core::_gemini_build_speak_request(object({{"text", "speak"}, {"voice", "Kore"}, {"format", "wav"}}));
+  Value gemini_transcript = Core::_gemini_normalize_transcribe_response(object({{"candidates", Value(Array{object({{"content", object({{"parts", Value(Array{object({{"text", "transcript"}})})}})}})})}}));
+  Value gemini_speech = Core::_gemini_normalize_speak_response(object({{"candidates", Value(Array{object({{"content", object({{"parts", Value(Array{object({{"inlineData", object({{"data", "audio-bytes"}})}})})}})}})})}}), object({{"format", "wav"}}));
+  Value grok_transcribe = Core::_grok_build_transcribe_request(object({{"audio", "audio-bytes"}, {"language", "en"}, {"prompt", "names"}}));
+  Value grok_speak = Core::_grok_build_speak_request(object({{"text", "speak"}, {"voice", object({{"id", "eve"}})}, {"format", "pcm16"}, {"sampleRate", 16000}}));
+  Value registry = object({
+      {"flags", object({{"skillsMode", true}})},
+      {"protocol_actions", Value(Array{object({{"id", "respond"}})})},
+      {"runtime_globals", Value(Array{object({{"id", "runtime"}})})},
+      {"actor_primitives", Value(Array{object({{"id", "speak"}, {"effect", "fixture guidance"}, {"stages", Value(Array{"actor"})}, {"availability_condition", "always"}})})},
+  });
+  (void)Core::_validate_policy_reserved_names(registry, "fixtureCallable");
+  Value guidance = Core::_render_actor_primitive_guidance(registry, "actor");
+  Value policy_state = Value::object();
+  (void)Core::_record_policy_event(policy_state, "respond", object({{"ok", true}}));
+  Value policy_result = Core::_normalize_policy_action_result("respond", object({{"ok", true}}));
+  Value descriptor = Core::_program_descriptor("fixture", "core", object({{"source", "verification"}}));
+  Value merged = Core::_flow_merge_parallel_results(object({{"base", "keep"}}), object({{"answer", "ok"}}));
+  Value gen_marker = Value::object();
+  (void)Core::_set_examples(gen_marker, Value(Array{object({{"input", object({{"question", "q"}})}, {"output", object({{"answer", "a"}})}})}));
+  (void)Core::_set_demos(gen_marker, Value(Array{object({{"traces", Value::array()}})}));
+  Value constants = Core::mcp_protocol_constants();
+  Value request = Core::mcp_jsonrpc_request("1", "ping", object({{"ok", true}}));
+  Value notification = Core::mcp_jsonrpc_notification("progress", object({{"pct", 1}}));
+  Value mcp_error = Core::mcp_normalize_error(object({{"jsonrpc", "2.0"}, {"id", "1"}, {"error", object({{"code", -32000}, {"message", "nope"}})}}));
+  return object({
+      {"promptVars", prompt_vars},
+      {"chatModel", Core::get(chat_payload, "model", Value())},
+      {"chatContent", Core::get(Core::get(Core::get(chat_response, "results", Value::array()), 0, Value::object()), "content", Value())},
+      {"embedModel", Core::get(embed_payload, "model", Value())},
+      {"embedCount", static_cast<int>(Core::iter(Core::get(embed_response, "embeddings", Value::array())).size())},
+      {"streamContent", Core::get(Core::get(Core::get(stream_response, "results", Value::array()), 0, Value::object()), "content", Value())},
+      {"toolName", Core::get(Core::get(tool_call, "function", Value::object()), "name", Value())},
+      {"profileId", Core::get(profile, "id", Value())},
+      {"geminiText", Core::get(gemini_transcript, "text", Value())},
+      {"geminiAudio", Core::get(gemini_speech, "audio", Value())},
+      {"grokCodec", Core::get(Core::get(grok_speak, "output_format", Value::object()), "codec", Value())},
+      {"grokFormat", Core::get(grok_transcribe, "format", Value())},
+      {"policyActions", static_cast<int>(Core::iter(Core::_select_protocol_actions(registry)).size())},
+      {"runtimeGlobals", static_cast<int>(Core::iter(Core::_select_runtime_globals(registry)).size())},
+      {"qualityScore", Core::_map_optimization_judge_quality_to_score("good")},
+      {"policyTrace", static_cast<int>(Core::iter(Core::get(policy_state, "policy_trace", Value::array())).size())},
+      {"policyEffectOnly", Core::get(policy_result, "effect_only", Value())},
+      {"guidance", guidance},
+      {"programKind", Core::get(descriptor, "kind", Value())},
+      {"flowAnswer", Core::get(merged, "answer", Value())},
+      {"mcpVersion", Core::get(constants, "protocolVersion", Value())},
+      {"mcpRequest", Core::get(request, "method", Value())},
+      {"mcpNotification", Core::get(notification, "method", Value())},
+      {"mcpError", Core::get(mcp_error, "code", Value())},
+      {"genExamples", static_cast<int>(Core::iter(Core::get(gen_marker, "examples", Value::array())).size())},
+      {"genDemos", static_cast<int>(Core::iter(Core::get(gen_marker, "demos", Value::array())).size())},
+  });
 }
 
 static void assert_agent_trace(AxAgent& ag, Value fixture);

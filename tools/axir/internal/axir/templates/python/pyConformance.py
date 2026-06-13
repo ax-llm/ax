@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .ai import AnthropicClient, AzureOpenAIClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, RekaClient, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry
+from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl
 from .gen import (
     ax,
     fold_stream,
@@ -22,6 +23,8 @@ from .gen import (
     _optimization_changed_components,
     _scalarize_optimization_scores,
     _serialize_optimized_artifact,
+    _set_demos,
+    _set_examples,
     _validate_optimized_artifact,
 )
 from .flow import (
@@ -29,8 +32,10 @@ from .flow import (
     _flow_add_step,
     _flow_cache_key,
     _flow_condition_from_spec,
+    _flow_merge_parallel_results,
     _flow_mapper_from_spec,
     _flow_step,
+    _program_descriptor,
     flow,
 )
 from .agent import (
@@ -46,19 +51,25 @@ from .agent import (
     _build_agent_eval_prediction,
     _build_optimization_judge_payload,
     _map_optimization_judge_quality_to_score,
+    _normalize_policy_action_result,
     _optimized_artifact,
+    _record_policy_event,
+    _render_actor_primitive_guidance,
+    _select_protocol_actions,
+    _select_runtime_globals,
+    _validate_policy_reserved_names,
     _normalize_agent_clarification_payload,
     _normalize_agent_final_payload,
     _normalize_agent_runtime_step_result,
     agent,
     optimize,
 )
-from .prompt import AxPromptTemplate, render_template_content, validate_prompt_template_syntax
+from .prompt import AxPromptTemplate, collect_template_variable_names, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, RuntimeCapabilities, RuntimeEnvelope, RuntimeProtocolError
 from .schema import strip_internal, to_json_schema, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
-from .mcp import run_mcp_conformance_fixture
+from .mcp import mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, run_mcp_conformance_fixture
 
 
 class FixtureError(AssertionError):
@@ -976,6 +987,10 @@ def _run_optimize(fixture):
     program = build_program()
     operation = fixture.get("operation", "components")
     try:
+        if operation == "verification":
+            actual = _verification_instruments_summary()
+            _assert_equal(actual, fixture.get("expected_output"), "verification instruments")
+            return
         if operation == "components":
             components = program.get_optimizable_components()
             if "expected_components_subset" in fixture:
@@ -1116,6 +1131,93 @@ def _run_optimize(fixture):
             return
         raise
     raise FixtureError(f"unknown optimize operation {operation!r}")
+
+
+def _verification_instruments_summary():
+    prompt_vars = sorted(collect_template_variable_names("Hello {{name}} and {{count}}", "verification"))
+    chat_request = {
+        "model": "gpt-fixture",
+        "chat_prompt": [{"role": "user", "content": "hello"}],
+        "model_config": {},
+    }
+    chat_payload = build_chat_request(None, chat_request, {})
+    chat_response = normalize_chat_response({
+        "id": "chat-1",
+        "model": "gpt-fixture",
+        "choices": [{"index": 0, "message": {"content": "hello"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+    })
+    embed_payload = build_embed_request(None, {"embedModel": "embed-fixture", "texts": ["hello"]}, {})
+    embed_response = normalize_embed_response({
+        "id": "embed-1",
+        "model": "embed-fixture",
+        "data": [{"embedding": [0.1, 0.2]}],
+        "usage": {"prompt_tokens": 1, "total_tokens": 1},
+    })
+    stream_response = normalize_stream_delta({
+        "id": "stream-1",
+        "model": "gpt-fixture",
+        "choices": [{"index": 0, "delta": {"content": "delta"}}],
+    }, {})
+    tool_call = _openai_tool_call_to_provider_impl({"id": "call-1", "function": {"name": "lookup", "params": {"term": "ax"}}})
+    profile = provider_resolve_profile("openai")
+    _gemini_build_transcribe_request({"audio": {"data": "audio-bytes", "mimeType": "audio/wav"}})
+    _gemini_build_speak_request({"text": "speak", "voice": "Kore", "format": "wav"})
+    gemini_transcript = _gemini_normalize_transcribe_response({"candidates": [{"content": {"parts": [{"text": "transcript"}]}}]})
+    gemini_speech = _gemini_normalize_speak_response({"candidates": [{"content": {"parts": [{"inlineData": {"data": "audio-bytes"}}]}}]}, {"format": "wav"})
+    grok_transcribe = _grok_build_transcribe_request({"audio": "audio-bytes", "language": "en", "prompt": "names"})
+    grok_speak = _grok_build_speak_request({"text": "speak", "voice": {"id": "eve"}, "format": "pcm16", "sampleRate": 16000})
+
+    registry = {
+        "flags": {"skillsMode": True},
+        "protocol_actions": [{"id": "respond"}],
+        "runtime_globals": [{"id": "runtime"}],
+        "actor_primitives": [{"id": "speak", "effect": "fixture guidance", "stages": ["actor"], "availability_condition": "always"}],
+    }
+    _validate_policy_reserved_names(registry, "fixtureCallable")
+    guidance = _render_actor_primitive_guidance(registry, "actor")
+    policy_state = {}
+    _record_policy_event(policy_state, "respond", {"ok": True})
+    policy_result = _normalize_policy_action_result("respond", {"ok": True})
+
+    descriptor = _program_descriptor("fixture", "core", {"source": "verification"})
+    merged = _flow_merge_parallel_results({"base": "keep"}, {"answer": "ok"})
+    gen_marker = {}
+    _set_examples(gen_marker, [{"input": {"question": "q"}, "output": {"answer": "a"}}])
+    _set_demos(gen_marker, [{"traces": []}])
+    constants = mcp_protocol_constants()
+    request = mcp_jsonrpc_request("1", "ping", {"ok": True})
+    notification = mcp_jsonrpc_notification("progress", {"pct": 1})
+    mcp_error = mcp_normalize_error({"jsonrpc": "2.0", "id": "1", "error": {"code": -32000, "message": "nope"}})
+
+    return {
+        "promptVars": prompt_vars,
+        "chatModel": chat_payload.get("model"),
+        "chatContent": chat_response.get("results", [{}])[0].get("content"),
+        "embedModel": embed_payload.get("model"),
+        "embedCount": len(embed_response.get("embeddings") or []),
+        "streamContent": stream_response.get("results", [{}])[0].get("content"),
+        "toolName": (tool_call.get("function") or {}).get("name"),
+        "profileId": profile.get("id"),
+        "geminiText": gemini_transcript.get("text"),
+        "geminiAudio": gemini_speech.get("audio"),
+        "grokCodec": (grok_speak.get("output_format") or {}).get("codec"),
+        "grokFormat": grok_transcribe.get("format"),
+        "policyActions": len(_select_protocol_actions(registry)),
+        "runtimeGlobals": len(_select_runtime_globals(registry)),
+        "qualityScore": _map_optimization_judge_quality_to_score("good"),
+        "policyTrace": len(policy_state.get("policy_trace") or []),
+        "policyEffectOnly": policy_result.get("effect_only"),
+        "guidance": guidance,
+        "programKind": descriptor.get("kind"),
+        "flowAnswer": merged.get("answer"),
+        "mcpVersion": constants.get("protocolVersion"),
+        "mcpRequest": request.get("method"),
+        "mcpNotification": notification.get("method"),
+        "mcpError": mcp_error.get("code"),
+        "genExamples": len(gen_marker.get("examples") or []),
+        "genDemos": len(gen_marker.get("demos") or []),
+    }
 
 
 def _run_agent_forward(fixture):

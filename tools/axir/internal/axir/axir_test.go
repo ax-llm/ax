@@ -2666,6 +2666,10 @@ func TestAxOptimizeConformanceFixturesLoad(t *testing.T) {
 			if _, ok := fixture["responses"]; !ok {
 				t.Fatalf("%s missing responses", file)
 			}
+		case "verification":
+			if _, ok := fixture["expected_output"]; !ok {
+				t.Fatalf("%s missing expected_output", file)
+			}
 		default:
 			t.Fatalf("%s has unknown axoptimize operation %v", file, fixture["operation"])
 		}

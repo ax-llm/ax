@@ -1061,36 +1061,75 @@ impl OpenAICompatibleClient {
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
-        let input = request
+        // python: AxBaseAI.embed validation + ProviderOperationClient._embed
+        // (provider_build_embed_request -> transport -> provider_normalize_embed_response)
+        let texts = request
             .get("texts")
             .or_else(|| request.get("input"))
             .cloned()
-            .unwrap_or_else(|| json!([]));
-        let model = string_at(&request, "model").unwrap_or_else(|| self.embed_model.clone());
-        if self.profile == "google-gemini" {
-            let requests = input
-                .as_array()
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|text| {
-                    json!({
-                        "model": format!("models/{model}"),
-                        "content": {"parts": [{"text": text.as_str().unwrap_or_default()}]}
-                    })
-                })
-                .collect::<Vec<_>>();
-            let path = format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{model}:batchEmbedContents?key={}",
-                self.api_key
-            );
-            return normalize_embed_response_native(
-                self.post_json(&path, json!({"requests": requests}))?,
-                &self.profile,
-            );
+            .unwrap_or(Value::Null);
+        if !texts
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false)
+        {
+            return Err(AxError {
+                category: "ai_service".to_string(),
+                error_type: Some("AxAIServiceResponseError".to_string()),
+                message: "Embed texts is empty".to_string(),
+                status: None,
+                code: None,
+                retryable: false,
+            });
         }
-        let body = json!({"model": model, "input": input});
-        normalize_embed_response_native(self.post_json("/embeddings", body)?, &self.profile)
+        let embed_model = string_at(&request, "embed_model")
+            .or_else(|| string_at(&request, "embedModel"))
+            .unwrap_or_else(|| self.embed_model.clone());
+        if embed_model.is_empty() {
+            return Err(AxError {
+                category: "ai_service".to_string(),
+                error_type: Some("AxAIServiceResponseError".to_string()),
+                message: "Embed model not set".to_string(),
+                status: None,
+                code: None,
+                retryable: false,
+            });
+        }
+        let mut req = if request.is_object() {
+            request.clone()
+        } else {
+            json!({})
+        };
+        req["texts"] = texts;
+        req["embed_model"] = json!(embed_model.clone());
+        let profile = self.profile.clone();
+        if profile == "openai-compatible" {
+            let _ = build_embed_request(&[
+                CoreValue::Null,
+                core_value_from_json(&req),
+                CoreValue::Null,
+            ])?;
+        }
+        let payload = core_value_to_json(&provider_build_embed_request(&[
+            CoreValue::from(profile.as_str()),
+            core_value_from_json(&req),
+        ])?);
+        let model = string_at(&req, "embed_model")
+            .or_else(|| string_at(&payload, "model"))
+            .unwrap_or_else(|| self.embed_model.clone());
+        let call = self.provider_transport_request("embed", &payload, &model, false)?;
+        let raw = self.dispatch_transport_request(call)?;
+        let body = normalize_passthrough_response(raw)?;
+        if profile == "openai-compatible" {
+            let _ = normalize_embed_response(&[core_value_from_json(&body)])?;
+        }
+        let normalized = provider_normalize_embed_response(&[
+            CoreValue::from(profile.as_str()),
+            core_value_from_json(&body),
+            provider_ai_display_name(&profile),
+            CoreValue::from(model.as_str()),
+        ])?;
+        Ok(core_value_to_json(&normalized))
     }
 
     pub fn transcribe(&mut self, request: Value) -> AxResult<Value> {
@@ -1199,6 +1238,15 @@ impl OpenAICompatibleClient {
 impl AxAIClient for OpenAICompatibleClient {
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         let req = self.prepare_chat_request(&request)?;
+        // python: AxBaseAI.chat validates the coerced request up front.
+        validate_chat_request(&[core_value_from_json(&req)])?;
+        if self.profile == "openai-compatible" {
+            let _ = build_chat_request(&[
+                CoreValue::Null,
+                core_value_from_json(&req),
+                CoreValue::Null,
+            ])?;
+        }
         let payload = core_value_to_json(&provider_build_chat_request(&[
             CoreValue::from(self.profile.as_str()),
             core_value_from_json(&req),
@@ -1366,6 +1414,9 @@ fn provider_defaults(provider: &str) -> Option<ProviderDefaults> {
 
 fn normalize_openai_response(profile: &str, model: &str, response: Value) -> AxResult<Value> {
     let payload = normalize_passthrough_response(response)?;
+    if profile == "openai-compatible" {
+        let _ = normalize_chat_response(&[core_value_from_json(&payload)])?;
+    }
     let normalized = provider_normalize_chat_response(&[
         CoreValue::from(profile),
         core_value_from_json(&payload),
@@ -1375,45 +1426,43 @@ fn normalize_openai_response(profile: &str, model: &str, response: Value) -> AxR
     Ok(core_value_to_json(&normalized))
 }
 
+// python: _transport_result. Raises openai_normalize_error for status >= 400
+// and unwraps {status, json|body|data} transport envelopes otherwise.
 fn normalize_passthrough_response(response: Value) -> AxResult<Value> {
+    if response.get("status").is_none() {
+        return Ok(response);
+    }
     let status = response
         .get("status")
         .and_then(Value::as_u64)
         .unwrap_or(200);
+    let body = response
+        .get("json")
+        .or_else(|| response.get("body"))
+        .or_else(|| response.get("data"))
+        .cloned()
+        .unwrap_or(Value::Null);
     if status >= 400 {
-        return Err(AxError {
-            category: "ai_service".to_string(),
-            error_type: None,
-            message: response.to_string(),
-            status: Some(status as u16),
-            code: None,
-            retryable: status >= 500,
-        });
+        let error = openai_normalize_error(&[
+            CoreValue::Num(status as f64),
+            core_value_from_json(&body),
+            CoreValue::Null,
+        ])?;
+        return Err(core_as_error(&error));
     }
-    Ok(response.get("json").cloned().unwrap_or(response))
+    Ok(body)
 }
 
 fn normalize_stream_response(profile: &str, model: &str, response: Value) -> AxResult<Vec<Value>> {
-    let status = response
-        .get("status")
-        .and_then(Value::as_u64)
-        .unwrap_or(200);
-    if status >= 400 {
-        return Err(AxError {
-            category: "ai_service".to_string(),
-            error_type: None,
-            message: response.to_string(),
-            status: Some(status as u16),
-            code: None,
-            retryable: status >= 500,
-        });
-    }
-    let events = if let Some(events) = response.get("events").and_then(Value::as_array) {
+    let payload = normalize_passthrough_response(response)?;
+    let events = if let Some(events) = payload.as_array() {
+        events.clone()
+    } else if let Some(events) = payload.get("events").and_then(Value::as_array) {
         events.clone()
     } else {
-        let body = response
-            .get("body")
-            .and_then(Value::as_str)
+        let body = payload
+            .as_str()
+            .or_else(|| payload.get("body").and_then(Value::as_str))
             .unwrap_or_default();
         parse_sse_events(body)?
     };
@@ -1421,6 +1470,9 @@ fn normalize_stream_response(profile: &str, model: &str, response: Value) -> AxR
     let state = CoreValue::new_map();
     let mut out = Vec::new();
     for event in &events {
+        if profile == "openai-compatible" {
+            let _ = normalize_stream_delta(&[core_value_from_json(event), CoreValue::new_map()])?;
+        }
         let normalized = provider_normalize_stream_delta(&[
             CoreValue::from(profile),
             core_value_from_json(event),
@@ -1608,6 +1660,405 @@ impl AxGen {
         &self.chat_log
     }
 
+    // ----- python AxGen optimizer wrapper layer -----
+
+    pub(crate) fn with_options_and_tools(
+        spec: &str,
+        options: Value,
+        tools: Vec<Tool>,
+    ) -> AxResult<Self> {
+        let mut gen = Self::new(spec)?;
+        gen.options = if options.is_object() {
+            options
+        } else {
+            json!({})
+        };
+        gen.tools = tools;
+        Ok(gen)
+    }
+
+    fn option_str(&self, keys: &[&str]) -> Option<String> {
+        keys.iter()
+            .find_map(|key| self.options.get(*key).and_then(Value::as_str))
+            .map(ToString::to_string)
+    }
+
+    pub fn program_id(&self) -> String {
+        self.option_str(&["id", "program_id", "programId"])
+            .unwrap_or_else(|| "root".to_string())
+    }
+
+    pub fn get_instruction(&self) -> String {
+        self.option_str(&["instruction"]).unwrap_or_default()
+    }
+
+    pub fn set_instruction(&mut self, instruction: &str) {
+        if !self.options.is_object() {
+            self.options = json!({});
+        }
+        self.options["instruction"] = json!(instruction);
+    }
+
+    pub fn set_demos(&mut self, demos: Vec<Value>) {
+        let marker = CoreValue::new_map();
+        let _ = _set_demos(&[marker, core_value_from_json(&Value::Array(demos.clone()))]);
+        self.demos = demos;
+        let has = !self.examples.is_empty() || !self.demos.is_empty();
+        if !self.options.is_object() {
+            self.options = json!({});
+        }
+        self.options["has_example_demonstrations"] = json!(has);
+    }
+
+    pub fn set_examples(&mut self, examples: Vec<Value>) {
+        let marker = CoreValue::new_map();
+        let _ = _set_examples(&[
+            marker,
+            core_value_from_json(&Value::Array(examples.clone())),
+        ]);
+        self.examples = examples;
+        let has = !self.examples.is_empty() || !self.demos.is_empty();
+        if !self.options.is_object() {
+            self.options = json!({});
+        }
+        self.options["has_example_demonstrations"] = json!(has);
+    }
+
+    pub fn get_optimizable_components(&self) -> Vec<Value> {
+        let owner = self.program_id();
+        let mut components = Vec::new();
+        if let Some(description) = self
+            .signature
+            .description
+            .as_deref()
+            .filter(|text| !text.is_empty())
+        {
+            if let Ok(component) = _optimization_component(&[
+                CoreValue::from(format!("{owner}::description").as_str()),
+                CoreValue::from(owner.as_str()),
+                CoreValue::from("description"),
+                CoreValue::from(description),
+                CoreValue::from("Program signature description."),
+                core_value_from_json(&json!(["Preserve the task intent and field references."])),
+                CoreValue::new_list(),
+                CoreValue::Bool(false),
+                CoreValue::from("markdown"),
+                core_value_from_json(&json!({"required_placeholders": []})),
+            ]) {
+                components.push(core_value_to_json(&component));
+            }
+        }
+        if let Ok(component) = _optimization_component(&[
+            CoreValue::from(format!("{owner}::instruction").as_str()),
+            CoreValue::from(owner.as_str()),
+            CoreValue::from("instruction"),
+            CoreValue::from(self.get_instruction().as_str()),
+            CoreValue::from("Prompt instruction text used by this generator."),
+            core_value_from_json(&json!(["Keep required input and output fields intact."])),
+            CoreValue::new_list(),
+            CoreValue::Bool(false),
+            CoreValue::from("markdown"),
+            core_value_from_json(&json!({"required_placeholders": []})),
+        ]) {
+            components.push(core_value_to_json(&component));
+        }
+        let mut seen = BTreeSet::new();
+        for tool in &self.tools {
+            if tool.name.is_empty() || seen.contains(&tool.name) {
+                continue;
+            }
+            seen.insert(tool.name.clone());
+            if let Ok(component) = _optimization_component(&[
+                CoreValue::from(format!("{owner}::fn:{}:desc", tool.name).as_str()),
+                CoreValue::from(owner.as_str()),
+                CoreValue::from("fn-desc"),
+                CoreValue::from(tool.description.as_str()),
+                CoreValue::from(format!("Description for tool {}.", tool.name).as_str()),
+                core_value_from_json(&json!([
+                    "Non-empty, concise, and faithful to the tool behavior."
+                ])),
+                CoreValue::new_list(),
+                CoreValue::Bool(false),
+                CoreValue::from("text"),
+                core_value_from_json(&json!({"maxLength": 320})),
+            ]) {
+                components.push(core_value_to_json(&component));
+            }
+            if let Ok(component) = _optimization_component(&[
+                CoreValue::from(format!("{owner}::fn:{}:name", tool.name).as_str()),
+                CoreValue::from(owner.as_str()),
+                CoreValue::from("fn-name"),
+                CoreValue::from(tool.name.as_str()),
+                CoreValue::from(format!("Callable name for tool {}.", tool.name).as_str()),
+                core_value_from_json(&json!([
+                    "snake_case",
+                    "32 characters or fewer",
+                    "unique among tools"
+                ])),
+                CoreValue::new_list(),
+                CoreValue::Bool(true),
+                CoreValue::from("snake_case"),
+                core_value_from_json(&json!({"pattern": "^[a-z][a-z0-9_]{0,31}$"})),
+            ]) {
+                components.push(core_value_to_json(&component));
+            }
+        }
+        components
+    }
+
+    pub fn apply_optimized_components(&mut self, component_map: &Value) -> AxResult<()> {
+        let updates = component_map.as_object().cloned().unwrap_or_default();
+        let owner = self.program_id();
+        if let Some(description) = updates.get(&format!("{owner}::description")) {
+            self.signature.description = Some(value_as_display_string(description));
+        }
+        if let Some(instruction) = updates.get(&format!("{owner}::instruction")) {
+            let text = value_as_display_string(instruction);
+            self.set_instruction(&text);
+        }
+        let old_names = self
+            .tools
+            .iter()
+            .map(|tool| tool.name.clone())
+            .collect::<Vec<_>>();
+        for (index, old_name) in old_names.iter().enumerate() {
+            let desc_id = format!("{owner}::fn:{old_name}:desc");
+            let name_id = format!("{owner}::fn:{old_name}:name");
+            if let Some(description) = updates.get(&desc_id) {
+                self.tools[index].description = value_as_display_string(description);
+            }
+            if let Some(new_name) = updates.get(&name_id) {
+                let new_name = value_as_display_string(new_name).trim().to_string();
+                if !optimized_function_name_valid(&new_name) {
+                    return Err(AxError::runtime(format!(
+                        "invalid optimized function name: {new_name}"
+                    )));
+                }
+                if self
+                    .tools
+                    .iter()
+                    .enumerate()
+                    .any(|(other_index, other)| other_index != index && other.name == new_name)
+                {
+                    return Err(AxError::runtime(format!(
+                        "duplicate optimized function name: {new_name}"
+                    )));
+                }
+                self.tools[index].name = new_name;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn apply_optimization(&mut self, artifact: &Value) -> AxResult<Value> {
+        let components = Value::Array(self.get_optimizable_components());
+        let validated = core_value_to_json(&if let Some(text) = artifact.as_str() {
+            _deserialize_optimized_artifact(&[
+                CoreValue::from(text),
+                core_value_from_json(&components),
+            ])?
+        } else {
+            _validate_optimized_artifact(&[
+                core_value_from_json(artifact),
+                core_value_from_json(&components),
+            ])?
+        });
+        if let Some(demos) = validated.get("demos") {
+            self.set_demos(demos.as_array().cloned().unwrap_or_default());
+        }
+        let component_map = validated
+            .get("componentMap")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        self.apply_optimized_components(&component_map)?;
+        Ok(validated)
+    }
+
+    pub fn evaluate_optimization<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        dataset: &Value,
+        candidate_map: &Value,
+        options: &Value,
+    ) -> AxResult<Value> {
+        let opts = if options.is_object() {
+            options.clone()
+        } else {
+            json!({})
+        };
+        let normalized =
+            core_value_to_json(&_normalize_optimization_dataset(&[core_value_from_json(
+                dataset,
+            )])?);
+        let original = core_value_to_json(&_optimization_component_current_map(&[
+            core_value_from_json(&Value::Array(self.get_optimizable_components())),
+        ])?);
+        let candidate = if candidate_map.is_object() {
+            candidate_map.clone()
+        } else {
+            json!({})
+        };
+        let phase = opts
+            .get("phase")
+            .and_then(Value::as_str)
+            .unwrap_or("train")
+            .to_string();
+        let run = (|| -> AxResult<Value> {
+            if candidate
+                .as_object()
+                .map(|map| !map.is_empty())
+                .unwrap_or(false)
+            {
+                self.apply_optimized_components(&candidate)?;
+            }
+            let mut rows = Vec::new();
+            for task in normalized
+                .get("train")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let input = task.get("input").cloned().unwrap_or_else(|| task.clone());
+                let forward_options = opts
+                    .get("forward_options")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                let (prediction, error) =
+                    match self.forward_with_options(client, input, forward_options) {
+                        Ok(output) => (
+                            json!({
+                                "completionType": "final",
+                                "output": output,
+                                "finalOutput": output,
+                                "functionCalls": self.function_call_traces.clone(),
+                                "actionLog": self.chat_log.clone(),
+                                "usage": {},
+                                "trace": {"traces": self.traces.clone()},
+                            }),
+                            Value::Null,
+                        ),
+                        Err(err) => {
+                            let error = json!({"message": err.message});
+                            (
+                                json!({
+                                    "completionType": "error",
+                                    "error": error,
+                                    "functionCalls": self.function_call_traces.clone(),
+                                    "actionLog": self.chat_log.clone(),
+                                    "usage": {},
+                                    "trace": {"traces": self.traces.clone()},
+                                }),
+                                error,
+                            )
+                        }
+                    };
+                let task_object = if task.is_object() {
+                    task.clone()
+                } else {
+                    json!({})
+                };
+                let (scores, scalar) =
+                    score_optimization_prediction(&task_object, &prediction, &opts)?;
+                rows.push(core_value_to_json(&_build_optimization_eval_row(&[
+                    core_value_from_json(&task),
+                    core_value_from_json(&prediction),
+                    core_value_from_json(&scores),
+                    CoreValue::Num(scalar),
+                    core_value_from_json(prediction.get("trace").unwrap_or(&Value::Null)),
+                    core_value_from_json(&error),
+                ])?));
+            }
+            Ok(core_value_to_json(&_build_optimization_eval_result(&[
+                core_value_from_json(&Value::Array(rows)),
+                core_value_from_json(&candidate),
+                CoreValue::from(phase.as_str()),
+            ])?))
+        })();
+        let rollback = self.apply_optimized_components(&original);
+        let result = run?;
+        rollback?;
+        Ok(result)
+    }
+
+    pub fn optimize_with<C: AxAIClient>(
+        &mut self,
+        engine: &mut dyn OptimizerEngine,
+        dataset: &Value,
+        options: &Value,
+        client: Option<Rc<RefCell<C>>>,
+    ) -> AxResult<Value> {
+        let opts = if options.is_object() {
+            options.clone()
+        } else {
+            json!({})
+        };
+        let components = Value::Array(self.get_optimizable_components());
+        let trace = json!({"traces": self.traces.clone(), "chat_log": self.chat_log.clone()});
+        let run = core_value_to_json(&_prepare_optimizer_run(&[
+            CoreValue::from("axgen"),
+            core_value_from_json(&components),
+            core_value_from_json(dataset),
+            core_value_from_json(&opts),
+            core_value_from_json(&trace),
+            CoreValue::Bool(client.is_some()),
+        ])?);
+        let request = run.get("request").cloned().unwrap_or_else(|| json!({}));
+        let mut evaluator = |step: Value| -> AxResult<Value> {
+            let candidate = step
+                .get("candidateMap")
+                .or_else(|| step.get("componentMap"))
+                .or_else(|| step.get("candidate"))
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let mut merged = opts.clone();
+            if let Some(step_options) = step.get("options").and_then(Value::as_object) {
+                if !merged.is_object() {
+                    merged = json!({});
+                }
+                if let Some(target) = merged.as_object_mut() {
+                    for (key, value) in step_options {
+                        target.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+            let eval_dataset = merged
+                .get("dataset")
+                .or_else(|| merged.get("_dataset"))
+                .cloned()
+                .unwrap_or_else(|| dataset.clone());
+            let Some(client) = client.as_ref() else {
+                return Err(AxError::runtime(
+                    "optimizer evaluator requires an AI client",
+                ));
+            };
+            let mut client = client.borrow_mut();
+            self.evaluate_optimization(&mut *client, &eval_dataset, &candidate, &merged)
+        };
+        let response = engine.optimize(request, &mut evaluator)?;
+        let engine_name = response
+            .get("optimizerName")
+            .or_else(|| response.get("optimizer"))
+            .and_then(Value::as_str)
+            .unwrap_or("optimizer")
+            .to_string();
+        let engine_version = response
+            .get("optimizerVersion")
+            .or_else(|| response.get("version"))
+            .and_then(Value::as_str)
+            .unwrap_or("host")
+            .to_string();
+        let artifact = core_value_to_json(&_normalize_optimizer_engine_response(&[
+            core_value_from_json(&response),
+            CoreValue::from(engine_name.as_str()),
+            CoreValue::from(engine_version.as_str()),
+            core_value_from_json(&components),
+        ])?);
+        if opts.get("apply").and_then(Value::as_bool).unwrap_or(true) {
+            self.apply_optimization(&artifact)?;
+        }
+        Ok(artifact)
+    }
+
     fn tool_descriptors(&self) -> Value {
         Value::Array(
             self.tools
@@ -1656,6 +2107,58 @@ impl AxGen {
             }));
         }
     }
+}
+
+fn value_as_display_string(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::String(text) => text.clone(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        _ => stable_stringify(value),
+    }
+}
+
+fn optimized_function_name_valid(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if name.len() > 32 || !first.is_ascii_lowercase() {
+        return false;
+    }
+    chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+}
+
+fn score_optimization_prediction(
+    task: &Value,
+    prediction: &Value,
+    options: &Value,
+) -> AxResult<(Value, f64)> {
+    let raw_scores = task
+        .get("metric_score")
+        .or_else(|| task.get("scores"))
+        .or_else(|| task.get("score"))
+        .cloned()
+        .unwrap_or_else(|| {
+            if prediction.get("completionType").and_then(Value::as_str) == Some("error") {
+                json!(0.0)
+            } else {
+                json!(1.0)
+            }
+        });
+    let scores = _normalize_optimization_metric_scores(&[core_value_from_json(&raw_scores)])?;
+    let scalar = _scalarize_optimization_scores(&[scores.clone(), core_value_from_json(options)])?;
+    let adjusted = _adjust_optimization_score_for_actions(&[
+        scalar,
+        core_value_from_json(task),
+        core_value_from_json(prediction),
+    ])?;
+    let adjusted_json = core_value_to_json(&adjusted);
+    Ok((
+        core_value_to_json(&scores),
+        adjusted_json.as_f64().unwrap_or(0.0),
+    ))
 }
 
 fn assertion_subject<'a>(assertion: &Value, output: &'a Value) -> &'a Value {
@@ -1843,6 +2346,81 @@ impl AxAgent {
         Ok(core_value_to_json(&_agent_optimizer_metadata(&[self
             .state
             .clone()])?))
+    }
+
+    pub fn get_optimizable_components(&self) -> AxResult<Vec<Value>> {
+        let mut components = Vec::new();
+        for stage in [&self.distiller, &self.executor, &self.responder] {
+            if let Value::Array(items) =
+                core_value_to_json(&core_program_components(&[stage.clone()])?)
+            {
+                components.extend(items);
+            }
+        }
+        components.push(core_value_to_json(&_optimization_component(&[
+            CoreValue::from("root.agent.runtime"),
+            CoreValue::from("root.agent"),
+            CoreValue::from("runtime-policy"),
+            core_value_from_json(&self.get_runtime_contract()),
+            CoreValue::from("Agent runtime-language metadata and code-field policy."),
+            core_value_from_json(&json!([
+                "Keep code field names aligned with the selected runtime language."
+            ])),
+            CoreValue::new_list(),
+            CoreValue::Bool(true),
+            CoreValue::from("json"),
+            core_value_from_json(&json!({"component": "runtime_contract"})),
+        ])?));
+        components.push(core_value_to_json(&_optimization_component(&[
+            CoreValue::from("root.agent.policy"),
+            CoreValue::from("root.agent"),
+            CoreValue::from("agent-policy"),
+            core_value_from_json(&self.get_policy()),
+            CoreValue::from("Actor primitive, discovery, delegation, and prompt placement policy."),
+            core_value_from_json(&json!([
+                "Do not expose protocol-only actions as actor primitives."
+            ])),
+            core_value_from_json(&json!(["root.agent.runtime"])),
+            CoreValue::Bool(true),
+            CoreValue::from("json"),
+            core_value_from_json(&json!({"component": "policy_registry"})),
+        ])?));
+        Ok(components)
+    }
+
+    pub fn apply_optimized_components(&mut self, component_map: &Value) -> AxResult<()> {
+        let components = Value::Array(self.get_optimizable_components()?);
+        _validate_optimization_component_map(&[
+            core_value_from_json(&components),
+            core_value_from_json(component_map),
+        ])?;
+        let component_core = core_value_from_json(component_map);
+        core_program_apply_components(&[self.distiller.clone(), component_core.clone()])?;
+        core_program_apply_components(&[self.executor.clone(), component_core.clone()])?;
+        core_program_apply_components(&[self.responder.clone(), component_core.clone()])?;
+        if let Some(value) = component_map
+            .get("root.agent.runtime")
+            .filter(|value| value.is_object())
+        {
+            core_set(
+                &self.state,
+                CoreValue::from("runtime_contract"),
+                core_value_from_json(value),
+            )?;
+        }
+        if let Some(value) = component_map
+            .get("root.agent.policy")
+            .filter(|value| value.is_object())
+        {
+            core_set(
+                &self.state,
+                CoreValue::from("policy"),
+                core_value_from_json(value),
+            )?;
+        }
+        let metadata = _agent_optimizer_metadata(&[self.state.clone()])?;
+        core_set(&self.state, CoreValue::from("optimizer_metadata"), metadata)?;
+        Ok(())
     }
 
     pub fn replay_trace(&mut self, trace: Value, fixtures: Value) -> AxResult<Value> {
@@ -2096,6 +2674,48 @@ impl AxFlow {
             }
         }
         json!({"id": core_value_to_json(&id), "steps": names})
+    }
+
+    pub fn set_demos(&mut self, demos: &Value) -> AxResult<()> {
+        if let Some(map) = demos.as_object() {
+            let mut known = BTreeSet::new();
+            let steps = core_get(&self.state, &CoreValue::from("steps"), CoreValue::Null);
+            if let Ok(items) = core_iter(&steps) {
+                for step in items {
+                    let name = core_get(&step, &CoreValue::from("name"), CoreValue::Null).text();
+                    if !name.is_empty() {
+                        known.insert(name);
+                    }
+                }
+            }
+            for name in map.keys() {
+                if !known.contains(name) {
+                    return Err(AxError::runtime(format!(
+                        "unknown flow node in demos: {name}"
+                    )));
+                }
+            }
+        }
+        core_set(
+            &self.state,
+            CoreValue::from("demos"),
+            core_value_from_json(demos),
+        )?;
+        Ok(())
+    }
+
+    pub fn get_optimizable_components(&self) -> AxResult<Value> {
+        Ok(core_value_to_json(&_flow_get_optimizable_components(&[
+            self.state.clone(),
+        ])?))
+    }
+
+    pub fn apply_optimized_components(&mut self, component_map: &Value) -> AxResult<()> {
+        _flow_apply_optimized_components(&[
+            self.state.clone(),
+            core_value_from_json(component_map),
+        ])?;
+        Ok(())
     }
 }
 
@@ -3200,33 +3820,39 @@ fn run_template_validate_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+// python: _run_stream. Folds the chunks through the emitted fold_stream after
+// every event so streaming assertions fire at the same point in the stream.
 fn run_stream_fixture(fixture: &Value) -> AxResult<()> {
-    let folded = fold_fixture_stream(
-        fixture
-            .get("stream_events")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default(),
-    );
-    for assertion in fixture
+    let events = fixture
+        .get("stream_events")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let assertions = fixture
         .get("streaming_assertions")
         .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        if let Some(needle) = assertion
-            .get("not_contains")
-            .or_else(|| assertion.get("notContains"))
-            .and_then(Value::as_str)
-        {
-            if folded.contains(needle) {
-                let err = AxError::runtime(
-                    assertion
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .unwrap_or("streaming assertion failed"),
-                );
-                return expect_validation_result(Err(err), fixture);
+        .cloned()
+        .unwrap_or_default();
+    let mut chunks = Vec::new();
+    let mut folded = String::new();
+    for event in events {
+        chunks.push(event);
+        folded = fold_fixture_stream(&chunks)?;
+        for assertion in &assertions {
+            if let Some(needle) = assertion
+                .get("not_contains")
+                .or_else(|| assertion.get("notContains"))
+                .and_then(Value::as_str)
+            {
+                if folded.contains(needle) {
+                    let err = AxError::runtime(
+                        assertion
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("streaming assertion failed"),
+                    );
+                    return expect_validation_result(Err(err), fixture);
+                }
             }
         }
     }
@@ -3244,18 +3870,20 @@ fn run_ai_support_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
         | "ai_model_catalog_runtime" => {
             let actual = conformance_ai_registry_result(kind, fixture)?;
             if let Some(expected) = fixture.get("expected_output") {
-                let mut comparable = actual.clone();
-                if let Some(obj) = comparable.as_object_mut() {
-                    obj.remove("aliases");
-                }
-                expect_json_subset("AI registry fixture", expected, &comparable)?;
+                expect_json_subset("AI registry fixture", &actual, expected)?;
             }
-            if let Some(expected) = fixture.get("alias_expectations") {
-                expect_json_subset(
-                    "AI alias expectations",
-                    actual.get("aliases").unwrap_or(&Value::Null),
-                    expected,
-                )?;
+            if let Some(expected) = fixture.get("alias_expectations").and_then(Value::as_object) {
+                for (alias, expected_profile) in expected {
+                    let normalized =
+                        core_value_to_json(&provider_normalize_profile(&[CoreValue::from(
+                            alias.as_str(),
+                        )])?);
+                    expect_json_equal(
+                        &format!("provider alias {alias}"),
+                        &normalized,
+                        expected_profile,
+                    )?;
+                }
             }
             Ok(())
         }
@@ -3270,19 +3898,74 @@ fn run_ai_support_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
             }
             Ok(())
         }
-        "ai_error" | "ai_unsupported" => {
-            let message = fixture
-                .get("expected_error_contains")
-                .and_then(Value::as_str)
-                .unwrap_or("AI validation error");
-            expect_validation_result(Err(AxError::validation(message)), fixture)?;
-            Ok(())
-        }
+        "ai_error" | "ai_unsupported" => run_ai_error_fixture(kind, fixture),
         _ => Err(AxError::new(
             "fixture",
             format!("unsupported Rust AI support fixture {kind}"),
         )),
     }
+}
+
+// python: _run_ai_error / _run_ai_unsupported. Dispatches the real client
+// method and matches message, error type, and status on the failure.
+fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
+    let (mut client, _requests) = fixture_client(fixture)?;
+    let default_method = if kind == "ai_unsupported" {
+        "transcribe"
+    } else {
+        "chat"
+    };
+    let method = fixture
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or(default_method);
+    let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
+    let result: AxResult<Value> = match method {
+        "stream" => client.stream(request).map(Value::Array),
+        "embed" => client.embed(request),
+        "transcribe" => client.transcribe(request),
+        "speak" => client.speak(request),
+        _ => client.chat(request),
+    };
+    let Err(err) = result else {
+        return Err(AxError::new("fixture", "expected AxAI call to fail"));
+    };
+    if let Some(expected) = fixture
+        .get("expected_error_contains")
+        .and_then(Value::as_str)
+    {
+        if !err.message.contains(expected) {
+            return Err(AxError::new(
+                "fixture",
+                format!(
+                    "expected error containing {expected:?}, got {}",
+                    err.message
+                ),
+            ));
+        }
+    }
+    if let Some(expected) = fixture.get("expected_error_type").and_then(Value::as_str) {
+        let actual = err.error_type.as_deref().unwrap_or("");
+        if actual != expected {
+            return Err(AxError::new(
+                "fixture",
+                format!("expected error type {expected}, got {actual}"),
+            ));
+        }
+    }
+    if let Some(expected) = fixture.get("expected_status") {
+        let actual = err
+            .status
+            .map(|status| json!(status))
+            .unwrap_or(Value::Null);
+        if &actual != expected {
+            return Err(AxError::new(
+                "fixture",
+                format!("expected status {expected}, got {actual}"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn run_agent_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
@@ -3409,34 +4092,154 @@ fn run_program_contract_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+struct ConformanceFlowCallable {
+    mode: &'static str,
+    spec: Value,
+}
+
+impl CoreHost for ConformanceFlowCallable {
+    fn host_type(&self) -> &'static str {
+        "ConformanceFlowCallable"
+    }
+
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        if name != "call" {
+            return Err(AxError::runtime(format!(
+                "ConformanceFlowCallable has no method '{}'",
+                name
+            )));
+        }
+        let state = core_value_to_json(&core_arg(args, 0));
+        let output = if self.mode == "mapper" {
+            conformance_flow_mapper_call(&self.spec, &state)
+        } else {
+            conformance_flow_condition_call(&self.spec, &state)
+        };
+        Ok(core_value_from_json(&output))
+    }
+}
+
+fn conformance_flow_callable(mode: &'static str, spec: Value) -> CoreValue {
+    CoreValue::Host(Rc::new(ConformanceFlowCallable { mode, spec }))
+}
+
+fn conformance_flow_state_value(state: &Value, field: &str, fallback: Value) -> Value {
+    get_path(state, field).cloned().unwrap_or(fallback)
+}
+
+fn conformance_flow_condition_call(spec: &Value, state: &Value) -> Value {
+    let Some(map) = spec.as_object() else {
+        return json!(core_json_truthy(spec));
+    };
+    let op = map.get("op").and_then(Value::as_str).unwrap_or("truthy");
+    let field = map.get("field").and_then(Value::as_str).unwrap_or("");
+    let value = conformance_flow_state_value(
+        state,
+        field,
+        map.get("default").cloned().unwrap_or(Value::Null),
+    );
+    match op {
+        "field" => value,
+        "lt" => json!(
+            value.as_f64().unwrap_or(0.0) < map.get("value").and_then(Value::as_f64).unwrap_or(0.0)
+        ),
+        "eq" => json!(value == map.get("value").cloned().unwrap_or(Value::Null)),
+        _ => json!(core_json_truthy(&value)),
+    }
+}
+
+fn conformance_flow_mapper_call(spec: &Value, state: &Value) -> Value {
+    let Some(map) = spec.as_object() else {
+        return json!({});
+    };
+    match map.get("op").and_then(Value::as_str).unwrap_or("set") {
+        "increment" => {
+            let field = map.get("field").and_then(Value::as_str).unwrap_or("");
+            let current = conformance_flow_state_value(state, field, json!(0));
+            let mut out = Map::new();
+            out.insert(
+                field.to_string(),
+                json_number(current.as_f64().unwrap_or(0.0) + 1.0),
+            );
+            Value::Object(out)
+        }
+        _ => map.get("values").cloned().unwrap_or_else(|| json!({})),
+    }
+}
+
 fn conformance_ai_registry_result(kind: &str, fixture: &Value) -> AxResult<Value> {
     match kind {
         "ai_provider_descriptor" => {
             let provider = fixture
                 .get("provider")
                 .and_then(Value::as_str)
-                .unwrap_or("openai");
-            let defaults = provider_defaults(provider)
-                .ok_or_else(|| AxError::validation(format!("unknown AxAI provider {provider}")))?;
-            Ok(json!({
-                "id": provider_profile_id(provider),
-                "operations": provider_operations(defaults.profile),
-            }))
+                .unwrap_or("openai-compatible");
+            Ok(core_value_to_json(&provider_descriptor(&[
+                CoreValue::from(provider),
+            ])?))
         }
-        "ai_provider_registry" => Ok(json!({
-            "registryVersion": "provider-profile-registry-v1",
-            "supportedProfileIds": provider_profile_ids(),
-            "aliases": provider_alias_map(),
-        })),
-        "ai_model_catalog_audit" => Ok(json!({
-            "catalogVersion": "provider-model-catalog-audit-v1",
-            "providerCount": provider_profile_ids().len(),
-            "descriptorCoveredProviderIds": provider_profile_ids(),
-            "deferredProviderIds": [],
-        })),
-        "ai_model_catalog_runtime" => Ok(json!({
-            "providerCount": provider_profile_ids().len(),
-        })),
+        "ai_provider_registry" => Ok(core_value_to_json(&provider_profile_registry(&[])?)),
+        "ai_model_catalog_audit" => Ok(core_value_to_json(&provider_model_catalog_summary(&[])?)),
+        "ai_model_catalog_runtime" => {
+            let model_type = fixture.get("model_type").cloned().unwrap_or(Value::Null);
+            let catalog = get_supported_ai_models_json(&model_type)?;
+            let entries = catalog.as_array().cloned().unwrap_or_default();
+            let mut actual = json!({
+                "providerCount": entries.len(),
+                "providerNames": entries.iter().map(|item| item.get("name").cloned().unwrap_or(Value::Null)).collect::<Vec<_>>(),
+                "modelCount": entries
+                    .iter()
+                    .map(|item| item.get("models").and_then(Value::as_array).map(|models| models.len()).unwrap_or(0))
+                    .sum::<usize>(),
+                "openaiFirstModel": Value::Null,
+                "openaiModelTypes": [],
+                "catalog": catalog.clone(),
+            });
+            if let Some(openai) = entries.iter().find(|item| {
+                item.get("name").and_then(Value::as_str) == Some("openai")
+                    && item
+                        .get("models")
+                        .and_then(Value::as_array)
+                        .map(|models| !models.is_empty())
+                        .unwrap_or(false)
+            }) {
+                let models = openai
+                    .get("models")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                actual["openaiFirstModel"] = models
+                    .first()
+                    .and_then(|model| model.get("name"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let mut types = models
+                    .iter()
+                    .filter_map(|model| {
+                        model
+                            .get("type")
+                            .and_then(Value::as_str)
+                            .map(ToString::to_string)
+                    })
+                    .collect::<Vec<_>>();
+                types.sort();
+                types.dedup();
+                actual["openaiModelTypes"] = json!(types);
+            }
+            if fixture
+                .get("check_clone")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                // The emitted catalog must hand out fresh copies; mutating the
+                // first response must not leak into a fresh lookup.
+                let fresh = get_supported_ai_models_json(&model_type)?;
+                if fresh != catalog {
+                    return Err(AxError::new("fixture", "catalog clone mismatch"));
+                }
+            }
+            Ok(actual)
+        }
         _ => Err(AxError::new(
             "fixture",
             format!("unsupported AI registry fixture {kind}"),
@@ -3444,124 +4247,1153 @@ fn conformance_ai_registry_result(kind: &str, fixture: &Value) -> AxResult<Value
     }
 }
 
-fn provider_profile_id(provider: &str) -> &'static str {
-    match provider {
-        "openai" | "openai-compatible" | "compatible" => "openai-compatible",
-        "openai-responses" | "responses" => "openai-responses",
-        "google-gemini" | "gemini" => "google-gemini",
-        "azure-openai" | "azure" => "azure-openai",
-        "grok" | "xai" => "grok",
-        "anthropic" => "anthropic",
-        "deepseek" => "deepseek",
-        "mistral" => "mistral",
-        "reka" => "reka",
-        "cohere" => "cohere",
-        _ => "openai-compatible",
-    }
-}
-
-fn provider_profile_ids() -> Vec<&'static str> {
-    vec![
-        "openai-compatible",
-        "openai-responses",
-        "google-gemini",
-        "anthropic",
-        "azure-openai",
-        "deepseek",
-        "mistral",
-        "reka",
-        "cohere",
-        "grok",
-    ]
-}
-
-fn provider_alias_map() -> Value {
-    json!({
-        "openai-compatible": "openai-compatible",
-        "openai": "openai-compatible",
-        "compatible": "openai-compatible",
-        "openai-responses": "openai-responses",
-        "openai_responses": "openai-responses",
-        "responses": "openai-responses",
-        "google-gemini": "google-gemini",
-        "google_gemini": "google-gemini",
-        "gemini": "google-gemini",
-        "anthropic": "anthropic",
-        "claude": "anthropic",
-        "azure-openai": "azure-openai",
-        "azure_openai": "azure-openai",
-        "azure": "azure-openai",
-        "deepseek": "deepseek",
-        "mistral": "mistral",
-        "reka": "reka",
-        "cohere": "cohere",
-        "grok": "grok",
-        "xai": "grok",
-        "x-grok": "grok",
-        "x_grok": "grok",
-    })
-}
-
-fn provider_operations(profile: &str) -> Value {
-    let mut operations = Map::new();
-    operations.insert(
-        "chat".to_string(),
-        json!({"method": "POST", "body": "json", "stream": false}),
-    );
-    if matches!(
-        profile,
-        "openai-compatible"
-            | "openai-responses"
-            | "google-gemini"
-            | "anthropic"
-            | "azure-openai"
-            | "deepseek"
-            | "grok"
-    ) {
-        operations.insert(
-            "stream_chat".to_string(),
-            json!({"method": "POST", "body": "json", "stream": true}),
-        );
-    }
-    if matches!(
-        profile,
-        "openai-compatible" | "google-gemini" | "azure-openai" | "mistral" | "cohere"
-    ) {
-        operations.insert(
-            "embed".to_string(),
-            json!({"method": "POST", "body": "json", "stream": false}),
-        );
-    }
-    if profile == "openai-responses" {
-        operations.insert(
-            "transcribe".to_string(),
-            json!({"method": "POST", "body": "multipart", "stream": false}),
-        );
-        operations.insert(
-            "speak".to_string(),
-            json!({"method": "POST", "body": "json", "stream": false}),
-        );
-        operations.insert(
-            "realtime".to_string(),
-            json!({"method": "WS", "body": "events", "stream": true}),
-        );
-    }
-    Value::Object(operations)
+// python: get_supported_ai_models(model_type) -> provider_model_catalog(options)
+fn get_supported_ai_models_json(model_type: &Value) -> AxResult<Value> {
+    let options = if model_type.is_null() {
+        json!({})
+    } else {
+        json!({"type": model_type})
+    };
+    Ok(core_value_to_json(&provider_model_catalog(&[
+        core_value_from_json(&options),
+    ])?))
 }
 
 fn conformance_ai_routing_result(kind: &str, fixture: &Value) -> AxResult<Value> {
-    if let Some(expected) = fixture.get("expected_output") {
-        let mut actual = expected.clone();
-        if let Some(obj) = actual.as_object_mut() {
-            obj.insert("verifiedBy".to_string(), json!(kind));
-        }
-        return Ok(actual);
+    match kind {
+        "ai_multiservice_router" => conformance_multiservice_router_result(fixture),
+        "ai_provider_router" => conformance_provider_router_result(fixture),
+        "ai_balancer" => conformance_balancer_result(fixture),
+        _ => Err(AxError::new(
+            "fixture",
+            format!("unsupported AI routing fixture {kind}"),
+        )),
     }
-    let message = fixture
-        .get("expected_error_contains")
+}
+
+#[derive(Clone)]
+struct RouterFixtureService {
+    name: String,
+    id: String,
+    model: String,
+    embed_model: String,
+    features: Value,
+    model_list: Value,
+    requests: Vec<Value>,
+    responses: VecDeque<Value>,
+    metrics: Value,
+    options: Value,
+    last_chat: Value,
+    last_embed: Value,
+    last_config: Value,
+}
+
+impl RouterFixtureService {
+    fn new(spec: &Value) -> Self {
+        let name = spec
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("fixture")
+            .to_string();
+        Self {
+            id: spec
+                .get("id")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+                .unwrap_or_else(|| format!("{name}-id")),
+            model: spec
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or("fixture-chat")
+                .to_string(),
+            embed_model: spec
+                .get("embed_model")
+                .or_else(|| spec.get("embedModel"))
+                .and_then(Value::as_str)
+                .unwrap_or("fixture-embed")
+                .to_string(),
+            features: spec
+                .get("features")
+                .cloned()
+                .unwrap_or_else(router_default_features),
+            model_list: spec
+                .get("modelList")
+                .or_else(|| spec.get("model_list"))
+                .cloned()
+                .unwrap_or(Value::Null),
+            responses: spec
+                .get("responses")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+                .into(),
+            metrics: spec
+                .get("metrics")
+                .cloned()
+                .unwrap_or_else(|| json!({"service": name, "calls": 0})),
+            options: json!({}),
+            requests: Vec::new(),
+            last_chat: Value::Null,
+            last_embed: Value::Null,
+            last_config: Value::Null,
+            name,
+        }
+    }
+
+    fn provider_record(&self) -> Value {
+        json!({"name": self.name, "id": self.id, "features": self.features})
+    }
+
+    fn record(&mut self, method: &str, options: &Value) {
+        self.requests
+            .push(json!({"method": method, "opt": options}));
+    }
+
+    fn chat(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
+        self.record("chat", options);
+        self.last_chat = request
+            .get("model")
+            .cloned()
+            .unwrap_or_else(|| Value::String(self.model.clone()));
+        self.last_config = request
+            .get("model_config")
+            .or_else(|| request.get("modelConfig"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        if let Some(next) = self.responses.pop_front() {
+            if let Some(err) = next.get("error") {
+                return Err(fixture_ai_service_error(err));
+            }
+            if let Some(response) = next.get("response") {
+                return Ok(response.clone());
+            }
+            return Ok(next);
+        }
+        Ok(json!({"results": [{"index": 0, "content": format!("{} chat", self.name)}]}))
+    }
+
+    fn embed(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
+        self.record("embed", options);
+        self.last_embed = request
+            .get("embed_model")
+            .or_else(|| request.get("embedModel"))
+            .cloned()
+            .unwrap_or_else(|| Value::String(self.embed_model.clone()));
+        Ok(json!({"embeddings": [[1, 2]], "modelUsage": {"ai": self.name}}))
+    }
+
+    fn stream(&mut self, request: &Value, options: &Value) -> AxResult<Vec<Value>> {
+        let value = self.chat(request, options)?;
+        Ok(value.as_array().cloned().unwrap_or_else(|| vec![value]))
+    }
+
+    fn transcribe(&mut self, _request: &Value, options: &Value) -> AxResult<Value> {
+        self.record("transcribe", options);
+        Ok(json!({"text": format!("{} transcript", self.name)}))
+    }
+
+    fn speak(&mut self, _request: &Value, options: &Value) -> AxResult<Value> {
+        self.record("speak", options);
+        Ok(json!({"audio": "pcm"}))
+    }
+
+    fn metrics(&self) -> Value {
+        let mut out = self.metrics.clone();
+        if out.get("calls").is_some() {
+            out["calls"] = json!(self.requests.len());
+        }
+        out
+    }
+}
+
+fn fixture_ai_service_error(spec: &Value) -> AxError {
+    let error_type = spec
+        .get("type")
         .and_then(Value::as_str)
-        .unwrap_or("AI routing validation error");
-    Err(AxError::validation(message))
+        .unwrap_or("network");
+    let message = spec
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("fixture error");
+    let mut err = match error_type {
+        "status" => AxError::new("ai", message),
+        "authentication" => AxError::new("ai", "Authentication failed"),
+        "response" => AxError::new("ai", message),
+        "timeout" => AxError::new("ai", message),
+        "plain" => AxError::runtime(message),
+        _ => AxError::new("ai", format!("Network Error: {message}")),
+    };
+    err.error_type = Some(
+        match error_type {
+            "status" => "AxAIServiceStatusError",
+            "authentication" => "AxAIServiceAuthenticationError",
+            "response" => "AxAIServiceResponseError",
+            "timeout" => "AxAIServiceTimeoutError",
+            "plain" => "AxError",
+            _ => "AxAIServiceNetworkError",
+        }
+        .to_string(),
+    );
+    err.status = spec
+        .get("status")
+        .and_then(Value::as_u64)
+        .map(|status| status as u16);
+    err.retryable = matches!(error_type, "network" | "response" | "timeout")
+        || matches!(err.status, Some(408 | 429 | 500 | 502 | 503 | 504));
+    err
+}
+
+fn router_default_features() -> Value {
+    json!({
+        "functions": false,
+        "streaming": false,
+        "media": {
+            "images": {"supported": false, "formats": []},
+            "audio": {"supported": false, "formats": [], "output": {"supported": false, "formats": []}},
+            "files": {"supported": false, "formats": [], "uploadMethod": "none"},
+            "urls": {"supported": false, "webSearch": false, "contextFetching": false}
+        },
+        "caching": {"supported": false, "types": []},
+        "thinking": false,
+        "multiTurn": true
+    })
+}
+
+fn build_router_services(fixture: &Value) -> Vec<RouterFixtureService> {
+    fixture
+        .get("services")
+        .and_then(Value::as_array)
+        .map(|services| services.iter().map(RouterFixtureService::new).collect())
+        .unwrap_or_default()
+}
+
+fn service_calls(services: &[RouterFixtureService]) -> Value {
+    Value::Array(
+        services
+            .iter()
+            .filter(|service| !service.requests.is_empty())
+            .map(|service| Value::Array(service.requests.clone()))
+            .collect(),
+    )
+}
+
+#[derive(Clone)]
+struct MultiServiceEntry {
+    service_index: usize,
+    description: String,
+    model: Option<Value>,
+    embed_model: Option<Value>,
+    is_internal: bool,
+}
+
+struct ConformanceMultiServiceRouter {
+    services: Vec<RouterFixtureService>,
+    entries: BTreeMap<String, MultiServiceEntry>,
+    key_order: Vec<String>,
+    options: Value,
+    last_used: Option<usize>,
+}
+
+impl ConformanceMultiServiceRouter {
+    fn new(mut services: Vec<RouterFixtureService>, fixture: &Value) -> AxResult<Self> {
+        if services.is_empty() {
+            return Err(AxError::runtime("No AI services provided."));
+        }
+        let mut router = Self {
+            services: Vec::new(),
+            entries: BTreeMap::new(),
+            key_order: Vec::new(),
+            options: json!({}),
+            last_used: None,
+        };
+        router.services.append(&mut services);
+        for (entry_index, raw) in fixture
+            .get("router_entries")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+        {
+            let service_index = raw
+                .get("service_index")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as usize;
+            if service_index >= router.services.len() {
+                return Err(AxError::runtime(format!(
+                    "service index {service_index} out of range"
+                )));
+            }
+            if raw.get("kind").and_then(Value::as_str) == Some("key") {
+                let key = raw
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                if router.entries.contains_key(&key) {
+                    return Err(AxError::runtime(format!("Duplicate model key: {key}")));
+                }
+                router.key_order.push(key.clone());
+                router.entries.insert(
+                    key,
+                    MultiServiceEntry {
+                        service_index,
+                        description: raw
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        model: None,
+                        embed_model: None,
+                        is_internal: raw
+                            .get("isInternal")
+                            .or_else(|| raw.get("is_internal"))
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    },
+                );
+                continue;
+            }
+            let model_list = router.services[service_index]
+                .model_list
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            if model_list.is_empty() {
+                return Err(AxError::runtime(format!(
+                    "Service {entry_index} '{}' has no model list.",
+                    router.services[service_index].name
+                )));
+            }
+            for item in model_list {
+                let key = item
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                if let Some(existing) = router.entries.get(&key) {
+                    return Err(AxError::runtime(format!(
+                        "Service {entry_index} '{}' has duplicate model key: {key} as service {}",
+                        router.services[service_index].name,
+                        router.services[existing.service_index].name
+                    )));
+                }
+                let model = item.get("model").cloned();
+                let embed_model = item
+                    .get("embedModel")
+                    .or_else(|| item.get("embed_model"))
+                    .cloned();
+                if model.is_none() && embed_model.is_none() {
+                    return Err(AxError::runtime(format!(
+                        "Key {key} in model list for service {entry_index} '{}' is missing a model or embedModel property.",
+                        router.services[service_index].name
+                    )));
+                }
+                router.key_order.push(key.clone());
+                router.entries.insert(
+                    key,
+                    MultiServiceEntry {
+                        service_index,
+                        description: item
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        model,
+                        embed_model,
+                        is_internal: false,
+                    },
+                );
+            }
+        }
+        Ok(router)
+    }
+
+    fn model_list(&self) -> Value {
+        Value::Array(
+            self.key_order
+                .iter()
+                .filter_map(|key| {
+                    let entry = self.entries.get(key)?;
+                    if entry.is_internal {
+                        return None;
+                    }
+                    let mut item = Map::new();
+                    item.insert("key".to_string(), Value::String(key.clone()));
+                    item.insert(
+                        "description".to_string(),
+                        Value::String(entry.description.clone()),
+                    );
+                    if let Some(model) = &entry.model {
+                        item.insert("model".to_string(), model.clone());
+                    } else if let Some(embed_model) = &entry.embed_model {
+                        item.insert("embedModel".to_string(), embed_model.clone());
+                    }
+                    Some(Value::Object(item))
+                })
+                .collect(),
+        )
+    }
+
+    fn selected_service_index(&self) -> usize {
+        self.last_used.unwrap_or_else(|| {
+            self.key_order
+                .first()
+                .and_then(|key| self.entries.get(key))
+                .map(|entry| entry.service_index)
+                .unwrap_or(0)
+        })
+    }
+
+    fn chat(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
+        let model_key = request
+            .get("model")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AxError::runtime("Model key must be specified for multi-service"))?;
+        let entry = self.entries.get(model_key).cloned().ok_or_else(|| {
+            AxError::runtime(format!("No service found for model key: {model_key}"))
+        })?;
+        self.last_used = Some(entry.service_index);
+        let mut forwarded = request.clone();
+        if forwarded.get("modelConfig").is_some() && forwarded.get("model_config").is_none() {
+            forwarded["model_config"] =
+                forwarded.get("modelConfig").cloned().unwrap_or(Value::Null);
+        }
+        if entry.model.is_none() {
+            if let Some(obj) = forwarded.as_object_mut() {
+                obj.remove("model");
+            }
+        }
+        self.services[entry.service_index].chat(&forwarded, options)
+    }
+
+    fn embed(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
+        let model_key = request
+            .get("embedModel")
+            .or_else(|| request.get("embed_model"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                AxError::runtime("Embed model key must be specified for multi-service")
+            })?;
+        let entry = self.entries.get(model_key).cloned().ok_or_else(|| {
+            AxError::runtime(format!("No service found for embed model key: {model_key}"))
+        })?;
+        self.last_used = Some(entry.service_index);
+        let mut forwarded = request.clone();
+        if entry.model.is_none() {
+            if let Some(obj) = forwarded.as_object_mut() {
+                obj.remove("embedModel");
+                obj.remove("embed_model");
+            }
+        }
+        self.services[entry.service_index].embed(&forwarded, options)
+    }
+
+    fn transcribe(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
+        let service_index = request
+            .get("model")
+            .and_then(Value::as_str)
+            .and_then(|key| self.entries.get(key).map(|entry| entry.service_index))
+            .unwrap_or_else(|| self.selected_service_index());
+        self.last_used = Some(service_index);
+        self.services[service_index].transcribe(request, options)
+    }
+
+    fn speak(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
+        let service_index = request
+            .get("model")
+            .and_then(Value::as_str)
+            .and_then(|key| self.entries.get(key).map(|entry| entry.service_index))
+            .unwrap_or_else(|| self.selected_service_index());
+        self.last_used = Some(service_index);
+        self.services[service_index].speak(request, options)
+    }
+
+    fn set_options(&mut self, options: Value) {
+        self.options = options.clone();
+        let mut seen = BTreeSet::new();
+        for key in &self.key_order {
+            if let Some(entry) = self.entries.get(key) {
+                let service = &mut self.services[entry.service_index];
+                if seen.insert(service.id.clone()) {
+                    service.options = options.clone();
+                }
+            }
+        }
+    }
+
+    fn selected_service(&self) -> &RouterFixtureService {
+        &self.services[self.selected_service_index()]
+    }
+}
+
+fn conformance_multiservice_router_result(fixture: &Value) -> AxResult<Value> {
+    let mut router = ConformanceMultiServiceRouter::new(build_router_services(fixture), fixture)?;
+    let mut outputs = Map::new();
+    for op in fixture
+        .get("operations")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        let name = op.get("name").and_then(Value::as_str).unwrap_or("");
+        let request = op.get("request").cloned().unwrap_or_else(|| json!({}));
+        let options = op.get("options").cloned().unwrap_or_else(|| json!({}));
+        match name {
+            "chat" => {
+                outputs.insert(name.to_string(), router.chat(&request, &options)?);
+            }
+            "embed" => {
+                outputs.insert(name.to_string(), router.embed(&request, &options)?);
+            }
+            "stream" => {
+                let value = router.chat(&request, &options)?;
+                outputs.insert(
+                    name.to_string(),
+                    Value::Array(value.as_array().cloned().unwrap_or_else(|| vec![value])),
+                );
+            }
+            "transcribe" => {
+                outputs.insert(name.to_string(), router.transcribe(&request, &options)?);
+            }
+            "speak" => {
+                outputs.insert(name.to_string(), router.speak(&request, &options)?);
+            }
+            "set_options" => router.set_options(options),
+            _ => {}
+        }
+    }
+    let selected = router.selected_service().clone();
+    let mut actual = json!({
+        "outputs": Value::Object(outputs),
+        "lastChat": selected.last_chat,
+        "lastEmbed": selected.last_embed,
+        "lastConfig": selected.last_config,
+        "metrics": selected.metrics(),
+        "options": router.options,
+        "serviceCalls": service_calls(&router.services)
+    });
+    if fixture
+        .get("expected_output")
+        .and_then(|expected| expected.get("modelList"))
+        .is_some()
+    {
+        actual["modelList"] = router.model_list();
+    }
+    Ok(actual)
+}
+
+fn router_provider_records(services: &[RouterFixtureService]) -> Value {
+    Value::Array(
+        services
+            .iter()
+            .map(RouterFixtureService::provider_record)
+            .collect(),
+    )
+}
+
+fn conformance_provider_router_result(fixture: &Value) -> AxResult<Value> {
+    let services = build_router_services(fixture);
+    let primary_index = fixture
+        .get("primary_index")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    let mut ordered = Vec::new();
+    if let Some(primary) = services.get(primary_index) {
+        ordered.push(primary.clone());
+    }
+    for index in fixture
+        .get("alternative_indices")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        if let Some(service) = services.get(index.as_u64().unwrap_or(0) as usize) {
+            ordered.push(service.clone());
+        }
+    }
+    let providers = router_provider_records(&ordered);
+    let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
+    let routing = fixture
+        .get("routing")
+        .and_then(|routing| routing.get("capability"))
+        .cloned()
+        .unwrap_or_else(|| json!({"requireExactMatch": false, "allowDegradation": true}));
+    let processing = fixture
+        .get("processing")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let rec = core_value_to_json(&provider_route_recommendation(&[
+        core_value_from_json(&providers),
+        core_value_from_json(&request),
+        core_value_from_json(&routing),
+    ])?);
+    let provider_name = rec
+        .get("providerName")
+        .or_else(|| {
+            rec.get("provider")
+                .and_then(|provider| provider.get("name"))
+        })
+        .cloned()
+        .unwrap_or_else(|| Value::String(String::new()));
+    let recommendation = json!({
+        "provider": provider_name,
+        "processingApplied": rec.get("processingApplied").cloned().unwrap_or(Value::Null),
+        "degradations": rec.get("degradations").cloned().unwrap_or(Value::Null),
+        "warnings": rec.get("warnings").cloned().unwrap_or(Value::Null)
+    });
+    let validation = core_value_to_json(&provider_route_validation(&[
+        core_value_from_json(&providers),
+        core_value_from_json(&request),
+        core_value_from_json(&processing),
+        core_value_from_json(&routing),
+    ])?);
+    let stats = core_value_to_json(&provider_routing_stats(&[core_value_from_json(
+        &providers,
+    )])?);
+    Ok(json!({"recommendation": recommendation, "validation": validation, "stats": stats}))
+}
+
+fn balancer_base_features() -> Value {
+    json!({
+        "functions": false,
+        "streaming": false,
+        "thinking": false,
+        "multiTurn": false,
+        "structuredOutputs": false,
+        "media": {
+            "images": {"supported": false, "formats": []},
+            "audio": {"supported": false, "formats": []},
+            "files": {"supported": false, "formats": [], "uploadMethod": "none"},
+            "urls": {"supported": false, "webSearch": false, "contextFetching": false}
+        },
+        "caching": {"supported": false, "types": []}
+    })
+}
+
+fn feature_bool(features: &Value, key: &str, aliases: &[&str]) -> bool {
+    features.get(key).and_then(Value::as_bool).unwrap_or(false)
+        || aliases.iter().any(|alias| {
+            features
+                .get(*alias)
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+}
+
+fn append_unique(target: &mut Vec<Value>, values: &Value) {
+    if let Some(items) = values.as_array() {
+        for value in items {
+            if !target.iter().any(|existing| existing == value) {
+                target.push(value.clone());
+            }
+        }
+    }
+}
+
+fn merged_balancer_features(services: &[RouterFixtureService]) -> Value {
+    let mut out = balancer_base_features();
+    for service in services {
+        let raw = &service.features;
+        for (key, aliases) in [
+            ("functions", vec![]),
+            ("streaming", vec![]),
+            ("thinking", vec![]),
+            ("multiTurn", vec!["multi_turn"]),
+            ("structuredOutputs", vec!["structured_outputs"]),
+            ("functionCot", vec!["function_cot"]),
+            ("hasThinkingBudget", vec!["has_thinking_budget"]),
+            ("hasShowThoughts", vec!["has_show_thoughts"]),
+        ] {
+            if feature_bool(raw, key, &aliases) {
+                out[key] = json!(true);
+            }
+        }
+        for kind in ["images", "audio", "files"] {
+            let src = raw
+                .get("media")
+                .and_then(|media| media.get(kind))
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            if src
+                .get("supported")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                out["media"][kind]["supported"] = json!(true);
+            }
+            let mut formats = out["media"][kind]["formats"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            append_unique(&mut formats, src.get("formats").unwrap_or(&Value::Null));
+            out["media"][kind]["formats"] = Value::Array(formats);
+            if kind == "files" {
+                if let Some(upload) = src
+                    .get("uploadMethod")
+                    .or_else(|| src.get("upload_method"))
+                    .and_then(Value::as_str)
+                    .filter(|upload| !upload.is_empty() && *upload != "none")
+                {
+                    out["media"]["files"]["uploadMethod"] = json!(upload);
+                }
+            }
+        }
+        let urls = raw
+            .get("media")
+            .and_then(|media| media.get("urls"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        if urls
+            .get("supported")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            out["media"]["urls"]["supported"] = json!(true);
+        }
+        if urls
+            .get("webSearch")
+            .or_else(|| urls.get("web_search"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            out["media"]["urls"]["webSearch"] = json!(true);
+        }
+        if urls
+            .get("contextFetching")
+            .or_else(|| urls.get("context_fetching"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            out["media"]["urls"]["contextFetching"] = json!(true);
+        }
+        let caching = raw.get("caching").cloned().unwrap_or_else(|| json!({}));
+        if caching
+            .get("supported")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            out["caching"]["supported"] = json!(true);
+        }
+        let mut cache_types = out["caching"]["types"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        append_unique(
+            &mut cache_types,
+            caching.get("types").unwrap_or(&Value::Null),
+        );
+        out["caching"]["types"] = Value::Array(cache_types);
+    }
+    out
+}
+
+fn balancer_metrics(services: &[RouterFixtureService]) -> Value {
+    let mut chat_sum = 0.0;
+    let mut chat_count = 0.0;
+    let mut embed_sum = 0.0;
+    let mut embed_count = 0.0;
+    let mut chat_p95: f64 = 0.0;
+    let mut chat_p99: f64 = 0.0;
+    let mut embed_p95: f64 = 0.0;
+    let mut embed_p99: f64 = 0.0;
+    let mut chat_err_count = 0.0;
+    let mut chat_err_total = 0.0;
+    let mut embed_err_count = 0.0;
+    let mut embed_err_total = 0.0;
+    for service in services {
+        let metrics = service.metrics();
+        let chat_err = metrics
+            .get("errors")
+            .and_then(|errors| errors.get("chat"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let embed_err = metrics
+            .get("errors")
+            .and_then(|errors| errors.get("embed"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        chat_err_count += chat_err.get("count").and_then(Value::as_f64).unwrap_or(0.0);
+        chat_err_total += chat_err.get("total").and_then(Value::as_f64).unwrap_or(0.0);
+        embed_err_count += embed_err
+            .get("count")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        embed_err_total += embed_err
+            .get("total")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let chat = metrics
+            .get("latency")
+            .and_then(|latency| latency.get("chat"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let chat_samples = chat
+            .get("samples")
+            .and_then(Value::as_array)
+            .map(|samples| samples.len() as f64)
+            .unwrap_or(0.0);
+        if chat_samples > 0.0 {
+            chat_sum += chat.get("mean").and_then(Value::as_f64).unwrap_or(0.0) * chat_samples;
+            chat_count += chat_samples;
+        }
+        chat_p95 = chat_p95.max(chat.get("p95").and_then(Value::as_f64).unwrap_or(0.0));
+        chat_p99 = chat_p99.max(chat.get("p99").and_then(Value::as_f64).unwrap_or(0.0));
+        let embed = metrics
+            .get("latency")
+            .and_then(|latency| latency.get("embed"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let embed_samples = embed
+            .get("samples")
+            .and_then(Value::as_array)
+            .map(|samples| samples.len() as f64)
+            .unwrap_or(0.0);
+        if embed_samples > 0.0 {
+            embed_sum += embed.get("mean").and_then(Value::as_f64).unwrap_or(0.0) * embed_samples;
+            embed_count += embed_samples;
+        }
+        embed_p95 = embed_p95.max(embed.get("p95").and_then(Value::as_f64).unwrap_or(0.0));
+        embed_p99 = embed_p99.max(embed.get("p99").and_then(Value::as_f64).unwrap_or(0.0));
+    }
+    let chat_rate = if chat_err_total > 0.0 {
+        chat_err_count / chat_err_total
+    } else {
+        0.0
+    };
+    let embed_rate = if embed_err_total > 0.0 {
+        embed_err_count / embed_err_total
+    } else {
+        0.0
+    };
+    json!({
+        "latency": {
+            "chat": {
+                "mean": if chat_count > 0.0 { chat_sum / chat_count } else { 0.0 },
+                "p95": chat_p95,
+                "p99": chat_p99,
+                "samples": []
+            },
+            "embed": {
+                "mean": if embed_count > 0.0 { embed_sum / embed_count } else { 0.0 },
+                "p95": embed_p95,
+                "p99": embed_p99,
+                "samples": []
+            }
+        },
+        "errors": {
+            "chat": {"count": chat_err_count, "rate": chat_rate, "total": chat_err_total},
+            "embed": {"count": embed_err_count, "rate": embed_rate, "total": embed_err_total}
+        }
+    })
+}
+
+fn is_retryable_ai_error(err: &AxError) -> bool {
+    if err.error_type.as_deref() == Some("AxAIServiceAuthenticationError") {
+        return false;
+    }
+    if err.error_type.as_deref() == Some("AxAIServiceStatusError") {
+        return matches!(err.status, Some(408 | 429 | 500 | 502 | 503 | 504));
+    }
+    err.retryable
+        || matches!(
+            err.error_type.as_deref(),
+            Some("AxAIServiceNetworkError")
+                | Some("AxAIServiceResponseError")
+                | Some("AxAIServiceStreamTerminatedError")
+                | Some("AxAIServiceTimeoutError")
+        )
+}
+
+struct ConformanceBalancer {
+    services: Vec<RouterFixtureService>,
+    current: usize,
+    failures: BTreeMap<String, usize>,
+    max_retries: usize,
+}
+
+impl ConformanceBalancer {
+    fn new(mut services: Vec<RouterFixtureService>, options: &Value) -> AxResult<Self> {
+        if services.is_empty() {
+            return Err(AxError::runtime("No AI services provided."));
+        }
+        let policy = core_value_to_json(&provider_balancer_retry_policy(&[core_value_from_json(
+            options,
+        )])?);
+        let strategy = policy
+            .get("strategy")
+            .and_then(Value::as_str)
+            .unwrap_or("metric")
+            .to_string();
+        let max_retries = policy
+            .get("maxRetries")
+            .and_then(Value::as_u64)
+            .unwrap_or(3) as usize;
+        Self::validate_models(&services)?;
+        if strategy != "input_order" {
+            services.sort_by(|a, b| {
+                let a_score = provider_balancer_metric_score(&[core_value_from_json(&a.metrics())])
+                    .map(|value| core_value_to_json(&value).as_f64().unwrap_or(0.0))
+                    .unwrap_or(0.0);
+                let b_score = provider_balancer_metric_score(&[core_value_from_json(&b.metrics())])
+                    .map(|value| core_value_to_json(&value).as_f64().unwrap_or(0.0))
+                    .unwrap_or(0.0);
+                a_score
+                    .partial_cmp(&b_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        Ok(Self {
+            services,
+            current: 0,
+            failures: BTreeMap::new(),
+            max_retries,
+        })
+    }
+
+    fn validate_models(services: &[RouterFixtureService]) -> AxResult<()> {
+        let reference = services
+            .iter()
+            .find_map(|service| service.model_list.as_array().cloned());
+        let Some(reference) = reference.filter(|items| !items.is_empty()) else {
+            return Ok(());
+        };
+        let reference_keys = reference
+            .iter()
+            .filter_map(|item| {
+                item.get("key")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string)
+            })
+            .collect::<BTreeSet<_>>();
+        for (index, service) in services.iter().enumerate() {
+            let list = service.model_list.as_array().cloned().unwrap_or_default();
+            if list.is_empty() {
+                return Err(AxError::runtime(format!(
+                    "Service at index {index} ({}) has no model list while another service does.",
+                    service.name
+                )));
+            }
+            let keys = list
+                .iter()
+                .filter_map(|item| {
+                    item.get("key")
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string)
+                })
+                .collect::<BTreeSet<_>>();
+            for key in &reference_keys {
+                if !keys.contains(key) {
+                    return Err(AxError::runtime(format!(
+                        "Service at index {index} ({}) is missing model {key:?}",
+                        service.name
+                    )));
+                }
+            }
+            for key in &keys {
+                if !reference_keys.contains(key) {
+                    return Err(AxError::runtime(format!(
+                        "Service at index {index} ({}) has extra model {key:?}",
+                        service.name
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn candidate_indices(&self, request: &Value) -> AxResult<Vec<usize>> {
+        let mut out = Vec::new();
+        for (index, service) in self.services.iter().enumerate() {
+            let allowed = core_value_to_json(&provider_balancer_candidate_allowed(&[
+                core_value_from_json(&service.features),
+                core_value_from_json(request),
+            ])?);
+            if allowed.as_bool().unwrap_or(false) {
+                out.push(index);
+            }
+        }
+        if !out.is_empty() {
+            return Ok(out);
+        }
+        let mut requirements = Vec::new();
+        if request
+            .get("responseFormat")
+            .or_else(|| request.get("response_format"))
+            .and_then(|format| format.get("type"))
+            .and_then(Value::as_str)
+            == Some("json_schema")
+        {
+            requirements.push("structured outputs");
+        }
+        let capabilities = request
+            .get("capabilities")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        if capabilities
+            .get("requiresImages")
+            .or_else(|| capabilities.get("requires_images"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            requirements.push("images");
+        }
+        if capabilities
+            .get("requiresAudio")
+            .or_else(|| capabilities.get("requires_audio"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            requirements.push("audio");
+        }
+        Err(AxError::runtime(format!(
+            "No services available that support required capabilities: {}.",
+            requirements.join(", ")
+        )))
+    }
+
+    fn chat(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
+        let candidates = self.candidate_indices(request)?;
+        let mut candidate_pos = 0;
+        let mut current = candidates[candidate_pos];
+        self.current = current;
+        loop {
+            let id = self.services[current].id.clone();
+            if self.failures.get(&id).copied().unwrap_or(0) > 0 {
+                candidate_pos += 1;
+                if candidate_pos >= candidates.len() {
+                    return Err(AxError::runtime(format!(
+                        "All candidate services exhausted (tried {} service(s))",
+                        candidates.len()
+                    )));
+                }
+                current = candidates[candidate_pos];
+                self.current = current;
+                continue;
+            }
+            match self.services[current].chat(request, options) {
+                Ok(response) => {
+                    self.failures.remove(&id);
+                    self.current = current;
+                    return Ok(response);
+                }
+                Err(err) if is_retryable_ai_error(&err) => {
+                    *self.failures.entry(id).or_insert(0) += 1;
+                    if self
+                        .failures
+                        .get(&self.services[current].id)
+                        .copied()
+                        .unwrap_or(0)
+                        >= self.max_retries
+                    {
+                        candidate_pos += 1;
+                        if candidate_pos >= candidates.len() {
+                            return Err(AxError::runtime(format!(
+                                "All candidate services exhausted (tried {} service(s))",
+                                candidates.len()
+                            )));
+                        }
+                        current = candidates[candidate_pos];
+                        self.current = current;
+                    }
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    }
+
+    fn embed(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
+        self.current = 0;
+        self.services[0].embed(request, options)
+    }
+
+    fn transcribe(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
+        self.services[self.current].transcribe(request, options)
+    }
+
+    fn speak(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
+        self.services[self.current].speak(request, options)
+    }
+
+    fn set_options(&mut self, options: Value) {
+        for service in &mut self.services {
+            service.options = options.clone();
+        }
+    }
+
+    fn current_service(&self) -> &RouterFixtureService {
+        &self.services[self.current]
+    }
+}
+
+fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
+    let options = fixture.get("options").cloned().unwrap_or_else(|| json!({}));
+    let mut balancer = ConformanceBalancer::new(build_router_services(fixture), &options)?;
+    let mut outputs = Map::new();
+    for op in fixture
+        .get("operations")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        let name = op.get("name").and_then(Value::as_str).unwrap_or("");
+        let request = op.get("request").cloned().unwrap_or_else(|| json!({}));
+        let options = op.get("options").cloned().unwrap_or_else(|| json!({}));
+        match name {
+            "chat" => {
+                outputs.insert(name.to_string(), balancer.chat(&request, &options)?);
+            }
+            "embed" => {
+                outputs.insert(name.to_string(), balancer.embed(&request, &options)?);
+            }
+            "transcribe" => {
+                outputs.insert(name.to_string(), balancer.transcribe(&request, &options)?);
+            }
+            "speak" => {
+                outputs.insert(name.to_string(), balancer.speak(&request, &options)?);
+            }
+            "set_options" => balancer.set_options(options),
+            _ => {}
+        }
+    }
+    let current = balancer.current_service().clone();
+    let mut actual = json!({
+        "id": current.id,
+        "name": current.name,
+        "outputs": Value::Object(outputs),
+        "lastChat": current.last_chat,
+        "lastEmbed": current.last_embed,
+        "lastConfig": current.last_config,
+        "metrics": balancer_metrics(&balancer.services),
+        "options": current.options,
+        "serviceCalls": service_calls(&balancer.services)
+    });
+    if fixture
+        .get("expected_output")
+        .and_then(|expected| expected.get("modelList"))
+        .is_some()
+    {
+        actual["modelList"] = balancer
+            .services
+            .iter()
+            .find(|service| {
+                service
+                    .model_list
+                    .as_array()
+                    .map(|items| !items.is_empty())
+                    .unwrap_or(false)
+            })
+            .map(|service| service.model_list.clone())
+            .unwrap_or(Value::Null);
+    }
+    if fixture
+        .get("expected_output")
+        .and_then(|expected| expected.get("features"))
+        .is_some()
+    {
+        actual["features"] = merged_balancer_features(&balancer.services);
+    }
+    Ok(actual)
 }
 
 fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
@@ -4198,7 +6030,7 @@ fn runtime_protocol_fixture_step(
             out["session_id"] = json!(session_id);
             out
         }
-        "execute" => {
+        "execute" | "derive" => {
             let closed_or_missing = sessions
                 .get(&session_key)
                 .map(|session| session.get("closed").map(core_json_truthy).unwrap_or(false))
@@ -5096,47 +6928,39 @@ fn run_agent_runtime_policy_operations(fixture: &Value) -> AxResult<AxAgent> {
 }
 
 fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
-    if fixture.get("expected_error_contains").is_some() {
-        // Error fixtures must reproduce the failure by really building and
-        // forwarding the flow; the caller matches the resulting error message.
-        conformance_flow_error_forward(fixture)?;
-        return Err(AxError::new("fixture", "expected flow fixture to fail"));
-    }
-    let plan = conformance_flow_plan(fixture);
-    let output = fixture
-        .get("expected_output")
-        .cloned()
-        .or_else(|| fixture.get("cache_seed_value").cloned())
-        .unwrap_or_else(|| json!({}));
-    let streaming_output = fixture
-        .get("expected_streaming_output")
-        .cloned()
-        .unwrap_or_else(|| json!([]));
+    conformance_validate_flow_demos(fixture)?;
+    let state = conformance_build_flow_state(fixture)?;
+    let operation = fixture
+        .get("operation")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let plan = core_value_to_json(&_flow_plan(&[state.clone()])?);
     let cache_keys = fixture
         .get("cache_key_inputs")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .map(|value| stable_stringify(&value))
+        .map(|value| {
+            _flow_cache_key(&[core_value_from_json(&value)])
+                .map(|key| key.text())
+                .unwrap_or_else(|_| stable_stringify(&value))
+        })
         .collect::<Vec<_>>();
     let cache_keys_equal =
         !cache_keys.is_empty() && cache_keys.iter().all(|key| key == &cache_keys[0]);
     let mut sorted = cache_keys.clone();
     sorted.sort();
     sorted.dedup();
-    Ok(json!({
-        "plan": plan,
-        "output": output,
-        "streaming_output": streaming_output,
-        "cache_keys_equal": cache_keys_equal,
-        "cache_keys_distinct": sorted.len() == cache_keys.len(),
-    }))
-}
-
-fn conformance_flow_error_forward(fixture: &Value) -> AxResult<Value> {
-    conformance_validate_flow_demos(fixture)?;
-    let state = conformance_build_flow_state(fixture)?;
+    if operation == "cache_key" || operation == "plan" {
+        return Ok(json!({
+            "plan": plan,
+            "output": {},
+            "streaming_output": [],
+            "cache_keys_equal": cache_keys_equal,
+            "cache_keys_distinct": sorted.len() == cache_keys.len(),
+        }));
+    }
     let responses = fixture
         .get("responses")
         .and_then(Value::as_array)
@@ -5147,46 +6971,82 @@ fn conformance_flow_error_forward(fixture: &Value) -> AxResult<Value> {
         requests: Vec::new(),
     };
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
-    let forward_options = fixture
+    let mut forward_options = fixture
         .get("forward_options")
         .cloned()
         .unwrap_or_else(|| json!({}));
+    if let Some(seed) = fixture.get("cache_seed_value") {
+        if !forward_options.is_object() {
+            forward_options = json!({});
+        }
+        let key = _flow_cache_key(&[core_value_from_json(&input)])?.text();
+        let mut cache_store = forward_options
+            .get("cache_store")
+            .or_else(|| forward_options.get("cacheStore"))
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        cache_store.insert(key, seed.clone());
+        forward_options["cache_store"] = Value::Object(cache_store);
+    }
     let mut chat = |request: Value| client.chat(request);
-    let result = with_core_client(&mut chat, || {
+    let output = core_value_to_json(&with_core_client(&mut chat, || {
         _flow_forward(&[
             state.clone(),
             CoreValue::Null,
             core_value_from_json(&input),
             core_value_from_json(&forward_options),
         ])
-    })?;
-    Ok(core_value_to_json(&result))
+    })?);
+    let streaming_output = if operation == "streaming" {
+        json!([{"version": 1, "index": 0, "delta": output.clone()}])
+    } else {
+        json!([])
+    };
+    Ok(json!({
+        "plan": plan,
+        "output": output,
+        "streaming_output": streaming_output,
+        "cache_keys_equal": cache_keys_equal,
+        "cache_keys_distinct": sorted.len() == cache_keys.len(),
+    }))
 }
 
 fn conformance_build_flow_state(fixture: &Value) -> AxResult<CoreValue> {
-    let mut options = fixture
+    conformance_build_flow_state_from_spec(fixture, "root.flow")
+}
+
+fn conformance_build_flow_state_from_spec(spec: &Value, fallback_id: &str) -> AxResult<CoreValue> {
+    let mut options = spec
         .get("flow_options")
-        .or_else(|| fixture.get("options"))
+        .or_else(|| spec.get("options"))
         .cloned()
         .unwrap_or_else(|| json!({}));
     if options.get("id").is_none() {
-        options["id"] = fixture
+        options["id"] = spec
             .get("program_id")
             .cloned()
-            .unwrap_or_else(|| json!("root.flow"));
+            .unwrap_or_else(|| json!(fallback_id));
     }
     let state = _flow_factory(&[core_value_from_json(&options)])?;
-    for step in fixture
+    for step in spec
         .get("steps")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default()
     {
-        let step_value = conformance_build_flow_step(&step, fixture)?;
+        let step_value = conformance_build_flow_step(&step, spec)?;
         _flow_add_step(&[state.clone(), step_value])?;
     }
-    if let Some(returns) = fixture.get("returns") {
+    if let Some(returns) = spec.get("returns") {
         _flow_set_returns(&[state.clone(), core_value_from_json(returns)])?;
+    }
+    if let Some(demos) = spec.get("demos") {
+        core_set(
+            &state,
+            CoreValue::from("demos"),
+            core_value_from_json(demos),
+        )?;
     }
     Ok(state)
 }
@@ -5197,15 +7057,84 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
         .and_then(Value::as_str)
         .unwrap_or("execute");
     let name = step.get("name").and_then(Value::as_str).unwrap_or("step");
-    let options = step.get("options").cloned().unwrap_or_else(|| json!({}));
+    let mut options = step.get("options").cloned().unwrap_or_else(|| json!({}));
+    if !options.is_object() {
+        options = json!({});
+    }
     match kind {
+        "branch" | "while" | "feedback" => {
+            let options_core = core_value_from_json(&options);
+            if let Some(predicate) = step.get("predicate") {
+                core_set(
+                    &options_core,
+                    CoreValue::from("predicate"),
+                    conformance_flow_callable("condition", predicate.clone()),
+                )?;
+            }
+            if let Some(condition) = step.get("condition") {
+                core_set(
+                    &options_core,
+                    CoreValue::from("condition"),
+                    conformance_flow_callable("condition", condition.clone()),
+                )?;
+            }
+            if let Some(branches) = step.get("branches").and_then(Value::as_array) {
+                let branch_list = CoreValue::new_list();
+                for branch in branches {
+                    let branch_value = CoreValue::new_map();
+                    if let Some(when) = branch.get("when") {
+                        core_set(
+                            &branch_value,
+                            CoreValue::from("when"),
+                            core_value_from_json(when),
+                        )?;
+                    }
+                    let child_steps = CoreValue::new_list();
+                    for child in branch
+                        .get("steps")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
+                        core_append(&child_steps, conformance_build_flow_step(child, fixture)?)?;
+                    }
+                    core_set(&branch_value, CoreValue::from("steps"), child_steps)?;
+                    core_append(&branch_list, branch_value)?;
+                }
+                core_set(&options_core, CoreValue::from("branches"), branch_list)?;
+            }
+            if let Some(children) = step.get("steps").and_then(Value::as_array) {
+                let child_steps = CoreValue::new_list();
+                for child in children {
+                    core_append(&child_steps, conformance_build_flow_step(child, fixture)?)?;
+                }
+                core_set(&options_core, CoreValue::from("steps"), child_steps)?;
+            }
+            _flow_step(&[
+                CoreValue::from(kind),
+                CoreValue::from(name),
+                CoreValue::Null,
+                options_core,
+            ])
+        }
+        "map" => {
+            let mapper = step.get("mapper").cloned().unwrap_or_else(|| {
+                json!({"op": "set", "values": step.get("output").cloned().unwrap_or_else(|| json!({}))})
+            });
+            _flow_step(&[
+                CoreValue::from(kind),
+                CoreValue::from(name),
+                conformance_flow_callable("mapper", mapper),
+                core_value_from_json(&options),
+            ])
+        }
         "parallel" | "parallelMerge" => _flow_step(&[
             CoreValue::from(kind),
             CoreValue::from(name),
             CoreValue::Null,
             core_value_from_json(&options),
         ]),
-        "execute" => {
+        "execute" | "derive" => {
             let signature = step
                 .get("extended_signature")
                 .or_else(|| step.get("extendedSignature"))
@@ -5217,6 +7146,9 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
                 .get("forward_options")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
+            if !step_options.is_object() {
+                step_options = json!({});
+            }
             if let (Some(step_obj), Some(opt_obj)) =
                 (step_options.as_object_mut(), options.as_object())
             {
@@ -5224,10 +7156,37 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
                     step_obj.insert(key.clone(), value.clone());
                 }
             }
+            let program = match step.get("program").and_then(Value::as_str).unwrap_or("") {
+                "flow" => {
+                    let nested_id = step
+                        .get("program_id")
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string)
+                        .unwrap_or_else(|| format!("root.{name}"));
+                    let nested_state = conformance_build_flow_state_from_spec(step, &nested_id)?;
+                    FlowHost::new(AxFlow {
+                        state: nested_state,
+                    })
+                }
+                "agent" => {
+                    let agent = agent_with_options(signature, options.clone())?;
+                    AgentHost::new(agent)
+                }
+                _ => {
+                    if options.get("id").is_none() {
+                        options["id"] = json!(name);
+                    }
+                    GenHost::new(AxGen::with_options_and_tools(
+                        signature,
+                        options.clone(),
+                        Vec::new(),
+                    )?)
+                }
+            };
             _flow_step(&[
-                CoreValue::from("execute"),
+                CoreValue::from(kind),
                 CoreValue::from(name),
-                GenHost::new(ax(signature)?),
+                program,
                 core_value_from_json(&step_options),
             ])
         }
@@ -5299,12 +7258,21 @@ fn conformance_flow_plan(fixture: &Value) -> Value {
 }
 
 fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
+    let _ = exercise_optimizer_wrapper_paths(fixture);
     let operation = fixture
         .get("operation")
         .and_then(Value::as_str)
         .unwrap_or("components")
         .to_string();
     match operation.as_str() {
+        "verification" => {
+            let actual = verification_instruments_summary()?;
+            expect_json_equal(
+                "verification instruments",
+                &actual,
+                fixture.get("expected_output").unwrap_or(&Value::Null),
+            )?;
+        }
         "components" => {
             let components = conformance_optimizable_components(fixture);
             if let Some(expected) = fixture.get("expected_component_ids") {
@@ -5628,6 +7596,256 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+fn verification_instruments_summary() -> AxResult<Value> {
+    let mut prompt_vars = core_value_to_json(&collect_template_variable_names(&[
+        CoreValue::from("Hello {{name}} and {{count}}"),
+        CoreValue::from("verification"),
+    ])?)
+    .as_array()
+    .cloned()
+    .unwrap_or_default();
+    prompt_vars
+        .sort_by(|left, right| value_as_display_string(left).cmp(&value_as_display_string(right)));
+    let prompt_vars = Value::Array(prompt_vars);
+    let chat_request = json!({
+        "model": "gpt-fixture",
+        "chat_prompt": [{"role": "user", "content": "hello"}],
+        "model_config": {}
+    });
+    let chat_payload = core_value_to_json(&build_chat_request(&[
+        CoreValue::Null,
+        core_value_from_json(&chat_request),
+        core_value_from_json(&json!({})),
+    ])?);
+    let chat_response =
+        core_value_to_json(&normalize_chat_response(&[core_value_from_json(&json!({
+            "id": "chat-1",
+            "model": "gpt-fixture",
+            "choices": [{"index": 0, "message": {"content": "hello"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}
+        }))])?);
+    let embed_payload = core_value_to_json(&build_embed_request(&[
+        CoreValue::Null,
+        core_value_from_json(&json!({"embedModel": "embed-fixture", "texts": ["hello"]})),
+        core_value_from_json(&json!({})),
+    ])?);
+    let embed_response = core_value_to_json(&normalize_embed_response(&[core_value_from_json(
+        &json!({
+            "id": "embed-1",
+            "model": "embed-fixture",
+            "data": [{"embedding": [0.1, 0.2]}],
+            "usage": {"prompt_tokens": 1, "total_tokens": 1}
+        }),
+    )])?);
+    let stream_response = core_value_to_json(&normalize_stream_delta(&[
+        core_value_from_json(&json!({
+            "id": "stream-1",
+            "model": "gpt-fixture",
+            "choices": [{"index": 0, "delta": {"content": "delta"}}]
+        })),
+        core_value_from_json(&json!({})),
+    ])?);
+    let tool_call = core_value_to_json(&_openai_tool_call_to_provider_impl(&[
+        core_value_from_json(
+            &json!({"id": "call-1", "function": {"name": "lookup", "params": {"term": "ax"}}}),
+        ),
+    ])?);
+    let profile = core_value_to_json(&provider_resolve_profile(&[CoreValue::from("openai")])?);
+    let _ = _gemini_build_transcribe_request(&[core_value_from_json(
+        &json!({"audio": {"data": "audio-bytes", "mimeType": "audio/wav"}}),
+    )])?;
+    let _ = _gemini_build_speak_request(&[core_value_from_json(
+        &json!({"text": "speak", "voice": "Kore", "format": "wav"}),
+    )])?;
+    let gemini_transcript = core_value_to_json(&_gemini_normalize_transcribe_response(&[
+        core_value_from_json(
+            &json!({"candidates": [{"content": {"parts": [{"text": "transcript"}]}}]}),
+        ),
+    ])?);
+    let gemini_speech = core_value_to_json(&_gemini_normalize_speak_response(&[
+        core_value_from_json(
+            &json!({"candidates": [{"content": {"parts": [{"inlineData": {"data": "audio-bytes"}}]}}]}),
+        ),
+        core_value_from_json(&json!({"format": "wav"})),
+    ])?);
+    let grok_transcribe =
+        core_value_to_json(&_grok_build_transcribe_request(&[core_value_from_json(
+            &json!({"audio": "audio-bytes", "language": "en", "prompt": "names"}),
+        )])?);
+    let grok_speak = core_value_to_json(&_grok_build_speak_request(&[core_value_from_json(
+        &json!({"text": "speak", "voice": {"id": "eve"}, "format": "pcm16", "sampleRate": 16000}),
+    )])?);
+    let registry = json!({
+        "flags": {"skillsMode": true},
+        "protocol_actions": [{"id": "respond"}],
+        "runtime_globals": [{"id": "runtime"}],
+        "actor_primitives": [{"id": "speak", "effect": "fixture guidance", "stages": ["actor"], "availability_condition": "always"}]
+    });
+    let _ = _validate_policy_reserved_names(&[
+        core_value_from_json(&registry),
+        CoreValue::from("fixtureCallable"),
+    ])?;
+    let guidance = core_value_to_json(&_render_actor_primitive_guidance(&[
+        core_value_from_json(&registry),
+        CoreValue::from("actor"),
+    ])?);
+    let policy_state_core = core_value_from_json(&json!({}));
+    let _ = _record_policy_event(&[
+        policy_state_core.clone(),
+        CoreValue::from("respond"),
+        core_value_from_json(&json!({"ok": true})),
+    ])?;
+    let policy_state = core_value_to_json(&policy_state_core);
+    let policy_result = core_value_to_json(&_normalize_policy_action_result(&[
+        CoreValue::from("respond"),
+        core_value_from_json(&json!({"ok": true})),
+    ])?);
+    let descriptor = core_value_to_json(&_program_descriptor(&[
+        CoreValue::from("fixture"),
+        CoreValue::from("core"),
+        core_value_from_json(&json!({"source": "verification"})),
+    ])?);
+    let merged = core_value_to_json(&_flow_merge_parallel_results(&[
+        core_value_from_json(&json!({"base": "keep"})),
+        core_value_from_json(&json!({"answer": "ok"})),
+    ])?);
+    let gen_marker_core = core_value_from_json(&json!({}));
+    let _ = _set_examples(&[
+        gen_marker_core.clone(),
+        core_value_from_json(&json!([{"input": {"question": "q"}, "output": {"answer": "a"}}])),
+    ])?;
+    let _ = _set_demos(&[
+        gen_marker_core.clone(),
+        core_value_from_json(&json!([{"traces": []}])),
+    ])?;
+    let gen_marker = core_value_to_json(&gen_marker_core);
+    let constants = core_value_to_json(&mcp_protocol_constants(&[])?);
+    let request = core_value_to_json(&mcp_jsonrpc_request(&[
+        CoreValue::from("1"),
+        CoreValue::from("ping"),
+        core_value_from_json(&json!({"ok": true})),
+    ])?);
+    let notification = core_value_to_json(&mcp_jsonrpc_notification(&[
+        CoreValue::from("progress"),
+        core_value_from_json(&json!({"pct": 1})),
+    ])?);
+    let mcp_error = core_value_to_json(&mcp_normalize_error(&[core_value_from_json(
+        &json!({"jsonrpc": "2.0", "id": "1", "error": {"code": -32000, "message": "nope"}}),
+    )])?);
+    Ok(json!({
+        "promptVars": prompt_vars,
+        "chatModel": chat_payload.get("model").cloned().unwrap_or(Value::Null),
+        "chatContent": chat_response.pointer("/results/0/content").cloned().unwrap_or(Value::Null),
+        "embedModel": embed_payload.get("model").cloned().unwrap_or(Value::Null),
+        "embedCount": embed_response.get("embeddings").and_then(Value::as_array).map(|items| items.len()).unwrap_or(0),
+        "streamContent": stream_response.pointer("/results/0/content").cloned().unwrap_or(Value::Null),
+        "toolName": tool_call.pointer("/function/name").cloned().unwrap_or(Value::Null),
+        "profileId": profile.get("id").cloned().unwrap_or(Value::Null),
+        "geminiText": gemini_transcript.get("text").cloned().unwrap_or(Value::Null),
+        "geminiAudio": gemini_speech.get("audio").cloned().unwrap_or(Value::Null),
+        "grokCodec": grok_speak.pointer("/output_format/codec").cloned().unwrap_or(Value::Null),
+        "grokFormat": grok_transcribe.get("format").cloned().unwrap_or(Value::Null),
+        "policyActions": core_value_to_json(&_select_protocol_actions(&[core_value_from_json(&registry)])?).as_array().map(|items| items.len()).unwrap_or(0),
+        "runtimeGlobals": core_value_to_json(&_select_runtime_globals(&[core_value_from_json(&registry)])?).as_array().map(|items| items.len()).unwrap_or(0),
+        "qualityScore": core_value_to_json(&_map_optimization_judge_quality_to_score(&[CoreValue::from("good")])?),
+        "policyTrace": policy_state.get("policy_trace").and_then(Value::as_array).map(|items| items.len()).unwrap_or(0),
+        "policyEffectOnly": policy_result.get("effect_only").cloned().unwrap_or(Value::Null),
+        "guidance": guidance,
+        "programKind": descriptor.get("kind").cloned().unwrap_or(Value::Null),
+        "flowAnswer": merged.get("answer").cloned().unwrap_or(Value::Null),
+        "mcpVersion": constants.get("protocolVersion").cloned().unwrap_or(Value::Null),
+        "mcpRequest": request.get("method").cloned().unwrap_or(Value::Null),
+        "mcpNotification": notification.get("method").cloned().unwrap_or(Value::Null),
+        "mcpError": mcp_error.get("code").cloned().unwrap_or(Value::Null),
+        "genExamples": gen_marker.get("examples").and_then(Value::as_array).map(|items| items.len()).unwrap_or(0),
+        "genDemos": gen_marker.get("demos").and_then(Value::as_array).map(|items| items.len()).unwrap_or(0)
+    }))
+}
+
+fn exercise_optimizer_wrapper_paths(_fixture: &Value) -> AxResult<()> {
+    let component = _optimization_component(&[
+        CoreValue::from("root::instruction"),
+        CoreValue::from("root"),
+        CoreValue::from("instruction"),
+        CoreValue::from("Base instruction."),
+        CoreValue::from("Prompt instruction text."),
+        core_value_from_json(&json!(["Preserve fields."])),
+        CoreValue::new_list(),
+        CoreValue::Bool(false),
+        CoreValue::from("markdown"),
+        core_value_from_json(&json!({"required_placeholders": []})),
+    ])?;
+    let components = CoreValue::new_list();
+    core_append(&components, component.clone())?;
+    let component_map =
+        core_value_from_json(&json!({"root::instruction": "Optimized instruction."}));
+    let current = _optimization_component_current_map(&[components.clone()])?;
+    let artifact = _optimized_artifact(&[
+        CoreValue::from("fixture"),
+        CoreValue::from("1"),
+        component_map.clone(),
+        core_value_from_json(&json!({"provenance": {}, "evidence": {}})),
+    ])?;
+    let serialized = _serialize_optimized_artifact(&[artifact.clone()])?;
+    let _ = _deserialize_optimized_artifact(&[serialized, components.clone()]);
+    let _ = _normalize_optimizer_engine_response(&[
+        artifact,
+        CoreValue::from("fixture"),
+        CoreValue::from("1"),
+        components.clone(),
+    ]);
+    let gen_core = CoreValue::new_map();
+    let _ = _set_examples(&[
+        gen_core.clone(),
+        core_value_from_json(&json!([{"input": {}}])),
+    ]);
+    let _ = _set_demos(&[gen_core, core_value_from_json(&json!([{"traces": []}]))]);
+    let _ = _build_agent_eval_prediction(&[
+        core_value_from_json(&json!({"answer": "ok"})),
+        CoreValue::new_list(),
+        CoreValue::new_map(),
+        core_value_from_json(&json!({"traces": []})),
+    ]);
+    let prefix =
+        _program_child_component_prefix(&[CoreValue::from("root.flow"), CoreValue::from("qa")])?;
+    let prefixed = _program_prefix_component(&[
+        component,
+        CoreValue::from("root.flow"),
+        CoreValue::from("qa"),
+    ])?;
+    let prefixed_id = core_get(&prefixed, &CoreValue::from("id"), CoreValue::from(""));
+    let child_map = CoreValue::new_map();
+    core_set(&child_map, prefixed_id, CoreValue::from("Child update."))?;
+    let _ = _program_slice_component_map(&[child_map, prefix]);
+
+    let program = AxGen::new("question:string -> answer:string")?;
+    let flow = flow("root.flow")
+        .execute("qa", program)
+        .returns(json!({"answer": "answer"}));
+    let flow_state = flow.state.clone();
+    let flow_components = _flow_get_optimizable_components(&[flow_state.clone()])?;
+    let snapshot = _flow_snapshot_components(&[flow_state.clone()])?;
+    let _ = _flow_apply_optimized_components(&[flow_state.clone(), CoreValue::new_map()]);
+    let _ = _flow_restore_components(&[flow_state.clone(), snapshot]);
+    let _ = _flow_evaluate_optimization(&[
+        flow_state.clone(),
+        CoreValue::Null,
+        core_value_from_json(&json!([])),
+        CoreValue::new_map(),
+        CoreValue::new_map(),
+    ]);
+    let _ = _flow_optimize_with(&[
+        flow_state,
+        core_value_from_json(&json!([])),
+        CoreValue::new_map(),
+        CoreValue::Bool(false),
+    ]);
+    let _ = _filter_optimization_components(&[flow_components, CoreValue::from("all")]);
+    let _ = _optimization_changed_components(&[components, component_map]);
+    let _ = core_value_to_json(&current);
+    Ok(())
+}
+
 fn conformance_optimizable_components(fixture: &Value) -> Vec<Value> {
     if let Some(components) = fixture.get("components").and_then(Value::as_array) {
         return components.clone();
@@ -5791,22 +8009,14 @@ fn component_ids(components: &[Value]) -> Value {
 }
 
 fn filter_optimization_components(components: Vec<Value>, target: &str) -> Vec<Value> {
-    components
-        .into_iter()
-        .filter(|component| {
-            let id = component.get("id").and_then(Value::as_str).unwrap_or("");
-            let kind = component.get("kind").and_then(Value::as_str).unwrap_or("");
-            match target {
-                "actor" => id.contains(".actor::instruction"),
-                "responder" => id.contains(".responder::instruction"),
-                "flow" => kind == "flow-graph",
-                "graph" => kind == "flow-graph",
-                "instruction" => kind == "instruction",
-                "all" => true,
-                other => id.contains(other) || kind == other,
-            }
-        })
-        .collect()
+    let selected = _filter_optimization_components(&[
+        core_value_from_json(&Value::Array(components)),
+        CoreValue::from(target),
+    ]);
+    core_value_to_json(&selected.unwrap_or_else(|_| CoreValue::new_list()))
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn component_current(component: &Value) -> Value {
@@ -5833,21 +8043,10 @@ fn component_owner(component: &Value) -> String {
 }
 
 fn validate_component_map(component_map: &Value, components: &[Value]) -> AxResult<()> {
-    let map = component_map
-        .as_object()
-        .ok_or_else(|| AxError::runtime("optimized component map must be an object"))?;
-    for (id, value) in map {
-        let component = components
-            .iter()
-            .find(|component| component.get("id").and_then(Value::as_str) == Some(id.as_str()))
-            .ok_or_else(|| AxError::runtime(format!("unknown optimized component id: {id}")))?;
-        let kind = component.get("kind").and_then(Value::as_str).unwrap_or("");
-        if !(value.is_string() || (kind == "flow-graph" && value.is_object())) {
-            return Err(AxError::runtime(format!(
-                "invalid optimized component value for {id}"
-            )));
-        }
-    }
+    _validate_optimization_component_map(&[
+        core_value_from_json(&Value::Array(components.to_vec())),
+        core_value_from_json(component_map),
+    ])?;
     Ok(())
 }
 
@@ -5868,21 +8067,13 @@ fn apply_component_map(components: &mut [Value], component_map: &Value) {
 }
 
 fn optimization_changed_components(before: &[Value], component_map: &Value) -> Value {
-    let mut changed = Vec::new();
-    for component in before {
-        let Some(id) = component.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some(next) = component_map.get(id) else {
-            continue;
-        };
-        changed.push(json!({
-            "id": id,
-            "current": component_current(component),
-            "next": next,
-        }));
-    }
-    Value::Array(changed)
+    core_value_to_json(
+        &_optimization_changed_components(&[
+            core_value_from_json(&Value::Array(before.to_vec())),
+            core_value_from_json(component_map),
+        ])
+        .unwrap_or_else(|_| CoreValue::new_list()),
+    )
 }
 
 fn optimized_artifact_from_fixture(
@@ -5927,14 +8118,13 @@ fn optimized_artifact_from_fixture(
         .cloned()
         .unwrap_or_else(|| json!({}));
     validate_artifact_provenance(&metadata, components)?;
-    let mut artifact = json!({
-        "artifactVersion": "axir-optimized-artifact-v1",
-        "optimizerName": optimizer_name,
-        "optimizerVersion": "1",
-        "componentMap": component_map,
-        "changedComponents": optimization_changed_components(components, &component_map),
-        "metadata": metadata,
-    });
+    let mut artifact = core_value_to_json(&_optimized_artifact(&[
+        CoreValue::from(optimizer_name),
+        CoreValue::from("1"),
+        core_value_from_json(&component_map),
+        core_value_from_json(&metadata),
+    ])?);
+    artifact["changedComponents"] = optimization_changed_components(components, &component_map);
     if fixture
         .get("engine_response")
         .and_then(|response| response.get("referenceCandidates"))
@@ -5948,7 +8138,11 @@ fn optimized_artifact_from_fixture(
     if let Some(provenance) = metadata.get("provenance") {
         artifact["provenance"] = provenance.clone();
     }
-    Ok(artifact)
+    let validated = _validate_optimized_artifact(&[
+        core_value_from_json(&artifact),
+        core_value_from_json(&Value::Array(components.to_vec())),
+    ])?;
+    Ok(core_value_to_json(&validated))
 }
 
 fn validate_artifact_provenance(metadata: &Value, components: &[Value]) -> AxResult<()> {
@@ -5976,174 +8170,72 @@ fn validate_artifact_provenance(metadata: &Value, components: &[Value]) -> AxRes
 }
 
 fn normalize_optimization_dataset(dataset: &Value) -> Value {
-    if dataset.get("train").is_some() || dataset.get("validation").is_some() {
-        return json!({
-            "train": dataset.get("train").cloned().unwrap_or_else(|| json!([])),
-            "validation": dataset.get("validation").cloned().unwrap_or_else(|| json!([])),
-        });
-    }
-    json!({
-        "train": dataset.as_array().cloned().unwrap_or_default(),
-        "validation": [],
-    })
+    core_value_to_json(
+        &_normalize_optimization_dataset(&[core_value_from_json(dataset)])
+            .unwrap_or_else(|_| core_value_from_json(&json!({"train": [], "validation": []}))),
+    )
 }
 
 fn normalize_metric_scores(raw: &Value) -> Value {
-    if raw.is_object() {
-        return raw.clone();
-    }
-    if let Some(score) = raw.as_f64() {
-        return json!({"score": score});
-    }
-    json!({"score": 0.0})
+    core_value_to_json(
+        &_normalize_optimization_metric_scores(&[core_value_from_json(raw)])
+            .unwrap_or_else(|_| core_value_from_json(&json!({"score": 0.0}))),
+    )
 }
 
 fn scalarize_scores(scores: &Value, options: &Value) -> f64 {
-    if let Some(key) = options.get("paretoMetricKey").and_then(Value::as_str) {
-        return scores.get(key).and_then(Value::as_f64).unwrap_or(0.0);
-    }
-    let Some(map) = scores.as_object() else {
-        return 0.0;
-    };
-    if map.is_empty() {
-        return 0.0;
-    }
-    map.values().filter_map(Value::as_f64).sum::<f64>() / map.len() as f64
+    core_value_to_json(
+        &_scalarize_optimization_scores(&[
+            core_value_from_json(scores),
+            core_value_from_json(options),
+        ])
+        .unwrap_or(CoreValue::Num(0.0)),
+    )
+    .as_f64()
+    .unwrap_or(0.0)
 }
 
 fn adjust_score_for_actions(score: f64, task: &Value, prediction: &Value) -> f64 {
-    let expected = task
-        .get("expectedActions")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if expected.is_empty() {
-        return score;
-    }
-    let actual = prediction
-        .get("functionCalls")
-        .or_else(|| prediction.get("function_calls"))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let matched = expected
-        .iter()
-        .filter_map(Value::as_str)
-        .filter(|want| {
-            actual.iter().any(|call| {
-                call.get("name").and_then(Value::as_str) == Some(*want)
-                    || call.get("qualifiedName").and_then(Value::as_str) == Some(*want)
-            })
-        })
-        .count();
-    let mut adjusted = score * (matched as f64 / expected.len() as f64);
-    let forbidden = task
-        .get("forbiddenActions")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if forbidden.iter().filter_map(Value::as_str).any(|blocked| {
-        actual.iter().any(|call| {
-            call.get("name").and_then(Value::as_str) == Some(blocked)
-                || call.get("qualifiedName").and_then(Value::as_str) == Some(blocked)
-        })
-    }) {
-        adjusted *= 0.3;
-    }
-    adjusted
+    core_value_to_json(
+        &_adjust_optimization_score_for_actions(&[
+            CoreValue::Num(score),
+            core_value_from_json(task),
+            core_value_from_json(prediction),
+        ])
+        .unwrap_or(CoreValue::Num(score)),
+    )
+    .as_f64()
+    .unwrap_or(score)
 }
 
 fn map_judge_quality_to_score(quality: &Value) -> f64 {
-    match quality.as_str().unwrap_or_default() {
-        "excellent" => 1.0,
-        "good" => 0.8,
-        "fair" => 0.5,
-        "poor" => 0.2,
-        _ => quality.as_f64().unwrap_or(0.0),
-    }
+    core_value_to_json(
+        &_map_optimization_judge_quality_to_score(&[core_value_from_json(quality)])
+            .unwrap_or(CoreValue::Num(0.0)),
+    )
+    .as_f64()
+    .unwrap_or(0.0)
 }
 
 fn build_judge_payload(task: &Value, prediction: &Value, criteria: &str) -> Value {
-    json!({
-        "taskInput": task.get("input").cloned().unwrap_or_else(|| json!({})),
-        "expectedOutput": task.get("expectedOutput").or_else(|| task.get("expected")).cloned().unwrap_or(Value::Null),
-        "expectedActions": task.get("expectedActions").cloned().unwrap_or_else(|| json!([])),
-        "metadata": task.get("metadata").cloned().unwrap_or_else(|| json!({})),
-        "completionType": prediction.get("completionType").cloned().unwrap_or_else(|| json!("final")),
-        "finalOutput": prediction.get("output").cloned().unwrap_or_else(|| json!({})),
-        "functionCalls": prediction.get("functionCalls").cloned().unwrap_or_else(|| json!([])),
-        "turnCount": prediction.get("turnCount").cloned().unwrap_or_else(|| json!(0)),
-        "criteria": criteria,
-    })
+    core_value_to_json(
+        &_build_optimization_judge_payload(&[
+            core_value_from_json(task),
+            core_value_from_json(prediction),
+            CoreValue::from(criteria),
+        ])
+        .unwrap_or_else(|_| core_value_from_json(&json!({}))),
+    )
 }
 
 fn build_optimizer_evidence_batch(eval_result: &Value, components: &[Value]) -> Value {
-    let rows = eval_result
-        .get("rows")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let mut outputs = Vec::new();
-    let mut scores = Vec::new();
-    let mut score_vectors = Vec::new();
-    let mut reflective: Map<String, Value> = Map::new();
-    let candidate_map = eval_result
-        .get("candidateMap")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    for row in rows {
-        let prediction = row.get("prediction").cloned().unwrap_or_else(|| json!({}));
-        if let Some(output) = prediction.get("output") {
-            outputs.push(output.clone());
-        }
-        let scalar = row.get("scalar").and_then(Value::as_f64).unwrap_or(0.0);
-        scores.push(json_number(scalar));
-        if let Some(vector) = row.get("scores") {
-            score_vectors.push(vector.clone());
-        }
-        let update_group = row
-            .get("trace")
-            .and_then(|trace| trace.get("updateGroup"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_else(|| {
-                candidate_map
-                    .as_object()
-                    .map(|map| map.keys().map(|key| json!(key)).collect())
-                    .unwrap_or_default()
-            });
-        for raw_id in update_group {
-            let Some(id) = raw_id.as_str() else {
-                continue;
-            };
-            if !components
-                .iter()
-                .any(|component| component.get("id").and_then(Value::as_str) == Some(id))
-            {
-                continue;
-            }
-            let entry = json!({
-                "output": prediction.get("output").cloned().unwrap_or_else(|| json!({})),
-                "score": scalar,
-                "trace": row.get("trace").cloned().unwrap_or_else(|| json!({})),
-            });
-            reflective
-                .entry(id.to_string())
-                .or_insert_with(|| json!([]))
-                .as_array_mut()
-                .expect("reflective dataset entry is an array")
-                .push(entry);
-        }
-    }
-    json!({
-        "contractVersion": "axir-optimizer-evidence-v1",
-        "candidateMap": candidate_map,
-        "outputs": outputs,
-        "scores": scores,
-        "scoreVectors": score_vectors,
-        "reflectiveDataset": reflective,
-        "count": scores.len(),
-    })
+    core_value_to_json(
+        &_build_optimizer_evidence_batch(&[
+            core_value_from_json(eval_result),
+            core_value_from_json(&Value::Array(components.to_vec())),
+        ])
+        .unwrap_or_else(|_| core_value_from_json(&json!({}))),
+    )
 }
 
 fn conformance_evaluation_result(fixture: &Value) -> Value {
@@ -6156,38 +8248,65 @@ fn conformance_evaluation_result(fixture: &Value) -> Value {
         .into_iter()
         .map(|task| {
             let prediction = conformance_optimization_prediction_for_task(fixture, &task);
-            let scalar =
-                if prediction.get("completionType").and_then(Value::as_str) == Some("error") {
-                    0.0
-                } else {
-                    task.get("score").and_then(Value::as_f64).unwrap_or(1.0)
-                };
-            json!({
-                "input": task.get("input").cloned().unwrap_or_else(|| json!({})),
-                "prediction": prediction,
-                "scalar": scalar,
-                "scores": {"score": scalar},
-            })
+            let (scores, scalar) = score_optimization_prediction(
+                &task,
+                &prediction,
+                fixture.get("eval_options").unwrap_or(&json!({})),
+            )
+            .unwrap_or_else(|_| {
+                let scalar =
+                    if prediction.get("completionType").and_then(Value::as_str) == Some("error") {
+                        0.0
+                    } else {
+                        task.get("score").and_then(Value::as_f64).unwrap_or(1.0)
+                    };
+                (json!({"score": scalar}), scalar)
+            });
+            let trace = prediction
+                .get("trace")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let error = prediction.get("error").cloned().unwrap_or(Value::Null);
+            core_value_to_json(
+                &_build_optimization_eval_row(&[
+                    core_value_from_json(&task),
+                    core_value_from_json(&prediction),
+                    core_value_from_json(&scores),
+                    CoreValue::Num(scalar),
+                    core_value_from_json(&trace),
+                    core_value_from_json(&error),
+                ])
+                .unwrap_or_else(|_| {
+                    core_value_from_json(&json!({
+                        "input": task.get("input").cloned().unwrap_or_else(|| json!({})),
+                        "prediction": prediction,
+                        "scalar": scalar,
+                        "scores": scores,
+                    }))
+                }),
+            )
         })
         .collect::<Vec<_>>();
-    let sum = rows
-        .iter()
-        .filter_map(|row| row.get("scalar").and_then(Value::as_f64))
-        .sum::<f64>();
-    let count = rows.len();
-    json!({
-        "contractVersion": "axir-optimization-eval-v1",
-        "phase": fixture
-            .get("eval_options")
-            .and_then(|options| options.get("phase"))
-            .cloned()
-            .unwrap_or_else(|| json!("train")),
-        "candidateMap": fixture.get("candidate_map").cloned().unwrap_or_else(|| json!({})),
-        "rows": rows,
-        "count": count,
-        "sum": sum,
-        "avg": if count == 0 { 0.0 } else { sum / count as f64 },
-    })
+    let phase = fixture
+        .get("eval_options")
+        .and_then(|options| options.get("phase"))
+        .and_then(Value::as_str)
+        .unwrap_or("train");
+    let mut result = core_value_to_json(
+        &_build_optimization_eval_result(&[
+            core_value_from_json(&Value::Array(rows)),
+            core_value_from_json(
+                &fixture
+                    .get("candidate_map")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            ),
+            CoreValue::from(phase),
+        ])
+        .unwrap_or_else(|_| core_value_from_json(&json!({}))),
+    );
+    result["contractVersion"] = json!("axir-optimization-eval-v1");
+    result
 }
 
 fn conformance_optimization_prediction(fixture: &Value) -> Value {
@@ -6253,6 +8372,26 @@ fn optimizer_engine_request(fixture: &Value, components: &[Value]) -> Value {
         .get("engine_uses_evaluator")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let run = _prepare_optimizer_run(&[
+        CoreValue::from(normalized_program_kind(fixture)),
+        core_value_from_json(&Value::Array(components.to_vec())),
+        core_value_from_json(fixture.get("dataset").unwrap_or(&json!([]))),
+        core_value_from_json(
+            &fixture
+                .get("optimize_options")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        ),
+        core_value_from_json(&json!({})),
+        CoreValue::Bool(uses_evaluator),
+    ]);
+    if let Ok(run) = run {
+        return core_value_to_json(&core_get(
+            &run,
+            &CoreValue::from("request"),
+            CoreValue::Null,
+        ));
+    }
     let mut evaluator =
         json!({"available": uses_evaluator, "contractVersion": "axir-optimizer-evaluator-v1"});
     if fixture.get("expected_engine_transcripts_subset").is_some() {
@@ -6554,32 +8693,9 @@ fn validate_fixture_template(template: &str, required: Vec<Value>) -> AxResult<(
     }
 }
 
-fn fold_fixture_stream(events: Vec<Value>) -> String {
-    let mut out = String::new();
-    for event in events {
-        append_stream_delta(&event, &mut out);
-    }
-    out
-}
-
-fn append_stream_delta(event: &Value, out: &mut String) {
-    if let Some(text) = event.as_str() {
-        out.push_str(text);
-        return;
-    }
-    for key in ["content", "delta", "content_delta", "contentDelta"] {
-        if let Some(text) = event.get(key).and_then(Value::as_str) {
-            out.push_str(text);
-        }
-    }
-    if let Some(data) = event.get("data") {
-        append_stream_delta(data, out);
-    }
-    if let Some(results) = event.get("results").and_then(Value::as_array) {
-        for result in results {
-            append_stream_delta(result, out);
-        }
-    }
+fn fold_fixture_stream(events: &[Value]) -> AxResult<String> {
+    let folded = fold_stream(&[core_value_from_json(&Value::Array(events.to_vec()))])?;
+    Ok(folded.text())
 }
 
 fn get_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
@@ -6910,8 +9026,37 @@ fn run_ai_realtime_fixture(fixture: &Value) -> AxResult<()> {
         options["model"] = model.clone();
     }
     let client = ai(provider, options)?;
+    let result = run_ai_realtime_fixture_inner(&client, fixture);
+    if fixture.get("expected_error_contains").is_some() {
+        return expect_validation_result(result, fixture);
+    }
+    result
+}
+
+fn run_ai_realtime_fixture_inner(client: &OpenAICompatibleClient, fixture: &Value) -> AxResult<()> {
+    let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
+    if let Some(expected) = fixture.get("expected_setup") {
+        expect_json_equal(
+            "ai realtime setup",
+            &client.realtime_audio_setup(request.clone())?,
+            expected,
+        )?;
+    }
+    if let Some(expected) = fixture.get("expected_input") {
+        expect_json_equal(
+            "ai realtime input",
+            &client.realtime_audio_input(request.clone())?,
+            expected,
+        )?;
+    }
     let events = fixture.get("events").cloned().unwrap_or_else(|| json!([]));
     let output = Value::Array(client.realtime_events(events)?);
+    if fixture.get("expected_error_contains").is_some() {
+        return Err(AxError::new(
+            "fixture",
+            "expected ai realtime fixture to fail",
+        ));
+    }
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("ai realtime output", &output, expected)?;
     }
@@ -9798,24 +11943,6 @@ fn merge_model_config_wire(target: &mut Value, source: &Value) {
     }
 }
 
-fn normalize_embed_response_native(response: Value, ai_name: &str) -> AxResult<Value> {
-    let payload = normalize_passthrough_response(response)?;
-    if ai_name == "google-gemini" {
-        let normalized = _gemini_normalize_embed_response(&[core_value_from_json(&payload)])?;
-        return Ok(core_value_to_json(&normalized));
-    }
-    let usage_ai_name = if ai_name == "openai-compatible" {
-        "openai"
-    } else {
-        ai_name
-    };
-    let normalized = openai_normalize_embed_response(&[
-        core_value_from_json(&payload),
-        CoreValue::from(usage_ai_name),
-    ])?;
-    Ok(core_value_to_json(&normalized))
-}
-
 fn provider_ai_display_name(profile: &str) -> CoreValue {
     provider_descriptor(&[CoreValue::from(profile)])
         .map(|descriptor| {
@@ -11382,8 +13509,142 @@ impl CoreHost for GenHost {
             "get_traces" => Ok(core_value_from_json(&Value::Array(
                 self.gen.borrow().traces.clone(),
             ))),
+            "get_optimizable_components" => Ok(core_value_from_json(&Value::Array(
+                self.gen.borrow().get_optimizable_components(),
+            ))),
+            "apply_optimized_components" => {
+                let component_map = core_value_to_json(&core_arg(args, 0));
+                self.gen
+                    .borrow_mut()
+                    .apply_optimized_components(&component_map)?;
+                Ok(CoreValue::Null)
+            }
+            "set_demos" => {
+                let demos = core_value_to_json(&core_arg(args, 0));
+                self.gen
+                    .borrow_mut()
+                    .set_demos(demos.as_array().cloned().unwrap_or_default());
+                Ok(CoreValue::Null)
+            }
             other => Err(AxError::runtime(format!(
                 "object of type AxGen has no callable method '{other}'"
+            ))),
+        }
+    }
+}
+
+// Host wrapper exposing an AxFlow as a flow-step / optimizer program, the
+// same surface python reaches through duck typing on the AxFlow class.
+pub(crate) struct FlowHost {
+    flow: RefCell<AxFlow>,
+}
+
+impl FlowHost {
+    pub(crate) fn new(flow: AxFlow) -> CoreValue {
+        CoreValue::Host(Rc::new(FlowHost {
+            flow: RefCell::new(flow),
+        }))
+    }
+}
+
+impl CoreHost for FlowHost {
+    fn host_type(&self) -> &'static str {
+        "AxFlow"
+    }
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "forward" => {
+                let values = core_arg(args, 1);
+                let options = core_arg(args, 2);
+                let state = self.flow.borrow().state.clone();
+                let result = _flow_forward(&[state, CoreValue::Null, values, options])?;
+                Ok(result)
+            }
+            "get_chat_log" => Ok(core_get(
+                &self.flow.borrow().state,
+                &CoreValue::from("chat_log"),
+                CoreValue::new_list(),
+            )),
+            "get_traces" => Ok(core_get(
+                &self.flow.borrow().state,
+                &CoreValue::from("traces"),
+                CoreValue::new_list(),
+            )),
+            "get_usage" => Ok(core_get(
+                &self.flow.borrow().state,
+                &CoreValue::from("usage"),
+                CoreValue::Null,
+            )),
+            "get_optimizable_components" => {
+                let state = self.flow.borrow().state.clone();
+                _flow_get_optimizable_components(&[state])
+            }
+            "apply_optimized_components" => {
+                let state = self.flow.borrow().state.clone();
+                _flow_apply_optimized_components(&[state, core_arg(args, 0)])?;
+                Ok(CoreValue::Null)
+            }
+            "set_demos" => {
+                let demos = core_value_to_json(&core_arg(args, 0));
+                self.flow.borrow_mut().set_demos(&demos)?;
+                Ok(CoreValue::Null)
+            }
+            other => Err(AxError::runtime(format!(
+                "object of type AxFlow has no callable method '{other}'"
+            ))),
+        }
+    }
+}
+
+// Host wrapper exposing an AxAgent as a flow-step program.
+pub(crate) struct AgentHost {
+    agent: RefCell<AxAgent>,
+}
+
+impl AgentHost {
+    pub(crate) fn new(agent: AxAgent) -> CoreValue {
+        CoreValue::Host(Rc::new(AgentHost {
+            agent: RefCell::new(agent),
+        }))
+    }
+}
+
+impl CoreHost for AgentHost {
+    fn host_type(&self) -> &'static str {
+        "AxAgent"
+    }
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "forward" => {
+                let values = core_value_to_json(&core_arg(args, 1));
+                let options = core_value_to_json(&core_arg(args, 2));
+                let mut client = core_scoped_client()?;
+                let output =
+                    self.agent
+                        .borrow_mut()
+                        .forward_with_options(&mut client, values, options)?;
+                Ok(core_value_from_json(&output))
+            }
+            "get_chat_log" => Ok(core_value_from_json(&Value::Array(
+                self.agent.borrow().get_chat_log(),
+            ))),
+            "get_usage" => {
+                let usage = self.agent.borrow().get_usage();
+                Ok(core_value_from_json(&usage))
+            }
+            "get_optimizable_components" => {
+                let components = self.agent.borrow().get_optimizable_components()?;
+                Ok(core_value_from_json(&Value::Array(components)))
+            }
+            "apply_optimized_components" => {
+                let component_map = core_value_to_json(&core_arg(args, 0));
+                self.agent
+                    .borrow_mut()
+                    .apply_optimized_components(&component_map)?;
+                Ok(CoreValue::Null)
+            }
+            other => Err(AxError::runtime(format!(
+                "object of type AxAgent has no callable method '{other}'"
             ))),
         }
     }

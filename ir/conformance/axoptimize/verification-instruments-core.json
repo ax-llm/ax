@@ -1,0 +1,33 @@
+{
+  "name": "verification-instruments-core",
+  "kind": "optimize",
+  "operation": "verification",
+  "expected_output": {
+    "promptVars": ["count", "name"],
+    "chatModel": "gpt-fixture",
+    "chatContent": "hello",
+    "embedModel": "embed-fixture",
+    "embedCount": 1,
+    "streamContent": "delta",
+    "toolName": "lookup",
+    "profileId": "openai-compatible",
+    "geminiText": "transcript",
+    "geminiAudio": "audio-bytes",
+    "grokCodec": "pcm",
+    "grokFormat": true,
+    "policyActions": 1,
+    "runtimeGlobals": 1,
+    "qualityScore": 0.8,
+    "policyTrace": 1,
+    "policyEffectOnly": false,
+    "guidance": "- speak: fixture guidance",
+    "programKind": "fixture",
+    "flowAnswer": "ok",
+    "mcpVersion": "2025-11-25",
+    "mcpRequest": "ping",
+    "mcpNotification": "progress",
+    "mcpError": -32000,
+    "genExamples": 1,
+    "genDemos": 1
+  }
+}

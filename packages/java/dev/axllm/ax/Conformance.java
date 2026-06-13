@@ -893,6 +893,10 @@ public final class Conformance {
         : Ax.agent(signature, options);
     String operation = String.valueOf(fixture.getOrDefault("operation", "components"));
     try {
+      if ("verification".equals(operation)) {
+        assertEqual(verificationInstrumentsSummary(), fixture.get("expected_output"), "verification instruments");
+        return;
+      }
       if ("components".equals(operation)) {
         Object components = ((AxProgram) program).getOptimizableComponents();
         if (fixture.containsKey("expected_components_subset")) assertListSubset(Core.asList(components), fixture.get("expected_components_subset"), "optimizable components");
@@ -1070,6 +1074,90 @@ public final class Conformance {
       throw e;
     }
     throw new FixtureError("unknown optimize operation " + operation);
+  }
+
+  static Map<String, Object> verificationInstrumentsSummary() {
+    List<Object> promptVars = new ArrayList<>(Core.asList(Core.collect_template_variable_names("Hello {{name}} and {{count}}", "verification")));
+    promptVars.sort((a, b) -> String.valueOf(a).compareTo(String.valueOf(b)));
+    Map<String, Object> chatRequest = new LinkedHashMap<>();
+    chatRequest.put("model", "gpt-fixture");
+    chatRequest.put("chat_prompt", List.of(Map.of("role", "user", "content", "hello")));
+    chatRequest.put("model_config", Map.of());
+    Map<String, Object> chatPayload = Core.asMap(Core.build_chat_request(null, chatRequest, Map.of()));
+    Object chatResponse = Core.normalize_chat_response(Map.of(
+      "id", "chat-1",
+      "model", "gpt-fixture",
+      "choices", List.of(Map.of("index", 0, "message", Map.of("content", "hello"), "finish_reason", "stop")),
+      "usage", Map.of("prompt_tokens", 1, "completion_tokens", 2, "total_tokens", 3)
+    ));
+    Map<String, Object> embedPayload = Core.asMap(Core.build_embed_request(null, Map.of("embedModel", "embed-fixture", "texts", List.of("hello")), Map.of()));
+    Object embedResponse = Core.normalize_embed_response(Map.of(
+      "id", "embed-1",
+      "model", "embed-fixture",
+      "data", List.of(Map.of("embedding", List.of(0.1, 0.2))),
+      "usage", Map.of("prompt_tokens", 1, "total_tokens", 1)
+    ));
+    Object streamResponse = Core.normalize_stream_delta(Map.of(
+      "id", "stream-1",
+      "model", "gpt-fixture",
+      "choices", List.of(Map.of("index", 0, "delta", Map.of("content", "delta")))
+    ), new LinkedHashMap<String, Object>());
+    Object toolCall = Core._openai_tool_call_to_provider_impl(Map.of("id", "call-1", "function", Map.of("name", "lookup", "params", Map.of("term", "ax"))));
+    Object profile = Core.provider_resolve_profile("openai");
+    Core._gemini_build_transcribe_request(Map.of("audio", Map.of("data", "audio-bytes", "mimeType", "audio/wav")));
+    Core._gemini_build_speak_request(Map.of("text", "speak", "voice", "Kore", "format", "wav"));
+    Object geminiTranscript = Core._gemini_normalize_transcribe_response(Map.of("candidates", List.of(Map.of("content", Map.of("parts", List.of(Map.of("text", "transcript")))))));
+    Object geminiSpeech = Core._gemini_normalize_speak_response(Map.of("candidates", List.of(Map.of("content", Map.of("parts", List.of(Map.of("inlineData", Map.of("data", "audio-bytes"))))))), Map.of("format", "wav"));
+    Object grokTranscribe = Core._grok_build_transcribe_request(Map.of("audio", "audio-bytes", "language", "en", "prompt", "names"));
+    Object grokSpeak = Core._grok_build_speak_request(Map.of("text", "speak", "voice", Map.of("id", "eve"), "format", "pcm16", "sampleRate", 16000));
+    Map<String, Object> registry = new LinkedHashMap<>();
+    registry.put("flags", Map.of("skillsMode", true));
+    registry.put("protocol_actions", List.of(Map.of("id", "respond")));
+    registry.put("runtime_globals", List.of(Map.of("id", "runtime")));
+    registry.put("actor_primitives", List.of(Map.of("id", "speak", "effect", "fixture guidance", "stages", List.of("actor"), "availability_condition", "always")));
+    Core._validate_policy_reserved_names(registry, "fixtureCallable");
+    Object guidance = Core._render_actor_primitive_guidance(registry, "actor");
+    Map<String, Object> policyState = new LinkedHashMap<>();
+    Core._record_policy_event(policyState, "respond", Map.of("ok", true));
+    Object policyResult = Core._normalize_policy_action_result("respond", Map.of("ok", true));
+    Object descriptor = Core._program_descriptor("fixture", "core", Map.of("source", "verification"));
+    Object merged = Core._flow_merge_parallel_results(Map.of("base", "keep"), Map.of("answer", "ok"));
+    Map<String, Object> genMarker = new LinkedHashMap<>();
+    Core._set_examples(genMarker, List.of(Map.of("input", Map.of("question", "q"), "output", Map.of("answer", "a"))));
+    Core._set_demos(genMarker, List.of(Map.of("traces", List.of())));
+    Object constants = Core.mcp_protocol_constants();
+    Object request = Core.mcp_jsonrpc_request("1", "ping", Map.of("ok", true));
+    Object notification = Core.mcp_jsonrpc_notification("progress", Map.of("pct", 1));
+    Object mcpError = Core.mcp_normalize_error(Map.of("jsonrpc", "2.0", "id", "1", "error", Map.of("code", -32000, "message", "nope")));
+
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("promptVars", promptVars);
+    out.put("chatModel", chatPayload.get("model"));
+    out.put("chatContent", Core.get(Core.get(Core.get(chatResponse, "results", List.of()), 0, Map.of()), "content", null));
+    out.put("embedModel", embedPayload.get("model"));
+    out.put("embedCount", Core.asList(Core.get(embedResponse, "embeddings", List.of())).size());
+    out.put("streamContent", Core.get(Core.get(Core.get(streamResponse, "results", List.of()), 0, Map.of()), "content", null));
+    out.put("toolName", Core.get(Core.get(toolCall, "function", Map.of()), "name", null));
+    out.put("profileId", Core.get(profile, "id", null));
+    out.put("geminiText", Core.get(geminiTranscript, "text", null));
+    out.put("geminiAudio", Core.get(geminiSpeech, "audio", null));
+    out.put("grokCodec", Core.get(Core.get(grokSpeak, "output_format", Map.of()), "codec", null));
+    out.put("grokFormat", Core.get(grokTranscribe, "format", null));
+    out.put("policyActions", Core.asList(Core._select_protocol_actions(registry)).size());
+    out.put("runtimeGlobals", Core.asList(Core._select_runtime_globals(registry)).size());
+    out.put("qualityScore", Core._map_optimization_judge_quality_to_score("good"));
+    out.put("policyTrace", Core.asList(Core.get(policyState, "policy_trace", List.of())).size());
+    out.put("policyEffectOnly", Core.get(policyResult, "effect_only", null));
+    out.put("guidance", guidance);
+    out.put("programKind", Core.get(descriptor, "kind", null));
+    out.put("flowAnswer", Core.get(merged, "answer", null));
+    out.put("mcpVersion", Core.get(constants, "protocolVersion", null));
+    out.put("mcpRequest", Core.get(request, "method", null));
+    out.put("mcpNotification", Core.get(notification, "method", null));
+    out.put("mcpError", Core.get(mcpError, "code", null));
+    out.put("genExamples", Core.asList(Core.get(genMarker, "examples", List.of())).size());
+    out.put("genDemos", Core.asList(Core.get(genMarker, "demos", List.of())).size());
+    return out;
   }
 
   static void assertAgentTrace(AxAgent agent, Map<String, Object> fixture) {
