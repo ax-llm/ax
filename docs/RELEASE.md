@@ -1,4 +1,5 @@
 # Ax Multi-Language Releases
+<!-- cspell:words Pyodide quickjs -->
 
 Ax ships first as the TypeScript/JavaScript package `@ax-llm/ax`. The same
 portable Ax semantics can also be emitted as generated Python, Java, C++, Go,
@@ -25,6 +26,48 @@ Generated package metadata uses the same version as the root `@ax-llm/ax`
 package. Release automation may override this with `AX_PACKAGE_VERSION`; local
 compiler runs fall back to the nearest `package.json` version and then to a
 development fallback.
+
+## Release Flow
+
+`npm run release` is the normal TypeScript workspace release path. It runs the
+workspace release steps and then the root `release-it --no-increment` step that
+creates the final release commit, tag, and GitHub Release.
+
+Generated package source is checked in under `packages/<language>`. Built
+registry artifacts, such as Python wheels, source distributions, Rust cargo
+outputs, and other upload bundles, are not checked in. GitHub Actions publish
+from the tagged, committed package source; publish jobs should not generate new
+package source after checking out the release tag.
+
+When AxIR, language templates, package examples, or conformance fixtures change,
+regenerate and check the generated package trees before the final release tag.
+Because generated package metadata follows the root package version, the
+regeneration must happen after the workspace version bump and before the root
+release commit/tag.
+
+## Maintainer How-To
+
+For an ordinary TypeScript-only release, use the existing one-command flow:
+
+```bash
+npm run release
+```
+
+For an AxIR/generated-language release, expand the current root release script
+into phases so the generated packages pick up the bumped root version:
+
+```bash
+npm run release --workspaces --if-present
+npm run axir:generate-packages
+npm run axir:check-packages
+npm run axir:verify:release
+npm exec -- release-it --no-increment
+```
+
+The first command is the existing workspace-version-bump phase from
+`npm run release`. The final command is the existing root release phase. Keep
+the regenerated `packages/*` changes in the same release commit/tag as the
+TypeScript version bump.
 
 ## Local Release Smoke
 
@@ -114,23 +157,28 @@ provider HTTP and require provider keys such as `OPENAI_API_KEY` or
 
 ## Publishing Shape
 
-Publishing is secret-gated per ecosystem:
+Publishing is secret-gated per ecosystem and runs from GitHub Actions after a
+GitHub Release is published:
 
-- npm continues to publish `@ax-llm/ax` through the existing release flow.
-- PyPI publishing should upload the generated `axllm` wheel/sdist with
-  `PYPI_API_TOKEN`.
-- Maven Central publishing should upload `dev.axllm:ax` with the configured
-  Central credentials and signing setup.
-- C++ should start as GitHub Release source/CMake artifacts. Conan or vcpkg can
-  be added later if product demand justifies maintaining package-manager recipes.
-- Rust publishing should upload the generated `axllm` crate to crates.io only
-  after rechecking the crate name, because crate names are first-come and
-  permanent.
+- `.github/workflows/npm-publish.yml` runs `npm run publish` for the npm
+  workspaces with `NODE_AUTH_TOKEN`.
+- `.github/workflows/package-publish.yml` separately publishes generated
+  packages from the same release event.
+- Current generated-package publishing covers Python/PyPI and Rust/crates.io.
+  PyPI builds and uploads the generated `axllm` wheel and source distribution;
+  Rust publishes the generated `axllm` crate.
+- Java/Maven Central, C++ release artifacts/package-manager recipes, and Go
+  module release handling are future publishing work unless added in a separate
+  release change. Go consumers resolve the module from the git tag.
+
+CI publishing uses GitHub secrets and trusted-publishing/OIDC where configured,
+not `.env`. The repo `.env` is only for local example/provider runs and for any
+future local helper script that explicitly loads it.
 
 The release gate should run `axir verify` and `npm run axir:check-packages`
-before upload, and keep generated runtime-profile dependencies out of the base
+before upload. Keep generated runtime-profile dependencies out of the base
 Python, Java, C++, and Rust packages. For Go, keep vendor-specific runtime
-constructors in opt-in subpackages such as `runtime/goja` rather than in the
+constructors in opt-in sub-packages such as `runtime/goja` rather than in the
 root `axllm` package. For Rust, keep embedded runtime engines additive,
 feature-gated, and behind the existing `AxCodeRuntime` / `AxCodeSession`
 traits.
