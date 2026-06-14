@@ -24,7 +24,7 @@ Use this skill when an agent needs a persistent context map, task-relevant memor
 
 Use `contextMap` when repeated runs ask different questions over the same long context, document set, or repository. The map is prompt-resident orientation knowledge: structure, concepts, constants, parsing schema, reusable aggregate results, and concrete error patterns. It is not a task-specific answer cache.
 
-Runnable example: [`src/examples/rlm-context-map.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-context-map.ts) demonstrates one update, `onUpdate` snapshot persistence, finite evolve, and frozen map reuse.
+   Runnable example: [`src/examples/rlm-context-map-live.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-context-map-live.ts) demonstrates a provider-backed context-map update, `onUpdate` snapshot persistence, finite evolve, and frozen map reuse.
 
 When `contextMap` is configured:
 

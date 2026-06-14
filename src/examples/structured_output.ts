@@ -1,5 +1,6 @@
 import { ai, ax, f } from '@ax-llm/ax';
 
+// docs:start structured-output
 // 1. Define a structured output signature with validation constraints
 const sig = f()
   // Input validation: document must be between 10 and 10000 characters
@@ -52,6 +53,7 @@ const sig = f()
   );
 
 const extractData = ax(sig.build());
+// docs:end structured-output
 
 async function main() {
   if (!process.env.OPENAI_APIKEY) {

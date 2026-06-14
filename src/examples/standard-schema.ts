@@ -28,8 +28,9 @@ const llm = ai({
 // ---------------------------------------------------------------------------
 // Tool defined with zod  (Shape 3 — whole-object schema on fn())
 // ---------------------------------------------------------------------------
-// In real use this would hit an external API; here we return mock data.
+// In real use this would hit an external API; this example uses a tiny local catalog.
 
+// docs:start tool-calling
 const lookupProductTool = fn('lookupProduct')
   .description('Look up a product by name and return its current details')
   .arg(
@@ -49,7 +50,7 @@ const lookupProductTool = fn('lookupProduct')
     })
   )
   .handler(async ({ productName, includeSpecs }) => {
-    // Mock product database
+    // Example product catalog
     const products: Record<
       string,
       { price: number; inStock: boolean; rating: number; specs?: string }
@@ -83,6 +84,7 @@ const lookupProductTool = fn('lookupProduct')
     };
   })
   .build();
+// docs:end tool-calling
 
 // ---------------------------------------------------------------------------
 // Shape 2 — per-field zod schema

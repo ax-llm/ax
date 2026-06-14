@@ -1,3 +1,4 @@
+// docs:start provider-agent
 #include "axllm/axllm.hpp"
 
 #include <cstdlib>
@@ -68,3 +69,4 @@ int main() {
   std::cout << axllm::stringify(axllm::object({{"agentOutput", output}, {"rawModelAnswer", stage_client.raw_model_answer}}))
             << "\n";
 }
+// docs:end provider-agent

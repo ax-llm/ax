@@ -1,3 +1,4 @@
+# docs:start provider-agent
 import json
 import os
 
@@ -57,3 +58,4 @@ output = assistant.forward(
 )
 
 print(json.dumps({"agentOutput": output, "rawModelAnswer": stage_client.raw_model_answer}, indent=2, sort_keys=True))
+# docs:end provider-agent

@@ -1546,31 +1546,36 @@ th {
   margin: 1rem 0 1.9rem;
 }
 
-.example-card {
+.example-card,
+.example-path-card {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
   padding: 0.95rem;
 }
 
-.example-card:hover {
+.example-card:hover,
+.example-path-card:hover {
   border-color: var(--line-strong);
 }
 
-.example-card h3 {
+.example-card h3,
+.example-path-card h3 {
   margin: 0 0 0.34rem;
   color: var(--heading);
   font-size: 1rem;
   font-weight: 680;
 }
 
-.example-card p {
+.example-card p,
+.example-path-card p {
   margin: 0.36rem 0;
   color: var(--muted);
   font-size: 0.9rem;
 }
 
-.example-card code {
+.example-card code,
+.example-path-card code {
   word-break: break-word;
 }
 

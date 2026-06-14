@@ -1,3 +1,4 @@
+// docs:start signature-schema
 package main
 
 import (
@@ -11,3 +12,4 @@ func main() {
 	schema := sig.ToJSONSchema(nil).(map[string]ax.Value)
 	fmt.Println("go-signature-schema-ok", "schema", schema["type"], "outputs", len(sig.GetOutputFields()))
 }
+// docs:end signature-schema

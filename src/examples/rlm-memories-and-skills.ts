@@ -24,6 +24,7 @@ import {
   ai,
 } from '@ax-llm/ax';
 
+// docs:start memory-skills
 // ---------------------------------------------------------------------------
 // Memory store — toy in-memory KV. In production this is a vector DB / BM25.
 // ---------------------------------------------------------------------------
@@ -135,6 +136,7 @@ const myAgent = agent(
     },
   }
 );
+// docs:end memory-skills
 
 const llm = ai({
   name: 'openai',

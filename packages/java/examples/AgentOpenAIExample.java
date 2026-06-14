@@ -1,3 +1,4 @@
+// docs:start provider-agent
 import dev.axllm.ax.*;
 import java.util.*;
 
@@ -61,3 +62,4 @@ public final class AgentOpenAIExample {
     System.out.println(Json.stringify(Map.of("agentOutput", output, "rawModelAnswer", stageClient.rawModelAnswer)));
   }
 }
+// docs:end provider-agent

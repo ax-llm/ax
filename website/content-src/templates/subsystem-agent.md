@@ -1,12 +1,19 @@
 # agent() Agents
 
-Use `agent()` to build an RLM agent with a typed final response.
+Use `agent()` to build either a short tool-using agent or a long-horizon RLM agent with a typed final response.
 
 ```{{fence}}
 {{agentCode}}
 ```
 
 Agents coordinate tools, child agents, runtime sessions, memories, skills, context policies, discovery, recall, shared fields, traces, usage, and final typed responses.
+
+Pick the path by task shape:
+
+- **Short agents:** quick tool calls, small child-agent composition, and compact final responses.
+- **Long-horizon agents:** RLM runtime execution, context policy, context maps, memory, skills, and optimizer artifacts.
+
+See [short agent examples]({{langRoot}}/examples/short-agents/) and [long-horizon agent examples]({{langRoot}}/examples/long-horizon-agents/).
 
 {{< svg "agent-tree" "Agent tree" >}}
 
@@ -31,7 +38,7 @@ result = helper.forward(aiClient, inputs)
 - Save and restore state around clarification.
 - Use context policies for long-running sessions.
 
-### Minimal agent
+### Short agent
 
 {{agentMinimalExample}}
 

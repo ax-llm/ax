@@ -1,3 +1,4 @@
+// docs:start provider-flow
 package main
 
 import (
@@ -44,3 +45,4 @@ func main() {
 	}
 	fmt.Println(string(data))
 }
+// docs:end provider-flow

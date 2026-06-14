@@ -1,5 +1,6 @@
 import { AxAIOpenAIModel, AxGEPA, ai, ax } from '@ax-llm/ax';
 
+// docs:start gepa-optimizer
 // Two-objective demo: accuracy (classification) + brevity (short rationale)
 const emailClassifier = ax(
   'emailText:string "Email content" -> priority:class "high, normal, low" "Priority level", rationale:string "One concise sentence"'
@@ -45,6 +46,7 @@ const metric = async ({
   const brevity = len <= 30 ? 1 : len <= 60 ? 0.7 : len <= 100 ? 0.4 : 0.1;
   return { accuracy: acc, brevity } as Record<string, number>;
 };
+// docs:end gepa-optimizer
 
 async function main() {
   if (!process.env.OPENAI_APIKEY) {

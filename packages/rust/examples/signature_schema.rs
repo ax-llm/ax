@@ -1,3 +1,4 @@
+// docs:start signature-schema
 use axllm::{s, AxResult};
 
 fn main() -> AxResult<()> {
@@ -7,3 +8,4 @@ fn main() -> AxResult<()> {
     println!("rust-signature-schema-ok");
     Ok(())
 }
+// docs:end signature-schema

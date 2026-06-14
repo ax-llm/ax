@@ -181,20 +181,20 @@ What to look for:
 - Durable runtime values such as `rows`, `bestRow`, and `summary` appear as compact state lines in the second actor prompt.
 - This exercises the same structured collection path used by `Live Runtime State` in agent turns.
 
-## Context Map Example
+## Live Context Map Example
 
-A deterministic, no-API-key smoke test for `AxAgentContextMap`. It runs two questions over the same long-context-style corpus, updates the map once, then reuses the frozen map on the second run.
+`rlm-context-map-live.ts` uses a real OpenAI-compatible provider plus `AxJSRuntime` to run two questions over the same long-context-style corpus. The first run can update the map, and the second run reuses that compact orientation instead of rediscovering the corpus structure.
 
 **Quick Start:**
 ```bash
 cd src/ax
-npm run tsx src/examples/rlm-context-map.ts
+OPENAI_APIKEY=<key> npm run tsx src/examples/rlm-context-map-live.ts
 ```
 
 What to look for:
 - The first run learns a reusable parsing-schema item.
 - `onUpdate` fires exactly once because the map uses `{ infiniteEvolve: false, evolveSteps: 1 }`.
-- The second run still receives the learned map in the distiller prompt while the updater stays frozen.
+- The second run receives the learned map while the updater stays frozen.
 
 ## Clarification Resume Example
 

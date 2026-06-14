@@ -210,6 +210,7 @@ const teacherAI = ai({
   },
 });
 
+// docs:start agent-optimization
 function buildSupportAgent(env: SupportEnvironment) {
   return agent(
     'ticket:string -> answer:string, priority:class "low, normal, urgent"',
@@ -365,6 +366,7 @@ const savedArtifact = axSerializeOptimizedProgram(
 );
 const candidateProgram = axDeserializeOptimizedProgram(savedArtifact);
 const optimizedRun = await forwardHeldOut(candidateProgram);
+// docs:end agent-optimization
 
 if (scoreHeldOutRun(optimizedRun) < scoreHeldOutRun(baselineRun)) {
   throw new Error(

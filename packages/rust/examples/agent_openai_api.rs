@@ -1,3 +1,4 @@
+// docs:start provider-agent
 use axllm::{agent, AxAIClient, AxResult, OpenAICompatibleClient};
 use serde_json::{json, Value};
 use std::env;
@@ -66,3 +67,4 @@ fn main() -> AxResult<()> {
     );
     Ok(())
 }
+// docs:end provider-agent

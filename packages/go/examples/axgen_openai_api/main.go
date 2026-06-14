@@ -1,3 +1,4 @@
+// docs:start provider-axgen
 package main
 
 import (
@@ -50,3 +51,4 @@ func main() {
 	}
 	fmt.Println(string(data))
 }
+// docs:end provider-axgen

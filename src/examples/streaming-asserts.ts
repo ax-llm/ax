@@ -8,6 +8,7 @@ const llm = createAI({
 
 const gen = ax('question:string -> answerInPoints:string');
 
+// docs:start streaming-assertion
 gen.addStreamingAssert(
   'answerInPoints',
   (value) =>
@@ -18,6 +19,7 @@ gen.addStreamingAssert(
       .every((line) => /^\d+\./.test(line)),
   'Each list item must start with a number and a dot.'
 );
+// docs:end streaming-assertion
 
 const stream = await gen.streamingForward(llm, {
   question:

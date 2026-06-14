@@ -2,6 +2,7 @@ import { AxAIOpenAIModel, AxJSRuntime, agent, ai } from '@ax-llm/ax';
 
 const runtime = new AxJSRuntime();
 
+// docs:start short-agent
 const researcher = agent(
   'question, physicsQuestion "physics questions" -> answer "reply in bullet points"',
   {
@@ -50,6 +51,7 @@ const myAgent = agent('question -> answer', {
     },
   ],
 });
+// docs:end short-agent
 
 const llm = ai({
   name: 'openai',

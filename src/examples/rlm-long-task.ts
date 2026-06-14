@@ -22,6 +22,7 @@ const llm = ai({
   },
 });
 
+// docs:start long-horizon-agent
 const analyzer = agent(
   'context:string, query:string -> answer:string, keyFindings:string[] "Analyzes a large dataset using a code interpreter, tolerates intermediate errors, and keeps context lean via checkpoint-style context policy"',
   {
@@ -40,6 +41,7 @@ const analyzer = agent(
     debug: true,
   }
 );
+// docs:end long-horizon-agent
 
 // ---------------------------------------------------------------------------
 // Synthetic dataset — large enough to exercise multi-turn analysis but small

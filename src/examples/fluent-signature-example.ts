@@ -1,5 +1,6 @@
 import { f } from '../ax/index.js';
 
+// docs:start signature-builder
 // Example usage of the fluent signature API
 const sig = f()
   .input(
@@ -22,6 +23,7 @@ const sig = f()
   )
   .description('Answers questions based on the provided context.')
   .build();
+// docs:end signature-builder
 
 console.log('=== Fluent Signature API Example ===');
 console.log('Generated signature:', sig.toString());

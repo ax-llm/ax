@@ -6,7 +6,14 @@ Ax agents are typed programs that can use tools, child agents, runtime sessions,
 {{agentCode}}
 ```
 
-The important design choice is RLM: the model does not merely emit one answer. It writes small runtime steps, Ax executes those steps in a persistent session, and the next turn sees compact evidence plus live runtime state.
+There are two common paths:
+
+- **Short agents** compose a typed final answer with a small set of tools or child agents.
+- **Long-horizon agents** use RLM runtime sessions, context policy, context maps, memory, skills, and optimizer artifacts to keep multi-step work resumable.
+
+See [short agent examples]({{langRoot}}/examples/short-agents/) and [long-horizon agent examples]({{langRoot}}/examples/long-horizon-agents/).
+
+The important design choice for long-horizon work is RLM: the model does not merely emit one answer. It writes small runtime steps, Ax executes those steps in a persistent session, and the next turn sees compact evidence plus live runtime state.
 
 {{< svg "rlm-loop" "RLM executor loop" >}}
 
@@ -28,11 +35,17 @@ flowchart LR
 
 This is why Ax agents work well with smaller models. A smaller model can take one observable step, inspect a result, reuse live variables, and continue. It does not need to keep an entire long transcript in its immediate prompt.
 
-## Minimal Agent
+## Short Agents
 
 Use an agent when the model needs to decide what to do next. Use `ax()` when one structured generation is enough.
 
 {{agentMinimalExample}}
+
+Short agents should stay boring: one signature, a few tools or child agents, and a typed final response. Keep tool sets flat when every callable is obviously relevant.
+
+## Long-Horizon Agents
+
+Move to long-horizon agent patterns when the actor must inspect intermediate results, keep executable state alive, recover from tool/runtime failures, or answer many questions over the same large context.
 
 ## Runtime-As-REPL
 
@@ -102,6 +115,8 @@ Long-running agents need a context policy:
 | `lean` | Very long runs with strong models and tight prompt pressure |
 
 Context maps are different: they are persistent orientation caches for repeated runs over the same long context, repository, document set, or system. Use them when many tasks ask different questions over the same material.
+
+For concrete code, see [long-horizon agent examples]({{langRoot}}/examples/long-horizon-agents/).
 
 ## Memory And Skills
 

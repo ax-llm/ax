@@ -558,7 +558,7 @@ Use these method groups as the compact AxAgent surface map:
 
 - Running: `forward(ai, values, options?)` and `streamingForward(ai, values, options?)`.
 - Forward-time agent options: `skills`, `onUsedMemories`, and `onUsedSkills`; use `ax-agent-memory-skills` for details.
-- State and control: `getState()`, `setState(state?)`, `getContextMap()`, `setContextMap(map?)`, `stop()`, `getSignature()`, `setSignature(signature)`, `getFunction()`, `getId()`, and `setId(id)`. Context-map evolve policy lives on `AxAgentContextMap` (`infiniteEvolve`, `evolveSteps`, `maxChars`), not on the agent config. See [`src/examples/rlm-context-map.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-context-map.ts) for persistence and finite-evolve usage.
+- State and control: `getState()`, `setState(state?)`, `getContextMap()`, `setContextMap(map?)`, `stop()`, `getSignature()`, `setSignature(signature)`, `getFunction()`, `getId()`, and `setId(id)`. Context-map evolve policy lives on `AxAgentContextMap` (`infiniteEvolve`, `evolveSteps`, `maxChars`), not on the agent config. See [`src/examples/rlm-context-map-live.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-context-map-live.ts) for provider-backed persistence and finite-evolve usage.
 - Observability: `getChatLog()`, `getUsage()`, `getStagedUsage()`, `resetUsage()`, and `getTraces()`; use `ax-agent-observability` for details.
 - Demos and tuning: `setDemos(...)`, `namedPrograms()`, `namedProgramInstances()`, `optimize(...)`, `applyOptimization(...)`, `getOptimizableComponents()`, and `applyOptimizedComponents(...)`; use `ax-agent-optimize` for tuning details.
 
@@ -575,9 +575,9 @@ When the user wants `agent.optimize(...)`, judge configuration, eval datasets, s
 
 Keep this skill focused on building and running agents. For tuning work:
 
-- use eval-safe tools or in-memory mocks
+- use eval-safe tools
 - treat `judgeOptions` as part of the optimize workflow
-- choose a deterministic `metric` when scoring is objective; use the built-in judge only when run quality needs qualitative review
+- choose an objective `metric` when scoring is mechanical; use the built-in judge only when run quality needs qualitative review
 - keep runtime authoring guidance here and optimization guidance in `ax-agent-optimize`
 
 ## Examples

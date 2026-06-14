@@ -1,3 +1,4 @@
+// docs:start provider-agent
 package main
 
 import (
@@ -98,3 +99,4 @@ func resultsOf(value ax.Value) []ax.Value {
 		panic(fmt.Sprintf("unexpected results type %T", raw))
 	}
 }
+// docs:end provider-agent

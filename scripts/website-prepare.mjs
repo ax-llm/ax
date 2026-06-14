@@ -186,6 +186,12 @@ const skillNavOrder = [
   'refine',
 ];
 
+const exampleSubpageKeys = [
+  'core-concepts',
+  'short-agents',
+  'long-horizon-agents',
+];
+
 await rm(generatedContentRoot, { recursive: true, force: true });
 await mkdir(generatedContentRoot, { recursive: true });
 await copyMermaidVendor();
@@ -287,7 +293,7 @@ async function writeLanguageSkillPages(language, skills, navPages) {
 
 function sectionNavForPage(page) {
   if (page.slug === 'quick-start') return 'quick-start';
-  if (page.slug === 'examples') return 'examples';
+  if (page.slug.startsWith('examples')) return 'examples';
   if (page.slug === 'skills') return 'skills';
   return page.group;
 }
@@ -378,6 +384,19 @@ async function renderContext(language, page) {
     examplesProvider: exampleList(
       examples.filter((example) => example.kind === 'provider-api')
     ),
+    examplePathCards: examplePathCards(language),
+    coreConceptExamples: curatedExamplePage(
+      language,
+      'core-concepts',
+      inventory
+    ),
+    shortAgentExamples: curatedExamplePage(language, 'short-agents', inventory),
+    longHorizonAgentExamples: curatedExamplePage(
+      language,
+      'long-horizon-agents',
+      inventory
+    ),
+    archiveExamples: groupedExamples(examples),
     groupedExamples: groupedExamples(examples),
     examplesSource: examplesSource(language),
     aiInventory: inventoryBullets(language, packageInventory, 'ai', inventory),
@@ -523,6 +542,7 @@ async function buildInventory(languages) {
   const skillDocs = await readSkillDocs();
   const exampleCatalog = await readExampleCatalog();
   const examples = await readExamples(languages, exampleCatalog);
+  const exampleRegions = await readExampleRegions(languages);
   const packages = await readPackageInventories(languages);
   const languageSkills = await readLanguageSkillCatalogs(languages);
 
@@ -532,6 +552,7 @@ async function buildInventory(languages) {
     skillDocs,
     exampleCatalogSource: exampleCatalog.source,
     examples,
+    exampleRegions,
     packages,
     languageSkills,
   };
@@ -860,6 +881,415 @@ async function readExamples(languages, exampleCatalog) {
     }));
   }
   return byLanguage;
+}
+
+async function readExampleRegions(languages) {
+  const byLanguage = {};
+  for (const language of languages) {
+    const pages = {};
+    const parsedFiles = new Map();
+
+    for (const pageKey of exampleSubpageKeys) {
+      const sections = [];
+      for (const section of curatedExampleSections(language, pageKey)) {
+        const examples = [];
+        for (const ref of section.refs) {
+          const rel = exampleLocalPath(language, ref.file);
+          const abs = path.join(repoRoot, rel);
+          if (!(await exists(abs))) {
+            throw new Error(`Missing example source: ${rel}`);
+          }
+
+          let regions = parsedFiles.get(rel);
+          if (!regions) {
+            regions = parseDocRegions(await readFile(abs, 'utf8'), rel);
+            parsedFiles.set(rel, regions);
+          }
+
+          const code = regions.get(ref.region);
+          if (!code) {
+            throw new Error(
+              `Missing docs region "${ref.region}" in ${rel}. Add docs:start/docs:end markers.`
+            );
+          }
+
+          examples.push({
+            ...ref,
+            language,
+            sourcePath: rel,
+            code,
+            command: exampleCommand(language, ref.file),
+            url: exampleUrl(language, ref.file),
+          });
+        }
+        sections.push({ ...section, examples });
+      }
+      pages[pageKey] = sections;
+    }
+
+    byLanguage[language.id] = pages;
+  }
+  return byLanguage;
+}
+
+function parseDocRegions(source, rel) {
+  const regions = new Map();
+  let active;
+
+  for (const line of source.split(/\r?\n/)) {
+    const match = line.match(
+      /^\s*(?:\/\/|#)\s*docs:(start|end)\s+([a-zA-Z0-9_-]+)\s*$/
+    );
+
+    if (match?.[1] === 'start') {
+      if (active) {
+        throw new Error(
+          `Nested docs region "${match[2]}" inside "${active.name}" in ${rel}`
+        );
+      }
+      active = { name: match[2], lines: [] };
+      continue;
+    }
+
+    if (match?.[1] === 'end') {
+      if (!active || active.name !== match[2]) {
+        throw new Error(`Unmatched docs:end ${match[2]} in ${rel}`);
+      }
+      if (regions.has(active.name)) {
+        throw new Error(`Duplicate docs region "${active.name}" in ${rel}`);
+      }
+      regions.set(active.name, trimBlankLines(active.lines).join('\n'));
+      active = undefined;
+      continue;
+    }
+
+    if (active) {
+      active.lines.push(line);
+    }
+  }
+
+  if (active) {
+    throw new Error(`Unclosed docs region "${active.name}" in ${rel}`);
+  }
+
+  return regions;
+}
+
+function trimBlankLines(value) {
+  const lines = [...value];
+  while (lines.length > 0 && !lines[0].trim()) lines.shift();
+  while (lines.length > 0 && !lines.at(-1)?.trim()) lines.pop();
+  return lines;
+}
+
+function curatedExampleSections(language, pageKey) {
+  if (language.id === 'typescript') {
+    return typeScriptExampleSections(pageKey);
+  }
+  return generatedLanguageExampleSections(language, pageKey);
+}
+
+function typeScriptExampleSections(pageKey) {
+  if (pageKey === 'core-concepts') {
+    return [
+      {
+        title: 'Signatures And Structured Output',
+        body: 'Use signatures to define typed inputs and outputs, then add validation constraints when the output shape matters.',
+        refs: [
+          {
+            title: 'Fluent signature builder',
+            file: 'src/examples/fluent-signature-example.ts',
+            region: 'signature-builder',
+            description:
+              'Build a reusable signature with the fluent `f()` API.',
+          },
+          {
+            title: 'Validated structured output',
+            file: 'src/examples/structured_output.ts',
+            region: 'structured-output',
+            description:
+              'Constrain nested objects, arrays, strings, numbers, and formats.',
+          },
+        ],
+      },
+      {
+        title: 'Tools, Streaming, And Flows',
+        body: 'Add host functions, stream structured output, and compose multi-step workflows without losing the typed contract.',
+        refs: [
+          {
+            title: 'Standard Schema tool',
+            file: 'src/examples/standard-schema.ts',
+            region: 'tool-calling',
+            description:
+              'Define a zod-backed `fn()` tool with typed args, return schema, and handler.',
+          },
+          {
+            title: 'Streaming assertion',
+            file: 'src/examples/streaming-asserts.ts',
+            region: 'streaming-assertion',
+            description:
+              'Validate partial streamed text while the response is still arriving.',
+          },
+          {
+            title: 'Flow typed output',
+            file: 'src/examples/flow-type-safe-output.ts',
+            region: 'flow-output',
+            description:
+              'Build an AxFlow and shape the final return type with `returns()`.',
+          },
+        ],
+      },
+      {
+        title: 'Optimization',
+        body: 'Tune typed programs against examples and metrics instead of hand-editing prompts.',
+        refs: [
+          {
+            title: 'GEPA optimizer',
+            file: 'src/examples/gepa.ts',
+            region: 'gepa-optimizer',
+            description:
+              'Run Pareto optimization over classification accuracy and rationale brevity.',
+          },
+        ],
+      },
+    ];
+  }
+
+  if (pageKey === 'short-agents') {
+    return [
+      {
+        title: 'Tool And Child-Agent Composition',
+        body: 'Use short agents when a task needs a little planning, a few tools, or a specialist child agent.',
+        refs: [
+          {
+            title: 'Child agents with shared runtime',
+            file: 'src/examples/agent.ts',
+            region: 'short-agent',
+            description:
+              'Compose researcher and summarizer child agents behind one parent agent.',
+          },
+          {
+            title: 'Tool schema for agent/tool calls',
+            file: 'src/examples/standard-schema.ts',
+            region: 'tool-calling',
+            description: 'Use a typed host function as an agent-callable tool.',
+          },
+        ],
+      },
+    ];
+  }
+
+  return [
+    {
+      title: 'RLM And Context Policy',
+      body: 'Use the recursive runtime loop for multi-step work where the actor needs executable state and compact context replay.',
+      refs: [
+        {
+          title: 'Long task context policy',
+          file: 'src/examples/rlm-long-task.ts',
+          region: 'long-horizon-agent',
+          description:
+            'Run an RLM agent with context fields, a runtime, and a lean context policy.',
+        },
+        {
+          title: 'Context map',
+          file: 'src/examples/rlm-context-map-live.ts',
+          region: 'context-map',
+          description:
+            'Persist orientation for repeated questions over the same long context.',
+        },
+      ],
+    },
+    {
+      title: 'Memory, Skills, And Optimization',
+      body: 'Longer-running agents can recall memories, load skills, and optimize behavior against realistic tasks.',
+      refs: [
+        {
+          title: 'Memories and skills',
+          file: 'src/examples/rlm-memories-and-skills.ts',
+          region: 'memory-skills',
+          description:
+            'Wire memory and skill search callbacks into an RLM agent.',
+        },
+        {
+          title: 'Agent optimization',
+          file: 'src/examples/axagent-gepa-optimization.ts',
+          region: 'agent-optimization',
+          description:
+            'Optimize an agent, serialize the optimized artifact, and run a held-out task.',
+        },
+      ],
+    },
+  ];
+}
+
+function generatedLanguageExampleSections(language, pageKey) {
+  const file = generatedExampleFiles(language);
+
+  if (pageKey === 'core-concepts') {
+    return [
+      {
+        title: 'Signatures, Generation, And Flows',
+        body: `These ${language.label} examples are checked-in package examples, not translated snippets.`,
+        refs: [
+          {
+            title: 'Signature/schema',
+            file: file.signature,
+            region: 'signature-schema',
+            description:
+              'Parse a signature and inspect the output JSON schema.',
+          },
+          {
+            title: 'OpenAI-compatible generation',
+            file: file.providerGen,
+            region: 'provider-axgen',
+            description:
+              'Run a typed Ax program against an OpenAI-compatible provider.',
+          },
+          {
+            title: 'OpenAI-compatible flow',
+            file: file.providerFlow,
+            region: 'provider-flow',
+            description:
+              'Compose an AxFlow and run the provider-backed program.',
+          },
+        ],
+      },
+    ];
+  }
+
+  if (pageKey === 'short-agents') {
+    return [
+      {
+        title: 'Provider-Backed Agent Pipeline',
+        body: `Use the ${language.label} provider example when you want a compact real-call agent path.`,
+        refs: [
+          {
+            title: 'AxAgent OpenAI-compatible run',
+            file: file.providerAgent,
+            region: 'provider-agent',
+            description:
+              'Run an AxAgent path against an OpenAI-compatible provider.',
+          },
+          {
+            title: 'Typed Ax generation',
+            file: file.providerGen,
+            region: 'provider-axgen',
+            description:
+              'Use the same provider client for a direct typed generation call.',
+          },
+        ],
+      },
+    ];
+  }
+
+  return [
+    {
+      title: 'Provider-Backed Agent And Flow',
+      body: `${language.label} long-horizon examples start from the real provider path. The full RLM context-policy and context-map examples are currently TypeScript-first.`,
+      refs: [
+        {
+          title: 'AxAgent OpenAI-compatible run',
+          file: file.providerAgent,
+          region: 'provider-agent',
+          description:
+            'Run the generated agent surface through an OpenAI-compatible provider.',
+        },
+        {
+          title: 'AxFlow OpenAI-compatible run',
+          file: file.providerFlow,
+          region: 'provider-flow',
+          description:
+            'Keep multi-step program structure visible while the model call is real.',
+        },
+      ],
+    },
+  ];
+}
+
+function generatedExampleFiles(language) {
+  const files = {
+    python: {
+      signature: 'signature_schema.py',
+      tool: 'axgen_scripted_client_tool.py',
+      flow: 'axflow_program_graph.py',
+      agent: 'axagent_pipeline.py',
+      providerGen: 'axgen_openai_api.py',
+      providerFlow: 'flow_openai_api.py',
+      providerAgent: 'agent_openai_api.py',
+      runtimeAdapter: 'runtime_adapter.py',
+      runtimeProtocol: 'runtime_protocol.py',
+      gepa: 'gepa_local_optimizer.py',
+      artifact: 'optimizer_artifact.py',
+    },
+    java: {
+      signature: 'SignatureSchemaExample.java',
+      tool: 'AxGenScriptedClientToolExample.java',
+      flow: 'AxFlowProgramGraphExample.java',
+      agent: 'AxAgentPipelineExample.java',
+      providerGen: 'AxGenOpenAIExample.java',
+      providerFlow: 'FlowOpenAIExample.java',
+      providerAgent: 'AgentOpenAIExample.java',
+      runtimeAdapter: 'RuntimeAdapterExample.java',
+      runtimeProtocol: 'RuntimeProtocolExample.java',
+      gepa: 'GEPALocalOptimizerExample.java',
+      artifact: 'OptimizerArtifactExample.java',
+    },
+    cpp: {
+      signature: 'signature_schema.cpp',
+      tool: 'axgen_scripted_client_tool.cpp',
+      flow: 'axflow_program_graph.cpp',
+      agent: 'axagent_pipeline.cpp',
+      providerGen: 'axgen_openai_api.cpp',
+      providerFlow: 'flow_openai_api.cpp',
+      providerAgent: 'agent_openai_api.cpp',
+      runtimeAdapter: 'runtime_adapter.cpp',
+      runtimeProtocol: 'runtime_protocol.cpp',
+      gepa: 'gepa_local_optimizer.cpp',
+      artifact: 'optimizer_artifact.cpp',
+    },
+    go: {
+      signature: 'signature_schema.go',
+      tool: 'axgen_scripted_client_tool.go',
+      flow: 'axflow_program_graph.go',
+      agent: 'axagent_pipeline.go',
+      providerGen: 'axgen_openai_api.go',
+      providerFlow: 'flow_openai_api.go',
+      providerAgent: 'agent_openai_api.go',
+      runtimeAdapter: 'runtime_adapter.go',
+      runtimeProtocol: 'runtime_protocol.go',
+      gepa: 'gepa_local_optimizer.go',
+      artifact: 'optimizer_artifact.go',
+    },
+    rust: {
+      signature: 'signature_schema.rs',
+      tool: 'axgen_scripted_client_tool.rs',
+      flow: 'axflow_program_graph.rs',
+      agent: 'axagent_pipeline.rs',
+      providerGen: 'axgen_openai_api.rs',
+      providerFlow: 'flow_openai_api.rs',
+      providerAgent: 'agent_openai_api.rs',
+      runtimeAdapter: 'runtime_adapter.rs',
+      runtimeProtocol: 'runtime_protocol.rs',
+      gepa: 'gepa_local_optimizer.rs',
+      artifact: 'optimizer_artifact.rs',
+    },
+  };
+
+  const result = files[language.id];
+  if (!result) {
+    throw new Error(`No generated example file map for ${language.id}`);
+  }
+  return result;
+}
+
+function exampleLocalPath(language, file) {
+  const fileOnly = file.split(/\s+/)[0];
+  if (language.id === 'typescript') return fileOnly;
+  if (language.id === 'go' && fileOnly.endsWith('.go')) {
+    return `packages/go/examples/${fileOnly.replace(/\.go$/, '')}/main.go`;
+  }
+  return `packages/${language.id}/examples/${fileOnly}`;
 }
 
 async function readPackageInventories(languages) {
@@ -2092,12 +2522,109 @@ function aiProviderExamples(language) {
   ].join('\n');
 }
 
+function examplePathCards(language) {
+  const base = `/${language.id}/examples`;
+  const note =
+    language.id === 'typescript'
+      ? '<p>JavaScript and TypeScript share the same Node package. Use the TypeScript examples directly or run the `js` / `javascript` aliases accepted by `npm run example` where useful.</p>'
+      : '';
+  return [
+    note,
+    '<div class="example-grid">',
+    examplePathCard(
+      'Core Concepts',
+      `${base}/core-concepts/`,
+      'Signatures, structured output, tools, streaming, flows, and optimization.'
+    ),
+    examplePathCard(
+      'Short Agents',
+      `${base}/short-agents/`,
+      'Compact agent composition with tools, child agents, and provider-backed runs.'
+    ),
+    examplePathCard(
+      'Long-Horizon Agents',
+      `${base}/long-horizon-agents/`,
+      'RLM runtime sessions, context policy, context maps, memory, skills, and optimizer state.'
+    ),
+    examplePathCard(
+      'Archive',
+      `${base}/archive/`,
+      'Every currently mapped runnable example for this language.'
+    ),
+    '</div>',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function examplePathCard(title, href, description) {
+  return [
+    '<section class="example-path-card">',
+    '',
+    `### [${title}](${href})`,
+    '',
+    `<p>${description}</p>`,
+    '',
+    '</section>',
+  ].join('\n');
+}
+
+function curatedExamplePage(language, pageKey, inventory) {
+  const sections = inventory.exampleRegions[language.id]?.[pageKey] ?? [];
+  if (sections.length === 0) {
+    return 'No curated examples are currently mapped for this page.';
+  }
+
+  const out = [curatedExampleIntro(language, pageKey)];
+  for (const section of sections) {
+    out.push('', `## ${section.title}`, '', section.body, '');
+    for (const example of section.examples) {
+      out.push(curatedExampleBlock(example), '');
+    }
+  }
+  return out.join('\n').trim();
+}
+
+function curatedExampleIntro(language, pageKey) {
+  const intro = {
+    'core-concepts':
+      'These snippets are extracted from runnable examples and package examples. Edit the example source first; the website page is rebuilt from those marked regions.',
+    'short-agents':
+      'Short agents are the smallest useful step above direct generation: a typed final answer plus tools, child agents, or a compact provider-backed run.',
+    'long-horizon-agents':
+      language.id === 'typescript'
+        ? 'Long-horizon agents rely on RLM runtime sessions, context policy, state snapshots, memory, skills, and optimizer artifacts to keep work resumable.'
+        : 'Generated language packages currently show the live provider-backed agent and flow path here. The full RLM context-policy and context-map examples are TypeScript-first while those runtime surfaces roll out across packages.',
+  }[pageKey];
+  const jsNote =
+    language.id === 'typescript' && pageKey !== 'core-concepts'
+      ? ' JavaScript uses the same Node runtime surface as the TypeScript package; these examples are the canonical Node examples.'
+      : '';
+  return `${intro}${jsNote}`;
+}
+
+function curatedExampleBlock(example) {
+  return [
+    `### ${example.title}`,
+    '',
+    example.description,
+    '',
+    '<div class="snippet-meta" data-snippet-label data-snippet-status="verified">',
+    '<span class="snippet-badge snippet-badge-verified">Runnable source</span>',
+    `<a class="snippet-badge" href="${example.url}">Source</a>`,
+    `<span class="snippet-note">Run: <code>${escapeHTML(example.command)}</code></span>`,
+    '</div>',
+    '',
+    codeFence(example.language.fence, example.code),
+  ].join('\n');
+}
+
 function groupedExamples(examples) {
   if (examples.length === 0) return 'No examples currently mapped.';
 
   const groups = [
     {
-      title: 'Quick no-key starters',
+      title: 'Local and protocol examples',
       match: (example) =>
         example.kind === 'no-key' &&
         /signature|provider_mapping|provider_stream/.test(example.file),

@@ -48,7 +48,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.",
       "url": "ax-agent/SKILL.md",
-      "digest": "sha256:d3b72895d978709703ff77b0b55be93e33353d74b824f0a4a6c1a2af7b4a65bc"
+      "digest": "sha256:9dc9c9ef7d7122a44236fb99280e2ceb0214b765ff5643e4963f0a0f7dbd58f8"
     },
     {
       "name": "ax-agent-rlm",
@@ -62,7 +62,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent memory retrieval, context-map, and dynamic skill-loading code using @ax-llm/ax. Use when the user asks about contextMap, AxAgentContextMap, onMemoriesSearch, recall(...), inputs.memories, onLoadedMemories, onUsedMemories, onSkillsSearch, discover({ skills }), onLoadedSkills, onUsedSkills, preloaded skills, loaded memory/skill IDs, or carrying memories across forward() calls.",
       "url": "ax-agent-memory-skills/SKILL.md",
-      "digest": "sha256:0d59b4fcee48b7f6618208938d9dfc735b09281f9f3702b4222a470d5c6a9891"
+      "digest": "sha256:227c620c73a6bb163b59a1e4c54de998c0854bd509f48e87aeda967659c347ab"
     },
     {
       "name": "ax-agent-observability",

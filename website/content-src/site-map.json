@@ -17,6 +17,30 @@
           "title": "Examples",
           "template": "examples",
           "description": "Runnable no-key and provider-api examples."
+        },
+        {
+          "slug": "examples/core-concepts",
+          "title": "Core Concepts",
+          "template": "examples-core-concepts",
+          "description": "Runnable examples for signatures, structured output, tools, streaming, flows, and optimization."
+        },
+        {
+          "slug": "examples/short-agents",
+          "title": "Short Agents",
+          "template": "examples-short-agents",
+          "description": "Runnable examples for compact tool and child-agent composition."
+        },
+        {
+          "slug": "examples/long-horizon-agents",
+          "title": "Long-Horizon Agents",
+          "template": "examples-long-horizon-agents",
+          "description": "Runnable examples for RLM, context policy, runtime state, memory, skills, and agent optimization."
+        },
+        {
+          "slug": "examples/archive",
+          "title": "Examples Archive",
+          "template": "examples-archive",
+          "description": "All currently mapped runnable examples for this language."
         }
       ]
     },

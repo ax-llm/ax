@@ -48,7 +48,11 @@ const languageDir = {
 
 const exampleCatalog = {
   ts: [
-    ['no-key', 'src/examples/rlm-context-map.ts', 'AxAgent context-map smoke'],
+    [
+      'provider-api',
+      'src/examples/rlm-context-map-live.ts',
+      'AxAgent context-map OpenAI API run',
+    ],
     [
       'no-key',
       'src/examples/rlm-context-management.ts',

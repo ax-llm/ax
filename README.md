@@ -570,10 +570,9 @@ That keeps normal TypeScript PRs small while giving AxIR maintainers and coding
 agents a precise queue for migrating the behavior into Python, Java, C++, Go,
 and future generated backends later.
 
-## Contributors
+## I need help?
 
-- Author: [@dosco](https://github.com/dosco)
-- GEPA and ACE optimizers: [@monotykamary](https://github.com/monotykamary)
+Reach out to [@dosco](https://x.com/dosco)
 
 ## License
 

@@ -6,6 +6,7 @@ import { ai, flow } from '@ax-llm/ax';
 // Create an AI service
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
+// docs:start flow-output
 // Example: Building a type-safe document analysis workflow
 const documentAnalyzer = flow<{ documentText: string }>()
   .description(
@@ -48,6 +49,7 @@ const documentAnalyzer = flow<{ documentText: string }>()
       },
     },
   }));
+// docs:end flow-output
 
 // Execute the workflow
 const result = await documentAnalyzer.forward(llm, {
