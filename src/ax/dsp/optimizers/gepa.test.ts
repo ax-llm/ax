@@ -309,6 +309,49 @@ describe('AxGEPA Optimizer', () => {
       });
     });
 
+    it('returns the accepted evolved component when it ties the seed on the Pareto set', async () => {
+      // Regression: an accepted evolution that ties the seed on validation
+      // should still surface in componentMap.
+      const evolved = 'evolved-and-much-longer-accepted-instruction';
+      const optimizer = new AxGEPA({
+        studentAI: {} as AxAIService,
+        teacherAI: {} as AxAIService,
+        numTrials: 1,
+        minibatch: false,
+        earlyStoppingTrials: 5,
+        minImprovementThreshold: 0,
+        seed: 1,
+      });
+      (optimizer as any).reflectTargetInstruction = async () => evolved;
+
+      const program = createSingleRootProgram(
+        'task',
+        async (instruction, ex) =>
+          // Training accepts the evolution; validation keeps both candidates tied.
+          String(ex.question).startsWith('train')
+            ? { score: instruction === evolved ? 1 : 0 }
+            : { score: 0.5 }
+      );
+
+      const result = await optimizer.compile(
+        program as any,
+        [{ question: 'train1' }, { question: 'train2' }],
+        async ({ prediction }) => prediction.score,
+        {
+          maxMetricCalls: 50,
+          skipPerfectScore: false,
+          validationExamples: [{ question: 'v1' }, { question: 'v2' }],
+        } as any
+      );
+
+      expect(result.optimizedProgram?.selectorState).toMatchObject({
+        'root::instruction': { accepts: 1 },
+      });
+      expect(result.optimizedProgram?.componentMap).toEqual({
+        'root::instruction': evolved,
+      });
+    });
+
     it('does not score feedback-only examples that are outside the training pool', async () => {
       const seenQuestions: string[] = [];
       const optimizer = new AxGEPA({

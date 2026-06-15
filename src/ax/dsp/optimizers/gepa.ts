@@ -945,13 +945,17 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         ? Math.max(...pareto.map((p) => scalarize(p.scores)))
         : 0;
 
-    // Identify best candidate on the front (by scalarized score)
+    // On score ties, prefer the later accepted candidate over the seed.
     let bestCandidateIdx: number | undefined;
     if (pareto.length > 0) {
-      let maxS = Number.NEGATIVE_INFINITY;
-      for (const p of pareto) {
+      const first = pareto[0]!;
+      let maxS = scalarize(first.scores);
+      bestCandidateIdx = first.idx;
+
+      for (let i = 1; i < pareto.length; i++) {
+        const p = pareto[i]!;
         const s = scalarize(p.scores);
-        if (s > maxS) {
+        if (s > maxS || (s === maxS && p.idx > bestCandidateIdx)) {
           maxS = s;
           bestCandidateIdx = p.idx;
         }
