@@ -62,8 +62,37 @@ module @ax.gen version "0.1" {
       %mode_raw = core.get %options["functionCallMode"] default %mode_snake
       %mode = core.call @function_call_mode_impl(%mode_raw)
       core.set %request["function_call"] = %mode
+      // Force structured output for code-emitting stages (RLM distiller/executor:
+      // `-> {}:code`). Generic json_object lets a live model pick its own keys and
+      // answer directly; a strict json_schema requires the exact output field name
+      // (e.g. javascriptCode), so the model emits runnable code, not prose. Mirrors
+      // TS AxGen, which uses a strict json_schema for structured output. Other
+      // signatures keep json_object (unchanged behavior).
+      %signature = core.get %gen["signature"]
+      %output_fields = core.get %signature["output_fields"]
+      %has_code_field = core.let false
+      core.for %of in %output_fields {
+        %of_type = core.get %of["type"]
+        %of_type_name = core.get %of_type["name"]
+        %of_is_code = core.call intrinsic.eq(%of_type_name, "code")
+        core.if %of_is_code {
+          %has_code_field = core.let true
+        }
+      }
       %response_format = core.map
-      core.set %response_format["type"] = "json_object"
+      core.if %has_code_field {
+        %schema_options = core.map
+        core.set %schema_options["strictStructuredOutputs"] = true
+        %code_schema = core.call @schema_to_json_schema_impl(%output_fields, "output", %schema_options)
+        %code_schema_wrap = core.map
+        core.set %code_schema_wrap["name"] = "output"
+        core.set %code_schema_wrap["strict"] = true
+        core.set %code_schema_wrap["schema"] = %code_schema
+        core.set %response_format["type"] = "json_schema"
+        core.set %response_format["schema"] = %code_schema_wrap
+      } else {
+        core.set %response_format["type"] = "json_object"
+      }
       core.set %request["response_format"] = %response_format
       core.set %request["model_config"] = %model_config
       core.return %request

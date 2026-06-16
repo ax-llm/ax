@@ -205,8 +205,20 @@ Value QuickJsCodeSession::execute(Value code, Value options) {
   int timeout_ms = int_option(options, "timeoutMs", int_option(runtime_policy_, "timeoutMs", 5000));
   auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
   JS_SetInterruptHandler(runtime_, quickjs_interrupt_handler, &deadline);
-  JS_FreeValue(context_, JS_Eval(context_, "globalThis.__ax_completion = undefined; __ax_install_host_callables();", std::strlen("globalThis.__ax_completion = undefined; __ax_install_host_callables();"), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
-  JSValue result = JS_Eval(context_, source.c_str(), source.size(), "<actor>", JS_EVAL_TYPE_GLOBAL);
+  JS_FreeValue(context_, JS_Eval(context_, "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; __ax_install_host_callables();", std::strlen("globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; __ax_install_host_callables();"), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
+  // RLM actor code uses top-level await (`await final(...)`), illegal in a plain script eval.
+  // Pass the code in via a global string (avoids host-side JS escaping) and run it through the
+  // AsyncFunction constructor so await is legal; then drain the job queue so awaited
+  // continuations and the synchronous host primitives that set __ax_completion run.
+  {
+    JSValue global = JS_GetGlobalObject(context_);
+    JS_SetPropertyStr(context_, global, "__ax_code", JS_NewStringLen(context_, source.c_str(), source.size()));
+    JS_FreeValue(context_, global);
+  }
+  static const char kRunActor[] =
+      "(async function(){}).constructor('with (globalThis) {\\n' + (globalThis.__ax_code || '') + '\\n}')()"
+      ".then(function(){}, function(e){ globalThis.__ax_error = String((e && e.stack) ? e.stack : e); });";
+  JSValue result = JS_Eval(context_, kRunActor, std::strlen(kRunActor), "<actor>", JS_EVAL_TYPE_GLOBAL);
   if (JS_IsException(result)) {
     JSValue exception = JS_GetException(context_);
     const char* text = JS_ToCString(context_, exception);
@@ -219,10 +231,26 @@ Value QuickJsCodeSession::execute(Value code, Value options) {
     }
     return RuntimeEnvelope::error(message, "runtime");
   }
-  if (JS_IsUndefined(result)) {
-    JS_FreeValue(context_, result);
-    result = JS_Eval(context_, "globalThis.__ax_completion", std::strlen("globalThis.__ax_completion"), "<ax-completion>", JS_EVAL_TYPE_GLOBAL);
+  JS_FreeValue(context_, result);
+  {
+    JSContext* pending_ctx = nullptr;
+    while (JS_ExecutePendingJob(runtime_, &pending_ctx) > 0) {
+    }
   }
+  JSValue actor_error = JS_Eval(context_, "globalThis.__ax_error === undefined ? null : globalThis.__ax_error", std::strlen("globalThis.__ax_error === undefined ? null : globalThis.__ax_error"), "<ax-error>", JS_EVAL_TYPE_GLOBAL);
+  if (!JS_IsNull(actor_error) && !JS_IsUndefined(actor_error)) {
+    const char* etext = JS_ToCString(context_, actor_error);
+    std::string emsg = etext ? etext : "QuickJS actor error";
+    JS_FreeCString(context_, etext);
+    JS_FreeValue(context_, actor_error);
+    JS_SetInterruptHandler(runtime_, nullptr, nullptr);
+    if (std::chrono::steady_clock::now() > deadline || emsg.find("interrupted") != std::string::npos) {
+      return RuntimeEnvelope::timeout("QuickJS execution timed out");
+    }
+    return RuntimeEnvelope::error(emsg, "runtime");
+  }
+  JS_FreeValue(context_, actor_error);
+  result = JS_Eval(context_, "globalThis.__ax_completion === undefined ? {kind:'result', result:null} : globalThis.__ax_completion", std::strlen("globalThis.__ax_completion === undefined ? {kind:'result', result:null} : globalThis.__ax_completion"), "<ax-completion>", JS_EVAL_TYPE_GLOBAL);
   JSValue json = JS_JSONStringify(context_, result, JS_UNDEFINED, JS_UNDEFINED);
   const char* text = JS_ToCString(context_, json);
   std::string json_text = text ? text : "";

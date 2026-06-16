@@ -235,7 +235,10 @@ function __ax_run(payloadJson) {
   };
   let result;
   try {
-    Function("with (globalThis) { " + (payload.code || "") + "\\n}")();
+    // RLM actor code uses top-level await (`await final(...)`), illegal in a plain Function
+    // body; compile it as an async function so await is legal. The synchronous host primitives
+    // that set __ax_completion run before the first await suspends, so it is captured here.
+    (async function(){}).constructor("with (globalThis) { " + (payload.code || "") + "\\n}")();
     result = globalThis.__ax_completion;
   } catch (error) {
     return JSON.stringify({ok: false, category: "runtime", error: String((error && error.message) || error)});

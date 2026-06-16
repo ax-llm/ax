@@ -10,6 +10,9 @@ from .ai import AIClient, chat_response_to_completion
 from .prompt import AxPromptTemplate
 from .schema import strip_internal, validate_fields, validate_output
 from .signature import AxSignature
+from .schema import (
+    _schema_to_json_schema_impl,
+)
 
 
 def _call_optimizer_engine(engine, request: dict[str, Any], evaluator):
@@ -920,8 +923,30 @@ def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any) -> Ax
     mode_raw = _core_get(options, "functionCallMode", mode_snake)
     mode = _function_call_mode_impl(mode_raw)
     request["function_call"] = mode
+    signature = _core_get(gen, "signature", None)
+    output_fields = _core_get(signature, "output_fields", None)
+    has_code_field = False
+    for of in output_fields:
+        of_type = _core_get(of, "type", None)
+        of_type_name = _core_get(of_type, "name", None)
+        of_is_code = _core_eq(of_type_name, "code")
+        if of_is_code:
+            has_code_field = True
+        else:
+            pass
     response_format = {}
-    response_format["type"] = "json_object"
+    if has_code_field:
+        schema_options = {}
+        schema_options["strictStructuredOutputs"] = True
+        code_schema = _schema_to_json_schema_impl(output_fields, "output", schema_options)
+        code_schema_wrap = {}
+        code_schema_wrap["name"] = "output"
+        code_schema_wrap["strict"] = True
+        code_schema_wrap["schema"] = code_schema
+        response_format["type"] = "json_schema"
+        response_format["schema"] = code_schema_wrap
+    else:
+        response_format["type"] = "json_object"
     request["response_format"] = response_format
     request["model_config"] = model_config
     return request
@@ -1210,12 +1235,6 @@ def _validate_optimized_artifact_provenance(artifact: Any, components: Any) -> b
     return True
 
 
-def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
-    _core_coverage_mark("_set_examples")
-    gen["examples"] = examples
-    return gen
-
-
 def _validate_optimized_artifact(artifact: Any, components: Any) -> Any:
     _core_coverage_mark("_validate_optimized_artifact")
     is_object = _core_type_is(artifact, "object")
@@ -1291,6 +1310,12 @@ def _validate_optimized_artifact(artifact: Any, components: Any) -> Any:
     return artifact
 
 
+def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
+    _core_coverage_mark("_set_examples")
+    gen["examples"] = examples
+    return gen
+
+
 def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
     _core_coverage_mark("_set_demos")
     gen["demos"] = demos
@@ -1315,27 +1340,15 @@ def _apply_field_processors(gen: AxGen, output: Any) -> Any:
     return processed
 
 
-def _run_assertions(gen: AxGen, output: Any) -> None:
-    _core_coverage_mark("_run_assertions")
-    _core_axgen_run_assertions(gen, output)
-    return None
-
-
-def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> None:
-    _core_coverage_mark("_append_assertion_retry_messages")
-    _append_validation_retry_messages_impl(messages, response, error)
-    return None
-
-
 def _serialize_optimized_artifact(artifact: Any) -> str:
     _core_coverage_mark("_serialize_optimized_artifact")
     text = _core_json_stringify(artifact)
     return text
 
 
-def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
-    _core_coverage_mark("_record_trace")
-    _core_axgen_record_trace(gen, input, output, status)
+def _run_assertions(gen: AxGen, output: Any) -> None:
+    _core_coverage_mark("_run_assertions")
+    _core_axgen_run_assertions(gen, output)
     return None
 
 
@@ -1346,10 +1359,10 @@ def _deserialize_optimized_artifact(text: str, components: Any) -> Any:
     return validated
 
 
-def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
-    _core_coverage_mark("_should_continue_steps")
-    should_continue = _core_axgen_should_continue_steps(gen, calls)
-    return should_continue
+def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> None:
+    _core_coverage_mark("_append_assertion_retry_messages")
+    _append_validation_retry_messages_impl(messages, response, error)
+    return None
 
 
 def _optimization_changed_components(components: Any, component_map: Any) -> list[Any]:
@@ -1370,6 +1383,28 @@ def _optimization_changed_components(components: Any, component_map: Any) -> lis
         else:
             pass
     return changes
+
+
+def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
+    _core_coverage_mark("_record_trace")
+    _core_axgen_record_trace(gen, input, output, status)
+    return None
+
+
+def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
+    _core_coverage_mark("_should_continue_steps")
+    should_continue = _core_axgen_should_continue_steps(gen, calls)
+    return should_continue
+
+
+def _optimization_component_current_map(components: Any) -> Any:
+    _core_coverage_mark("_optimization_component_current_map")
+    out = {}
+    for component in components:
+        id = _core_get(component, "id", "")
+        current = _core_get(component, "current", None)
+        out[id] = current
+    return out
 
 
 def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, retries: int) -> Any:
@@ -1394,23 +1429,6 @@ def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, retrie
     raise last_error
 
 
-def _optimization_component_current_map(components: Any) -> Any:
-    _core_coverage_mark("_optimization_component_current_map")
-    out = {}
-    for component in components:
-        id = _core_get(component, "id", "")
-        current = _core_get(component, "current", None)
-        out[id] = current
-    return out
-
-
-def _parse_output_impl(content: str) -> Any:
-    _core_coverage_mark("_parse_output_impl")
-    text = str(content).strip()
-    output = _core_json_parse(text)
-    return output
-
-
 def _normalize_optimization_dataset(dataset: Any) -> Any:
     _core_coverage_mark("_normalize_optimization_dataset")
     empty_list = []
@@ -1428,18 +1446,6 @@ def _normalize_optimization_dataset(dataset: Any) -> Any:
     out_list["train"] = dataset
     out_list["validation"] = empty_list
     return out_list
-
-
-def _tool_spec_impl(fn: Tool) -> Any:
-    _core_coverage_mark("_tool_spec_impl")
-    spec = {}
-    name = _core_get(fn, "name", None)
-    description = _core_get(fn, "description", None)
-    parameters = _core_get(fn, "parameters", None)
-    spec["name"] = name
-    spec["description"] = description
-    spec["parameters"] = parameters
-    return spec
 
 
 def _normalize_optimization_metric_scores(raw: Any) -> Any:
@@ -1461,26 +1467,23 @@ def _normalize_optimization_metric_scores(raw: Any) -> Any:
     return out_zero
 
 
-def _function_call_mode_impl(mode: Any) -> str:
-    _core_coverage_mark("_function_call_mode_impl")
-    missing = _core_is_none(mode)
-    if missing:
-        return "auto"
-    else:
-        pass
-    is_native = _core_eq(mode, "native")
-    is_auto = _core_eq(mode, "auto")
-    native_or_auto = _core_or(is_native, is_auto)
-    if native_or_auto:
-        return "auto"
-    else:
-        pass
-    is_prompt = _core_eq(mode, "prompt")
-    if is_prompt:
-        return "none"
-    else:
-        pass
-    return mode
+def _parse_output_impl(content: str) -> Any:
+    _core_coverage_mark("_parse_output_impl")
+    text = str(content).strip()
+    output = _core_json_parse(text)
+    return output
+
+
+def _tool_spec_impl(fn: Tool) -> Any:
+    _core_coverage_mark("_tool_spec_impl")
+    spec = {}
+    name = _core_get(fn, "name", None)
+    description = _core_get(fn, "description", None)
+    parameters = _core_get(fn, "parameters", None)
+    spec["name"] = name
+    spec["description"] = description
+    spec["parameters"] = parameters
+    return spec
 
 
 def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
@@ -1509,26 +1512,26 @@ def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
     return avg
 
 
-def _response_function_calls_impl(response: Any) -> list[Any]:
-    _core_coverage_mark("_response_function_calls_impl")
-    empty = []
-    calls = _core_get(response, "function_calls", empty)
-    return calls
-
-
-def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> None:
-    _core_coverage_mark("_append_tool_call_messages_impl")
-    chat_calls = []
-    for call in calls:
-        chat_call = _completion_call_to_chat_impl(call)
-        chat_calls.append(chat_call)
-    content = _core_get(response, "content", "")
-    message = {}
-    message["role"] = "assistant"
-    message["content"] = content
-    message["function_calls"] = chat_calls
-    messages.append(message)
-    return None
+def _function_call_mode_impl(mode: Any) -> str:
+    _core_coverage_mark("_function_call_mode_impl")
+    missing = _core_is_none(mode)
+    if missing:
+        return "auto"
+    else:
+        pass
+    is_native = _core_eq(mode, "native")
+    is_auto = _core_eq(mode, "auto")
+    native_or_auto = _core_or(is_native, is_auto)
+    if native_or_auto:
+        return "auto"
+    else:
+        pass
+    is_prompt = _core_eq(mode, "prompt")
+    if is_prompt:
+        return "none"
+    else:
+        pass
+    return mode
 
 
 def _optimization_action_name_matches(expected: str, call: Any) -> bool:
@@ -1544,19 +1547,11 @@ def _optimization_action_name_matches(expected: str, call: Any) -> bool:
     return any_match
 
 
-def _completion_call_to_chat_impl(call: Any) -> Any:
-    _core_coverage_mark("_completion_call_to_chat_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    params = _core_get(call, "params", None)
-    function = {}
-    function["name"] = name
-    function["params"] = params
-    out = {}
-    out["id"] = id
-    out["type"] = "function"
-    out["function"] = function
-    return out
+def _response_function_calls_impl(response: Any) -> list[Any]:
+    _core_coverage_mark("_response_function_calls_impl")
+    empty = []
+    calls = _core_get(response, "function_calls", empty)
+    return calls
 
 
 def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: Any) -> f64:
@@ -1604,6 +1599,36 @@ def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: An
         else:
             pass
     return adjusted
+
+
+def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> None:
+    _core_coverage_mark("_append_tool_call_messages_impl")
+    chat_calls = []
+    for call in calls:
+        chat_call = _completion_call_to_chat_impl(call)
+        chat_calls.append(chat_call)
+    content = _core_get(response, "content", "")
+    message = {}
+    message["role"] = "assistant"
+    message["content"] = content
+    message["function_calls"] = chat_calls
+    messages.append(message)
+    return None
+
+
+def _completion_call_to_chat_impl(call: Any) -> Any:
+    _core_coverage_mark("_completion_call_to_chat_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    params = _core_get(call, "params", None)
+    function = {}
+    function["name"] = name
+    function["params"] = params
+    out = {}
+    out["id"] = id
+    out["type"] = "function"
+    out["function"] = function
+    return out
 
 
 def _tool_result_message_impl(call: Any, result: Any) -> Any:

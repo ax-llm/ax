@@ -244,9 +244,13 @@ impl AxCodeSession for QuickJsCodeSession {
                 false
             })));
         }
-        let code_literal = serde_json::to_string(code)?;
+        // The RLM prompt has the model write `await final(...)` / `await llmQuery(...)`, so actor
+        // code uses top-level await — illegal in a plain script eval. Compile it as an async
+        // function (AsyncFunction constructor) so await is legal; the synchronous host primitives
+        // that set the completion run before the first await suspends, so it is captured here.
+        let body_literal = serde_json::to_string(&format!("with (globalThis) {{\n{code}\n}}"))?;
         let source = format!(
-            "globalThis.__ax_completion = undefined; __ax_install_host_callables(); var __ax_eval_result = (0, eval)({code_literal}); JSON.stringify(globalThis.__ax_completion === undefined ? (__ax_eval_result === undefined ? {{kind: 'result', result: null}} : __ax_eval_result) : globalThis.__ax_completion);"
+            "globalThis.__ax_completion = undefined; __ax_install_host_callables(); (async function(){{}}).constructor({body_literal})(); JSON.stringify(globalThis.__ax_completion === undefined ? {{kind: 'result', result: null}} : globalThis.__ax_completion);"
         );
         let result = self.eval_json_string(source);
         self.runtime.set_interrupt_handler(None);

@@ -35,6 +35,10 @@ _PRELUDE = (
     "function guideAgent(g){return axComplete({type:'guide_agent',guidance:String(g||'')});}"
     "function axHc(name){return function(params){var r=JSON.parse(globalThis.__ax_host_call(name,JSON.stringify(params===undefined?null:params)));if(r.ok)return r.result;return{kind:'error',is_error:true,error_category:String(r.category||'runtime'),error:String(r.error||('host callable failed: '+name))};};}"
     "function axSnap(){var o={};for(var k of Object.getOwnPropertyNames(globalThis)){if(k.indexOf('__ax_')===0)continue;var v=globalThis[k];if(typeof v==='function'||typeof v==='undefined')continue;try{JSON.stringify(v);o[k]=v;}catch(e){}}return JSON.stringify(o);}"
+    # console: the executor inspects intermediate values with console.log; capture each
+    # turn's output into __ax_logs so the host can surface it back into the action log.
+    "function axLog(){var a=Array.prototype.slice.call(arguments);globalThis.__ax_logs.push(a.map(function(x){return (typeof x==='string')?x:(function(){try{return JSON.stringify(x);}catch(e){return String(x);}})();}).join(' '));}"
+    "globalThis.console={log:axLog,error:axLog,warn:axLog,info:axLog,debug:axLog};"
 )
 
 
@@ -62,15 +66,40 @@ class AxQuickJsCodeSession(AxCodeSession):
     def execute(self, code: str, options: dict[str, Any] | None = None) -> Any:
         if self.closed:
             return {"is_error": True, "error_category": "session_closed", "error": "session closed"}
+        # The RLM prompt has the model write `await final(...)` / `await llmQuery(...)`, so the
+        # code uses top-level await — illegal in a plain script eval. Run it inside an async IIFE
+        # (await becomes legal) and drain the job queue so awaited continuations and the
+        # synchronous host primitives that set __ax_completion actually run before we read it.
+        self.ctx.eval(
+            "globalThis.__ax_completion=undefined;globalThis.__ax_result=undefined;"
+            "globalThis.__ax_error=undefined;globalThis.__ax_logs=[];"
+        )
         wrapper = (
-            "globalThis.__ax_completion=undefined;var __ax_r=(0,eval)(%s);"
-            "JSON.stringify(globalThis.__ax_completion===undefined?(__ax_r===undefined?{kind:'result',result:null}:__ax_r):globalThis.__ax_completion);"
-            % json.dumps(code)
+            "(async()=>{\n" + code + "\n})().then("
+            "function(r){globalThis.__ax_result=r;},"
+            "function(e){globalThis.__ax_error=String((e&&e.stack)?e.stack:e);});"
         )
         try:
-            return json.loads(self.ctx.eval(wrapper))
+            self.ctx.eval(wrapper)
+            for _ in range(1000000):
+                if not self.ctx.execute_pending_job():
+                    break
         except Exception as exc:
             return {"kind": "error", "is_error": True, "error_category": "runtime", "error": str(exc)}
+        err = self.ctx.eval("globalThis.__ax_error===undefined?null:globalThis.__ax_error")
+        if err is not None:
+            return {"kind": "error", "is_error": True, "error_category": "runtime", "error": str(err)}
+        try:
+            logs = json.loads(self.ctx.eval("JSON.stringify(globalThis.__ax_logs||[])"))
+        except Exception:
+            logs = []
+        payload = json.loads(self.ctx.eval(
+            "JSON.stringify(globalThis.__ax_completion!==undefined?globalThis.__ax_completion:"
+            "{kind:'result',result:(globalThis.__ax_result===undefined?null:globalThis.__ax_result)});"
+        ))
+        if logs and isinstance(payload, dict):
+            payload["logs"] = logs
+        return payload
 
     def _snap(self):
         try:

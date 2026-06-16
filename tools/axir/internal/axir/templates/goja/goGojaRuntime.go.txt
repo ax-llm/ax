@@ -165,7 +165,11 @@ func (s *Session) Execute(code string, options map[string]ax.Value) ax.Value {
 	if marshalErr != nil {
 		return runtimeError("goja actor code is not executable", "runtime")
 	}
-	_, err := s.vm.RunString("Function(" + string(body) + ")();")
+	// The RLM prompt has the model write `await final(...)` / `await llmQuery(...)`, so actor
+	// code uses top-level await — illegal in a plain Function body. Compile it as an async
+	// function (AsyncFunction constructor) instead; the synchronous host primitives that set
+	// the completion run before the first await suspends, so the completion is captured.
+	_, err := s.vm.RunString("(async function(){}).constructor(" + string(body) + ")();")
 	if timer != nil && !timer.Stop() {
 		s.vm.ClearInterrupt()
 	}

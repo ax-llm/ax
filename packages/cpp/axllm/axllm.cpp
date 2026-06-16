@@ -7638,8 +7638,32 @@ Value Core::_build_gen_chat_request(Value gen, Value messages, Value options) {
   Value mode_raw = Core::get(options, Value("functionCallMode"), mode_snake);
   Value mode = Core::_function_call_mode_impl(mode_raw);
   Core::set(request, Value("function_call"), mode);
+  Value signature = Core::get(gen, Value("signature"), Value());
+  Value output_fields = Core::get(signature, Value("output_fields"), Value());
+  Value has_code_field = Value(false);
+  for (auto of : Core::iter(output_fields)) {
+    Value of_type = Core::get(of, Value("type"), Value());
+    Value of_type_name = Core::get(of_type, Value("name"), Value());
+    Value of_is_code = Core::eq(of_type_name, Value("code"));
+    if (Core::truthy(of_is_code)) {
+      has_code_field = Value(true);
+    }
+  }
   Value response_format = Value::object();
-  Core::set(response_format, Value("type"), Value("json_object"));
+  if (Core::truthy(has_code_field)) {
+    Value schema_options = Value::object();
+    Core::set(schema_options, Value("strictStructuredOutputs"), Value(true));
+    Value code_schema = Core::_schema_to_json_schema_impl(output_fields, Value("output"), schema_options);
+    Value code_schema_wrap = Value::object();
+    Core::set(code_schema_wrap, Value("name"), Value("output"));
+    Core::set(code_schema_wrap, Value("strict"), Value(true));
+    Core::set(code_schema_wrap, Value("schema"), code_schema);
+    Core::set(response_format, Value("type"), Value("json_schema"));
+    Core::set(response_format, Value("schema"), code_schema_wrap);
+  }
+  if (!Core::truthy(has_code_field)) {
+    Core::set(response_format, Value("type"), Value("json_object"));
+  }
   Core::set(request, Value("response_format"), response_format);
   Core::set(request, Value("model_config"), model_config);
   return request;
@@ -7925,12 +7949,6 @@ Value Core::_validate_optimized_artifact_provenance(Value artifact, Value compon
   return Value(true);
 }
 
-Value Core::_set_examples(Value gen, Value examples) {
-  axir_coverage_mark("_set_examples");
-  Core::set(gen, Value("examples"), examples);
-  return gen;
-}
-
 Value Core::_validate_optimized_artifact(Value artifact, Value components) {
   axir_coverage_mark("_validate_optimized_artifact");
   Value is_object = Core::type_is(artifact, Value("object"));
@@ -7998,6 +8016,12 @@ Value Core::_validate_optimized_artifact(Value artifact, Value components) {
   return artifact;
 }
 
+Value Core::_set_examples(Value gen, Value examples) {
+  axir_coverage_mark("_set_examples");
+  Core::set(gen, Value("examples"), examples);
+  return gen;
+}
+
 Value Core::_set_demos(Value gen, Value demos) {
   axir_coverage_mark("_set_demos");
   Core::set(gen, Value("demos"), demos);
@@ -8022,27 +8046,15 @@ Value Core::_apply_field_processors(Value gen, Value output) {
   return processed;
 }
 
-Value Core::_run_assertions(Value gen, Value output) {
-  axir_coverage_mark("_run_assertions");
-  Core::axgen_run_assertions(gen, output);
-  return Value();
-}
-
-Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
-  axir_coverage_mark("_append_assertion_retry_messages");
-  Core::_append_validation_retry_messages_impl(messages, response, error);
-  return Value();
-}
-
 Value Core::_serialize_optimized_artifact(Value artifact) {
   axir_coverage_mark("_serialize_optimized_artifact");
   Value text = Core::json_stringify(artifact);
   return text;
 }
 
-Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
-  axir_coverage_mark("_record_trace");
-  Core::axgen_record_trace(gen, input, output, status);
+Value Core::_run_assertions(Value gen, Value output) {
+  axir_coverage_mark("_run_assertions");
+  Core::axgen_run_assertions(gen, output);
   return Value();
 }
 
@@ -8053,10 +8065,10 @@ Value Core::_deserialize_optimized_artifact(Value text, Value components) {
   return validated;
 }
 
-Value Core::_should_continue_steps(Value gen, Value calls) {
-  axir_coverage_mark("_should_continue_steps");
-  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
-  return should_continue;
+Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
+  axir_coverage_mark("_append_assertion_retry_messages");
+  Core::_append_validation_retry_messages_impl(messages, response, error);
+  return Value();
 }
 
 Value Core::_optimization_changed_components(Value components, Value component_map) {
@@ -8077,6 +8089,29 @@ Value Core::_optimization_changed_components(Value components, Value component_m
     }
   }
   return changes;
+}
+
+Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
+  axir_coverage_mark("_record_trace");
+  Core::axgen_record_trace(gen, input, output, status);
+  return Value();
+}
+
+Value Core::_should_continue_steps(Value gen, Value calls) {
+  axir_coverage_mark("_should_continue_steps");
+  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
+  return should_continue;
+}
+
+Value Core::_optimization_component_current_map(Value components) {
+  axir_coverage_mark("_optimization_component_current_map");
+  Value out = Value::object();
+  for (auto component : Core::iter(components)) {
+    Value id = Core::get(component, Value("id"), Value(""));
+    Value current = Core::get(component, Value("current"), Value());
+    Core::set(out, id, current);
+  }
+  return out;
 }
 
 Value Core::_complete_with_retries_impl(Value client, Value request, Value retries) {
@@ -8103,24 +8138,6 @@ Value Core::_complete_with_retries_impl(Value client, Value request, Value retri
   throw Core::as_error(last_error);
 }
 
-Value Core::_optimization_component_current_map(Value components) {
-  axir_coverage_mark("_optimization_component_current_map");
-  Value out = Value::object();
-  for (auto component : Core::iter(components)) {
-    Value id = Core::get(component, Value("id"), Value(""));
-    Value current = Core::get(component, Value("current"), Value());
-    Core::set(out, id, current);
-  }
-  return out;
-}
-
-Value Core::_parse_output_impl(Value content) {
-  axir_coverage_mark("_parse_output_impl");
-  Value text = Core::string_trim(content);
-  Value output = Core::json_parse(text);
-  return output;
-}
-
 Value Core::_normalize_optimization_dataset(Value dataset) {
   axir_coverage_mark("_normalize_optimization_dataset");
   Value empty_list = Value::array();
@@ -8137,18 +8154,6 @@ Value Core::_normalize_optimization_dataset(Value dataset) {
   Core::set(out_list, Value("train"), dataset);
   Core::set(out_list, Value("validation"), empty_list);
   return out_list;
-}
-
-Value Core::_tool_spec_impl(Value fn) {
-  axir_coverage_mark("_tool_spec_impl");
-  Value spec = Value::object();
-  Value name = Core::get(fn, Value("name"), Value());
-  Value description = Core::get(fn, Value("description"), Value());
-  Value parameters = Core::get(fn, Value("parameters"), Value());
-  Core::set(spec, Value("name"), name);
-  Core::set(spec, Value("description"), description);
-  Core::set(spec, Value("parameters"), parameters);
-  return spec;
 }
 
 Value Core::_normalize_optimization_metric_scores(Value raw) {
@@ -8168,23 +8173,23 @@ Value Core::_normalize_optimization_metric_scores(Value raw) {
   return out_zero;
 }
 
-Value Core::_function_call_mode_impl(Value mode) {
-  axir_coverage_mark("_function_call_mode_impl");
-  Value missing = Core::is_none(mode);
-  if (Core::truthy(missing)) {
-    return Value("auto");
-  }
-  Value is_native = Core::eq(mode, Value("native"));
-  Value is_auto = Core::eq(mode, Value("auto"));
-  Value native_or_auto = Core::or_(is_native, is_auto);
-  if (Core::truthy(native_or_auto)) {
-    return Value("auto");
-  }
-  Value is_prompt = Core::eq(mode, Value("prompt"));
-  if (Core::truthy(is_prompt)) {
-    return Value("none");
-  }
-  return mode;
+Value Core::_parse_output_impl(Value content) {
+  axir_coverage_mark("_parse_output_impl");
+  Value text = Core::string_trim(content);
+  Value output = Core::json_parse(text);
+  return output;
+}
+
+Value Core::_tool_spec_impl(Value fn) {
+  axir_coverage_mark("_tool_spec_impl");
+  Value spec = Value::object();
+  Value name = Core::get(fn, Value("name"), Value());
+  Value description = Core::get(fn, Value("description"), Value());
+  Value parameters = Core::get(fn, Value("parameters"), Value());
+  Core::set(spec, Value("name"), name);
+  Core::set(spec, Value("description"), description);
+  Core::set(spec, Value("parameters"), parameters);
+  return spec;
 }
 
 Value Core::_scalarize_optimization_scores(Value scores, Value options) {
@@ -8212,27 +8217,23 @@ Value Core::_scalarize_optimization_scores(Value scores, Value options) {
   return avg;
 }
 
-Value Core::_response_function_calls_impl(Value response) {
-  axir_coverage_mark("_response_function_calls_impl");
-  Value empty = Value::array();
-  Value calls = Core::get(response, Value("function_calls"), empty);
-  return calls;
-}
-
-Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
-  axir_coverage_mark("_append_tool_call_messages_impl");
-  Value chat_calls = Value::array();
-  for (auto call : Core::iter(calls)) {
-    Value chat_call = Core::_completion_call_to_chat_impl(call);
-    Core::append(chat_calls, chat_call);
+Value Core::_function_call_mode_impl(Value mode) {
+  axir_coverage_mark("_function_call_mode_impl");
+  Value missing = Core::is_none(mode);
+  if (Core::truthy(missing)) {
+    return Value("auto");
   }
-  Value content = Core::get(response, Value("content"), Value(""));
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("assistant"));
-  Core::set(message, Value("content"), content);
-  Core::set(message, Value("function_calls"), chat_calls);
-  Core::append(messages, message);
-  return Value();
+  Value is_native = Core::eq(mode, Value("native"));
+  Value is_auto = Core::eq(mode, Value("auto"));
+  Value native_or_auto = Core::or_(is_native, is_auto);
+  if (Core::truthy(native_or_auto)) {
+    return Value("auto");
+  }
+  Value is_prompt = Core::eq(mode, Value("prompt"));
+  if (Core::truthy(is_prompt)) {
+    return Value("none");
+  }
+  return mode;
 }
 
 Value Core::_optimization_action_name_matches(Value expected, Value call) {
@@ -8248,19 +8249,11 @@ Value Core::_optimization_action_name_matches(Value expected, Value call) {
   return any_match;
 }
 
-Value Core::_completion_call_to_chat_impl(Value call) {
-  axir_coverage_mark("_completion_call_to_chat_impl");
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(call, Value("name"), Value());
-  Value params = Core::get(call, Value("params"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("params"), params);
-  Value out = Value::object();
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
+Value Core::_response_function_calls_impl(Value response) {
+  axir_coverage_mark("_response_function_calls_impl");
+  Value empty = Value::array();
+  Value calls = Core::get(response, Value("function_calls"), empty);
+  return calls;
 }
 
 Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Value prediction) {
@@ -8307,6 +8300,37 @@ Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Valu
     }
   }
   return adjusted;
+}
+
+Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
+  axir_coverage_mark("_append_tool_call_messages_impl");
+  Value chat_calls = Value::array();
+  for (auto call : Core::iter(calls)) {
+    Value chat_call = Core::_completion_call_to_chat_impl(call);
+    Core::append(chat_calls, chat_call);
+  }
+  Value content = Core::get(response, Value("content"), Value(""));
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("assistant"));
+  Core::set(message, Value("content"), content);
+  Core::set(message, Value("function_calls"), chat_calls);
+  Core::append(messages, message);
+  return Value();
+}
+
+Value Core::_completion_call_to_chat_impl(Value call) {
+  axir_coverage_mark("_completion_call_to_chat_impl");
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(call, Value("name"), Value());
+  Value params = Core::get(call, Value("params"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("params"), params);
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
+  return out;
 }
 
 Value Core::_tool_result_message_impl(Value call, Value result) {

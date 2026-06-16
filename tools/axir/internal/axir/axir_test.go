@@ -3140,6 +3140,34 @@ func TestRLMStagesSymmetric(t *testing.T) {
 	}
 }
 
+// TestCodeStageUsesStructuredOutput guards the second half of the live-model fix:
+// a code-emitting stage (RLM distiller/executor, `-> {}:code`) must request a strict
+// json_schema response_format that forces the output field name, NOT a generic
+// json_object. With json_object a live model picks its own keys and answers directly
+// (e.g. {"answer":"Paris"}) instead of emitting the javascriptCode field, so the stage
+// throws "Required field is missing: 'Javascript Code'". The behavioral guard is the
+// agent-runtime-real-javascript-await fixture (asserts json_schema+javascriptCode in the
+// request across all five engines); this is the fast-lane structural backstop.
+func TestCodeStageUsesStructuredOutput(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRootPath(), "ir", "axcore", "gen.axir"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `intrinsic.eq(%of_type_name, "code")`) {
+		t.Fatal("@build_gen_chat_request no longer detects a code-type output field; code stages will fall back to generic json_object and a live model will answer directly instead of emitting code")
+	}
+	if !strings.Contains(text, `@schema_to_json_schema_impl(`) {
+		t.Fatal("@build_gen_chat_request does not build a json_schema from the output fields for code stages")
+	}
+	if !strings.Contains(text, "strictStructuredOutputs") {
+		t.Fatal("code-stage json_schema is not strict; without strict mode the output field name is not forced")
+	}
+	if !strings.Contains(text, `"json_schema"`) {
+		t.Fatal("@build_gen_chat_request never sets a json_schema response_format")
+	}
+}
+
 // TestRealEngineFixturesRunCode guards the verification gap that let the distiller
 // bug ship: a real-engine (axagent-real) fixture must execute MODEL-AUTHORED CODE
 // through the engine for every actor stage. A hand-fed {"completion":...} at an
