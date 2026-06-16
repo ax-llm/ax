@@ -86,8 +86,13 @@ module @ax.agent version "0.1" {
       core.set %state["context_fields"] = %context_fields
       core.set %state["executor_exclude_fields"] = %executor_exclude
       core.set %state["responder_exclude_fields"] = %responder_exclude
-      core.set %state["distiller_signature"] = "input:json, context:json -> completion:json"
       %code_field_name = core.get %runtime_contract["code_field_name"] default "javascriptCode"
+      %runtime_distiller_signature = core.call intrinsic.string.format("input:json, context:json -> {}:code", %code_field_name)
+      %distiller_signature = core.let "input:json, context:json -> completion:json"
+      core.if %runtime_enabled {
+        %distiller_signature = core.let %runtime_distiller_signature
+      }
+      core.set %state["distiller_signature"] = %distiller_signature
       %runtime_executor_signature = core.call intrinsic.string.format("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", %code_field_name)
       %executor_signature = core.let "input:json, executorRequest:string, distilledContext:json -> completion:json"
       core.if %runtime_enabled {
@@ -4959,7 +4964,14 @@ module @ax.agent version "0.1" {
       %out = core.call intrinsic.map.merge(%non_ctx, %empty)
       %args = core.get %distiller_payload["args"] default %empty_list
       %fallback_request = core.call intrinsic.json.stringify(%non_ctx)
-      %executor_request = core.call intrinsic.list.get(%args, 0, %fallback_request)
+      %executor_request_raw = core.call intrinsic.list.get(%args, 0, %fallback_request)
+      %request_is_string = core.type_is %executor_request_raw type "string"
+      %executor_request = core.let %executor_request_raw
+      core.if %request_is_string {
+      } else {
+        %executor_request_coerced = core.call intrinsic.string.format("{}", %executor_request_raw)
+        %executor_request = core.let %executor_request_coerced
+      }
       %distilled_context = core.call intrinsic.list.get(%args, 1, %empty_map)
       core.set %out["input"] = %non_ctx
       core.set %out["executorRequest"] = %executor_request
@@ -5737,19 +5749,67 @@ module @ax.agent version "0.1" {
       %distiller_options = core.call @agent_stage_options(%state, "distiller", %options)
       %executor_options = core.call @agent_stage_options(%state, "executor", %options)
       %responder_options = core.call @agent_stage_options(%state, "responder", %options)
-      %distiller_values = core.call @build_distiller_inputs(%state, %values)
-      %distiller_request_event = core.map
-      core.set %distiller_request_event["stage"] = "distiller"
-      core.set %distiller_request_event["values"] = %distiller_values
-      core.set %distiller_request_event["component_id"] = "agent.stage.distiller"
-      core.call @agent_record_trace_event(%state, "stage_request", %distiller_request_event)
-      %distiller_output = core.call intrinsic.agent.stage_forward(%distiller, %client, %distiller_values, %distiller_options)
-      %distiller_response_event = core.map
-      core.set %distiller_response_event["stage"] = "distiller"
-      core.set %distiller_response_event["output"] = %distiller_output
-      core.set %distiller_response_event["component_id"] = "agent.stage.distiller"
-      core.call @agent_record_trace_event(%state, "stage_response", %distiller_response_event)
-      %distiller_payload = core.call @normalize_agent_completion_payload(%distiller_output)
+      %distiller_payload = core.call intrinsic.none()
+      core.if %runtime_enabled {
+        %distiller_empty_log = core.list
+        %distiller_saved_action_log = core.get %state["action_log"] default %distiller_empty_log
+        %distiller_globals = core.call @agent_runtime_build_globals(%state, %values)
+        %distiller_session = core.call intrinsic.none()
+        %distiller_max_steps = core.get %options["max_actor_steps"] default 4
+        %distiller_step = core.let 0
+        core.loop {
+          %distiller_too_many = core.call intrinsic.gte(%distiller_step, %distiller_max_steps)
+          core.if %distiller_too_many {
+            %distiller_error_event = core.map
+            core.set %distiller_error_event["error"] = "agent distiller loop exceeded max steps"
+            core.set %distiller_error_event["stage"] = "distiller"
+            core.call @agent_record_trace_event(%state, "error", %distiller_error_event)
+            %distiller_error = core.call intrinsic.error.runtime("agent distiller loop exceeded max steps")
+            core.raise %distiller_error
+          }
+          %distiller_values = core.call @build_distiller_inputs(%state, %values)
+          %distiller_request_event = core.map
+          core.set %distiller_request_event["stage"] = "distiller"
+          core.set %distiller_request_event["step"] = %distiller_step
+          core.set %distiller_request_event["values"] = %distiller_values
+          core.set %distiller_request_event["component_id"] = "agent.stage.distiller"
+          core.call @agent_record_trace_event(%state, "stage_request", %distiller_request_event)
+          %distiller_output = core.call intrinsic.agent.stage_forward(%distiller, %client, %distiller_values, %distiller_options)
+          %distiller_response_event = core.map
+          core.set %distiller_response_event["stage"] = "distiller"
+          core.set %distiller_response_event["step"] = %distiller_step
+          core.set %distiller_response_event["output"] = %distiller_output
+          core.set %distiller_response_event["component_id"] = "agent.stage.distiller"
+          core.call @agent_record_trace_event(%state, "stage_response", %distiller_response_event)
+          %distiller_code = core.call @extract_agent_runtime_code(%state, %distiller_output)
+          %distiller_runtime_step = core.call @agent_runtime_execute_step(%state, %runtime_from_options, %distiller_session, %distiller_code, %options)
+          %distiller_session = core.get %state["runtime_session"] default %distiller_session
+          %distiller_completion = core.get %distiller_runtime_step["completion_payload"] default null
+          %distiller_has_completion = core.type_is %distiller_completion type "object"
+          core.if %distiller_has_completion {
+            %distiller_payload = core.let %distiller_completion
+            core.break
+          }
+          %distiller_step = core.call intrinsic.add(%distiller_step, 1)
+        }
+        %distiller_session_reset = core.call intrinsic.none()
+        core.set %state["runtime_session"] = %distiller_session_reset
+        core.set %state["action_log"] = %distiller_saved_action_log
+      } else {
+        %distiller_values = core.call @build_distiller_inputs(%state, %values)
+        %distiller_request_event = core.map
+        core.set %distiller_request_event["stage"] = "distiller"
+        core.set %distiller_request_event["values"] = %distiller_values
+        core.set %distiller_request_event["component_id"] = "agent.stage.distiller"
+        core.call @agent_record_trace_event(%state, "stage_request", %distiller_request_event)
+        %distiller_output = core.call intrinsic.agent.stage_forward(%distiller, %client, %distiller_values, %distiller_options)
+        %distiller_response_event = core.map
+        core.set %distiller_response_event["stage"] = "distiller"
+        core.set %distiller_response_event["output"] = %distiller_output
+        core.set %distiller_response_event["component_id"] = "agent.stage.distiller"
+        core.call @agent_record_trace_event(%state, "stage_response", %distiller_response_event)
+        %distiller_payload = core.call @normalize_agent_completion_payload(%distiller_output)
+      }
       core.call @throw_agent_clarification(%distiller_payload, %state)
       %executor_payload = core.call intrinsic.none()
       core.if %runtime_enabled {

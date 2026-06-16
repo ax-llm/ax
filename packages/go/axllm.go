@@ -15193,6 +15193,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_discovered_tool_docs Value
 	var v_discovery_catalog Value
 	var v_distiller_description Value
+	var v_distiller_signature Value
 	var v_empty_list Value
 	var v_empty_map Value
 	var v_error Value
@@ -15232,6 +15233,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_responder_options Value
 	var v_responder_options_camel Value
 	var v_runtime_contract Value
+	var v_runtime_distiller_signature Value
 	var v_runtime_enabled Value
 	var v_runtime_executor_signature Value
 	var v_sig Value
@@ -15279,6 +15281,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_discovered_tool_docs
 	_ = v_discovery_catalog
 	_ = v_distiller_description
+	_ = v_distiller_signature
 	_ = v_empty_list
 	_ = v_empty_map
 	_ = v_error
@@ -15318,6 +15321,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_responder_options
 	_ = v_responder_options_camel
 	_ = v_runtime_contract
+	_ = v_runtime_distiller_signature
 	_ = v_runtime_enabled
 	_ = v_runtime_executor_signature
 	_ = v_sig
@@ -15411,8 +15415,15 @@ func _agent_factory(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "context_fields", v_context_fields); err != nil { return nil, err }
 	if err := coreSet(v_state, "executor_exclude_fields", v_executor_exclude); err != nil { return nil, err }
 	if err := coreSet(v_state, "responder_exclude_fields", v_responder_exclude); err != nil { return nil, err }
-	if err := coreSet(v_state, "distiller_signature", "input:json, context:json -> completion:json"); err != nil { return nil, err }
 	v_code_field_name = coreGet(v_runtime_contract, "code_field_name", "javascriptCode")
+	v_runtime_distiller_signature = _core_string_format("input:json, context:json -> {}:code", v_code_field_name)
+	v_distiller_signature = "input:json, context:json -> completion:json"
+	if coreTruthy(v_runtime_enabled) {
+		v_distiller_signature = v_runtime_distiller_signature
+	} else {
+	// empty
+	}
+	if err := coreSet(v_state, "distiller_signature", v_distiller_signature); err != nil { return nil, err }
 	v_runtime_executor_signature = _core_string_format("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", v_code_field_name)
 	v_executor_signature = "input:json, executorRequest:string, distilledContext:json -> completion:json"
 	if coreTruthy(v_runtime_enabled) {
@@ -24588,6 +24599,8 @@ func _build_executor_inputs(args ...Value) (Value, error) {
 	var v_empty_map Value
 	var v_exclude Value
 	var v_executor_request Value
+	var v_executor_request_coerced Value
+	var v_executor_request_raw Value
 	var v_fallback_request Value
 	var v_guidance_text Value
 	var v_key Value
@@ -24596,6 +24609,7 @@ func _build_executor_inputs(args ...Value) (Value, error) {
 	var v_non_ctx Value
 	var v_out Value
 	var v_pressure_text Value
+	var v_request_is_string Value
 	var v_runtime_text Value
 	var v_skills_text Value
 	var v_split Value
@@ -24617,6 +24631,8 @@ func _build_executor_inputs(args ...Value) (Value, error) {
 	_ = v_empty_map
 	_ = v_exclude
 	_ = v_executor_request
+	_ = v_executor_request_coerced
+	_ = v_executor_request_raw
 	_ = v_fallback_request
 	_ = v_guidance_text
 	_ = v_key
@@ -24625,6 +24641,7 @@ func _build_executor_inputs(args ...Value) (Value, error) {
 	_ = v_non_ctx
 	_ = v_out
 	_ = v_pressure_text
+	_ = v_request_is_string
 	_ = v_runtime_text
 	_ = v_skills_text
 	_ = v_split
@@ -24637,7 +24654,15 @@ func _build_executor_inputs(args ...Value) (Value, error) {
 	v_out = _core_map_merge(v_non_ctx, v_empty)
 	v_args = coreGet(v_distiller_payload, "args", v_empty_list)
 	v_fallback_request = _core_json_stringify(v_non_ctx)
-	v_executor_request = _core_list_get(v_args, 0, v_fallback_request)
+	v_executor_request_raw = _core_list_get(v_args, 0, v_fallback_request)
+	v_request_is_string = coreTypeIs(v_executor_request_raw, "string")
+	v_executor_request = v_executor_request_raw
+	if coreTruthy(v_request_is_string) {
+	// empty
+	} else {
+		v_executor_request_coerced = _core_string_format("{}", v_executor_request_raw)
+		v_executor_request = v_executor_request_coerced
+	}
 	v_distilled_context = _core_list_get(v_args, 1, v_empty_map)
 	if err := coreSet(v_out, "input", v_non_ctx); err != nil { return nil, err }
 	if err := coreSet(v_out, "executorRequest", v_executor_request); err != nil { return nil, err }
@@ -26074,11 +26099,25 @@ func _agent_forward(args ...Value) (Value, error) {
 	var v_options Value
 	var v_code Value
 	var v_completion_payload Value
+	var v_distiller_code Value
+	var v_distiller_completion Value
+	var v_distiller_empty_log Value
+	var v_distiller_error Value
+	var v_distiller_error_event Value
+	var v_distiller_globals Value
+	var v_distiller_has_completion Value
+	var v_distiller_max_steps Value
 	var v_distiller_options Value
 	var v_distiller_output Value
 	var v_distiller_payload Value
 	var v_distiller_request_event Value
 	var v_distiller_response_event Value
+	var v_distiller_runtime_step Value
+	var v_distiller_saved_action_log Value
+	var v_distiller_session Value
+	var v_distiller_session_reset Value
+	var v_distiller_step Value
+	var v_distiller_too_many Value
 	var v_distiller_values Value
 	var v_error Value
 	var v_error_event Value
@@ -26123,11 +26162,25 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_options
 	_ = v_code
 	_ = v_completion_payload
+	_ = v_distiller_code
+	_ = v_distiller_completion
+	_ = v_distiller_empty_log
+	_ = v_distiller_error
+	_ = v_distiller_error_event
+	_ = v_distiller_globals
+	_ = v_distiller_has_completion
+	_ = v_distiller_max_steps
 	_ = v_distiller_options
 	_ = v_distiller_output
 	_ = v_distiller_payload
 	_ = v_distiller_request_event
 	_ = v_distiller_response_event
+	_ = v_distiller_runtime_step
+	_ = v_distiller_saved_action_log
+	_ = v_distiller_session
+	_ = v_distiller_session_reset
+	_ = v_distiller_step
+	_ = v_distiller_too_many
 	_ = v_distiller_values
 	_ = v_error
 	_ = v_error_event
@@ -26167,19 +26220,71 @@ func _agent_forward(args ...Value) (Value, error) {
 	{ v, err := _agent_stage_options(v_state, "distiller", v_options); if err != nil { return nil, err }; v_distiller_options = v }
 	{ v, err := _agent_stage_options(v_state, "executor", v_options); if err != nil { return nil, err }; v_executor_options = v }
 	{ v, err := _agent_stage_options(v_state, "responder", v_options); if err != nil { return nil, err }; v_responder_options = v }
-	{ v, err := _build_distiller_inputs(v_state, v_values); if err != nil { return nil, err }; v_distiller_values = v }
-	v_distiller_request_event = Object()
-	if err := coreSet(v_distiller_request_event, "stage", "distiller"); err != nil { return nil, err }
-	if err := coreSet(v_distiller_request_event, "values", v_distiller_values); err != nil { return nil, err }
-	if err := coreSet(v_distiller_request_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
-	if _, err := _agent_record_trace_event(v_state, "stage_request", v_distiller_request_event); err != nil { return nil, err }
-	{ v, err := _core_agent_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
-	v_distiller_response_event = Object()
-	if err := coreSet(v_distiller_response_event, "stage", "distiller"); err != nil { return nil, err }
-	if err := coreSet(v_distiller_response_event, "output", v_distiller_output); err != nil { return nil, err }
-	if err := coreSet(v_distiller_response_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
-	if _, err := _agent_record_trace_event(v_state, "stage_response", v_distiller_response_event); err != nil { return nil, err }
-	{ v, err := _normalize_agent_completion_payload(v_distiller_output); if err != nil { return nil, err }; v_distiller_payload = v }
+	v_distiller_payload = _core_none()
+	if coreTruthy(v_runtime_enabled) {
+		v_distiller_empty_log = MutableArray()
+		v_distiller_saved_action_log = coreGet(v_state, "action_log", v_distiller_empty_log)
+		{ v, err := _agent_runtime_build_globals(v_state, v_values); if err != nil { return nil, err }; v_distiller_globals = v }
+		v_distiller_session = _core_none()
+		v_distiller_max_steps = coreGet(v_options, "max_actor_steps", 4)
+		v_distiller_step = 0
+		for {
+			v_distiller_too_many = _core_gte(v_distiller_step, v_distiller_max_steps)
+			if coreTruthy(v_distiller_too_many) {
+				v_distiller_error_event = Object()
+				if err := coreSet(v_distiller_error_event, "error", "agent distiller loop exceeded max steps"); err != nil { return nil, err }
+				if err := coreSet(v_distiller_error_event, "stage", "distiller"); err != nil { return nil, err }
+				if _, err := _agent_record_trace_event(v_state, "error", v_distiller_error_event); err != nil { return nil, err }
+				v_distiller_error = _core_runtime_error("agent distiller loop exceeded max steps")
+				return nil, asAxError(v_distiller_error)
+			} else {
+			// empty
+			}
+			{ v, err := _build_distiller_inputs(v_state, v_values); if err != nil { return nil, err }; v_distiller_values = v }
+			v_distiller_request_event = Object()
+			if err := coreSet(v_distiller_request_event, "stage", "distiller"); err != nil { return nil, err }
+			if err := coreSet(v_distiller_request_event, "step", v_distiller_step); err != nil { return nil, err }
+			if err := coreSet(v_distiller_request_event, "values", v_distiller_values); err != nil { return nil, err }
+			if err := coreSet(v_distiller_request_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
+			if _, err := _agent_record_trace_event(v_state, "stage_request", v_distiller_request_event); err != nil { return nil, err }
+			{ v, err := _core_agent_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
+			v_distiller_response_event = Object()
+			if err := coreSet(v_distiller_response_event, "stage", "distiller"); err != nil { return nil, err }
+			if err := coreSet(v_distiller_response_event, "step", v_distiller_step); err != nil { return nil, err }
+			if err := coreSet(v_distiller_response_event, "output", v_distiller_output); err != nil { return nil, err }
+			if err := coreSet(v_distiller_response_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
+			if _, err := _agent_record_trace_event(v_state, "stage_response", v_distiller_response_event); err != nil { return nil, err }
+			{ v, err := _extract_agent_runtime_code(v_state, v_distiller_output); if err != nil { return nil, err }; v_distiller_code = v }
+			{ v, err := _agent_runtime_execute_step(v_state, v_runtime_from_options, v_distiller_session, v_distiller_code, v_options); if err != nil { return nil, err }; v_distiller_runtime_step = v }
+			v_distiller_session = coreGet(v_state, "runtime_session", v_distiller_session)
+			v_distiller_completion = coreGet(v_distiller_runtime_step, "completion_payload", nil)
+			v_distiller_has_completion = coreTypeIs(v_distiller_completion, "object")
+			if coreTruthy(v_distiller_has_completion) {
+				v_distiller_payload = v_distiller_completion
+				break
+			} else {
+			// empty
+			}
+			v_distiller_step = _core_add(v_distiller_step, 1)
+		}
+		v_distiller_session_reset = _core_none()
+		if err := coreSet(v_state, "runtime_session", v_distiller_session_reset); err != nil { return nil, err }
+		if err := coreSet(v_state, "action_log", v_distiller_saved_action_log); err != nil { return nil, err }
+	} else {
+		{ v, err := _build_distiller_inputs(v_state, v_values); if err != nil { return nil, err }; v_distiller_values = v }
+		v_distiller_request_event = Object()
+		if err := coreSet(v_distiller_request_event, "stage", "distiller"); err != nil { return nil, err }
+		if err := coreSet(v_distiller_request_event, "values", v_distiller_values); err != nil { return nil, err }
+		if err := coreSet(v_distiller_request_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
+		if _, err := _agent_record_trace_event(v_state, "stage_request", v_distiller_request_event); err != nil { return nil, err }
+		{ v, err := _core_agent_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
+		v_distiller_response_event = Object()
+		if err := coreSet(v_distiller_response_event, "stage", "distiller"); err != nil { return nil, err }
+		if err := coreSet(v_distiller_response_event, "output", v_distiller_output); err != nil { return nil, err }
+		if err := coreSet(v_distiller_response_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
+		if _, err := _agent_record_trace_event(v_state, "stage_response", v_distiller_response_event); err != nil { return nil, err }
+		{ v, err := _normalize_agent_completion_payload(v_distiller_output); if err != nil { return nil, err }; v_distiller_payload = v }
+	}
 	if _, err := _throw_agent_clarification(v_distiller_payload, v_state); err != nil { return nil, err }
 	v_executor_payload = _core_none()
 	if coreTruthy(v_runtime_enabled) {

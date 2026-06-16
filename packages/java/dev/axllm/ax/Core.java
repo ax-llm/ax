@@ -7962,8 +7962,13 @@ final class Core {
     Core.set(state, "context_fields", context_fields);
     Core.set(state, "executor_exclude_fields", executor_exclude);
     Core.set(state, "responder_exclude_fields", responder_exclude);
-    Core.set(state, "distiller_signature", "input:json, context:json -> completion:json");
     Object code_field_name = Core.get(runtime_contract, "code_field_name", "javascriptCode");
+    Object runtime_distiller_signature = Core.stringFormat("input:json, context:json -> {}:code", code_field_name);
+    Object distiller_signature = "input:json, context:json -> completion:json";
+    if (Core.truthy(runtime_enabled)) {
+      distiller_signature = runtime_distiller_signature;
+    }
+    Core.set(state, "distiller_signature", distiller_signature);
     Object runtime_executor_signature = Core.stringFormat("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name);
     Object executor_signature = "input:json, executorRequest:string, distilledContext:json -> completion:json";
     if (Core.truthy(runtime_enabled)) {
@@ -12501,7 +12506,16 @@ final class Core {
     Object out = Core.mapMerge(non_ctx, empty);
     Object args = Core.get(distiller_payload, "args", empty_list);
     Object fallback_request = Core.jsonStringify(non_ctx);
-    Object executor_request = Core.listGet(args, 0, fallback_request);
+    Object executor_request_raw = Core.listGet(args, 0, fallback_request);
+    Object request_is_string = Core.typeIs(executor_request_raw, "string");
+    Object executor_request = executor_request_raw;
+    if (Core.truthy(request_is_string)) {
+      // empty
+    }
+    if (!Core.truthy(request_is_string)) {
+      Object executor_request_coerced = Core.stringFormat("{}", executor_request_raw);
+      executor_request = executor_request_coerced;
+    }
     Object distilled_context = Core.listGet(args, 1, empty_map);
     Core.set(out, "input", non_ctx);
     Core.set(out, "executorRequest", executor_request);
@@ -13167,19 +13181,68 @@ final class Core {
     Object distiller_options = Core._agent_stage_options(state, "distiller", options);
     Object executor_options = Core._agent_stage_options(state, "executor", options);
     Object responder_options = Core._agent_stage_options(state, "responder", options);
-    Object distiller_values = Core._build_distiller_inputs(state, values);
-    Object distiller_request_event = new java.util.LinkedHashMap<String, Object>();
-    Core.set(distiller_request_event, "stage", "distiller");
-    Core.set(distiller_request_event, "values", distiller_values);
-    Core.set(distiller_request_event, "component_id", "agent.stage.distiller");
-    Core._agent_record_trace_event(state, "stage_request", distiller_request_event);
-    Object distiller_output = Core.agentStageForward(distiller, client, distiller_values, distiller_options);
-    Object distiller_response_event = new java.util.LinkedHashMap<String, Object>();
-    Core.set(distiller_response_event, "stage", "distiller");
-    Core.set(distiller_response_event, "output", distiller_output);
-    Core.set(distiller_response_event, "component_id", "agent.stage.distiller");
-    Core._agent_record_trace_event(state, "stage_response", distiller_response_event);
-    Object distiller_payload = Core._normalize_agent_completion_payload(distiller_output);
+    Object distiller_payload = Core.none();
+    if (Core.truthy(runtime_enabled)) {
+      Object distiller_empty_log = new java.util.ArrayList<Object>();
+      Object distiller_saved_action_log = Core.get(state, "action_log", distiller_empty_log);
+      Object distiller_globals = Core._agent_runtime_build_globals(state, values);
+      Object distiller_session = Core.none();
+      Object distiller_max_steps = Core.get(options, "max_actor_steps", 4);
+      Object distiller_step = 0;
+      while (Core.truthy(Boolean.TRUE)) {
+        Object distiller_too_many = Core.gte(distiller_step, distiller_max_steps);
+        if (Core.truthy(distiller_too_many)) {
+          Object distiller_error_event = new java.util.LinkedHashMap<String, Object>();
+          Core.set(distiller_error_event, "error", "agent distiller loop exceeded max steps");
+          Core.set(distiller_error_event, "stage", "distiller");
+          Core._agent_record_trace_event(state, "error", distiller_error_event);
+          Object distiller_error = Core.runtimeError("agent distiller loop exceeded max steps");
+          throw Core.asRuntime(distiller_error);
+        }
+        Object distiller_values = Core._build_distiller_inputs(state, values);
+        Object distiller_request_event = new java.util.LinkedHashMap<String, Object>();
+        Core.set(distiller_request_event, "stage", "distiller");
+        Core.set(distiller_request_event, "step", distiller_step);
+        Core.set(distiller_request_event, "values", distiller_values);
+        Core.set(distiller_request_event, "component_id", "agent.stage.distiller");
+        Core._agent_record_trace_event(state, "stage_request", distiller_request_event);
+        Object distiller_output = Core.agentStageForward(distiller, client, distiller_values, distiller_options);
+        Object distiller_response_event = new java.util.LinkedHashMap<String, Object>();
+        Core.set(distiller_response_event, "stage", "distiller");
+        Core.set(distiller_response_event, "step", distiller_step);
+        Core.set(distiller_response_event, "output", distiller_output);
+        Core.set(distiller_response_event, "component_id", "agent.stage.distiller");
+        Core._agent_record_trace_event(state, "stage_response", distiller_response_event);
+        Object distiller_code = Core._extract_agent_runtime_code(state, distiller_output);
+        Object distiller_runtime_step = Core._agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options);
+        distiller_session = Core.get(state, "runtime_session", distiller_session);
+        Object distiller_completion = Core.get(distiller_runtime_step, "completion_payload", null);
+        Object distiller_has_completion = Core.typeIs(distiller_completion, "object");
+        if (Core.truthy(distiller_has_completion)) {
+          distiller_payload = distiller_completion;
+          break;
+        }
+        distiller_step = Core.add(distiller_step, 1);
+      }
+      Object distiller_session_reset = Core.none();
+      Core.set(state, "runtime_session", distiller_session_reset);
+      Core.set(state, "action_log", distiller_saved_action_log);
+    }
+    if (!Core.truthy(runtime_enabled)) {
+      Object distiller_values = Core._build_distiller_inputs(state, values);
+      Object distiller_request_event = new java.util.LinkedHashMap<String, Object>();
+      Core.set(distiller_request_event, "stage", "distiller");
+      Core.set(distiller_request_event, "values", distiller_values);
+      Core.set(distiller_request_event, "component_id", "agent.stage.distiller");
+      Core._agent_record_trace_event(state, "stage_request", distiller_request_event);
+      Object distiller_output = Core.agentStageForward(distiller, client, distiller_values, distiller_options);
+      Object distiller_response_event = new java.util.LinkedHashMap<String, Object>();
+      Core.set(distiller_response_event, "stage", "distiller");
+      Core.set(distiller_response_event, "output", distiller_output);
+      Core.set(distiller_response_event, "component_id", "agent.stage.distiller");
+      Core._agent_record_trace_event(state, "stage_response", distiller_response_event);
+      distiller_payload = Core._normalize_agent_completion_payload(distiller_output);
+    }
     Core._throw_agent_clarification(distiller_payload, state);
     Object executor_payload = Core.none();
     if (Core.truthy(runtime_enabled)) {

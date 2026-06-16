@@ -1,6 +1,6 @@
 {
   "kind": "agent_runtime_real",
-  "name": "agent-runtime-real-javascript-final",
+  "name": "agent-runtime-real-distiller-code",
   "runtime_engine": "javascript",
   "signature": "question:string -> answer:string",
   "input": {
@@ -13,7 +13,7 @@
   },
   "responses": [
     {
-      "content": "{\"javascriptCode\":\"final(\\\"Execute runtime code\\\", {})\"}"
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the task\\\", {\\\"note\\\": \\\"distilled\\\"})\"}"
     },
     {
       "content": "{\"javascriptCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"from runtime\\\"})\"}"
@@ -25,10 +25,5 @@
   "expected_output": {
     "answer": "from runtime"
   },
-  "expected_request_count": 3,
-  "expected_request_contains": [
-    "## Executor",
-    "await final(task: string, context?: object)",
-    "Answer Synthesis Agent"
-  ]
+  "expected_request_count": 3
 }

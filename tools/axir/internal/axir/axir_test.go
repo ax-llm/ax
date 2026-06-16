@@ -3102,6 +3102,95 @@ func TestResponsePerturbationGate(t *testing.T) {
 	}
 }
 
+// TestRLMStagesSymmetric guards the class of bug where one RLM actor stage runs
+// the real runtime loop while its sibling is left as a one-shot that demands a
+// structured completion. Scripted fixtures hide it by hand-feeding the one-shot
+// stage a completion; a live model returns RLM code and the stage throws
+// "Required field is missing: Completion". Every actor stage must (a) switch to a
+// code-output signature under runtime and (b) drive the engine via
+// @agent_runtime_execute_step in an actor loop. This is exactly the distiller bug
+// a real-model run surfaced that all scripted conformance + the G1 antidote missed.
+func TestRLMStagesSymmetric(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRootPath(), "ir", "axcore", "agent.axir"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, stage := range []string{"distiller", "executor"} {
+		sigVar := "%runtime_" + stage + "_signature"
+		if !strings.Contains(text, sigVar+" = core.call intrinsic.string.format(") {
+			t.Fatalf("RLM stage %q has no runtime code signature %s; a one-shot stage will throw 'Required field is missing: Completion' on a live model", stage, sigVar)
+		}
+		if !strings.Contains(text, "%"+stage+"_signature = core.let "+sigVar) {
+			t.Fatalf("RLM stage %q does not switch to its code signature under runtime", stage)
+		}
+	}
+	// Both stages must build a code-output runtime signature and run the engine.
+	if c := strings.Count(text, "-> {}:code"); c < 2 {
+		t.Fatalf("expected distiller AND executor code-output runtime signatures (-> {}:code), found %d", c)
+	}
+	if !strings.Contains(text, "agent distiller loop exceeded max steps") {
+		t.Fatal("distiller has no runtime actor loop (missing its loop guard); it cannot execute model-authored code through the engine")
+	}
+	if !strings.Contains(text, "agent actor loop exceeded max steps") {
+		t.Fatal("executor has no runtime actor loop guard")
+	}
+	if n := strings.Count(text, "@agent_runtime_execute_step("); n < 2 {
+		t.Fatalf("expected >= 2 @agent_runtime_execute_step call sites (distiller + executor actor loops), found %d", n)
+	}
+}
+
+// TestRealEngineFixturesRunCode guards the verification gap that let the distiller
+// bug ship: a real-engine (axagent-real) fixture must execute MODEL-AUTHORED CODE
+// through the engine for every actor stage. A hand-fed {"completion":...} at an
+// actor position bypasses the engine and masks a one-shot stage -- which is exactly
+// how the G1 antidote fed the distiller a completion and never ran distiller code.
+// This is the closest mechanical proxy for "run it against a real model" that works
+// without an API key (the in-process engine actually executes the code).
+func TestRealEngineFixturesRunCode(t *testing.T) {
+	dir := filepath.Join(repoRootPath(), "ir", "conformance", "axagent-real")
+	files, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no axagent-real fixtures: the real-engine path is unverified")
+	}
+	sawDistillerCode := false
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fx struct {
+			Kind      string `json:"kind"`
+			Responses []struct {
+				Content string `json:"content"`
+			} `json:"responses"`
+		}
+		if err := json.Unmarshal(raw, &fx); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		if fx.Kind != "agent_runtime_real" {
+			continue
+		}
+		for i, r := range fx.Responses {
+			isResponder := i == len(fx.Responses)-1 // last response is the structured answer
+			if !isResponder && strings.Contains(r.Content, "\"completion\"") {
+				t.Fatalf("%s response[%d] hand-feeds a {\"completion\":...} to an actor stage; a real-engine fixture must run model-authored code through the engine, not a scripted completion (this is exactly what masked the distiller bug)", filepath.Base(f), i)
+			}
+		}
+		if len(fx.Responses) > 0 &&
+			strings.Contains(fx.Responses[0].Content, "final(") &&
+			strings.Contains(fx.Responses[0].Content, "Code") {
+			sawDistillerCode = true
+		}
+	}
+	if !sawDistillerCode {
+		t.Fatal("no axagent-real fixture runs DISTILLER-authored code through the engine; the distiller path is unverified against a real engine (the gap that let the one-shot distiller ship)")
+	}
+}
+
 func TestPythonPromptConformanceFixtures(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

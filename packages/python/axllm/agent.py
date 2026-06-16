@@ -1326,8 +1326,14 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     state["context_fields"] = context_fields
     state["executor_exclude_fields"] = executor_exclude
     state["responder_exclude_fields"] = responder_exclude
-    state["distiller_signature"] = "input:json, context:json -> completion:json"
     code_field_name = _core_get(runtime_contract, "code_field_name", "javascriptCode")
+    runtime_distiller_signature = _core_string_format("input:json, context:json -> {}:code", code_field_name)
+    distiller_signature = "input:json, context:json -> completion:json"
+    if runtime_enabled:
+        distiller_signature = runtime_distiller_signature
+    else:
+        pass
+    state["distiller_signature"] = distiller_signature
     runtime_executor_signature = _core_string_format("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
     executor_signature = "input:json, executorRequest:string, distilledContext:json -> completion:json"
     if runtime_enabled:
@@ -5889,7 +5895,14 @@ def _build_executor_inputs(state: Any, values: Any, distiller_payload: Any) -> A
     out = _core_map_merge(non_ctx, empty)
     args = _core_get(distiller_payload, "args", empty_list)
     fallback_request = _core_json_stringify(non_ctx)
-    executor_request = _core_list_get(args, 0, fallback_request)
+    executor_request_raw = _core_list_get(args, 0, fallback_request)
+    request_is_string = _core_type_is(executor_request_raw, "string")
+    executor_request = executor_request_raw
+    if request_is_string:
+        pass
+    else:
+        executor_request_coerced = _core_string_format("{}", executor_request_raw)
+        executor_request = executor_request_coerced
     distilled_context = _core_list_get(args, 1, empty_map)
     out["input"] = non_ctx
     out["executorRequest"] = executor_request
@@ -6570,19 +6583,67 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     distiller_options = _agent_stage_options(state, "distiller", options)
     executor_options = _agent_stage_options(state, "executor", options)
     responder_options = _agent_stage_options(state, "responder", options)
-    distiller_values = _build_distiller_inputs(state, values)
-    distiller_request_event = {}
-    distiller_request_event["stage"] = "distiller"
-    distiller_request_event["values"] = distiller_values
-    distiller_request_event["component_id"] = "agent.stage.distiller"
-    _agent_record_trace_event(state, "stage_request", distiller_request_event)
-    distiller_output = _core_agent_stage_forward(distiller, client, distiller_values, distiller_options)
-    distiller_response_event = {}
-    distiller_response_event["stage"] = "distiller"
-    distiller_response_event["output"] = distiller_output
-    distiller_response_event["component_id"] = "agent.stage.distiller"
-    _agent_record_trace_event(state, "stage_response", distiller_response_event)
-    distiller_payload = _normalize_agent_completion_payload(distiller_output)
+    distiller_payload = _core_none()
+    if runtime_enabled:
+        distiller_empty_log = []
+        distiller_saved_action_log = _core_get(state, "action_log", distiller_empty_log)
+        distiller_globals = _agent_runtime_build_globals(state, values)
+        distiller_session = _core_none()
+        distiller_max_steps = _core_get(options, "max_actor_steps", 4)
+        distiller_step = 0
+        while True:
+            distiller_too_many = _core_gte(distiller_step, distiller_max_steps)
+            if distiller_too_many:
+                distiller_error_event = {}
+                distiller_error_event["error"] = "agent distiller loop exceeded max steps"
+                distiller_error_event["stage"] = "distiller"
+                _agent_record_trace_event(state, "error", distiller_error_event)
+                distiller_error = _core_runtime_error("agent distiller loop exceeded max steps")
+                raise distiller_error
+            else:
+                pass
+            distiller_values = _build_distiller_inputs(state, values)
+            distiller_request_event = {}
+            distiller_request_event["stage"] = "distiller"
+            distiller_request_event["step"] = distiller_step
+            distiller_request_event["values"] = distiller_values
+            distiller_request_event["component_id"] = "agent.stage.distiller"
+            _agent_record_trace_event(state, "stage_request", distiller_request_event)
+            distiller_output = _core_agent_stage_forward(distiller, client, distiller_values, distiller_options)
+            distiller_response_event = {}
+            distiller_response_event["stage"] = "distiller"
+            distiller_response_event["step"] = distiller_step
+            distiller_response_event["output"] = distiller_output
+            distiller_response_event["component_id"] = "agent.stage.distiller"
+            _agent_record_trace_event(state, "stage_response", distiller_response_event)
+            distiller_code = _extract_agent_runtime_code(state, distiller_output)
+            distiller_runtime_step = _agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options)
+            distiller_session = _core_get(state, "runtime_session", distiller_session)
+            distiller_completion = _core_get(distiller_runtime_step, "completion_payload", None)
+            distiller_has_completion = _core_type_is(distiller_completion, "object")
+            if distiller_has_completion:
+                distiller_payload = distiller_completion
+                break
+            else:
+                pass
+            distiller_step = _core_add(distiller_step, 1)
+        distiller_session_reset = _core_none()
+        state["runtime_session"] = distiller_session_reset
+        state["action_log"] = distiller_saved_action_log
+    else:
+        distiller_values = _build_distiller_inputs(state, values)
+        distiller_request_event = {}
+        distiller_request_event["stage"] = "distiller"
+        distiller_request_event["values"] = distiller_values
+        distiller_request_event["component_id"] = "agent.stage.distiller"
+        _agent_record_trace_event(state, "stage_request", distiller_request_event)
+        distiller_output = _core_agent_stage_forward(distiller, client, distiller_values, distiller_options)
+        distiller_response_event = {}
+        distiller_response_event["stage"] = "distiller"
+        distiller_response_event["output"] = distiller_output
+        distiller_response_event["component_id"] = "agent.stage.distiller"
+        _agent_record_trace_event(state, "stage_response", distiller_response_event)
+        distiller_payload = _normalize_agent_completion_payload(distiller_output)
     _throw_agent_clarification(distiller_payload, state)
     executor_payload = _core_none()
     if runtime_enabled:

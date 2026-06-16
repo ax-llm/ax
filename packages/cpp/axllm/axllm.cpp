@@ -8725,8 +8725,13 @@ Value Core::_agent_factory(Value signature, Value options) {
   Core::set(state, Value("context_fields"), context_fields);
   Core::set(state, Value("executor_exclude_fields"), executor_exclude);
   Core::set(state, Value("responder_exclude_fields"), responder_exclude);
-  Core::set(state, Value("distiller_signature"), Value("input:json, context:json -> completion:json"));
   Value code_field_name = Core::get(runtime_contract, Value("code_field_name"), Value("javascriptCode"));
+  Value runtime_distiller_signature = Core::string_format(Value("input:json, context:json -> {}:code"), code_field_name);
+  Value distiller_signature = Value("input:json, context:json -> completion:json");
+  if (Core::truthy(runtime_enabled)) {
+    distiller_signature = runtime_distiller_signature;
+  }
+  Core::set(state, Value("distiller_signature"), distiller_signature);
   Value runtime_executor_signature = Core::string_format(Value("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), code_field_name);
   Value executor_signature = Value("input:json, executorRequest:string, distilledContext:json -> completion:json");
   if (Core::truthy(runtime_enabled)) {
@@ -13253,7 +13258,16 @@ Value Core::_build_executor_inputs(Value state, Value values, Value distiller_pa
   Value out = Core::map_merge(non_ctx, empty);
   Value args = Core::get(distiller_payload, Value("args"), empty_list);
   Value fallback_request = Core::json_stringify(non_ctx);
-  Value executor_request = Core::list_get(args, Value(0), fallback_request);
+  Value executor_request_raw = Core::list_get(args, Value(0), fallback_request);
+  Value request_is_string = Core::type_is(executor_request_raw, Value("string"));
+  Value executor_request = executor_request_raw;
+  if (Core::truthy(request_is_string)) {
+    // empty
+  }
+  if (!Core::truthy(request_is_string)) {
+    Value executor_request_coerced = Core::string_format(Value("{}"), executor_request_raw);
+    executor_request = executor_request_coerced;
+  }
   Value distilled_context = Core::list_get(args, Value(1), empty_map);
   Core::set(out, Value("input"), non_ctx);
   Core::set(out, Value("executorRequest"), executor_request);
@@ -13919,19 +13933,68 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
   Value distiller_options = Core::_agent_stage_options(state, Value("distiller"), options);
   Value executor_options = Core::_agent_stage_options(state, Value("executor"), options);
   Value responder_options = Core::_agent_stage_options(state, Value("responder"), options);
-  Value distiller_values = Core::_build_distiller_inputs(state, values);
-  Value distiller_request_event = Value::object();
-  Core::set(distiller_request_event, Value("stage"), Value("distiller"));
-  Core::set(distiller_request_event, Value("values"), distiller_values);
-  Core::set(distiller_request_event, Value("component_id"), Value("agent.stage.distiller"));
-  Core::_agent_record_trace_event(state, Value("stage_request"), distiller_request_event);
-  Value distiller_output = Core::agent_stage_forward(distiller, client, distiller_values, distiller_options);
-  Value distiller_response_event = Value::object();
-  Core::set(distiller_response_event, Value("stage"), Value("distiller"));
-  Core::set(distiller_response_event, Value("output"), distiller_output);
-  Core::set(distiller_response_event, Value("component_id"), Value("agent.stage.distiller"));
-  Core::_agent_record_trace_event(state, Value("stage_response"), distiller_response_event);
-  Value distiller_payload = Core::_normalize_agent_completion_payload(distiller_output);
+  Value distiller_payload = Core::none();
+  if (Core::truthy(runtime_enabled)) {
+    Value distiller_empty_log = Value::array();
+    Value distiller_saved_action_log = Core::get(state, Value("action_log"), distiller_empty_log);
+    Value distiller_globals = Core::_agent_runtime_build_globals(state, values);
+    Value distiller_session = Core::none();
+    Value distiller_max_steps = Core::get(options, Value("max_actor_steps"), Value(4));
+    Value distiller_step = Value(0);
+    while (true) {
+      Value distiller_too_many = Core::gte(distiller_step, distiller_max_steps);
+      if (Core::truthy(distiller_too_many)) {
+        Value distiller_error_event = Value::object();
+        Core::set(distiller_error_event, Value("error"), Value("agent distiller loop exceeded max steps"));
+        Core::set(distiller_error_event, Value("stage"), Value("distiller"));
+        Core::_agent_record_trace_event(state, Value("error"), distiller_error_event);
+        Value distiller_error = Core::runtime_error(Value("agent distiller loop exceeded max steps"));
+        throw Core::as_error(distiller_error);
+      }
+      Value distiller_values = Core::_build_distiller_inputs(state, values);
+      Value distiller_request_event = Value::object();
+      Core::set(distiller_request_event, Value("stage"), Value("distiller"));
+      Core::set(distiller_request_event, Value("step"), distiller_step);
+      Core::set(distiller_request_event, Value("values"), distiller_values);
+      Core::set(distiller_request_event, Value("component_id"), Value("agent.stage.distiller"));
+      Core::_agent_record_trace_event(state, Value("stage_request"), distiller_request_event);
+      Value distiller_output = Core::agent_stage_forward(distiller, client, distiller_values, distiller_options);
+      Value distiller_response_event = Value::object();
+      Core::set(distiller_response_event, Value("stage"), Value("distiller"));
+      Core::set(distiller_response_event, Value("step"), distiller_step);
+      Core::set(distiller_response_event, Value("output"), distiller_output);
+      Core::set(distiller_response_event, Value("component_id"), Value("agent.stage.distiller"));
+      Core::_agent_record_trace_event(state, Value("stage_response"), distiller_response_event);
+      Value distiller_code = Core::_extract_agent_runtime_code(state, distiller_output);
+      Value distiller_runtime_step = Core::_agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options);
+      distiller_session = Core::get(state, Value("runtime_session"), distiller_session);
+      Value distiller_completion = Core::get(distiller_runtime_step, Value("completion_payload"), Value());
+      Value distiller_has_completion = Core::type_is(distiller_completion, Value("object"));
+      if (Core::truthy(distiller_has_completion)) {
+        distiller_payload = distiller_completion;
+        break;
+      }
+      distiller_step = Core::add(distiller_step, Value(1));
+    }
+    Value distiller_session_reset = Core::none();
+    Core::set(state, Value("runtime_session"), distiller_session_reset);
+    Core::set(state, Value("action_log"), distiller_saved_action_log);
+  }
+  if (!Core::truthy(runtime_enabled)) {
+    Value distiller_values = Core::_build_distiller_inputs(state, values);
+    Value distiller_request_event = Value::object();
+    Core::set(distiller_request_event, Value("stage"), Value("distiller"));
+    Core::set(distiller_request_event, Value("values"), distiller_values);
+    Core::set(distiller_request_event, Value("component_id"), Value("agent.stage.distiller"));
+    Core::_agent_record_trace_event(state, Value("stage_request"), distiller_request_event);
+    Value distiller_output = Core::agent_stage_forward(distiller, client, distiller_values, distiller_options);
+    Value distiller_response_event = Value::object();
+    Core::set(distiller_response_event, Value("stage"), Value("distiller"));
+    Core::set(distiller_response_event, Value("output"), distiller_output);
+    Core::set(distiller_response_event, Value("component_id"), Value("agent.stage.distiller"));
+    Core::_agent_record_trace_event(state, Value("stage_response"), distiller_response_event);
+    distiller_payload = Core::_normalize_agent_completion_payload(distiller_output);
+  }
   Core::_throw_agent_clarification(distiller_payload, state);
   Value executor_payload = Core::none();
   if (Core::truthy(runtime_enabled)) {

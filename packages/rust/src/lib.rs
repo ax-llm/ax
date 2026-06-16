@@ -30774,6 +30774,7 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_discovered_tool_docs = CoreValue::Null;
     let mut v_discovery_catalog = CoreValue::Null;
     let mut v_distiller_description = CoreValue::Null;
+    let mut v_distiller_signature = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_error = CoreValue::Null;
@@ -30813,6 +30814,7 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_responder_options = CoreValue::Null;
     let mut v_responder_options_camel = CoreValue::Null;
     let mut v_runtime_contract = CoreValue::Null;
+    let mut v_runtime_distiller_signature = CoreValue::Null;
     let mut v_runtime_enabled = CoreValue::Null;
     let mut v_runtime_executor_signature = CoreValue::Null;
     let mut v_sig = CoreValue::Null;
@@ -30979,16 +30981,24 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("responder_exclude_fields"),
         v_responder_exclude.clone(),
     )?;
-    core_set(
-        &v_state,
-        CoreValue::from("distiller_signature"),
-        CoreValue::from("input:json, context:json -> completion:json"),
-    )?;
     v_code_field_name = core_get(
         &v_runtime_contract,
         &CoreValue::from("code_field_name"),
         CoreValue::from("javascriptCode"),
     );
+    v_runtime_distiller_signature = core_string_format(&[
+        CoreValue::from("input:json, context:json -> {}:code"),
+        v_code_field_name.clone(),
+    ])?;
+    v_distiller_signature = CoreValue::from("input:json, context:json -> completion:json");
+    if core_truthy(&v_runtime_enabled) {
+        v_distiller_signature = v_runtime_distiller_signature.clone();
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("distiller_signature"),
+        v_distiller_signature.clone(),
+    )?;
     v_runtime_executor_signature = core_string_format(&[CoreValue::from("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), v_code_field_name.clone()])?;
     v_executor_signature = CoreValue::from(
         "input:json, executorRequest:string, distilledContext:json -> completion:json",
@@ -43026,6 +43036,8 @@ fn _build_executor_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_empty_map = CoreValue::Null;
     let mut v_exclude = CoreValue::Null;
     let mut v_executor_request = CoreValue::Null;
+    let mut v_executor_request_coerced = CoreValue::Null;
+    let mut v_executor_request_raw = CoreValue::Null;
     let mut v_fallback_request = CoreValue::Null;
     let mut v_guidance_text = CoreValue::Null;
     let mut v_key = CoreValue::Null;
@@ -43034,6 +43046,7 @@ fn _build_executor_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_non_ctx = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_pressure_text = CoreValue::Null;
+    let mut v_request_is_string = CoreValue::Null;
     let mut v_runtime_text = CoreValue::Null;
     let mut v_skills_text = CoreValue::Null;
     let mut v_split = CoreValue::Null;
@@ -43050,11 +43063,19 @@ fn _build_executor_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_empty_list.clone(),
     );
     v_fallback_request = core_json_stringify(&[v_non_ctx.clone()])?;
-    v_executor_request = core_list_get(&[
+    v_executor_request_raw = core_list_get(&[
         v_args.clone(),
         CoreValue::Num(0f64),
         v_fallback_request.clone(),
     ])?;
+    v_request_is_string = core_type_is(&v_executor_request_raw, CoreValue::from("string"));
+    v_executor_request = v_executor_request_raw.clone();
+    if core_truthy(&v_request_is_string) {
+    } else {
+        v_executor_request_coerced =
+            core_string_format(&[CoreValue::from("{}"), v_executor_request_raw.clone()])?;
+        v_executor_request = v_executor_request_coerced.clone();
+    }
     v_distilled_context =
         core_list_get(&[v_args.clone(), CoreValue::Num(1f64), v_empty_map.clone()])?;
     core_set(&v_out, CoreValue::from("input"), v_non_ctx.clone())?;
@@ -44587,11 +44608,25 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_options = core_arg(args, 6);
     let mut v_code = CoreValue::Null;
     let mut v_completion_payload = CoreValue::Null;
+    let mut v_distiller_code = CoreValue::Null;
+    let mut v_distiller_completion = CoreValue::Null;
+    let mut v_distiller_empty_log = CoreValue::Null;
+    let mut v_distiller_error = CoreValue::Null;
+    let mut v_distiller_error_event = CoreValue::Null;
+    let mut v_distiller_globals = CoreValue::Null;
+    let mut v_distiller_has_completion = CoreValue::Null;
+    let mut v_distiller_max_steps = CoreValue::Null;
     let mut v_distiller_options = CoreValue::Null;
     let mut v_distiller_output = CoreValue::Null;
     let mut v_distiller_payload = CoreValue::Null;
     let mut v_distiller_request_event = CoreValue::Null;
     let mut v_distiller_response_event = CoreValue::Null;
+    let mut v_distiller_runtime_step = CoreValue::Null;
+    let mut v_distiller_saved_action_log = CoreValue::Null;
+    let mut v_distiller_session = CoreValue::Null;
+    let mut v_distiller_session_reset = CoreValue::Null;
+    let mut v_distiller_step = CoreValue::Null;
+    let mut v_distiller_too_many = CoreValue::Null;
     let mut v_distiller_values = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_error_event = CoreValue::Null;
@@ -44656,56 +44691,196 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("responder"),
         v_options.clone(),
     ])?;
-    v_distiller_values = _build_distiller_inputs(&[v_state.clone(), v_values.clone()])?;
-    v_distiller_request_event = CoreValue::new_map();
-    core_set(
-        &v_distiller_request_event,
-        CoreValue::from("stage"),
-        CoreValue::from("distiller"),
-    )?;
-    core_set(
-        &v_distiller_request_event,
-        CoreValue::from("values"),
-        v_distiller_values.clone(),
-    )?;
-    core_set(
-        &v_distiller_request_event,
-        CoreValue::from("component_id"),
-        CoreValue::from("agent.stage.distiller"),
-    )?;
-    _agent_record_trace_event(&[
-        v_state.clone(),
-        CoreValue::from("stage_request"),
-        v_distiller_request_event.clone(),
-    ])?;
-    v_distiller_output = core_agent_stage_forward(&[
-        v_distiller.clone(),
-        v_client.clone(),
-        v_distiller_values.clone(),
-        v_distiller_options.clone(),
-    ])?;
-    v_distiller_response_event = CoreValue::new_map();
-    core_set(
-        &v_distiller_response_event,
-        CoreValue::from("stage"),
-        CoreValue::from("distiller"),
-    )?;
-    core_set(
-        &v_distiller_response_event,
-        CoreValue::from("output"),
-        v_distiller_output.clone(),
-    )?;
-    core_set(
-        &v_distiller_response_event,
-        CoreValue::from("component_id"),
-        CoreValue::from("agent.stage.distiller"),
-    )?;
-    _agent_record_trace_event(&[
-        v_state.clone(),
-        CoreValue::from("stage_response"),
-        v_distiller_response_event.clone(),
-    ])?;
-    v_distiller_payload = _normalize_agent_completion_payload(&[v_distiller_output.clone()])?;
+    v_distiller_payload = core_none(&[])?;
+    if core_truthy(&v_runtime_enabled) {
+        v_distiller_empty_log = CoreValue::new_list();
+        v_distiller_saved_action_log = core_get(
+            &v_state,
+            &CoreValue::from("action_log"),
+            v_distiller_empty_log.clone(),
+        );
+        v_distiller_globals = _agent_runtime_build_globals(&[v_state.clone(), v_values.clone()])?;
+        v_distiller_session = core_none(&[])?;
+        v_distiller_max_steps = core_get(
+            &v_options,
+            &CoreValue::from("max_actor_steps"),
+            CoreValue::Num(4f64),
+        );
+        v_distiller_step = CoreValue::Num(0f64);
+        loop {
+            v_distiller_too_many =
+                core_gte(&[v_distiller_step.clone(), v_distiller_max_steps.clone()])?;
+            if core_truthy(&v_distiller_too_many) {
+                v_distiller_error_event = CoreValue::new_map();
+                core_set(
+                    &v_distiller_error_event,
+                    CoreValue::from("error"),
+                    CoreValue::from("agent distiller loop exceeded max steps"),
+                )?;
+                core_set(
+                    &v_distiller_error_event,
+                    CoreValue::from("stage"),
+                    CoreValue::from("distiller"),
+                )?;
+                _agent_record_trace_event(&[
+                    v_state.clone(),
+                    CoreValue::from("error"),
+                    v_distiller_error_event.clone(),
+                ])?;
+                v_distiller_error = core_runtime_error(&[CoreValue::from(
+                    "agent distiller loop exceeded max steps",
+                )])?;
+                return Err(core_as_error(&v_distiller_error));
+            }
+            v_distiller_values = _build_distiller_inputs(&[v_state.clone(), v_values.clone()])?;
+            v_distiller_request_event = CoreValue::new_map();
+            core_set(
+                &v_distiller_request_event,
+                CoreValue::from("stage"),
+                CoreValue::from("distiller"),
+            )?;
+            core_set(
+                &v_distiller_request_event,
+                CoreValue::from("step"),
+                v_distiller_step.clone(),
+            )?;
+            core_set(
+                &v_distiller_request_event,
+                CoreValue::from("values"),
+                v_distiller_values.clone(),
+            )?;
+            core_set(
+                &v_distiller_request_event,
+                CoreValue::from("component_id"),
+                CoreValue::from("agent.stage.distiller"),
+            )?;
+            _agent_record_trace_event(&[
+                v_state.clone(),
+                CoreValue::from("stage_request"),
+                v_distiller_request_event.clone(),
+            ])?;
+            v_distiller_output = core_agent_stage_forward(&[
+                v_distiller.clone(),
+                v_client.clone(),
+                v_distiller_values.clone(),
+                v_distiller_options.clone(),
+            ])?;
+            v_distiller_response_event = CoreValue::new_map();
+            core_set(
+                &v_distiller_response_event,
+                CoreValue::from("stage"),
+                CoreValue::from("distiller"),
+            )?;
+            core_set(
+                &v_distiller_response_event,
+                CoreValue::from("step"),
+                v_distiller_step.clone(),
+            )?;
+            core_set(
+                &v_distiller_response_event,
+                CoreValue::from("output"),
+                v_distiller_output.clone(),
+            )?;
+            core_set(
+                &v_distiller_response_event,
+                CoreValue::from("component_id"),
+                CoreValue::from("agent.stage.distiller"),
+            )?;
+            _agent_record_trace_event(&[
+                v_state.clone(),
+                CoreValue::from("stage_response"),
+                v_distiller_response_event.clone(),
+            ])?;
+            v_distiller_code =
+                _extract_agent_runtime_code(&[v_state.clone(), v_distiller_output.clone()])?;
+            v_distiller_runtime_step = _agent_runtime_execute_step(&[
+                v_state.clone(),
+                v_runtime_from_options.clone(),
+                v_distiller_session.clone(),
+                v_distiller_code.clone(),
+                v_options.clone(),
+            ])?;
+            v_distiller_session = core_get(
+                &v_state,
+                &CoreValue::from("runtime_session"),
+                v_distiller_session.clone(),
+            );
+            v_distiller_completion = core_get(
+                &v_distiller_runtime_step,
+                &CoreValue::from("completion_payload"),
+                CoreValue::Null,
+            );
+            v_distiller_has_completion =
+                core_type_is(&v_distiller_completion, CoreValue::from("object"));
+            if core_truthy(&v_distiller_has_completion) {
+                v_distiller_payload = v_distiller_completion.clone();
+                break;
+            }
+            v_distiller_step = core_add(&[v_distiller_step.clone(), CoreValue::Num(1f64)])?;
+        }
+        v_distiller_session_reset = core_none(&[])?;
+        core_set(
+            &v_state,
+            CoreValue::from("runtime_session"),
+            v_distiller_session_reset.clone(),
+        )?;
+        core_set(
+            &v_state,
+            CoreValue::from("action_log"),
+            v_distiller_saved_action_log.clone(),
+        )?;
+    } else {
+        v_distiller_values = _build_distiller_inputs(&[v_state.clone(), v_values.clone()])?;
+        v_distiller_request_event = CoreValue::new_map();
+        core_set(
+            &v_distiller_request_event,
+            CoreValue::from("stage"),
+            CoreValue::from("distiller"),
+        )?;
+        core_set(
+            &v_distiller_request_event,
+            CoreValue::from("values"),
+            v_distiller_values.clone(),
+        )?;
+        core_set(
+            &v_distiller_request_event,
+            CoreValue::from("component_id"),
+            CoreValue::from("agent.stage.distiller"),
+        )?;
+        _agent_record_trace_event(&[
+            v_state.clone(),
+            CoreValue::from("stage_request"),
+            v_distiller_request_event.clone(),
+        ])?;
+        v_distiller_output = core_agent_stage_forward(&[
+            v_distiller.clone(),
+            v_client.clone(),
+            v_distiller_values.clone(),
+            v_distiller_options.clone(),
+        ])?;
+        v_distiller_response_event = CoreValue::new_map();
+        core_set(
+            &v_distiller_response_event,
+            CoreValue::from("stage"),
+            CoreValue::from("distiller"),
+        )?;
+        core_set(
+            &v_distiller_response_event,
+            CoreValue::from("output"),
+            v_distiller_output.clone(),
+        )?;
+        core_set(
+            &v_distiller_response_event,
+            CoreValue::from("component_id"),
+            CoreValue::from("agent.stage.distiller"),
+        )?;
+        _agent_record_trace_event(&[
+            v_state.clone(),
+            CoreValue::from("stage_response"),
+            v_distiller_response_event.clone(),
+        ])?;
+        v_distiller_payload = _normalize_agent_completion_payload(&[v_distiller_output.clone()])?;
+    }
     _throw_agent_clarification(&[v_distiller_payload.clone(), v_state.clone()])?;
     v_executor_payload = core_none(&[])?;
     if core_truthy(&v_runtime_enabled) {
