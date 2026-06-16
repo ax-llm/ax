@@ -551,10 +551,6 @@ module @ax.flow version "0.1" {
       %out = core.call intrinsic.map.merge(%state, %empty_map)
       %result_key = core.call intrinsic.string.format("{}Result", %name)
       core.set %out[%result_key] = %result
-      %is_derive = core.call intrinsic.eq(%kind, "derive")
-      core.if %is_derive {
-        core.set %out[%name] = %result
-      }
       %out = core.call intrinsic.map.update(%out, %result)
       core.call @flow_record_child_chat_log(%flow, %name, %program)
       core.call @flow_record_child_usage(%flow, %name, %program)
@@ -721,6 +717,36 @@ module @ax.flow version "0.1" {
         %none = core.call intrinsic.none()
         core.set %out["_parallelResults"] = %none
         core.set %out[%name] = %merge_output
+        core.return %out
+      }
+      %is_derive = core.call intrinsic.eq(%kind, "derive")
+      core.if %is_derive {
+        %empty_list = core.list
+        %program = core.get %step["program"]
+        %reads = core.get %step["reads"] default %empty_list
+        %writes = core.get %step["writes"] default %empty_list
+        %input_field = core.call intrinsic.list.get(%reads, 0, "")
+        %output_field = core.call intrinsic.list.get(%writes, 0, %name)
+        %input_value = core.get %state[%input_field] default null
+        %out = core.call intrinsic.map.merge(%state, %empty_map)
+        %input_is_list = core.type_is %input_value type "list"
+        core.if %input_is_list {
+          %results = core.list
+          core.for %item in %input_value {
+            %item_state = core.call intrinsic.map.merge(%state, %empty_map)
+            core.set %item_state["__item"] = %item
+            %res_state = core.call intrinsic.object.call_method(%program, "call", %item_state)
+            %derived = core.get %res_state["__derived"]
+            core.append %results, %derived
+          }
+          core.set %out[%output_field] = %results
+        } else {
+          %item_state = core.call intrinsic.map.merge(%state, %empty_map)
+          core.set %item_state["__item"] = %input_value
+          %res_state = core.call intrinsic.object.call_method(%program, "call", %item_state)
+          %derived = core.get %res_state["__derived"]
+          core.set %out[%output_field] = %derived
+        }
         core.return %out
       }
       %program_out = core.call @flow_execute_program_node(%flow, %step, %client, %state, %options)

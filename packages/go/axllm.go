@@ -27371,7 +27371,6 @@ func _flow_execute_program_node(args ...Value) (Value, error) {
 	var v_base_options Value
 	var v_empty_map Value
 	var v_has_trace_label Value
-	var v_is_derive Value
 	var v_kind Value
 	var v_name Value
 	var v_out Value
@@ -27407,7 +27406,6 @@ func _flow_execute_program_node(args ...Value) (Value, error) {
 	_ = v_base_options
 	_ = v_empty_map
 	_ = v_has_trace_label
-	_ = v_is_derive
 	_ = v_kind
 	_ = v_name
 	_ = v_out
@@ -27456,12 +27454,6 @@ func _flow_execute_program_node(args ...Value) (Value, error) {
 	v_out = _core_map_merge(v_state, v_empty_map)
 	v_result_key = _core_string_format("{}Result", v_name)
 	if err := coreSet(v_out, v_result_key, v_result); err != nil { return nil, err }
-	v_is_derive = _core_eq(v_kind, "derive")
-	if coreTruthy(v_is_derive) {
-		if err := coreSet(v_out, v_name, v_result); err != nil { return nil, err }
-	} else {
-	// empty
-	}
 	v_out = _core_map_update(v_out, v_result)
 	if _, err := _flow_record_child_chat_log(v_flow, v_name, v_program); err != nil { return nil, err }
 	if _, err := _flow_record_child_usage(v_flow, v_name, v_program); err != nil { return nil, err }
@@ -27490,19 +27482,27 @@ func _flow_execute_step(args ...Value) (Value, error) {
 	var v_default_body Value
 	var v_default_branches Value
 	var v_default_results Value
+	var v_derived Value
 	var v_done Value
+	var v_empty_list Value
 	var v_empty_map Value
 	var v_err Value
 	var v_event_payload Value
 	var v_existing_iterations Value
 	var v_has_condition Value
 	var v_has_predicate Value
+	var v_input_field Value
+	var v_input_is_list Value
+	var v_input_value Value
 	var v_is_branch Value
+	var v_is_derive Value
 	var v_is_feedback Value
 	var v_is_map Value
 	var v_is_parallel Value
 	var v_is_parallel_merge Value
 	var v_is_while Value
+	var v_item Value
+	var v_item_state Value
 	var v_iteration_key Value
 	var v_iterations Value
 	var v_kind Value
@@ -27521,12 +27521,15 @@ func _flow_execute_step(args ...Value) (Value, error) {
 	var v_name Value
 	var v_none Value
 	var v_out Value
+	var v_output_field Value
 	var v_parallel_results Value
 	var v_parallel_results_snake Value
 	var v_predicate Value
 	var v_program Value
 	var v_program_id Value
 	var v_program_out Value
+	var v_reads Value
+	var v_res_state Value
 	var v_result_key Value
 	var v_results Value
 	var v_results_is_list Value
@@ -27537,6 +27540,7 @@ func _flow_execute_step(args ...Value) (Value, error) {
 	var v_too_many Value
 	var v_traces Value
 	var v_when Value
+	var v_writes Value
 	if len(args) > 0 { v_flow = args[0] }
 	_ = v_flow
 	if len(args) > 1 { v_step = args[1] }
@@ -27562,19 +27566,27 @@ func _flow_execute_step(args ...Value) (Value, error) {
 	_ = v_default_body
 	_ = v_default_branches
 	_ = v_default_results
+	_ = v_derived
 	_ = v_done
+	_ = v_empty_list
 	_ = v_empty_map
 	_ = v_err
 	_ = v_event_payload
 	_ = v_existing_iterations
 	_ = v_has_condition
 	_ = v_has_predicate
+	_ = v_input_field
+	_ = v_input_is_list
+	_ = v_input_value
 	_ = v_is_branch
+	_ = v_is_derive
 	_ = v_is_feedback
 	_ = v_is_map
 	_ = v_is_parallel
 	_ = v_is_parallel_merge
 	_ = v_is_while
+	_ = v_item
+	_ = v_item_state
 	_ = v_iteration_key
 	_ = v_iterations
 	_ = v_kind
@@ -27593,12 +27605,15 @@ func _flow_execute_step(args ...Value) (Value, error) {
 	_ = v_name
 	_ = v_none
 	_ = v_out
+	_ = v_output_field
 	_ = v_parallel_results
 	_ = v_parallel_results_snake
 	_ = v_predicate
 	_ = v_program
 	_ = v_program_id
 	_ = v_program_out
+	_ = v_reads
+	_ = v_res_state
 	_ = v_result_key
 	_ = v_results
 	_ = v_results_is_list
@@ -27609,6 +27624,7 @@ func _flow_execute_step(args ...Value) (Value, error) {
 	_ = v_too_many
 	_ = v_traces
 	_ = v_when
+	_ = v_writes
 	v_empty_map = Object()
 	v_missing_step = _core_is_none(v_step)
 	if coreTruthy(v_missing_step) {
@@ -27793,6 +27809,38 @@ func _flow_execute_step(args ...Value) (Value, error) {
 		v_none = _core_none()
 		if err := coreSet(v_out, "_parallelResults", v_none); err != nil { return nil, err }
 		if err := coreSet(v_out, v_name, v_merge_output); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_is_derive = _core_eq(v_kind, "derive")
+	if coreTruthy(v_is_derive) {
+		v_empty_list = MutableArray()
+		v_program = coreGet(v_step, "program", nil)
+		v_reads = coreGet(v_step, "reads", v_empty_list)
+		v_writes = coreGet(v_step, "writes", v_empty_list)
+		v_input_field = _core_list_get(v_reads, 0, "")
+		v_output_field = _core_list_get(v_writes, 0, v_name)
+		v_input_value = coreGet(v_state, v_input_field, nil)
+		v_out = _core_map_merge(v_state, v_empty_map)
+		v_input_is_list = coreTypeIs(v_input_value, "list")
+		if coreTruthy(v_input_is_list) {
+			v_results = MutableArray()
+			for _, v_item = range coreIter(v_input_value) {
+				v_item_state = _core_map_merge(v_state, v_empty_map)
+				if err := coreSet(v_item_state, "__item", v_item); err != nil { return nil, err }
+				{ v, err := _core_object_call_method(v_program, "call", v_item_state); if err != nil { return nil, err }; v_res_state = v }
+				v_derived = coreGet(v_res_state, "__derived", nil)
+				v_results = coreAppend(v_results, v_derived)
+			}
+			if err := coreSet(v_out, v_output_field, v_results); err != nil { return nil, err }
+		} else {
+			v_item_state = _core_map_merge(v_state, v_empty_map)
+			if err := coreSet(v_item_state, "__item", v_input_value); err != nil { return nil, err }
+			{ v, err := _core_object_call_method(v_program, "call", v_item_state); if err != nil { return nil, err }; v_res_state = v }
+			v_derived = coreGet(v_res_state, "__derived", nil)
+			if err := coreSet(v_out, v_output_field, v_derived); err != nil { return nil, err }
+		}
 		return v_out, nil
 	} else {
 	// empty
@@ -32011,7 +32059,7 @@ func conformanceBuildFlowStep(spec map[string]Value, fixture map[string]Value) V
 		if len(asSlice(children)) > 0 { coreSet(options, "steps", children) }
 		return mustCore(_flow_step(kind, name, nil, options))
 	}
-	if kind == "map" {
+	if kind == "map" || kind == "derive" {
 		var mapper Value
 		if rawMapper := coreGet(spec, "mapper", nil); rawMapper != nil {
 			mapper = conformanceFlowMapperFromSpec(rawMapper)
@@ -32088,6 +32136,8 @@ func conformanceFlowMapperFromSpec(spec Value) func(map[string]Value) Value {
 			coreSet(out, field, items)
 		case "copy":
 			coreSet(out, display(coreGet(m, "to", "")), conformanceFlowStateValue(out, display(coreGet(m, "from", "")), nil))
+		case "upper":
+			coreSet(out, display(coreGet(m, "to", "__derived")), strings.ToUpper(display(conformanceFlowStateValue(out, display(coreGet(m, "from", "__item")), ""))))
 		}
 		return out
 	}

@@ -769,6 +769,8 @@ public final class Conformance {
         out.put(field, values);
       } else if ("copy".equals(op)) {
         out.put(String.valueOf(spec.get("to")), flowStateValue(out, spec.get("from"), null));
+      } else if ("upper".equals(op)) {
+        out.put(String.valueOf(spec.getOrDefault("to", "__derived")), String.valueOf(flowStateValue(out, spec.getOrDefault("from", "__item"), "")).toUpperCase());
       } else {
         out.putAll(Core.asMap(spec.getOrDefault("values", Map.of())));
       }
@@ -780,9 +782,9 @@ public final class Conformance {
     String kind = String.valueOf(step.getOrDefault("kind", "execute"));
     String name = String.valueOf(step.get("name"));
     Map<String, Object> options = new LinkedHashMap<>(Core.asMap(step.getOrDefault("options", Map.of())));
-    if ("map".equals(kind)) {
+    if ("map".equals(kind) || "derive".equals(kind)) {
       Object mapper = step.containsKey("mapper") ? flowMapperFromSpec(step.get("mapper")) : (AxFlow.Mapper) state -> step.getOrDefault("output", Map.of());
-      return Core.asMap(Core._flow_step("map", name, mapper, options));
+      return Core.asMap(Core._flow_step(kind, name, mapper, options));
     }
     if ("branch".equals(kind)) {
       options.put("predicate", flowConditionFromSpec(step.getOrDefault("predicate", options.get("predicate"))));

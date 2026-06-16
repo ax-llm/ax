@@ -4129,7 +4129,7 @@ func conformanceBuildFlowStep(spec map[string]Value, fixture map[string]Value) V
 		if len(asSlice(children)) > 0 { coreSet(options, "steps", children) }
 		return mustCore(_flow_step(kind, name, nil, options))
 	}
-	if kind == "map" {
+	if kind == "map" || kind == "derive" {
 		var mapper Value
 		if rawMapper := coreGet(spec, "mapper", nil); rawMapper != nil {
 			mapper = conformanceFlowMapperFromSpec(rawMapper)
@@ -4206,6 +4206,8 @@ func conformanceFlowMapperFromSpec(spec Value) func(map[string]Value) Value {
 			coreSet(out, field, items)
 		case "copy":
 			coreSet(out, display(coreGet(m, "to", "")), conformanceFlowStateValue(out, display(coreGet(m, "from", "")), nil))
+		case "upper":
+			coreSet(out, display(coreGet(m, "to", "__derived")), strings.ToUpper(display(conformanceFlowStateValue(out, display(coreGet(m, "from", "__item")), ""))))
 		}
 		return out
 	}

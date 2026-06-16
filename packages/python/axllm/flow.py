@@ -131,6 +131,8 @@ def _flow_mapper_from_spec(spec):
             out[field] = list(_flow_get_state_value(out, field, []) or []) + [value]
         elif op == "copy":
             out[spec.get("to")] = _flow_get_state_value(out, spec.get("from"))
+        elif op == "upper":
+            out[spec.get("to", "__derived")] = str(_flow_get_state_value(out, spec.get("from", "__item"), "") or "").upper()
         return out
     return _FlowCallable(_mapper)
 
@@ -978,11 +980,6 @@ def _flow_execute_program_node(flow: Any, step: Any, client: Any, state: Any, op
     out = _core_map_merge(state, empty_map)
     result_key = _core_string_format("{}Result", name)
     out[result_key] = result
-    is_derive = _core_eq(kind, "derive")
-    if is_derive:
-        out[name] = result
-    else:
-        pass
     out = _core_map_update(out, result)
     _flow_record_child_chat_log(flow, name, program)
     _flow_record_child_usage(flow, name, program)
@@ -1157,6 +1154,35 @@ def _flow_execute_step(flow: Any, step: Any, plan_step: Any, client: Any, state:
         none = _core_none()
         out["_parallelResults"] = none
         out[name] = merge_output
+        return out
+    else:
+        pass
+    is_derive = _core_eq(kind, "derive")
+    if is_derive:
+        empty_list = []
+        program = _core_get(step, "program", None)
+        reads = _core_get(step, "reads", empty_list)
+        writes = _core_get(step, "writes", empty_list)
+        input_field = _core_list_get(reads, 0, "")
+        output_field = _core_list_get(writes, 0, name)
+        input_value = _core_get(state, input_field, None)
+        out = _core_map_merge(state, empty_map)
+        input_is_list = _core_type_is(input_value, "list")
+        if input_is_list:
+            results = []
+            for item in input_value:
+                item_state = _core_map_merge(state, empty_map)
+                item_state["__item"] = item
+                res_state = _core_object_call_method(program, "call", item_state)
+                derived = _core_get(res_state, "__derived", None)
+                results.append(derived)
+            out[output_field] = results
+        else:
+            item_state = _core_map_merge(state, empty_map)
+            item_state["__item"] = input_value
+            res_state = _core_object_call_method(program, "call", item_state)
+            derived = _core_get(res_state, "__derived", None)
+            out[output_field] = derived
         return out
     else:
         pass

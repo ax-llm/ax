@@ -3079,6 +3079,29 @@ print('python-ok')
 	}
 }
 
+// TestResponsePerturbationGate runs the anti-hardcode gate: for every fixture
+// whose assertions depend on a scripted model response, mutating that response
+// must make the run fail. A passing-on-mutation fixture asserts a hardcoded or
+// unwired value. The standard test lane runs the fast `go` target; CI runs all
+// five via `npm run axir:gate:response-perturb` with AXIR_PERTURB_ALL=1.
+func TestResponsePerturbationGate(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not available")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not available")
+	}
+	script := filepath.Join(repoRootPath(), "scripts", "axir-response-perturb-check.mjs")
+	cmd := exec.Command("node", script, "go")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("response-perturbation gate failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "model-dependent assertion") {
+		t.Fatalf("unexpected gate output: %s", out)
+	}
+}
+
 func TestPythonPromptConformanceFixtures(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

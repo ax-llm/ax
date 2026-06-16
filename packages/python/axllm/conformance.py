@@ -750,9 +750,9 @@ def _flow_build_step_from_fixture(step, fixture):
     kind = step.get("kind", "execute")
     name = step.get("name")
     options = copy.deepcopy(step.get("options") or {})
-    if kind == "map":
+    if kind in ("map", "derive"):
         mapper = _flow_mapper_from_spec(step["mapper"]) if "mapper" in step else _FlowCallable(lambda _state, output=copy.deepcopy(step.get("output") or {}): copy.deepcopy(output))
-        return _flow_step("map", name, mapper, options)
+        return _flow_step(kind, name, mapper, options)
     if kind == "branch":
         predicate_spec = step.get("predicate", options.get("predicate"))
         options["predicate"] = _flow_condition_from_spec(predicate_spec)

@@ -13808,10 +13808,6 @@ final class Core {
     Object out = Core.mapMerge(state, empty_map);
     Object result_key = Core.stringFormat("{}Result", name);
     Core.set(out, result_key, result);
-    Object is_derive = Core.eq(kind, "derive");
-    if (Core.truthy(is_derive)) {
-      Core.set(out, name, result);
-    }
     out = Core.mapUpdate(out, result);
     Core._flow_record_child_chat_log(flow, name, program);
     Core._flow_record_child_usage(flow, name, program);
@@ -13973,6 +13969,37 @@ final class Core {
       Object none = Core.none();
       Core.set(out, "_parallelResults", none);
       Core.set(out, name, merge_output);
+      return out;
+    }
+    Object is_derive = Core.eq(kind, "derive");
+    if (Core.truthy(is_derive)) {
+      Object empty_list = new java.util.ArrayList<Object>();
+      Object program = Core.get(step, "program", null);
+      Object reads = Core.get(step, "reads", empty_list);
+      Object writes = Core.get(step, "writes", empty_list);
+      Object input_field = Core.listGet(reads, 0, "");
+      Object output_field = Core.listGet(writes, 0, name);
+      Object input_value = Core.get(state, input_field, null);
+      Object out = Core.mapMerge(state, empty_map);
+      Object input_is_list = Core.typeIs(input_value, "list");
+      if (Core.truthy(input_is_list)) {
+        Object results = new java.util.ArrayList<Object>();
+        for (Object item : Core.iter(input_value)) {
+          Object item_state = Core.mapMerge(state, empty_map);
+          Core.set(item_state, "__item", item);
+          Object res_state = Core.objectCallMethod(program, "call", item_state);
+          Object derived = Core.get(res_state, "__derived", null);
+          Core.append(results, derived);
+        }
+        Core.set(out, output_field, results);
+      }
+      if (!Core.truthy(input_is_list)) {
+        Object item_state = Core.mapMerge(state, empty_map);
+        Core.set(item_state, "__item", input_value);
+        Object res_state = Core.objectCallMethod(program, "call", item_state);
+        Object derived = Core.get(res_state, "__derived", null);
+        Core.set(out, output_field, derived);
+      }
       return out;
     }
     Object program_out = Core._flow_execute_program_node(flow, step, client, state, options);

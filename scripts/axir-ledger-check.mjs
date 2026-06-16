@@ -32,6 +32,20 @@ for (const file of readdirSync(axcoreDir)) {
   }
 }
 
+// A capability that claims its output comes from the model must back that with
+// a fixture asserting a model-derived value -- not just a structural count. This
+// catches the weak-fixture trap (a model output computed but never asserted, so
+// a hardcoded impl would pass). The response-perturbation gate then verifies
+// that assertion is genuinely load-bearing.
+const MODEL_OUTPUT_MARKER =
+  /(not canned|from the model|the model's|model response|model output|anti-hardcode|== the model|by a real model|model call)/i;
+const MODEL_OUTPUT_ASSERTIONS = [
+  'expected_exported_state_subset',
+  'expected_action_log_subset',
+  'expected_request_contains',
+  'expected_output',
+];
+
 const violations = [];
 const entries = ledger.entries || [];
 for (const entry of entries) {
@@ -50,6 +64,22 @@ for (const entry of entries) {
   for (const fixture of fixtures) {
     if (!existsSync(path.join(conformanceDir, fixture))) {
       violations.push(`${cap}: fixture ir/conformance/${fixture} not found`);
+    }
+  }
+  const claimsModelOutput = MODEL_OUTPUT_MARKER.test(
+    `${entry.summary || ''} ${entry.state || ''}`
+  );
+  if (claimsModelOutput) {
+    const asserted = fixtures.some((fixture) => {
+      const p = path.join(conformanceDir, fixture);
+      if (!existsSync(p)) return false;
+      const body = readFileSync(p, 'utf8');
+      return MODEL_OUTPUT_ASSERTIONS.some((key) => body.includes(`"${key}"`));
+    });
+    if (!asserted) {
+      violations.push(
+        `${cap}: claims the output comes from the model but no fixture asserts a model-derived value (${MODEL_OUTPUT_ASSERTIONS.join(' / ')}) -- weak-fixture trap`
+      );
     }
   }
 }

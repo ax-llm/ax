@@ -132,6 +132,8 @@ def _flow_mapper_from_spec(spec):
             out[field] = list(_flow_get_state_value(out, field, []) or []) + [value]
         elif op == "copy":
             out[spec.get("to")] = _flow_get_state_value(out, spec.get("from"))
+        elif op == "upper":
+            out[spec.get("to", "__derived")] = str(_flow_get_state_value(out, spec.get("from", "__item"), "") or "").upper()
         return out
     return _FlowCallable(_mapper)
 

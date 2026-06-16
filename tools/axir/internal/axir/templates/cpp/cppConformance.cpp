@@ -1978,6 +1978,10 @@ static Value flow_mapper_from_spec(Value spec) {
       Core::set(out, field, values);
     } else if (op == "copy") {
       Core::set(out, Core::get(spec, "to"), flow_state_value(out, Core::get(spec, "from")));
+    } else if (op == "upper") {
+      std::string s = display(flow_state_value(out, Core::get(spec, "from", Value("__item")), Value("")));
+      for (auto& ch : s) { if (ch >= 'a' && ch <= 'z') ch = static_cast<char>(ch - 'a' + 'A'); }
+      Core::set(out, Core::get(spec, "to", Value("__derived")), Value(s));
     } else {
       out = Core::map_update(out, Core::get(spec, "values", Value::object()));
     }
@@ -1989,11 +1993,11 @@ static Value build_flow_step(Value step, Value fixture, std::vector<std::unique_
   std::string kind = display(Core::get(step, "kind", Value("execute")));
   std::string name = display(Core::get(step, "name"));
   Value options = Core::get(step, "options", Value::object());
-  if (kind == "map") {
+  if (kind == "map" || kind == "derive") {
     Value mapper = Core::get(step, "mapper").is_null()
       ? flow_callback([output = Core::get(step, "output", Value::object())](Value) { return output; })
       : flow_mapper_from_spec(Core::get(step, "mapper"));
-    return Core::_flow_step(Value("map"), Value(name), mapper, options);
+    return Core::_flow_step(Value(kind), Value(name), mapper, options);
   }
   if (kind == "branch") {
     Core::set(options, "predicate", flow_condition_from_spec(Core::get(step, "predicate", Core::get(options, "predicate", Value::object()))));

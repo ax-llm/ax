@@ -3712,6 +3712,14 @@ fn conformance_flow_mapper_call(spec: &Value, state: &Value) -> Value {
             out.insert(field.to_string(), json_number(current.as_f64().unwrap_or(0.0) + 1.0));
             Value::Object(out)
         }
+        "upper" => {
+            let from = map.get("from").and_then(Value::as_str).unwrap_or("__item");
+            let to = map.get("to").and_then(Value::as_str).unwrap_or("__derived");
+            let val = conformance_flow_state_value(state, from, json!(""));
+            let mut out = Map::new();
+            out.insert(to.to_string(), json!(val.as_str().unwrap_or("").to_uppercase()));
+            Value::Object(out)
+        }
         _ => map.get("values").cloned().unwrap_or_else(|| json!({})),
     }
 }
@@ -6362,7 +6370,7 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
                 options_core,
             ])
         }
-        "map" => {
+        "map" | "derive" => {
             let mapper = step.get("mapper").cloned().unwrap_or_else(|| {
                 json!({"op": "set", "values": step.get("output").cloned().unwrap_or_else(|| json!({}))})
             });
@@ -6379,7 +6387,7 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
             CoreValue::Null,
             core_value_from_json(&options),
         ]),
-        "execute" | "derive" => {
+        "execute" => {
             let signature = step
                 .get("extended_signature")
                 .or_else(|| step.get("extendedSignature"))

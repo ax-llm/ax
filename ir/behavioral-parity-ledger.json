@@ -86,6 +86,81 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES. agent-tombstone-llm restores an action_log with an error entry (tags:[error]) followed by a success entry, sets options.tombstoning:true, and asserts the exported action_log[0].tombstone == the model response with tombstone_source==model (the action-log sanitizer was extended to preserve tombstone_source). Mutating the model response fails the test (anti-hardcode verified). Mirrors the checkpoint summarizer pattern (llm_pending/llm_input set in @agent_apply_context_management, consumed by @agent_apply_llm_tombstone_summary post-loop)."
+    },
+    {
+      "capability": "flow.node_execution",
+      "summary": "An AxFlow node executes its program by invoking the model through intrinsic.agent.stage_forward and writes the result into flow state (as {name}Result + merged fields); the final state is projected via the returns spec. Nested flows recurse through the same path.",
+      "ir_ops": [
+        "@flow_execute_program_node",
+        "@flow_execute_steps",
+        "@flow_forward"
+      ],
+      "fixtures": [
+        "axflow/simple-forward-returns.json",
+        "axflow/nested-flow-program-call.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. simple-forward-returns runs a single node whose scripted response {answer:Paris} becomes the flow output (output depends on the model response, not a canned value); nested-flow-program-call proves a nested flow's inner node executes a real stage_forward (chat-log entry 'nested.inner')."
+    },
+    {
+      "capability": "flow.control_flow",
+      "summary": "AxFlow control steps execute deterministically in all five: branch routes to the matching when-branch by predicate/value; while loops until the condition fails (max-iteration guarded); feedback re-runs a labelled body until its condition fails. All dispatched in @flow_execute_step.",
+      "ir_ops": ["@flow_execute_step", "@flow_execute_nested_steps"],
+      "fixtures": [
+        "axflow/control-branch-execution.json",
+        "axflow/control-while-execution.json",
+        "axflow/control-feedback-execution.json",
+        "axflow/control-nested-branch-while.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Each fixture asserts the state mutations produced by the chosen control path (branch taken, loop iteration count, feedback re-entry) match the TS-derived golden."
+    },
+    {
+      "capability": "flow.parallel",
+      "summary": "AxFlow plans parallel groups from barrier flags + read/write dependency analysis (@flow_plan) and executes independent steps as a group, merging their results (@flow_merge_parallel_results / parallelMerge). Auto-parallel is controllable per flow + per forward.",
+      "ir_ops": [
+        "@flow_plan",
+        "@flow_plan_can_share_group",
+        "@flow_execute_steps",
+        "@flow_merge_parallel_results"
+      ],
+      "fixtures": [
+        "axflow/auto-parallel-independent-executes.json",
+        "axflow/explicit-parallel-merge-execution.json",
+        "axflow/plan-barriers.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. plan-barriers asserts the computed parallel groups/maxParallelism; the execution fixtures assert both independent results are produced and merged into the final state."
+    },
+    {
+      "capability": "flow.derive",
+      "summary": "AxFlow derive applies a per-item transform over an array input field (or once over a scalar) and writes the mapped result to the output field — NOT a single model call over the whole state. @flow_execute_step iterates the input list and calls the transform per item via intrinsic.object.call_method.",
+      "ir_ops": ["@flow_execute_step"],
+      "fixtures": ["axflow/derive-per-item.json"],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. derive-per-item maps an uppercase transform over [\"ada\",\"grace\"] -> [\"ADA\",\"GRACE\"] (per-item) and a scalar \"lin\" -> \"LIN\", with expected_request_count:0 (no model call). FIXES a prior gap where derive routed through stage_forward over the whole state instead of per-item (TS flow.ts:1321-1360)."
+    },
+    {
+      "capability": "flow.caching",
+      "summary": "AxFlow forward consults an optional cacheStore: on a key hit it returns the cached output and skips execution; on a miss it runs and writes the output (errors swallowed). Key is built from the input (@flow_cache_key). NOTE: the key uses json.stable_stringify, NOT the TS SHA256 — keys diverge between the TS build and generated packages, so a cache must not be shared across them (documented simplification).",
+      "ir_ops": ["@flow_cache_read_write", "@flow_cache_key", "@flow_forward"],
+      "fixtures": [
+        "axflow/cache-hit-skips-execution.json",
+        "axflow/cache-miss-writes-output.json",
+        "axflow/cache-errors-are-swallowed.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. cache-hit asserts execution is skipped (request count 0) and the cached output returned; cache-miss asserts the output is written. KNOWN MINOR GAPS (not ported, documented here): TS SHA256 cache-key (IR uses json.stable_stringify); streamingForward (TS yields one accumulated result); nodeExtended; multi-source abort-signal merge; finer step-level execution logging."
     }
   ]
 }

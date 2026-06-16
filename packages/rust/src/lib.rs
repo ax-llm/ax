@@ -4210,6 +4210,17 @@ fn conformance_flow_mapper_call(spec: &Value, state: &Value) -> Value {
             );
             Value::Object(out)
         }
+        "upper" => {
+            let from = map.get("from").and_then(Value::as_str).unwrap_or("__item");
+            let to = map.get("to").and_then(Value::as_str).unwrap_or("__derived");
+            let val = conformance_flow_state_value(state, from, json!(""));
+            let mut out = Map::new();
+            out.insert(
+                to.to_string(),
+                json!(val.as_str().unwrap_or("").to_uppercase()),
+            );
+            Value::Object(out)
+        }
         _ => map.get("values").cloned().unwrap_or_else(|| json!({})),
     }
 }
@@ -7245,7 +7256,7 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
                 options_core,
             ])
         }
-        "map" => {
+        "map" | "derive" => {
             let mapper = step.get("mapper").cloned().unwrap_or_else(|| {
                 json!({"op": "set", "values": step.get("output").cloned().unwrap_or_else(|| json!({}))})
             });
@@ -7262,7 +7273,7 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
             CoreValue::Null,
             core_value_from_json(&options),
         ]),
-        "execute" | "derive" => {
+        "execute" => {
             let signature = step
                 .get("extended_signature")
                 .or_else(|| step.get("extendedSignature"))
@@ -46032,7 +46043,6 @@ fn _flow_execute_program_node(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_base_options = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_has_trace_label = CoreValue::Null;
-    let mut v_is_derive = CoreValue::Null;
     let mut v_kind = CoreValue::Null;
     let mut v_name = CoreValue::Null;
     let mut v_out = CoreValue::Null;
@@ -46117,10 +46127,6 @@ fn _flow_execute_program_node(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     v_out = core_map_merge(&[v_state.clone(), v_empty_map.clone()])?;
     v_result_key = core_string_format(&[CoreValue::from("{}Result"), v_name.clone()])?;
     core_set(&v_out, v_result_key.clone(), v_result.clone())?;
-    v_is_derive = core_eq(&[v_kind.clone(), CoreValue::from("derive")])?;
-    if core_truthy(&v_is_derive) {
-        core_set(&v_out, v_name.clone(), v_result.clone())?;
-    }
     v_out = core_map_update(&[v_out.clone(), v_result.clone()])?;
     _flow_record_child_chat_log(&[v_flow.clone(), v_name.clone(), v_program.clone()])?;
     _flow_record_child_usage(&[v_flow.clone(), v_name.clone(), v_program.clone()])?;
@@ -46156,19 +46162,27 @@ fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_default_body = CoreValue::Null;
     let mut v_default_branches = CoreValue::Null;
     let mut v_default_results = CoreValue::Null;
+    let mut v_derived = CoreValue::Null;
     let mut v_done = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_err = CoreValue::Null;
     let mut v_event_payload = CoreValue::Null;
     let mut v_existing_iterations = CoreValue::Null;
     let mut v_has_condition = CoreValue::Null;
     let mut v_has_predicate = CoreValue::Null;
+    let mut v_input_field = CoreValue::Null;
+    let mut v_input_is_list = CoreValue::Null;
+    let mut v_input_value = CoreValue::Null;
     let mut v_is_branch = CoreValue::Null;
+    let mut v_is_derive = CoreValue::Null;
     let mut v_is_feedback = CoreValue::Null;
     let mut v_is_map = CoreValue::Null;
     let mut v_is_parallel = CoreValue::Null;
     let mut v_is_parallel_merge = CoreValue::Null;
     let mut v_is_while = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_item_state = CoreValue::Null;
     let mut v_iteration_key = CoreValue::Null;
     let mut v_iterations = CoreValue::Null;
     let mut v_kind = CoreValue::Null;
@@ -46187,12 +46201,15 @@ fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_name = CoreValue::Null;
     let mut v_none = CoreValue::Null;
     let mut v_out = CoreValue::Null;
+    let mut v_output_field = CoreValue::Null;
     let mut v_parallel_results = CoreValue::Null;
     let mut v_parallel_results_snake = CoreValue::Null;
     let mut v_predicate = CoreValue::Null;
     let mut v_program = CoreValue::Null;
     let mut v_program_id = CoreValue::Null;
     let mut v_program_out = CoreValue::Null;
+    let mut v_reads = CoreValue::Null;
+    let mut v_res_state = CoreValue::Null;
     let mut v_result_key = CoreValue::Null;
     let mut v_results = CoreValue::Null;
     let mut v_results_is_list = CoreValue::Null;
@@ -46203,6 +46220,7 @@ fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_too_many = CoreValue::Null;
     let mut v_traces = CoreValue::Null;
     let mut v_when = CoreValue::Null;
+    let mut v_writes = CoreValue::Null;
     v_empty_map = CoreValue::new_map();
     v_missing_step = core_is_none(&[v_step.clone()])?;
     if core_truthy(&v_missing_step) {
@@ -46499,6 +46517,50 @@ fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_none = core_none(&[])?;
         core_set(&v_out, CoreValue::from("_parallelResults"), v_none.clone())?;
         core_set(&v_out, v_name.clone(), v_merge_output.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_is_derive = core_eq(&[v_kind.clone(), CoreValue::from("derive")])?;
+    if core_truthy(&v_is_derive) {
+        v_empty_list = CoreValue::new_list();
+        v_program = core_get(&v_step, &CoreValue::from("program"), CoreValue::Null);
+        v_reads = core_get(&v_step, &CoreValue::from("reads"), v_empty_list.clone());
+        v_writes = core_get(&v_step, &CoreValue::from("writes"), v_empty_list.clone());
+        v_input_field =
+            core_list_get(&[v_reads.clone(), CoreValue::Num(0f64), CoreValue::from("")])?;
+        v_output_field = core_list_get(&[v_writes.clone(), CoreValue::Num(0f64), v_name.clone()])?;
+        v_input_value = core_get(&v_state, &v_input_field.clone(), CoreValue::Null);
+        v_out = core_map_merge(&[v_state.clone(), v_empty_map.clone()])?;
+        v_input_is_list = core_type_is(&v_input_value, CoreValue::from("list"));
+        if core_truthy(&v_input_is_list) {
+            v_results = CoreValue::new_list();
+            for v_item in core_iter(&v_input_value)? {
+                let mut v_item = v_item;
+                v_item_state = core_map_merge(&[v_state.clone(), v_empty_map.clone()])?;
+                core_set(&v_item_state, CoreValue::from("__item"), v_item.clone())?;
+                v_res_state = core_object_call_method(&[
+                    v_program.clone(),
+                    CoreValue::from("call"),
+                    v_item_state.clone(),
+                ])?;
+                v_derived = core_get(&v_res_state, &CoreValue::from("__derived"), CoreValue::Null);
+                core_append(&v_results, v_derived.clone())?;
+            }
+            core_set(&v_out, v_output_field.clone(), v_results.clone())?;
+        } else {
+            v_item_state = core_map_merge(&[v_state.clone(), v_empty_map.clone()])?;
+            core_set(
+                &v_item_state,
+                CoreValue::from("__item"),
+                v_input_value.clone(),
+            )?;
+            v_res_state = core_object_call_method(&[
+                v_program.clone(),
+                CoreValue::from("call"),
+                v_item_state.clone(),
+            ])?;
+            v_derived = core_get(&v_res_state, &CoreValue::from("__derived"), CoreValue::Null);
+            core_set(&v_out, v_output_field.clone(), v_derived.clone())?;
+        }
         return Ok(v_out.clone());
     }
     v_program_out = _flow_execute_program_node(&[

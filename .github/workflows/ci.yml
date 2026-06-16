@@ -132,6 +132,12 @@ jobs:
         run: npm ci
       - name: Run generated examples
         run: npm run test:examples:generated
+      - name: AxIR perturbation gate (expected-mutation, all targets)
+        run: npm run axir:perturb:check
+      - name: AxIR anti-hardcode gate (model-response mutation, all targets)
+        run: npm run axir:gate:response-perturb
+        env:
+          AXIR_PERTURB_ALL: "1"
 
   axir-packages:
     name: AxIR Package Freshness

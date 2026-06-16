@@ -14560,10 +14560,6 @@ Value Core::_flow_execute_program_node(Value flow, Value step, Value client, Val
   Value out = Core::map_merge(state, empty_map);
   Value result_key = Core::string_format(Value("{}Result"), name);
   Core::set(out, result_key, result);
-  Value is_derive = Core::eq(kind, Value("derive"));
-  if (Core::truthy(is_derive)) {
-    Core::set(out, name, result);
-  }
   out = Core::map_update(out, result);
   Core::_flow_record_child_chat_log(flow, name, program);
   Core::_flow_record_child_usage(flow, name, program);
@@ -14725,6 +14721,37 @@ Value Core::_flow_execute_step(Value flow, Value step, Value plan_step, Value cl
     Value none = Core::none();
     Core::set(out, Value("_parallelResults"), none);
     Core::set(out, name, merge_output);
+    return out;
+  }
+  Value is_derive = Core::eq(kind, Value("derive"));
+  if (Core::truthy(is_derive)) {
+    Value empty_list = Value::array();
+    Value program = Core::get(step, Value("program"), Value());
+    Value reads = Core::get(step, Value("reads"), empty_list);
+    Value writes = Core::get(step, Value("writes"), empty_list);
+    Value input_field = Core::list_get(reads, Value(0), Value(""));
+    Value output_field = Core::list_get(writes, Value(0), name);
+    Value input_value = Core::get(state, input_field, Value());
+    Value out = Core::map_merge(state, empty_map);
+    Value input_is_list = Core::type_is(input_value, Value("list"));
+    if (Core::truthy(input_is_list)) {
+      Value results = Value::array();
+      for (auto item : Core::iter(input_value)) {
+        Value item_state = Core::map_merge(state, empty_map);
+        Core::set(item_state, Value("__item"), item);
+        Value res_state = Core::object_call_method(program, Value("call"), item_state);
+        Value derived = Core::get(res_state, Value("__derived"), Value());
+        Core::append(results, derived);
+      }
+      Core::set(out, output_field, results);
+    }
+    if (!Core::truthy(input_is_list)) {
+      Value item_state = Core::map_merge(state, empty_map);
+      Core::set(item_state, Value("__item"), input_value);
+      Value res_state = Core::object_call_method(program, Value("call"), item_state);
+      Value derived = Core::get(res_state, Value("__derived"), Value());
+      Core::set(out, output_field, derived);
+    }
     return out;
   }
   Value program_out = Core::_flow_execute_program_node(flow, step, client, state, options);

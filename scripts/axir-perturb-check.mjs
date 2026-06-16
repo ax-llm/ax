@@ -17,8 +17,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(scriptDir, '..');
-const conformanceRoot = path.join(repoRoot, 'ir', 'conformance');
+export const repoRoot = path.resolve(scriptDir, '..');
+export const conformanceRoot = path.join(repoRoot, 'ir', 'conformance');
 
 export const DEFAULT_TARGETS = ['python', 'go', 'rust', 'java', 'cpp'];
 
@@ -26,7 +26,7 @@ export const DEFAULT_TARGETS = ['python', 'go', 'rust', 'java', 'cpp'];
 // (goja/quickjs) that the default conformance runner here does NOT load, so they
 // run in dedicated engine lanes (the axir-agent-antidote CI job + G1 fixtures),
 // not in this harness. Mirrors conformanceSuitePaths, which also omits them.
-const ENGINE_ONLY_SUITES = new Set(['axagent-real']);
+export const ENGINE_ONLY_SUITES = new Set(['axagent-real']);
 
 // One representative fixture per suite: the alphabetically first .json file.
 export function sampleFixtures(root = conformanceRoot) {
@@ -105,7 +105,7 @@ function run(command, args, options = {}) {
   });
 }
 
-function compileTarget(target, outDir) {
+export function compileTarget(target, outDir) {
   execFileSync(
     'node',
     [
@@ -123,7 +123,7 @@ function compileTarget(target, outDir) {
 
 // Build each target's conformance runner once; return a function that runs
 // it against a suite directory and reports pass/fail.
-function buildRunner(target, outDir) {
+export function buildRunner(target, outDir) {
   switch (target) {
     case 'python':
       return (suiteDir) =>
