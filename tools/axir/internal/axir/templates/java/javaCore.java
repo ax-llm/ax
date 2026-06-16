@@ -831,6 +831,17 @@ final class Core {
     if (scripted instanceof List<?>) return scripted;
     return List.of();
   }
+  static Object agentTranscribe(Object client, Object request, Object options) {
+    // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
+    // text before the agent loop (the client passes through _agent_forward as a real client).
+    if (!(client instanceof AiClient ai)) return Map.of("text", "");
+    try {
+      return ai.transcribe(asMap(request), asMap(options));
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   static Object agentSkillSearch(Object state, Object searches) {
     Map<String, Object> options = asMap(get(state, "options", Map.of()));
     Object scripted = options.getOrDefault("skill_search_results", options.get("skillSearchResults"));

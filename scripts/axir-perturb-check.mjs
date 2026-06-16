@@ -22,11 +22,18 @@ const conformanceRoot = path.join(repoRoot, 'ir', 'conformance');
 
 export const DEFAULT_TARGETS = ['python', 'go', 'rust', 'java', 'cpp'];
 
+// Engine-required suites: their fixtures need an optional in-process engine
+// (goja/quickjs) that the default conformance runner here does NOT load, so they
+// run in dedicated engine lanes (the axir-agent-antidote CI job + G1 fixtures),
+// not in this harness. Mirrors conformanceSuitePaths, which also omits them.
+const ENGINE_ONLY_SUITES = new Set(['axagent-real']);
+
 // One representative fixture per suite: the alphabetically first .json file.
 export function sampleFixtures(root = conformanceRoot) {
   const suites = readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
+    .filter((name) => !ENGINE_ONLY_SUITES.has(name))
     .sort();
   const sample = [];
   for (const suite of suites) {

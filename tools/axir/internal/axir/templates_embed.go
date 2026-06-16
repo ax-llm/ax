@@ -21,12 +21,6 @@ var cppRuntime string
 //go:embed templates/go/goAudioResponsesMappingExample.go.txt
 var goAudioResponsesMappingExample string
 
-//go:embed templates/go/goAxAgentOpenAIExample.go.txt
-var goAxAgentOpenAIExample string
-
-//go:embed templates/go/goAxAgentPipelineExample.go.txt
-var goAxAgentPipelineExample string
-
 //go:embed templates/go/goAxFlowOpenAIExample.go.txt
 var goAxFlowOpenAIExample string
 
@@ -400,16 +394,13 @@ var javaAxRuntimeEnvelope string
 //go:embed templates/runtime/pyRuntime.py
 var pyRuntime string
 
+//go:embed templates/runtime/pyRuntimeQuickjs.py
+var pyRuntimeQuickjs string
+
 // templates/rust
 
 //go:embed templates/rust/rustAudioResponsesMappingExample.rs
 var rustAudioResponsesMappingExample string
-
-//go:embed templates/rust/rustAxAgentOpenAIExample.rs
-var rustAxAgentOpenAIExample string
-
-//go:embed templates/rust/rustAxAgentPipelineExample.rs
-var rustAxAgentPipelineExample string
 
 //go:embed templates/rust/rustAxFlowOpenAIExample.rs
 var rustAxFlowOpenAIExample string

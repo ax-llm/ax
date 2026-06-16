@@ -163,6 +163,8 @@ class AxGen:
             structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
             custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
         )
+        if self.instruction:
+            self.prompt_template.set_instruction(self.instruction)
 
     def set_examples(self, examples):
         self.examples = list(examples or [])

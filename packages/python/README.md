@@ -44,7 +44,6 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client and tool
 - `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport
 - `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport
-- `python examples/axagent_pipeline.py`: deterministic AxAgent pipeline
 - `python examples/axflow_program_graph.py`: AxFlow program graph
 - `python examples/audio_responses_mapping.py`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `python examples/realtime_audio_events.py`: Grok/Gemini realtime audio setup, input, and event folding
@@ -57,7 +56,6 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - `OPENAI_API_KEY=... python examples/axgen_openai_api.py`: AxGen with a real OpenAI-compatible provider API
-- `OPENAI_API_KEY=... python examples/agent_openai_api.py`: AxAgent with a real OpenAI-compatible provider API
 - `OPENAI_API_KEY=... python examples/flow_openai_api.py`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents

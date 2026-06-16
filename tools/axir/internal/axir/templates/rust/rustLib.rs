@@ -588,6 +588,11 @@ fn bool_key(value: &Value, keys: &[&str]) -> bool {
 pub trait AxAIClient {
     fn chat(&mut self, request: Value) -> AxResult<Value>;
 
+    fn transcribe(&mut self, request: Value) -> AxResult<Value> {
+        let _ = request;
+        Ok(json!({"text": ""}))
+    }
+
     fn complete(&mut self, request: Value) -> AxResult<Value> {
         self.chat(request)
     }
@@ -694,7 +699,12 @@ impl OpenAICompatibleClient {
                 req["chat_prompt"] = prompt.clone();
             }
         }
-        if req.get("model").is_none() {
+        if req
+            .get("model")
+            .and_then(Value::as_str)
+            .filter(|model| !model.is_empty())
+            .is_none()
+        {
             req["model"] = json!(self.model.clone());
         }
         let mut base_config = if self.model_config.is_object() { self.model_config.clone() } else { json!({}) };
@@ -1515,7 +1525,9 @@ impl AxGen {
         options: Value,
     ) -> AxResult<Value> {
         let state = core_gen_state(self)?;
-        let mut chat = |request: Value| client.chat(request);
+        let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+            if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+        };
         let result = with_core_client(&mut chat, || {
             _forward_impl(&[
                 state.clone(),
@@ -2011,19 +2023,22 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         let raw = core_get(&options, &CoreValue::from("validation_retries"), CoreValue::Null);
         if raw.is_null() { json!(2) } else { core_value_to_json(&raw) }
     };
+    let distiller_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("distiller_description"), CoreValue::from("")));
+    let executor_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("executor_description"), CoreValue::from("")));
+    let responder_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("responder_description"), CoreValue::from("")));
     Ok(AxAgent {
         state,
         distiller: agent_stage_gen(
             distiller_signature,
-            json!({"validation_retries": 0, "id": "ctx.root.actor"}),
+            json!({"validation_retries": 0, "id": "ctx.root.actor", "instruction": distiller_instruction}),
         ),
         executor: agent_stage_gen(
             executor_signature,
-            json!({"validation_retries": 0, "id": "task.root.actor"}),
+            json!({"validation_retries": 0, "id": "task.root.actor", "instruction": executor_instruction}),
         ),
         responder: agent_stage_gen(
             signature,
-            json!({"validation_retries": validation_retries, "id": "task.root.responder"}),
+            json!({"validation_retries": validation_retries, "id": "task.root.responder", "instruction": responder_instruction}),
         ),
     })
 }
@@ -2039,7 +2054,9 @@ impl AxAgent {
         input: Value,
         options: Value,
     ) -> AxResult<Value> {
-        let mut chat = |request: Value| client.chat(request);
+        let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+            if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+        };
         let result = with_core_client(&mut chat, || {
             _agent_forward(&[
                 self.state.clone(),
@@ -2378,7 +2395,9 @@ impl AxFlow {
     }
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
-        let mut chat = |request: Value| client.chat(request);
+        let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+            if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+        };
         let result = with_core_client(&mut chat, || {
             _flow_forward(&[
                 self.state.clone(),
@@ -3235,9 +3254,11 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         | "ai_error"
         | "ai_unsupported" => run_ai_support_fixture(kind, &fixture)?,
         "agent_forward"
+        | "agent_prompt"
         | "agent_runtime_adapter"
         | "agent_runtime_policy"
         | "agent_runtime_protocol"
+        | "agent_runtime_real"
         | "agent_runtime_session" => run_agent_fixture(kind, &fixture)?,
         "flow" => run_flow_fixture(&fixture)?,
         "optimize" => run_optimize_fixture(&fixture)?,
@@ -3554,6 +3575,8 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 fn run_agent_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
     match kind {
         "agent_forward" => run_agent_forward_contract_fixture(fixture),
+        "agent_prompt" => run_agent_prompt_fixture(fixture),
+        "agent_runtime_real" => run_agent_forward_contract_fixture(fixture),
         "agent_runtime_protocol" => run_agent_runtime_protocol_fixture(fixture),
         "agent_runtime_session" => run_agent_runtime_session_fixture(fixture),
         "agent_runtime_adapter" => run_agent_runtime_adapter_fixture(fixture),
@@ -4797,6 +4820,52 @@ fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
     Ok(actual)
 }
 
+// Prompt-parity gate (G3): build a real agent and assert the RLM stage instructions
+// were rendered into agent state. A hollow agent has empty description keys, so this
+// fails -- catching the defect that slipped a non-functional agent() past every gate.
+fn run_agent_prompt_fixture(fixture: &Value) -> AxResult<()> {
+    let signature = fixture
+        .get("signature")
+        .and_then(Value::as_str)
+        .unwrap_or("question:string -> answer:string");
+    let options =
+        core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
+    let agent = agent_with_core_options(signature, options)?;
+    let expects = fixture
+        .get("expected_description_contains")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for (field, needles) in expects.iter() {
+        if field == "__order" {
+            continue;
+        }
+        let desc_value = agent.state_json(field);
+        let desc = desc_value.as_str().unwrap_or("");
+        if desc.trim().is_empty() {
+            return Err(AxError::new(
+                "fixture",
+                format!(
+                    "agent stage description {field} is empty; RLM prompt was not rendered into agent state"
+                ),
+            ));
+        }
+        if let Some(items) = needles.as_array() {
+            for item in items {
+                if let Some(needle) = item.as_str() {
+                    if !desc.contains(needle) {
+                        return Err(AxError::new(
+                            "fixture",
+                            format!("agent stage description {field} missing {needle:?}: {desc}"),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     let responses = fixture
         .get("responses")
@@ -4805,6 +4874,12 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         .unwrap_or_default();
     let mut client = FixtureClient {
         responses: responses.into(),
+        transcribe_responses: fixture
+            .get("transcribe_responses")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .into(),
         requests: Vec::new(),
     };
     let agent_options = core_value_from_json(
@@ -4839,6 +4914,25 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         );
         core_set(&agent_options, CoreValue::from("runtime"), host)?;
     }
+    // agent_runtime_real (G1): drive forward() through the REAL embedded engine.
+    if fixture.get("runtime_engine").is_some() {
+        #[cfg(feature = "runtime-quickjs")]
+        {
+            let runtime = crate::runtime::quickjs::QuickJsCodeRuntime::new();
+            let host = core_code_runtime_host_shared(
+                Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
+                core_runtime_capabilities_full(),
+            );
+            core_set(&agent_options, CoreValue::from("runtime"), host)?;
+        }
+        #[cfg(not(feature = "runtime-quickjs"))]
+        {
+            return Err(AxError::new(
+                "fixture",
+                "agent_runtime_real requires building with --features runtime-quickjs".to_string(),
+            ));
+        }
+    }
     let signature = fixture
         .get("signature")
         .and_then(Value::as_str)
@@ -4856,6 +4950,9 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     };
     if let Some(state) = fixture.get("set_state") {
         agent.set_state(state.clone())?;
+    }
+    if let Some(snapshot) = fixture.get("restore_runtime_state") {
+        agent.restore_runtime_state(snapshot.clone())?;
     }
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
     let forward_options = fixture
@@ -6129,6 +6226,7 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         .unwrap_or_default();
     let mut client = FixtureClient {
         responses: responses.into(),
+        transcribe_responses: VecDeque::new(),
         requests: Vec::new(),
     };
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
@@ -6150,7 +6248,9 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         cache_store.insert(key, seed.clone());
         forward_options["cache_store"] = Value::Object(cache_store);
     }
-    let mut chat = |request: Value| client.chat(request);
+    let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+        if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+    };
     let output = core_value_to_json(&with_core_client(&mut chat, || {
         _flow_forward(&[
             state.clone(),
@@ -7690,10 +7790,19 @@ fn build_fixture_tools_recording(fixture: &Value) -> AxResult<(Vec<Tool>, std::s
 
 struct FixtureClient {
     responses: VecDeque<Value>,
+    transcribe_responses: VecDeque<Value>,
     requests: Vec<Value>,
 }
 
 impl AxAIClient for FixtureClient {
+    fn transcribe(&mut self, request: Value) -> AxResult<Value> {
+        self.requests.push(request);
+        Ok(self
+            .transcribe_responses
+            .pop_front()
+            .unwrap_or_else(|| json!({"text": ""})))
+    }
+
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
         let response = self
@@ -7812,6 +7921,7 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     };
     let mut client = FixtureClient {
         responses: responses.into(),
+        transcribe_responses: VecDeque::new(),
         requests: Vec::new(),
     };
     let result = program.forward(&mut client, input);
@@ -10789,13 +10899,18 @@ impl CoreHost for ToolHost {
 // re-enter core_ai_complete_once for the same frame.
 
 thread_local! {
-    static CORE_CLIENT_STACK: RefCell<Vec<*mut (dyn FnMut(Value) -> AxResult<Value> + 'static)>> =
+    // The scoped client is a single method-dispatch closure (method, request) so chat AND
+    // transcribe share one &mut borrow of the typed client (two separate closures would be a
+    // borrow-check conflict). core_ai_complete_once calls it with "chat"; core_agent_transcribe
+    // with "transcribe". This keeps audio transcription emitted + uniform with the other four
+    // languages (which pass the real client directly).
+    static CORE_CLIENT_STACK: RefCell<Vec<*mut (dyn FnMut(&str, Value) -> AxResult<Value> + 'static)>> =
         RefCell::new(Vec::new());
 }
 
 #[allow(dead_code)]
 pub(crate) fn with_core_client<R>(
-    chat: &mut dyn FnMut(Value) -> AxResult<Value>,
+    chat: &mut dyn FnMut(&str, Value) -> AxResult<Value>,
     run: impl FnOnce() -> R,
 ) -> R {
     struct CoreClientGuard;
@@ -10808,7 +10923,7 @@ pub(crate) fn with_core_client<R>(
     }
     // SAFETY: only the lifetime bound of the trait object changes; the fat
     // pointer layout is identical, and the pointer never outlives this frame.
-    let erased: *mut (dyn FnMut(Value) -> AxResult<Value> + 'static) =
+    let erased: *mut (dyn FnMut(&str, Value) -> AxResult<Value> + 'static) =
         unsafe { std::mem::transmute(chat) };
     CORE_CLIENT_STACK.with(|stack| stack.borrow_mut().push(erased));
     let _guard = CoreClientGuard;
@@ -10830,8 +10945,25 @@ pub(crate) fn core_ai_complete_once(args: &[CoreValue]) -> Result<CoreValue, AxE
     // created from is still live. The RefCell borrow is released before the
     // call so the callback may itself push a nested client.
     let chat = unsafe { &mut *ptr };
-    let response = chat(core_value_to_json(&request))?;
+    let response = chat("chat", core_value_to_json(&request))?;
     chat_response_to_completion(&[core_value_from_json(&response)])
+}
+
+// Backs intrinsic.agent.transcribe. Rust scopes the client as a chat/transcribe dispatch
+// closure (the agent receives CoreValue::Null for %client), so we route "transcribe" through
+// the same scoped closure core_ai_complete_once uses for "chat".
+#[allow(dead_code)]
+pub(crate) fn core_agent_transcribe(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let request = core_arg(args, 1);
+    let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
+    match top {
+        Some(ptr) => {
+            let call = unsafe { &mut *ptr };
+            let response = call("transcribe", core_value_to_json(&request))?;
+            Ok(core_value_from_json(&response))
+        }
+        None => Ok(core_value_from_json(&json!({"text": ""}))),
+    }
 }
 
 // ----- Simple host-boundary intrinsics -----
@@ -11971,14 +12103,19 @@ fn core_tool_args_fields(args: &Map<String, Value>) -> Result<CoreValue, AxError
 }
 
 
-struct RawScopedClient(*mut dyn FnMut(Value) -> AxResult<Value>);
+struct RawScopedClient(*mut dyn FnMut(&str, Value) -> AxResult<Value>);
 
 impl AxAIClient for RawScopedClient {
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         // SAFETY: the pointer was captured from the client stack inside the
         // enclosing with_core_client scope, which outlives this call.
-        let chat = unsafe { &mut *self.0 };
-        chat(request)
+        let call = unsafe { &mut *self.0 };
+        call("chat", request)
+    }
+
+    fn transcribe(&mut self, request: Value) -> AxResult<Value> {
+        let call = unsafe { &mut *self.0 };
+        call("transcribe", request)
     }
 }
 

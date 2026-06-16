@@ -1,28 +1,43 @@
 :root {
   color-scheme: light dark;
   --bg: #ffffff;
-  --canvas: #f7f9fc;
-  --ink: #0a2540;
-  --heading: #0a2540;
-  --muted: #425466;
-  --faint: #6b7c93;
+  --canvas: #f6f8fb;
+  --ink: #132033;
+  --heading: #070a12;
+  --muted: #536173;
+  --faint: #758196;
   --line: #e3e8ee;
-  --line-strong: #c6d0dc;
+  --line-strong: #c8d2de;
   --panel: #ffffff;
-  --panel-soft: #f7fafc;
-  --code-bg: #f6f8fb;
-  --code-panel: #18224a;
-  --code-panel-ink: #eef4ff;
-  --code-ink: #23395d;
-  --accent: #635bff;
-  --accent-2: #5469d4;
-  --accent-3: #0a8f7a;
-  --teal: #0a8f7a;
-  --blue: #067ab8;
+  --panel-soft: #f2f5f8;
+  --code-bg: #0d1320;
+  --code-panel: #111827;
+  --code-panel-ink: #e8eef8;
+  --code-ink: #e8eef8;
+  --install-bg: #eef2f7;
+  --install-ink: #101827;
+  --install-prompt: #657186;
+  --install-border: #ccd6e3;
+  --install-status-bg: #ffffff;
+  --install-status-ink: #4d5a6e;
+  --install-status-border: #d7dee8;
+  --syntax-comment: #7c8aa0;
+  --syntax-keyword: #b6adff;
+  --syntax-name: #8fd0ff;
+  --syntax-var: #6ddbc9;
+  --syntax-string: #bdf08f;
+  --syntax-number: #f0c46f;
+  --syntax-operator: #ff9d88;
+  --accent: #6d5cff;
+  --accent-2: #5142db;
+  --accent-3: #0b8f7f;
+  --accent-contrast: #ffffff;
+  --teal: #0b8f7f;
+  --blue: #0878b8;
   --green: #0a8852;
   --amber: #9f6b12;
   --rust: #b34836;
-  --violet: #635bff;
+  --violet: #6d5cff;
   --cream-strong: #fff8e5;
   --blue-soft: #edf6ff;
   --teal-soft: #e9fbf6;
@@ -30,35 +45,45 @@
   --shadow: none;
   --shadow-raised: 0 18px 50px rgba(10, 37, 64, 0.16);
   --nav-fade: rgba(10, 37, 64, 0.18);
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
 html[data-theme="light"] {
   color-scheme: light;
   --bg: #ffffff;
-  --canvas: #f7f9fc;
-  --ink: #0a2540;
-  --heading: #0a2540;
-  --muted: #425466;
-  --faint: #6b7c93;
+  --canvas: #f6f8fb;
+  --ink: #132033;
+  --heading: #070a12;
+  --muted: #536173;
+  --faint: #758196;
   --line: #e3e8ee;
-  --line-strong: #c6d0dc;
+  --line-strong: #c8d2de;
   --panel: #ffffff;
-  --panel-soft: #f7fafc;
-  --code-bg: #f6f8fb;
-  --code-panel: #18224a;
-  --code-panel-ink: #eef4ff;
-  --code-ink: #23395d;
-  --accent: #635bff;
-  --accent-2: #5469d4;
-  --accent-3: #0a8f7a;
-  --teal: #0a8f7a;
-  --blue: #067ab8;
+  --panel-soft: #f2f5f8;
+  --code-bg: #0d1320;
+  --code-panel: #111827;
+  --code-panel-ink: #e8eef8;
+  --code-ink: #e8eef8;
+  --install-bg: #eef2f7;
+  --install-ink: #101827;
+  --install-prompt: #657186;
+  --install-border: #ccd6e3;
+  --install-status-bg: #ffffff;
+  --install-status-ink: #4d5a6e;
+  --install-status-border: #d7dee8;
+  --accent: #6d5cff;
+  --accent-2: #5142db;
+  --accent-3: #0b8f7f;
+  --accent-contrast: #ffffff;
+  --teal: #0b8f7f;
+  --blue: #0878b8;
   --green: #0a8852;
   --amber: #9f6b12;
   --rust: #b34836;
-  --violet: #635bff;
+  --violet: #6d5cff;
   --cream-strong: #fff8e5;
   --blue-soft: #edf6ff;
   --teal-soft: #e9fbf6;
@@ -70,33 +95,41 @@ html[data-theme="light"] {
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0b1220;
-  --canvas: #101827;
-  --ink: #f4f7fb;
+  --bg: #090b0f;
+  --canvas: #0e1219;
+  --ink: #edf3fb;
   --heading: #ffffff;
-  --muted: #b7c2d2;
-  --faint: #8fa0b8;
-  --line: #263246;
-  --line-strong: #3a4a63;
-  --panel: #111a2b;
-  --panel-soft: #162136;
-  --code-bg: #0f1727;
-  --code-panel: #0e1730;
-  --code-panel-ink: #eef4ff;
-  --code-ink: #e5edf7;
-  --accent: #9a94ff;
-  --accent-2: #a7b5ff;
-  --accent-3: #60d6bf;
-  --teal: #60d6bf;
-  --blue: #75c4ff;
-  --green: #7bd99f;
-  --amber: #efc56f;
-  --rust: #ff9d88;
-  --violet: #b5aaff;
-  --cream-strong: #2e2717;
-  --blue-soft: #172b44;
-  --teal-soft: #15362f;
-  --rust-soft: #351e1a;
+  --muted: #a9b5c7;
+  --faint: #7f8ba0;
+  --line: rgba(255, 255, 255, 0.12);
+  --line-strong: rgba(255, 255, 255, 0.2);
+  --panel: #111721;
+  --panel-soft: #151d2a;
+  --code-bg: #05070b;
+  --code-panel: #0b1018;
+  --code-panel-ink: #e8eef8;
+  --code-ink: #e8eef8;
+  --install-bg: #101721;
+  --install-ink: #edf3fb;
+  --install-prompt: #9aa6ba;
+  --install-border: rgba(255, 255, 255, 0.16);
+  --install-status-bg: #1b2433;
+  --install-status-ink: #cfd8e6;
+  --install-status-border: rgba(255, 255, 255, 0.18);
+  --accent: #b9b1ff;
+  --accent-2: #9d92ff;
+  --accent-3: #6ddbc9;
+  --accent-contrast: #0c0b12;
+  --teal: #6ddbc9;
+  --blue: #8fd0ff;
+  --green: #98e6b8;
+  --amber: #f0c46f;
+  --rust: #ff9a83;
+  --violet: #b9b1ff;
+  --cream-strong: rgba(240, 196, 111, 0.14);
+  --blue-soft: rgba(143, 208, 255, 0.14);
+  --teal-soft: rgba(109, 219, 201, 0.14);
+  --rust-soft: rgba(255, 154, 131, 0.14);
   --shadow: none;
   --shadow-raised: 0 18px 50px rgba(0, 0, 0, 0.36);
   --nav-fade: rgba(0, 0, 0, 0.55);
@@ -104,33 +137,41 @@ html[data-theme="dark"] {
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: #0b1220;
-    --canvas: #101827;
-    --ink: #f4f7fb;
+    --bg: #090b0f;
+    --canvas: #0e1219;
+    --ink: #edf3fb;
     --heading: #ffffff;
-    --muted: #b7c2d2;
-    --faint: #8fa0b8;
-    --line: #263246;
-    --line-strong: #3a4a63;
-    --panel: #111a2b;
-    --panel-soft: #162136;
-    --code-bg: #0f1727;
-    --code-panel: #0e1730;
-    --code-panel-ink: #eef4ff;
-    --code-ink: #e5edf7;
-    --accent: #9a94ff;
-    --accent-2: #a7b5ff;
-    --accent-3: #60d6bf;
-    --teal: #60d6bf;
-    --blue: #75c4ff;
-    --green: #7bd99f;
-    --amber: #efc56f;
-    --rust: #ff9d88;
-    --violet: #b5aaff;
-    --cream-strong: #2e2717;
-    --blue-soft: #172b44;
-    --teal-soft: #15362f;
-    --rust-soft: #351e1a;
+    --muted: #a9b5c7;
+    --faint: #7f8ba0;
+    --line: rgba(255, 255, 255, 0.12);
+    --line-strong: rgba(255, 255, 255, 0.2);
+    --panel: #111721;
+    --panel-soft: #151d2a;
+    --code-bg: #05070b;
+    --code-panel: #0b1018;
+    --code-panel-ink: #e8eef8;
+    --code-ink: #e8eef8;
+    --install-bg: #101721;
+    --install-ink: #edf3fb;
+    --install-prompt: #9aa6ba;
+    --install-border: rgba(255, 255, 255, 0.16);
+    --install-status-bg: #1b2433;
+    --install-status-ink: #cfd8e6;
+    --install-status-border: rgba(255, 255, 255, 0.18);
+    --accent: #b9b1ff;
+    --accent-2: #9d92ff;
+    --accent-3: #6ddbc9;
+    --accent-contrast: #0c0b12;
+    --teal: #6ddbc9;
+    --blue: #8fd0ff;
+    --green: #98e6b8;
+    --amber: #f0c46f;
+    --rust: #ff9a83;
+    --violet: #b9b1ff;
+    --cream-strong: rgba(240, 196, 111, 0.14);
+    --blue-soft: rgba(143, 208, 255, 0.14);
+    --teal-soft: rgba(109, 219, 201, 0.14);
+    --rust-soft: rgba(255, 154, 131, 0.14);
     --shadow: none;
     --shadow-raised: 0 18px 50px rgba(0, 0, 0, 0.36);
     --nav-fade: rgba(0, 0, 0, 0.55);
@@ -210,7 +251,10 @@ a:hover {
 
 .header-main {
   display: grid;
-  grid-template-columns: minmax(8rem, 1fr) minmax(19rem, 34rem) minmax(16rem, 1fr);
+  grid-template-columns: minmax(8rem, 1fr) minmax(19rem, 34rem) minmax(
+      16rem,
+      1fr
+    );
   gap: 1rem;
   align-items: center;
   min-height: 4.05rem;
@@ -1151,7 +1195,7 @@ h4 {
 
 p,
 li {
-  color: var(--ink);
+  color: var(--muted);
 }
 
 p {
@@ -1187,15 +1231,15 @@ pre {
 code {
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: var(--code-bg);
-  color: var(--code-ink);
+  background: var(--panel-soft);
+  color: var(--heading);
   font-size: 0.88em;
   padding: 0.06rem 0.25rem;
 }
 
 pre {
   overflow: auto;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   background: var(--code-bg);
   color: var(--code-ink);
@@ -1215,7 +1259,7 @@ pre code {
 figure.code-block {
   margin: 1.35rem 0;
   max-width: 100%;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   background: var(--code-bg);
   overflow: hidden;
@@ -1228,13 +1272,13 @@ figure.code-block {
   gap: 0.75rem;
   min-height: 2.08rem;
   margin: 0;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--code-panel);
   padding: 0.3rem 0.44rem 0.3rem 0.62rem;
 }
 
 .code-block-lang {
-  color: var(--faint);
+  color: #aab7cc;
   font-size: 0.7rem;
   font-weight: 720;
   letter-spacing: 0.055em;
@@ -1243,10 +1287,10 @@ figure.code-block {
 
 .copy-code-button {
   flex: 0 0 auto;
-  border: 1px solid var(--line-strong);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 6px;
-  background: var(--panel);
-  color: var(--muted);
+  background: rgba(255, 255, 255, 0.06);
+  color: #d8e2f0;
   cursor: pointer;
   font: inherit;
   font-size: 0.72rem;
@@ -1301,7 +1345,7 @@ figure.code-block {
 .chroma .c1,
 .chroma .cs,
 .chroma .cp {
-  color: var(--faint);
+  color: var(--syntax-comment);
   font-style: italic;
 }
 
@@ -1312,7 +1356,7 @@ figure.code-block {
 .chroma .kp,
 .chroma .kr,
 .chroma .kt {
-  color: var(--violet);
+  color: var(--syntax-keyword);
   font-weight: 680;
 }
 
@@ -1323,7 +1367,7 @@ figure.code-block {
 .chroma .nn,
 .chroma .nx,
 .chroma .bp {
-  color: var(--blue);
+  color: var(--syntax-name);
 }
 
 .chroma .nt,
@@ -1331,7 +1375,7 @@ figure.code-block {
 .chroma .vc,
 .chroma .vg,
 .chroma .vi {
-  color: var(--teal);
+  color: var(--syntax-var);
 }
 
 .chroma .s,
@@ -1348,7 +1392,7 @@ figure.code-block {
 .chroma .sr,
 .chroma .s1,
 .chroma .ss {
-  color: var(--green);
+  color: var(--syntax-string);
 }
 
 .chroma .m,
@@ -1358,18 +1402,18 @@ figure.code-block {
 .chroma .mi,
 .chroma .il,
 .chroma .mo {
-  color: var(--amber);
+  color: var(--syntax-number);
 }
 
 .chroma .o,
 .chroma .ow,
 .chroma .gd,
 .chroma .err {
-  color: var(--rust);
+  color: var(--syntax-operator);
 }
 
 .chroma .gi {
-  color: var(--green);
+  color: var(--syntax-string);
 }
 
 .chroma .ge {
@@ -1416,9 +1460,6 @@ th {
 
 .backend-badges,
 .home-actions,
-.example-jump,
-.example-meta,
-.example-links,
 .snippet-meta {
   display: flex;
   flex-wrap: wrap;
@@ -1431,8 +1472,7 @@ th {
 }
 
 .backend-badges a,
-.home-actions a,
-.example-jump a {
+.home-actions a {
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--panel);
@@ -1493,8 +1533,7 @@ th {
 }
 
 .backend-badges a:hover,
-.home-actions a:hover,
-.example-jump a:hover {
+.home-actions a:hover {
   border-color: var(--line-strong);
   color: var(--accent-2);
 }
@@ -1503,8 +1542,7 @@ th {
   margin: 1rem 0 -0.55rem;
 }
 
-.snippet-badge,
-.example-badge {
+.snippet-badge {
   display: inline-flex;
   align-items: center;
   border: 1px solid var(--line);
@@ -1518,14 +1556,12 @@ th {
   text-transform: uppercase;
 }
 
-.snippet-badge-verified,
-.example-badge-no-key {
+.snippet-badge-verified {
   border-color: var(--teal);
   color: var(--green);
 }
 
-.snippet-badge-illustrative,
-.example-badge-provider {
+.snippet-badge-illustrative {
   border-color: var(--amber);
   color: var(--amber);
 }
@@ -1533,62 +1569,6 @@ th {
 .snippet-note {
   color: var(--muted);
   font-size: 0.86rem;
-}
-
-.example-jump {
-  margin: 1rem 0 1.5rem;
-}
-
-.example-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.82rem;
-  margin: 1rem 0 1.9rem;
-}
-
-.example-card,
-.example-path-card {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  padding: 0.95rem;
-}
-
-.example-card:hover,
-.example-path-card:hover {
-  border-color: var(--line-strong);
-}
-
-.example-card h3,
-.example-path-card h3 {
-  margin: 0 0 0.34rem;
-  color: var(--heading);
-  font-size: 1rem;
-  font-weight: 680;
-}
-
-.example-card p,
-.example-path-card p {
-  margin: 0.36rem 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.example-card code,
-.example-path-card code {
-  word-break: break-word;
-}
-
-.example-command {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--code-bg);
-  padding: 0.44rem 0.52rem;
-}
-
-.example-links {
-  margin-top: 0.62rem;
-  font-size: 0.88rem;
 }
 
 .svg-figure,
@@ -1699,9 +1679,9 @@ pre.mermaid {
 }
 
 .home {
-  max-width: 76rem;
+  max-width: 80rem;
   margin: 0 auto;
-  padding: 2.8rem 2rem 5rem;
+  padding: 0.9rem 2rem 5rem;
 }
 
 .home,
@@ -1711,10 +1691,10 @@ pre.mermaid {
 
 .home-hero {
   display: grid;
-  grid-template-columns: minmax(0, 0.82fr) minmax(31rem, 1fr);
-  gap: 2.8rem;
+  grid-template-columns: minmax(0, 0.9fr) minmax(28rem, 1fr);
+  gap: 3.2rem;
   align-items: center;
-  margin: 0 0 2.8rem;
+  margin: 0 0 2.2rem;
 }
 
 .home-section {
@@ -1750,15 +1730,16 @@ pre.mermaid {
 .home h2,
 .home h3 {
   color: var(--heading);
-  letter-spacing: 0;
+  letter-spacing: -0.025em;
 }
 
 .home h1 {
-  max-width: 13.5ch;
+  max-width: 12ch;
   margin: 0 0 0.9rem;
-  font-size: 4.18rem;
+  font-size: 5.1rem;
   font-weight: 780;
-  line-height: 1.05;
+  line-height: 0.97;
+  letter-spacing: -0.045em;
 }
 
 .home h2 {
@@ -1766,7 +1747,7 @@ pre.mermaid {
   margin: 0;
   border-top: 0;
   padding-top: 0;
-  font-size: 2.35rem;
+  font-size: 2.55rem;
   font-weight: 760;
   line-height: 1.13;
 }
@@ -1789,6 +1770,7 @@ pre.mermaid {
 }
 
 .home-hero-panel {
+  align-self: center;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1988,15 +1970,15 @@ pre.mermaid {
 }
 
 .home-hero-panel .home-code-block {
-  border-color: #28365f;
-  background: #101a3a;
-  color: #f7f9ff;
-  box-shadow: 0 18px 48px rgba(10, 37, 64, 0.18);
+  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--code-bg);
+  color: var(--code-ink);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.3);
 }
 
 .home-hero-panel .code-block-header {
-  border-bottom-color: #2d3d68;
-  background: #121f46;
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  background: var(--code-panel);
 }
 
 .home-hero-panel .code-block-lang,
@@ -2013,8 +1995,8 @@ pre.mermaid {
 }
 
 .home-hero-panel .copy-code-button {
-  border-color: #46557c;
-  background: #182654;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
   color: #eef4ff;
 }
 
@@ -2132,15 +2114,15 @@ pre.mermaid {
 }
 
 .home-agent-code .home-code-block {
-  border-color: #28365f;
-  background: #101a3a;
-  color: #f7f9ff;
-  box-shadow: 0 18px 48px rgba(10, 37, 64, 0.18);
+  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--code-bg);
+  color: var(--code-ink);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.3);
 }
 
 .home-agent-code .code-block-header {
-  border-bottom-color: #2d3d68;
-  background: #121f46;
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  background: var(--code-panel);
 }
 
 .home-agent-code .code-block-lang,
@@ -2157,8 +2139,8 @@ pre.mermaid {
 }
 
 .home-agent-code .copy-code-button {
-  border-color: #46557c;
-  background: #182654;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
   color: #eef4ff;
 }
 
@@ -2239,27 +2221,28 @@ pre.mermaid {
 
 .home-kicker {
   color: var(--accent-2);
-  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
   font-weight: 720;
-  letter-spacing: 0;
+  letter-spacing: 0.14em;
   margin: 0 0 0.72rem;
   text-transform: uppercase;
 }
 
 .home-lede {
   max-width: 43rem;
-  color: var(--ink);
-  font-size: 1.28rem;
-  line-height: 1.48;
+  color: var(--muted);
+  font-size: 1.2rem;
+  line-height: 1.55;
   margin: 0 0 1.35rem;
 }
 
 .home-proof-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.68rem 1rem;
+  gap: 0.55rem;
   color: var(--muted);
-  font-size: 0.93rem;
+  font-size: 0.86rem;
   margin: 0 0 1.25rem;
 }
 
@@ -2267,6 +2250,10 @@ pre.mermaid {
   display: inline-flex;
   align-items: center;
   gap: 0.42rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 0.36rem 0.52rem;
   white-space: nowrap;
 }
 
@@ -2274,8 +2261,8 @@ pre.mermaid {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 0.62rem;
-  margin: 0 0 1.05rem;
+  gap: 0.55rem;
+  margin: 0 0 0.9rem;
 }
 
 .home-language-pills button {
@@ -2398,7 +2385,7 @@ pre.mermaid {
 .home-actions a:first-child {
   border-color: var(--accent-2);
   background: var(--accent-2);
-  color: #ffffff;
+  color: var(--accent-contrast);
 }
 
 .home-actions a.home-button-secondary {
@@ -2411,24 +2398,31 @@ pre.mermaid {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--install-border);
   border-radius: 8px;
-  background: var(--code-bg);
+  background: var(--install-bg);
+  color: var(--install-ink);
   padding: 0.52rem 0.68rem;
   margin: 0.15rem 0 0.2rem;
   max-width: 100%;
 }
 
-.home-install span {
-  color: var(--faint);
+.home-install > span {
+  color: var(--install-prompt);
   font-family: var(--font-mono);
 }
 
 .home-install code {
   border: 0;
   background: transparent;
+  color: var(--install-ink);
   overflow-wrap: anywhere;
   padding: 0;
+}
+
+.home-install [data-home-lang-text],
+.home-install-command {
+  color: var(--install-ink);
 }
 
 .home table {
@@ -2495,7 +2489,9 @@ pre.mermaid {
   border-radius: 8px;
   background: var(--panel);
   padding: 1.6rem;
-  transition: border-color 160ms ease, transform 160ms ease;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease;
 }
 
 .home-visual-card:hover {
@@ -2905,7 +2901,9 @@ pre.mermaid {
   border-radius: 8px;
   background: var(--panel);
   padding: 1rem;
-  transition: border-color 160ms ease, transform 160ms ease;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease;
 }
 
 .home-code-card:hover,
@@ -3845,7 +3843,6 @@ pre.mermaid {
   .home-paths,
   .home-signature-grid,
   .three-up,
-  .example-grid,
   .content-home .backend-badges {
     grid-template-columns: 1fr;
   }
@@ -4003,10 +4000,10 @@ pre.mermaid {
 .home-install-status {
   display: inline-block;
   flex: 0 0 auto;
-  border: 1px solid var(--line);
+  border: 1px solid var(--install-status-border);
   border-radius: 999px;
-  background: var(--panel-soft);
-  color: var(--muted);
+  background: var(--install-status-bg);
+  color: var(--install-status-ink);
   font-family: var(--font-sans);
   font-size: 0.68rem;
   font-style: normal;
@@ -4048,15 +4045,27 @@ pre.mermaid {
   font-variant-numeric: tabular-nums;
 }
 
+.home-install-strip,
 .home-agent-strip {
-  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.7rem 1.15rem;
-  border-top: 1px solid var(--line);
-  margin-top: 0.5rem;
-  padding-top: 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  margin: 0 0 2.2rem;
+  padding: 0.82rem 1rem;
+}
+
+.home-install-strip {
+  margin-bottom: 0.85rem;
+}
+
+.home-install-strip .home-install,
+.home-install-strip .home-language-pills,
+.home-install-strip .home-hero-stats {
+  margin: 0;
 }
 
 .home-agent-strip p {

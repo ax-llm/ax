@@ -1,4 +1,3 @@
-# docs:start provider-flow
 import json
 import os
 
@@ -24,4 +23,3 @@ program = (
 output = program.forward(client, {"topic": "how Ax composes typed LLM programs"})
 
 print(json.dumps(output, indent=2, sort_keys=True))
-# docs:end provider-flow

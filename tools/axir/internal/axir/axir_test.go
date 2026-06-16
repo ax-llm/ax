@@ -25,6 +25,168 @@ func repoRootPath() string {
 	return filepath.Join("..", "..", "..", "..")
 }
 
+// TestAgentCrossLanguageParity is the cross-language drift guard (G8). The agent is emitted
+// from a single IR (ir/axcore/agent.axir), so the emitted ops are parity by construction and
+// the coverage audit already proves 365/365 cross-target. The drift risk lives in the HOST GLUE
+// that the IR cannot reach: the per-language intrinsic bindings and the conformance-runner kind
+// dispatch. A new agent feature (a new intrinsic or a new conformance kind) added to one language
+// but not the others compiles fine per-language yet makes the agents behave differently. This gate
+// makes that impossible: a future omission fails the build.
+func TestAgentCrossLanguageParity(t *testing.T) {
+	// 1. Agent intrinsic binding parity. All four languages with an explicit intrinsic->host map
+	//    (Python, Rust, C++, Java; Go derives `_core_*` by convention) must bind the SAME set of
+	//    `intrinsic.agent.*`. A new agent intrinsic added to some maps but not others is the most
+	//    common silent drift -- it compiles per-language while the agents behave differently.
+	//    Scoped to agent intrinsics (the parity guarantee this gate owns); non-agent asymmetries
+	//    between the maps are a separate concern.
+	isAgent := func(i CoreIntrinsic) bool { return strings.HasPrefix(string(i), "intrinsic.agent.") }
+	intrinsicMaps := map[string]map[CoreIntrinsic]string{
+		"Python": coreIntrinsicPython,
+		"Rust":   coreIntrinsicRust,
+		"Cpp":    coreIntrinsicCpp,
+		"Java":   coreIntrinsicJava,
+	}
+	agentIntrinsics := map[CoreIntrinsic]bool{}
+	for _, m := range intrinsicMaps {
+		for intr := range m {
+			if isAgent(intr) {
+				agentIntrinsics[intr] = true
+			}
+		}
+	}
+	for intr := range agentIntrinsics {
+		for lang, m := range intrinsicMaps {
+			if _, ok := m[intr]; !ok {
+				t.Errorf("DRIFT: agent intrinsic %q is bound in some languages but missing from coreIntrinsic%s", intr, lang)
+			}
+		}
+	}
+
+	// (Host-impl existence is enforced by compilation: when agent.axir uses an intrinsic,
+	// codegen emits a call to its host function, and a missing function fails that language's
+	// build during verify/go-test. So map-key parity above + compilation together guarantee an
+	// implementation exists in every language; we do not re-grep per-language host names, whose
+	// spelling differs (Go/Python `_core_*`, Rust `core_*`, Java/C++ methods).)
+
+	// 2. Conformance-kind dispatch parity. Every agent_* fixture kind dispatched in one runner
+	//    must be dispatched in all five (anchored on each language's dispatch syntax so
+	//    error-category string literals like rust's "agent_clarification" are not matched).
+	dispatch := map[string]*regexp.Regexp{
+		"go":     regexp.MustCompile(`case\s+"(agent_[a-z_]+)"`),
+		"cpp":    regexp.MustCompile(`(?:kind\s*==\s*|case\s+)"(agent_[a-z_]+)"`),
+		"java":   regexp.MustCompile(`case\s+"(agent_[a-z_]+)"`),
+		"rust":   regexp.MustCompile(`"(agent_[a-z_]+)"\s*=>`),
+		"python": regexp.MustCompile(`==\s*"(agent_[a-z_]+)"`),
+	}
+	sources := map[string]string{"go": goRuntime + goConformance, "cpp": cppConformance, "java": javaConformance, "rust": rustLib, "python": pyConformance}
+	kindsByLang := map[string]map[string]bool{}
+	union := map[string]bool{}
+	for lang, re := range dispatch {
+		set := map[string]bool{}
+		for _, m := range re.FindAllStringSubmatch(sources[lang], -1) {
+			set[m[1]] = true
+			union[m[1]] = true
+		}
+		kindsByLang[lang] = set
+	}
+	for kind := range union {
+		for lang, set := range kindsByLang {
+			if !set[kind] {
+				t.Errorf("DRIFT: conformance kind %q is dispatched in some languages but NOT %s", kind, lang)
+			}
+		}
+	}
+}
+
+// TestG4AgentCapabilityBackedByRealRunner is the G4 gate: capability-backed-by-real-run.
+//
+// The non-functional agent() shipped in five languages because "claiming the axagent
+// capability" and "really running an agent" were independent facts -- a package exported
+// agent()/AxAgent and listed axagent in supported_suites while no test required a real
+// model-prose -> real-engine -> real final() -> completion loop. This test fuses the two:
+// every language claims axagent (it is in SupportedSuites for all targets), so every
+// language's conformance runner MUST carry the real-execution proof handlers. If a future
+// change guts the real-engine path (drops the agent_runtime_real handler) or the
+// prompt-parity path (agent_prompt), or deletes a real fixture, or drops a target from the
+// behavioral-parity ledger, the claim is no longer backed and this fails. See
+// docs/AXIR_GATES.md (G4).
+func TestG4AgentCapabilityBackedByRealRunner(t *testing.T) {
+	has := func(xs []string, want string) bool {
+		for _, x := range xs {
+			if x == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Each language that claims axagent -> the conformance runner template(s) that must
+	// carry the real-execution proof.
+	runners := map[string][]string{
+		"go":     {goRuntime, goConformance},
+		"python": {pyConformance},
+		"rust":   {rustLib},
+		"java":   {javaConformance},
+		"cpp":    {cppConformance},
+	}
+	for lang, templates := range runners {
+		joined := strings.Join(templates, "\n")
+		// G1 backing: the runner dispatches the real-engine fixture kind.
+		if !strings.Contains(joined, "agent_runtime_real") {
+			t.Errorf("%s claims axagent but its conformance runner has no agent_runtime_real handler (G4: real-engine proof missing)", lang)
+		}
+		// G3 backing: the runner asserts the RLM prompt was rendered into agent state.
+		if !strings.Contains(joined, "agent_prompt") {
+			t.Errorf("%s claims axagent but its conformance runner has no agent_prompt handler (G4: prompt-parity proof missing)", lang)
+		}
+	}
+	// Go injects the real engine via a registration hook (it cannot import a concrete engine
+	// from package ax without an import cycle); without the hook the real fixture cannot run.
+	if !strings.Contains(goConformance, "RegisterConformanceRealRuntime") {
+		t.Error("go conformance binary must register a real runtime via RegisterConformanceRealRuntime (G4)")
+	}
+
+	// The real-run + prompt fixtures the runners dispatch must exist on disk.
+	for _, rel := range []string{
+		"ir/conformance/axagent-real/agent-runtime-real-javascript-final.json",
+		"ir/conformance/axagent/agent-prompt-executor-rlm-protocol.json",
+	} {
+		if _, err := os.Stat(filepath.Join(repoRootPath(), filepath.FromSlash(rel))); err != nil {
+			t.Errorf("G4: required real-execution fixture missing: %s (%v)", rel, err)
+		}
+	}
+
+	// The behavioral-parity ledger must record real execution as verified for all five.
+	data, err := os.ReadFile(filepath.Join(repoRootPath(), "ir", "behavioral-parity-ledger.json"))
+	if err != nil {
+		t.Fatalf("G4: cannot read behavioral-parity ledger: %v", err)
+	}
+	var ledger struct {
+		Entries []struct {
+			Capability      string   `json:"capability"`
+			VerifiedTargets []string `json:"verified_targets"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(data, &ledger); err != nil {
+		t.Fatalf("G4: cannot parse behavioral-parity ledger: %v", err)
+	}
+	foundRealExec := false
+	for _, e := range ledger.Entries {
+		if e.Capability != "agent.rlm.real_execution" {
+			continue
+		}
+		foundRealExec = true
+		for _, lang := range []string{"go", "rust", "cpp", "python", "java"} {
+			if !has(e.VerifiedTargets, lang) {
+				t.Errorf("G4: ledger agent.rlm.real_execution does not list %s as a verified target", lang)
+			}
+		}
+	}
+	if !foundRealExec {
+		t.Error("G4: behavioral-parity ledger has no agent.rlm.real_execution entry")
+	}
+}
+
 func TestPublicGeneratedSurfaceHygiene(t *testing.T) {
 	repoRoot := repoRootPath()
 	for _, relRoot := range []string{
@@ -288,7 +450,6 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axgen_trace",
 		"axgen_stop_functions",
 		"cache_aware_prompt_inputs",
-		"axagent_pipeline",
 		"axagent_context_fields",
 		"axagent_clarification",
 		"axagent_chat_log",
@@ -540,6 +701,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"axllm/ai.py",
 				"axllm/agent.py",
 				"axllm/runtime.py",
+				"axllm/runtime_quickjs.py",
 				"axllm/flow.py",
 				"axllm/gen.py",
 				"axllm/conformance.py",
@@ -548,8 +710,6 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_openai_api.py",
 				"examples/provider_mapping_no_key.py",
 				"examples/provider_stream_no_key.py",
-				"examples/axagent_pipeline.py",
-				"examples/agent_openai_api.py",
 				"examples/runtime_adapter.py",
 				"examples/runtime_protocol.py",
 				"examples/runtime_profiles/javascript_quickjs.py",
@@ -617,8 +777,6 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/AxGenOpenAIExample.java",
 				"examples/ProviderMappingNoKeyExample.java",
 				"examples/ProviderStreamNoKeyExample.java",
-				"examples/AxAgentPipelineExample.java",
-				"examples/AgentOpenAIExample.java",
 				"examples/RuntimeAdapterExample.java",
 				"examples/RuntimeProtocolExample.java",
 				"examples/runtime_profiles/JavaScriptQuickJsExample.java",
@@ -659,8 +817,6 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_openai_api.cpp",
 				"examples/provider_mapping_no_key.cpp",
 				"examples/provider_stream_no_key.cpp",
-				"examples/axagent_pipeline.cpp",
-				"examples/agent_openai_api.cpp",
 				"examples/runtime_adapter.cpp",
 				"examples/runtime_protocol.cpp",
 				"axllm/runtime/quickjs/quickjs_runtime.hpp",
@@ -698,8 +854,6 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_openai_api/main.go",
 				"examples/provider_mapping_no_key/main.go",
 				"examples/provider_stream_no_key/main.go",
-				"examples/axagent_pipeline/main.go",
-				"examples/agent_openai_api/main.go",
 				"examples/runtime_adapter/main.go",
 				"examples/runtime_protocol/main.go",
 				"examples/runtime_profiles/javascript_goja/main.go",
@@ -730,8 +884,6 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/provider_stream_no_key.rs",
 				"examples/axgen_scripted_client_tool.rs",
 				"examples/axgen_openai_api.rs",
-				"examples/axagent_pipeline.rs",
-				"examples/agent_openai_api.rs",
 				"examples/runtime_adapter.rs",
 				"examples/runtime_protocol.rs",
 				"examples/runtime_profiles/javascript_quickjs.rs",
@@ -913,7 +1065,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "pom.xml", "<groupId>dev.axllm</groupId>", "<artifactId>ax</artifactId>", "dev/axllm/ax/*.java")
 				checkGeneratedFileContains(t, dir, "build.gradle", "java-library", "dev/axllm/ax/*.java")
 			case "cpp":
-				checkGeneratedFileContains(t, dir, "CMakeLists.txt", "add_library(axllm axllm/axllm.cpp axllm/mcp.cpp)", "add_library(axllm::axllm ALIAS axllm)", "AX_BUILD_QUICKJS_PROFILE", "AX_QUICKJS_CFLAGS", "AX_QUICKJS_LDFLAGS", "add_library(axllm_quickjs", "find_package(CURL QUIET)", "AXLLM_ENABLE_CURL", "AXLLM_ENABLE_MCP_STDIO_BOOST", "provider_stream_no_key", "agent_openai_api", "flow_openai_api", "audio_responses_mapping", "realtime_audio_events", "gepa_local_optimizer", "mcp_scripted_tools")
+				checkGeneratedFileContains(t, dir, "CMakeLists.txt", "add_library(axllm axllm/axllm.cpp axllm/mcp.cpp)", "add_library(axllm::axllm ALIAS axllm)", "AX_BUILD_QUICKJS_PROFILE", "AX_QUICKJS_CFLAGS", "AX_QUICKJS_LDFLAGS", "add_library(axllm_quickjs", "find_package(CURL QUIET)", "AXLLM_ENABLE_CURL", "AXLLM_ENABLE_MCP_STDIO_BOOST", "provider_stream_no_key", "flow_openai_api", "audio_responses_mapping", "realtime_audio_events", "gepa_local_optimizer", "mcp_scripted_tools")
 				checkGeneratedFileContains(t, dir, "axllm/axllm.hpp", "class HttpTransport", "std::unique_ptr<Transport> owned_transport_")
 				checkGeneratedFileContains(t, dir, "axllm/mcp.hpp", "class AxMCPClient", "class AxMCPStreamableHTTPTransport", "class AxMCPStdioTransport")
 				checkGeneratedFileContains(t, dir, "axllm/axllm.cpp", "HttpTransport::call", "curl_easy_perform")
@@ -2571,6 +2723,13 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 						t.Fatalf("%s missing runtime protocol expectation", file)
 					}
 				}
+			}
+		case "agent_prompt":
+			if _, ok := fixture["signature"]; !ok {
+				t.Fatalf("%s missing signature", file)
+			}
+			if _, ok := fixture["expected_description_contains"]; !ok {
+				t.Fatalf("%s missing expected_description_contains", file)
 			}
 		default:
 			t.Fatalf("%s has unknown axagent kind %v", file, fixture["kind"])

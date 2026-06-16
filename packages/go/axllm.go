@@ -15167,17 +15167,36 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_callable_inventory Value
 	var v_callable_split Value
 	var v_chat_log Value
+	var v_cm_cfg_infinite Value
+	var v_cm_cfg_max Value
+	var v_cm_cfg_next Value
+	var v_cm_cfg_steps Value
+	var v_cm_empty_scores Value
+	var v_cm_evolve_steps Value
+	var v_cm_infinite Value
+	var v_cm_initial Value
+	var v_cm_map_is_object Value
+	var v_cm_map_is_string Value
+	var v_cm_map_value Value
+	var v_cm_max Value
+	var v_cm_next Value
+	var v_cm_scores Value
+	var v_cm_steps Value
+	var v_cm_text Value
 	var v_code_field_name Value
 	var v_context_camel Value
 	var v_context_events Value
 	var v_context_fields Value
+	var v_context_map_config Value
 	var v_context_policy Value
 	var v_ctx Value
 	var v_discovered_tool_docs Value
 	var v_discovery_catalog Value
+	var v_distiller_description Value
 	var v_empty_list Value
 	var v_empty_map Value
 	var v_error Value
+	var v_executor_description Value
 	var v_executor_exclude Value
 	var v_executor_exclude_camel Value
 	var v_executor_model_policy Value
@@ -15190,6 +15209,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_function_call_traces Value
 	var v_guidance_log Value
 	var v_has_any_runtime_config Value
+	var v_has_cm_config Value
 	var v_has_runtime_config Value
 	var v_has_runtime_config_snake Value
 	var v_has_runtime_direct Value
@@ -15206,6 +15226,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_policy_flags Value
 	var v_policy_registry Value
 	var v_policy_trace Value
+	var v_responder_description Value
 	var v_responder_exclude Value
 	var v_responder_exclude_camel Value
 	var v_responder_options Value
@@ -15232,17 +15253,36 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_callable_inventory
 	_ = v_callable_split
 	_ = v_chat_log
+	_ = v_cm_cfg_infinite
+	_ = v_cm_cfg_max
+	_ = v_cm_cfg_next
+	_ = v_cm_cfg_steps
+	_ = v_cm_empty_scores
+	_ = v_cm_evolve_steps
+	_ = v_cm_infinite
+	_ = v_cm_initial
+	_ = v_cm_map_is_object
+	_ = v_cm_map_is_string
+	_ = v_cm_map_value
+	_ = v_cm_max
+	_ = v_cm_next
+	_ = v_cm_scores
+	_ = v_cm_steps
+	_ = v_cm_text
 	_ = v_code_field_name
 	_ = v_context_camel
 	_ = v_context_events
 	_ = v_context_fields
+	_ = v_context_map_config
 	_ = v_context_policy
 	_ = v_ctx
 	_ = v_discovered_tool_docs
 	_ = v_discovery_catalog
+	_ = v_distiller_description
 	_ = v_empty_list
 	_ = v_empty_map
 	_ = v_error
+	_ = v_executor_description
 	_ = v_executor_exclude
 	_ = v_executor_exclude_camel
 	_ = v_executor_model_policy
@@ -15255,6 +15295,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_function_call_traces
 	_ = v_guidance_log
 	_ = v_has_any_runtime_config
+	_ = v_has_cm_config
 	_ = v_has_runtime_config
 	_ = v_has_runtime_config_snake
 	_ = v_has_runtime_direct
@@ -15271,6 +15312,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_policy_flags
 	_ = v_policy_registry
 	_ = v_policy_trace
+	_ = v_responder_description
 	_ = v_responder_exclude
 	_ = v_responder_exclude_camel
 	_ = v_responder_options
@@ -15390,6 +15432,46 @@ func _agent_factory(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "policy_flags", v_policy_flags); err != nil { return nil, err }
 	if err := coreSet(v_state, "policy_registry", v_policy_registry); err != nil { return nil, err }
 	if err := coreSet(v_state, "context_policy", v_context_policy); err != nil { return nil, err }
+	v_context_map_config = coreGet(v_options, "contextMap", nil)
+	v_has_cm_config = _core_is_not_none(v_context_map_config)
+	if coreTruthy(v_has_cm_config) {
+		v_cm_initial = Object()
+		v_cm_map_value = coreGet(v_context_map_config, "map", nil)
+		v_cm_map_is_object = coreTypeIs(v_cm_map_value, "object")
+		if coreTruthy(v_cm_map_is_object) {
+			v_cm_initial = _core_map_merge(v_cm_initial, v_cm_map_value)
+		} else {
+		// empty
+		}
+		v_cm_map_is_string = coreTypeIs(v_cm_map_value, "string")
+		if coreTruthy(v_cm_map_is_string) {
+			if err := coreSet(v_cm_initial, "text", v_cm_map_value); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_cm_text = coreGet(v_cm_initial, "text", "")
+		if err := coreSet(v_cm_initial, "text", v_cm_text); err != nil { return nil, err }
+		v_cm_steps = coreGet(v_cm_initial, "steps", 0)
+		if err := coreSet(v_cm_initial, "steps", v_cm_steps); err != nil { return nil, err }
+		v_cm_empty_scores = Object()
+		v_cm_scores = coreGet(v_cm_initial, "scores", v_cm_empty_scores)
+		if err := coreSet(v_cm_initial, "scores", v_cm_scores); err != nil { return nil, err }
+		v_cm_cfg_max = coreGet(v_context_map_config, "maxChars", 4000)
+		v_cm_max = coreGet(v_cm_initial, "maxChars", v_cm_cfg_max)
+		if err := coreSet(v_cm_initial, "maxChars", v_cm_max); err != nil { return nil, err }
+		v_cm_cfg_infinite = coreGet(v_context_map_config, "infiniteEvolve", true)
+		v_cm_infinite = coreGet(v_cm_initial, "infiniteEvolve", v_cm_cfg_infinite)
+		if err := coreSet(v_cm_initial, "infiniteEvolve", v_cm_infinite); err != nil { return nil, err }
+		v_cm_cfg_steps = coreGet(v_context_map_config, "evolveSteps", 0)
+		v_cm_evolve_steps = coreGet(v_cm_initial, "evolveSteps", v_cm_cfg_steps)
+		if err := coreSet(v_cm_initial, "evolveSteps", v_cm_evolve_steps); err != nil { return nil, err }
+		v_cm_cfg_next = coreGet(v_context_map_config, "next_id", 1)
+		v_cm_next = coreGet(v_cm_initial, "next_id", v_cm_cfg_next)
+		if err := coreSet(v_cm_initial, "next_id", v_cm_next); err != nil { return nil, err }
+		if err := coreSet(v_state, "context_map", v_cm_initial); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	if err := coreSet(v_state, "executor_model_policy", v_executor_model_policy); err != nil { return nil, err }
 	if err := coreSet(v_state, "context_events", v_context_events); err != nil { return nil, err }
 	if err := coreSet(v_state, "actor_model_state", v_actor_model_state); err != nil { return nil, err }
@@ -15409,6 +15491,16 @@ func _agent_factory(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "optimizer_metadata", v_optimizer_metadata); err != nil { return nil, err }
 	{ v, err := _build_agent_actor_prompt_policy(v_state); if err != nil { return nil, err }; v_actor_prompt_policy = v }
 	if err := coreSet(v_state, "actor_prompt_policy", v_actor_prompt_policy); err != nil { return nil, err }
+	if coreTruthy(v_runtime_enabled) {
+		{ v, err := _render_rlm_executor_description(v_state, v_options); if err != nil { return nil, err }; v_executor_description = v }
+		if err := coreSet(v_state, "executor_description", v_executor_description); err != nil { return nil, err }
+		{ v, err := _render_rlm_responder_description(v_state, v_options); if err != nil { return nil, err }; v_responder_description = v }
+		if err := coreSet(v_state, "responder_description", v_responder_description); err != nil { return nil, err }
+		{ v, err := _render_rlm_distiller_description(v_state, v_options); if err != nil { return nil, err }; v_distiller_description = v }
+		if err := coreSet(v_state, "distiller_description", v_distiller_description); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	return v_state, nil
 }
 
@@ -16747,6 +16839,38 @@ func _policy_flag_enabled(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _build_agent_eval_prediction(args ...Value) (Value, error) {
+	axirCoverageMark("_build_agent_eval_prediction")
+	var v_output Value
+	var v_action_log Value
+	var v_usage Value
+	var v_trace Value
+	var v_empty_list Value
+	var v_out Value
+	if len(args) > 0 { v_output = args[0] }
+	_ = v_output
+	if len(args) > 1 { v_action_log = args[1] }
+	_ = v_action_log
+	if len(args) > 2 { v_usage = args[2] }
+	_ = v_usage
+	if len(args) > 3 { v_trace = args[3] }
+	_ = v_trace
+	_ = v_empty_list
+	_ = v_out
+	v_out = Object()
+	if err := coreSet(v_out, "completionType", "final"); err != nil { return nil, err }
+	if err := coreSet(v_out, "output", v_output); err != nil { return nil, err }
+	if err := coreSet(v_out, "finalOutput", v_output); err != nil { return nil, err }
+	if err := coreSet(v_out, "actionLog", v_action_log); err != nil { return nil, err }
+	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
+	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
+	v_empty_list = MutableArray()
+	if err := coreSet(v_out, "functionCalls", v_empty_list); err != nil { return nil, err }
+	if err := coreSet(v_out, "toolErrors", v_empty_list); err != nil { return nil, err }
+	if err := coreSet(v_out, "turnCount", 0); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func _select_actor_primitives(args ...Value) (Value, error) {
 	axirCoverageMark("_select_actor_primitives")
 	var v_registry Value
@@ -16806,38 +16930,6 @@ func _select_protocol_actions(args ...Value) (Value, error) {
 	v_empty_list = MutableArray()
 	v_actions = coreGet(v_registry, "protocol_actions", v_empty_list)
 	return v_actions, nil
-}
-
-func _build_agent_eval_prediction(args ...Value) (Value, error) {
-	axirCoverageMark("_build_agent_eval_prediction")
-	var v_output Value
-	var v_action_log Value
-	var v_usage Value
-	var v_trace Value
-	var v_empty_list Value
-	var v_out Value
-	if len(args) > 0 { v_output = args[0] }
-	_ = v_output
-	if len(args) > 1 { v_action_log = args[1] }
-	_ = v_action_log
-	if len(args) > 2 { v_usage = args[2] }
-	_ = v_usage
-	if len(args) > 3 { v_trace = args[3] }
-	_ = v_trace
-	_ = v_empty_list
-	_ = v_out
-	v_out = Object()
-	if err := coreSet(v_out, "completionType", "final"); err != nil { return nil, err }
-	if err := coreSet(v_out, "output", v_output); err != nil { return nil, err }
-	if err := coreSet(v_out, "finalOutput", v_output); err != nil { return nil, err }
-	if err := coreSet(v_out, "actionLog", v_action_log); err != nil { return nil, err }
-	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
-	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
-	v_empty_list = MutableArray()
-	if err := coreSet(v_out, "functionCalls", v_empty_list); err != nil { return nil, err }
-	if err := coreSet(v_out, "toolErrors", v_empty_list); err != nil { return nil, err }
-	if err := coreSet(v_out, "turnCount", 0); err != nil { return nil, err }
-	return v_out, nil
 }
 
 func _select_runtime_globals(args ...Value) (Value, error) {
@@ -16916,6 +17008,576 @@ func _render_actor_primitive_guidance(args ...Value) (Value, error) {
 		v_lines = coreAppend(v_lines, v_line)
 	}
 	v_out = _core_string_join("\n", v_lines)
+	return v_out, nil
+}
+
+func _rlm_flag_enabled(args ...Value) (Value, error) {
+	axirCoverageMark("_rlm_flag_enabled")
+	var v_flags Value
+	var v_flag Value
+	var v_is_empty Value
+	var v_out Value
+	var v_value Value
+	if len(args) > 0 { v_flags = args[0] }
+	_ = v_flags
+	if len(args) > 1 { v_flag = args[1] }
+	_ = v_flag
+	_ = v_is_empty
+	_ = v_out
+	_ = v_value
+	v_is_empty = _core_eq(v_flag, "")
+	if coreTruthy(v_is_empty) {
+		return true, nil
+	} else {
+	// empty
+	}
+	v_value = coreGet(v_flags, v_flag, false)
+	v_out = _core_truthy(v_value)
+	return v_out, nil
+}
+
+func _rlm_any_flag_enabled(args ...Value) (Value, error) {
+	axirCoverageMark("_rlm_any_flag_enabled")
+	var v_flags Value
+	var v_flag_names Value
+	var v_count Value
+	var v_enabled Value
+	var v_is_empty Value
+	var v_name Value
+	var v_out Value
+	if len(args) > 0 { v_flags = args[0] }
+	_ = v_flags
+	if len(args) > 1 { v_flag_names = args[1] }
+	_ = v_flag_names
+	_ = v_count
+	_ = v_enabled
+	_ = v_is_empty
+	_ = v_name
+	_ = v_out
+	v_count = _core_len(v_flag_names)
+	v_is_empty = _core_eq(v_count, 0)
+	if coreTruthy(v_is_empty) {
+		return true, nil
+	} else {
+	// empty
+	}
+	v_out = false
+	for _, v_name = range coreIter(v_flag_names) {
+		{ v, err := _rlm_flag_enabled(v_flags, v_name); if err != nil { return nil, err }; v_enabled = v }
+		v_out = _core_or(v_out, v_enabled)
+	}
+	return v_out, nil
+}
+
+func _rlm_entry_enabled(args ...Value) (Value, error) {
+	axirCoverageMark("_rlm_entry_enabled")
+	var v_entry Value
+	var v_flags Value
+	var v_a Value
+	var v_ab Value
+	var v_b Value
+	var v_disabled_active Value
+	var v_disabled_by Value
+	var v_empty_list Value
+	var v_enabled_by Value
+	var v_enabled_by_any Value
+	var v_no_disabled Value
+	var v_not_disabled Value
+	var v_out Value
+	if len(args) > 0 { v_entry = args[0] }
+	_ = v_entry
+	if len(args) > 1 { v_flags = args[1] }
+	_ = v_flags
+	_ = v_a
+	_ = v_ab
+	_ = v_b
+	_ = v_disabled_active
+	_ = v_disabled_by
+	_ = v_empty_list
+	_ = v_enabled_by
+	_ = v_enabled_by_any
+	_ = v_no_disabled
+	_ = v_not_disabled
+	_ = v_out
+	v_enabled_by = coreGet(v_entry, "enabledBy", "")
+	{ v, err := _rlm_flag_enabled(v_flags, v_enabled_by); if err != nil { return nil, err }; v_a = v }
+	v_empty_list = MutableArray()
+	v_enabled_by_any = coreGet(v_entry, "enabledByAny", v_empty_list)
+	{ v, err := _rlm_any_flag_enabled(v_flags, v_enabled_by_any); if err != nil { return nil, err }; v_b = v }
+	v_ab = _core_and(v_a, v_b)
+	v_disabled_by = coreGet(v_entry, "disabledBy", "")
+	v_no_disabled = _core_eq(v_disabled_by, "")
+	v_out = v_ab
+	if coreTruthy(v_no_disabled) {
+		v_out = v_ab
+	} else {
+		{ v, err := _rlm_flag_enabled(v_flags, v_disabled_by); if err != nil { return nil, err }; v_disabled_active = v }
+		v_not_disabled = _core_not(v_disabled_active)
+		v_out = _core_and(v_ab, v_not_disabled)
+	}
+	return v_out, nil
+}
+
+func _render_runtime_primitive(args ...Value) (Value, error) {
+	axirCoverageMark("_render_runtime_primitive")
+	var v_primitive Value
+	var v_flags Value
+	var v_code Value
+	var v_description Value
+	var v_empty_list Value
+	var v_ex_code Value
+	var v_ex_ok Value
+	var v_example Value
+	var v_example_block Value
+	var v_example_count Value
+	var v_example_lines Value
+	var v_examples Value
+	var v_has_examples Value
+	var v_joined_examples Value
+	var v_line Value
+	var v_out Value
+	var v_parts Value
+	var v_sig_ok Value
+	var v_signature Value
+	var v_signatures Value
+	if len(args) > 0 { v_primitive = args[0] }
+	_ = v_primitive
+	if len(args) > 1 { v_flags = args[1] }
+	_ = v_flags
+	_ = v_code
+	_ = v_description
+	_ = v_empty_list
+	_ = v_ex_code
+	_ = v_ex_ok
+	_ = v_example
+	_ = v_example_block
+	_ = v_example_count
+	_ = v_example_lines
+	_ = v_examples
+	_ = v_has_examples
+	_ = v_joined_examples
+	_ = v_line
+	_ = v_out
+	_ = v_parts
+	_ = v_sig_ok
+	_ = v_signature
+	_ = v_signatures
+	v_parts = MutableArray()
+	v_description = coreGet(v_primitive, "description", "")
+	v_parts = coreAppend(v_parts, v_description)
+	v_empty_list = MutableArray()
+	v_signatures = coreGet(v_primitive, "signatures", v_empty_list)
+	for _, v_signature = range coreIter(v_signatures) {
+		{ v, err := _rlm_entry_enabled(v_signature, v_flags); if err != nil { return nil, err }; v_sig_ok = v }
+		if coreTruthy(v_sig_ok) {
+			v_code = coreGet(v_signature, "code", "")
+			v_line = _core_string_format("`{}`", v_code)
+			v_parts = coreAppend(v_parts, v_line)
+		} else {
+		// empty
+		}
+	}
+	v_examples = coreGet(v_primitive, "examples", v_empty_list)
+	v_example_lines = MutableArray()
+	for _, v_example = range coreIter(v_examples) {
+		{ v, err := _rlm_entry_enabled(v_example, v_flags); if err != nil { return nil, err }; v_ex_ok = v }
+		if coreTruthy(v_ex_ok) {
+			v_ex_code = coreGet(v_example, "code", "")
+			v_example_lines = coreAppend(v_example_lines, v_ex_code)
+		} else {
+		// empty
+		}
+	}
+	v_example_count = _core_len(v_example_lines)
+	v_has_examples = _core_gt(v_example_count, 0)
+	if coreTruthy(v_has_examples) {
+		v_joined_examples = _core_string_join("\n", v_example_lines)
+		v_example_block = _core_string_format("Examples:\n```js\n{}\n```", v_joined_examples)
+		v_parts = coreAppend(v_parts, v_example_block)
+	} else {
+	// empty
+	}
+	v_out = _core_string_join("\n", v_parts)
+	return v_out, nil
+}
+
+func _render_actor_primitives_list(args ...Value) (Value, error) {
+	axirCoverageMark("_render_actor_primitives_list")
+	var v_stage Value
+	var v_flags Value
+	var v_block Value
+	var v_blocks Value
+	var v_data Value
+	var v_empty_list Value
+	var v_enabled Value
+	var v_in_stage Value
+	var v_out Value
+	var v_primitive Value
+	var v_primitives Value
+	var v_stages Value
+	if len(args) > 0 { v_stage = args[0] }
+	_ = v_stage
+	if len(args) > 1 { v_flags = args[1] }
+	_ = v_flags
+	_ = v_block
+	_ = v_blocks
+	_ = v_data
+	_ = v_empty_list
+	_ = v_enabled
+	_ = v_in_stage
+	_ = v_out
+	_ = v_primitive
+	_ = v_primitives
+	_ = v_stages
+	{ v, err := _core_json_parse("{\"schema_version\":\"axir-rlm-prompts-v1\",\"executor_template\":\"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller stage produced two extra inputs:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.\\n\\nRead `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"responder_template\":\"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\"distiller_template\":\"## Distiller\\n\\nYou (`distiller`) read the available context and forward an actionable request to the downstream **executor** stage, which owns any available tools/functions and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete; put exact inputs (paths, ids, selected records, constraints) in `evidence`, or `{}` if context has nothing to narrow. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of tools or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration when context has nothing to narrow** (direct action request, or schema is already known) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"primitives\":[{\"id\":\"llmQuery\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask focused questions about the narrowed context you pass in.\",\"signatures\":[{\"code\":\"await llmQuery([{ query: string, context: any }, ...]): string[]\"}]},{\"id\":\"final\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\"signatures\":[{\"code\":\"await final(task: string, context?: object)\"}]},{\"id\":\"askClarification\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\"signatures\":[{\"code\":\"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"}]},{\"id\":\"reportSuccess\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportSuccess(message: string)\"}]},{\"id\":\"reportFailure\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportFailure(message: string)\"}]},{\"id\":\"inspectRuntime\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"hasInspectRuntime\",\"description\":\"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\"signatures\":[{\"code\":\"await inspectRuntime(): string\"}]},{\"id\":\"discover\",\"stages\":[\"executor\"],\"enabledByAny\":[\"discoveryMode\",\"skillsMode\"],\"description\":\"Load tool docs and skill guides into the next turn. Use one batched call.\",\"signatures\":[{\"code\":\"await discover(item: string): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(items: string[]): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { skills: string | string[] }): void\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}],\"examples\":[{\"code\":\"await discover('db');\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(['db', 'db.search']);\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ skills: ['release checklist'] });\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ tools: ['db'], skills: ['release checklist'] });\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}]},{\"id\":\"recall\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"memoriesMode\",\"description\":\"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\"signatures\":[{\"code\":\"await recall(searches: string[]): void\"}]},{\"id\":\"used\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"usageTrackingMode\",\"description\":\"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\"signatures\":[{\"code\":\"await used(id: string, reason?: string): void\"}]}]}"); if err != nil { return nil, err }; v_data = v }
+	v_empty_list = MutableArray()
+	v_primitives = coreGet(v_data, "primitives", v_empty_list)
+	v_blocks = MutableArray()
+	for _, v_primitive = range coreIter(v_primitives) {
+		v_stages = coreGet(v_primitive, "stages", v_empty_list)
+		v_in_stage = _core_contains(v_stages, v_stage)
+		if coreTruthy(v_in_stage) {
+			{ v, err := _rlm_entry_enabled(v_primitive, v_flags); if err != nil { return nil, err }; v_enabled = v }
+			if coreTruthy(v_enabled) {
+				{ v, err := _render_runtime_primitive(v_primitive, v_flags); if err != nil { return nil, err }; v_block = v }
+				v_blocks = coreAppend(v_blocks, v_block)
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	v_out = _core_string_join("\n\n", v_blocks)
+	return v_out, nil
+}
+
+func _build_rlm_flags(args ...Value) (Value, error) {
+	axirCoverageMark("_build_rlm_flags")
+	var v_options Value
+	var v_combined Value
+	var v_disc Value
+	var v_flags Value
+	var v_skills Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	_ = v_combined
+	_ = v_disc
+	_ = v_flags
+	_ = v_skills
+	{ v, err := _agent_policy_flags(v_options); if err != nil { return nil, err }; v_flags = v }
+	v_disc = coreGet(v_flags, "discoveryMode", false)
+	v_skills = coreGet(v_flags, "skillsMode", false)
+	v_combined = _core_and(v_disc, v_skills)
+	if err := coreSet(v_flags, "discoveryMode+skillsMode", v_combined); err != nil { return nil, err }
+	return v_flags, nil
+}
+
+func _rlm_context_var_list(args ...Value) (Value, error) {
+	axirCoverageMark("_rlm_context_var_list")
+	var v_context_fields Value
+	var v_count Value
+	var v_field Value
+	var v_is_empty Value
+	var v_line Value
+	var v_lines Value
+	var v_name Value
+	var v_out Value
+	if len(args) > 0 { v_context_fields = args[0] }
+	_ = v_context_fields
+	_ = v_count
+	_ = v_field
+	_ = v_is_empty
+	_ = v_line
+	_ = v_lines
+	_ = v_name
+	_ = v_out
+	v_count = _core_len(v_context_fields)
+	v_is_empty = _core_eq(v_count, 0)
+	if coreTruthy(v_is_empty) {
+		return "(none)", nil
+	} else {
+	// empty
+	}
+	v_lines = MutableArray()
+	for _, v_field = range coreIter(v_context_fields) {
+		v_name = coreGet(v_field, "name", "")
+		v_line = _core_string_format("- `{}` -> `inputs.{}`", v_name, v_name)
+		v_lines = coreAppend(v_lines, v_line)
+	}
+	v_out = _core_string_join("\n", v_lines)
+	return v_out, nil
+}
+
+func _rlm_context_var_summary(args ...Value) (Value, error) {
+	axirCoverageMark("_rlm_context_var_summary")
+	var v_context_fields Value
+	var v_count Value
+	var v_field Value
+	var v_is_empty Value
+	var v_line Value
+	var v_lines Value
+	var v_name Value
+	var v_out Value
+	if len(args) > 0 { v_context_fields = args[0] }
+	_ = v_context_fields
+	_ = v_count
+	_ = v_field
+	_ = v_is_empty
+	_ = v_line
+	_ = v_lines
+	_ = v_name
+	_ = v_out
+	v_count = _core_len(v_context_fields)
+	v_is_empty = _core_eq(v_count, 0)
+	if coreTruthy(v_is_empty) {
+		return "(none)", nil
+	} else {
+	// empty
+	}
+	v_lines = MutableArray()
+	for _, v_field = range coreIter(v_context_fields) {
+		v_name = coreGet(v_field, "name", "")
+		v_line = _core_string_format("- `{}`", v_name)
+		v_lines = coreAppend(v_lines, v_line)
+	}
+	v_out = _core_string_join("\n", v_lines)
+	return v_out, nil
+}
+
+func _rlm_render_template(args ...Value) (Value, error) {
+	axirCoverageMark("_rlm_render_template")
+	var v_template Value
+	var v_vars Value
+	var v_context Value
+	var v_collapsed Value
+	var v_rendered Value
+	var v_trimmed Value
+	if len(args) > 0 { v_template = args[0] }
+	_ = v_template
+	if len(args) > 1 { v_vars = args[1] }
+	_ = v_vars
+	if len(args) > 2 { v_context = args[2] }
+	_ = v_context
+	_ = v_collapsed
+	_ = v_rendered
+	_ = v_trimmed
+	{ v, err := render_template_content(v_template, v_vars, v_context); if err != nil { return nil, err }; v_rendered = v }
+	v_collapsed = _core_regex_replace("\\n{3,}", "\n\n", v_rendered)
+	v_trimmed = coreStringTrim(v_collapsed)
+	return v_trimmed, nil
+}
+
+func _render_rlm_executor_description(args ...Value) (Value, error) {
+	axirCoverageMark("_render_rlm_executor_description")
+	var v_state Value
+	var v_options Value
+	var v_code_fence_language Value
+	var v_code_field_title Value
+	var v_contract Value
+	var v_data Value
+	var v_discovery_mode Value
+	var v_empty_map Value
+	var v_flags Value
+	var v_is_javascript Value
+	var v_language Value
+	var v_memories_mode Value
+	var v_memory_usage_camel Value
+	var v_memory_usage_mode Value
+	var v_out Value
+	var v_primitives_list Value
+	var v_skill_usage_camel Value
+	var v_skill_usage_mode Value
+	var v_skills_mode Value
+	var v_status_callback Value
+	var v_template Value
+	var v_usage_instructions Value
+	var v_vars Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_code_fence_language
+	_ = v_code_field_title
+	_ = v_contract
+	_ = v_data
+	_ = v_discovery_mode
+	_ = v_empty_map
+	_ = v_flags
+	_ = v_is_javascript
+	_ = v_language
+	_ = v_memories_mode
+	_ = v_memory_usage_camel
+	_ = v_memory_usage_mode
+	_ = v_out
+	_ = v_primitives_list
+	_ = v_skill_usage_camel
+	_ = v_skill_usage_mode
+	_ = v_skills_mode
+	_ = v_status_callback
+	_ = v_template
+	_ = v_usage_instructions
+	_ = v_vars
+	v_empty_map = Object()
+	v_contract = coreGet(v_state, "runtime_contract", v_empty_map)
+	{ v, err := _build_rlm_flags(v_options); if err != nil { return nil, err }; v_flags = v }
+	{ v, err := _render_actor_primitives_list("executor", v_flags); if err != nil { return nil, err }; v_primitives_list = v }
+	v_language = coreGet(v_contract, "language", "JavaScript")
+	v_code_field_title = coreGet(v_contract, "code_field_title", "Javascript Code")
+	v_code_fence_language = coreGet(v_contract, "code_fence_language", "js")
+	v_is_javascript = coreGet(v_contract, "is_javascript", true)
+	v_usage_instructions = coreGet(v_contract, "usage_instructions", "")
+	v_discovery_mode = coreGet(v_flags, "discoveryMode", false)
+	v_skills_mode = coreGet(v_flags, "skillsMode", false)
+	v_memories_mode = coreGet(v_flags, "memoriesMode", false)
+	v_status_callback = coreGet(v_flags, "hasAgentStatusCallback", false)
+	v_memory_usage_camel = coreGet(v_options, "memoryUsageMode", false)
+	v_memory_usage_mode = coreGet(v_options, "memory_usage_mode", v_memory_usage_camel)
+	v_skill_usage_camel = coreGet(v_options, "skillUsageMode", false)
+	v_skill_usage_mode = coreGet(v_options, "skill_usage_mode", v_skill_usage_camel)
+	v_vars = Object()
+	if err := coreSet(v_vars, "runtimeLanguageName", v_language); err != nil { return nil, err }
+	if err := coreSet(v_vars, "runtimeCodeFieldTitle", v_code_field_title); err != nil { return nil, err }
+	if err := coreSet(v_vars, "runtimeCodeFenceLanguage", v_code_fence_language); err != nil { return nil, err }
+	if err := coreSet(v_vars, "isJavaScriptRuntime", v_is_javascript); err != nil { return nil, err }
+	if err := coreSet(v_vars, "runtimeUsageInstructions", v_usage_instructions); err != nil { return nil, err }
+	if err := coreSet(v_vars, "primitivesList", v_primitives_list); err != nil { return nil, err }
+	if err := coreSet(v_vars, "functionsList", ""); err != nil { return nil, err }
+	if err := coreSet(v_vars, "modulesList", ""); err != nil { return nil, err }
+	if err := coreSet(v_vars, "discoveryMode", v_discovery_mode); err != nil { return nil, err }
+	if err := coreSet(v_vars, "hasModules", false); err != nil { return nil, err }
+	if err := coreSet(v_vars, "hasDiscoveredDocs", v_discovery_mode); err != nil { return nil, err }
+	if err := coreSet(v_vars, "hasSkills", v_skills_mode); err != nil { return nil, err }
+	if err := coreSet(v_vars, "skillUsageMode", v_skill_usage_mode); err != nil { return nil, err }
+	if err := coreSet(v_vars, "memoriesMode", v_memories_mode); err != nil { return nil, err }
+	if err := coreSet(v_vars, "memoryUsageMode", v_memory_usage_mode); err != nil { return nil, err }
+	if err := coreSet(v_vars, "hasAgentStatusCallback", v_status_callback); err != nil { return nil, err }
+	{ v, err := _core_json_parse("{\"schema_version\":\"axir-rlm-prompts-v1\",\"executor_template\":\"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller stage produced two extra inputs:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.\\n\\nRead `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"responder_template\":\"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\"distiller_template\":\"## Distiller\\n\\nYou (`distiller`) read the available context and forward an actionable request to the downstream **executor** stage, which owns any available tools/functions and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete; put exact inputs (paths, ids, selected records, constraints) in `evidence`, or `{}` if context has nothing to narrow. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of tools or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration when context has nothing to narrow** (direct action request, or schema is already known) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"primitives\":[{\"id\":\"llmQuery\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask focused questions about the narrowed context you pass in.\",\"signatures\":[{\"code\":\"await llmQuery([{ query: string, context: any }, ...]): string[]\"}]},{\"id\":\"final\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\"signatures\":[{\"code\":\"await final(task: string, context?: object)\"}]},{\"id\":\"askClarification\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\"signatures\":[{\"code\":\"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"}]},{\"id\":\"reportSuccess\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportSuccess(message: string)\"}]},{\"id\":\"reportFailure\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportFailure(message: string)\"}]},{\"id\":\"inspectRuntime\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"hasInspectRuntime\",\"description\":\"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\"signatures\":[{\"code\":\"await inspectRuntime(): string\"}]},{\"id\":\"discover\",\"stages\":[\"executor\"],\"enabledByAny\":[\"discoveryMode\",\"skillsMode\"],\"description\":\"Load tool docs and skill guides into the next turn. Use one batched call.\",\"signatures\":[{\"code\":\"await discover(item: string): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(items: string[]): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { skills: string | string[] }): void\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}],\"examples\":[{\"code\":\"await discover('db');\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(['db', 'db.search']);\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ skills: ['release checklist'] });\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ tools: ['db'], skills: ['release checklist'] });\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}]},{\"id\":\"recall\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"memoriesMode\",\"description\":\"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\"signatures\":[{\"code\":\"await recall(searches: string[]): void\"}]},{\"id\":\"used\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"usageTrackingMode\",\"description\":\"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\"signatures\":[{\"code\":\"await used(id: string, reason?: string): void\"}]}]}"); if err != nil { return nil, err }; v_data = v }
+	v_template = coreGet(v_data, "executor_template", "")
+	{ v, err := _rlm_render_template(v_template, v_vars, "rlm/executor.md"); if err != nil { return nil, err }; v_out = v }
+	return v_out, nil
+}
+
+func _render_rlm_responder_description(args ...Value) (Value, error) {
+	axirCoverageMark("_render_rlm_responder_description")
+	var v_state Value
+	var v_options Value
+	var v_context_fields Value
+	var v_data Value
+	var v_empty_list Value
+	var v_out Value
+	var v_summary Value
+	var v_template Value
+	var v_vars Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_context_fields
+	_ = v_data
+	_ = v_empty_list
+	_ = v_out
+	_ = v_summary
+	_ = v_template
+	_ = v_vars
+	v_empty_list = MutableArray()
+	v_context_fields = coreGet(v_state, "context_fields", v_empty_list)
+	{ v, err := _rlm_context_var_summary(v_context_fields); if err != nil { return nil, err }; v_summary = v }
+	v_vars = Object()
+	if err := coreSet(v_vars, "contextVarSummary", v_summary); err != nil { return nil, err }
+	if err := coreSet(v_vars, "hasAgentIdentity", false); err != nil { return nil, err }
+	if err := coreSet(v_vars, "agentIdentityText", ""); err != nil { return nil, err }
+	{ v, err := _core_json_parse("{\"schema_version\":\"axir-rlm-prompts-v1\",\"executor_template\":\"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller stage produced two extra inputs:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.\\n\\nRead `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"responder_template\":\"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\"distiller_template\":\"## Distiller\\n\\nYou (`distiller`) read the available context and forward an actionable request to the downstream **executor** stage, which owns any available tools/functions and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete; put exact inputs (paths, ids, selected records, constraints) in `evidence`, or `{}` if context has nothing to narrow. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of tools or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration when context has nothing to narrow** (direct action request, or schema is already known) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"primitives\":[{\"id\":\"llmQuery\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask focused questions about the narrowed context you pass in.\",\"signatures\":[{\"code\":\"await llmQuery([{ query: string, context: any }, ...]): string[]\"}]},{\"id\":\"final\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\"signatures\":[{\"code\":\"await final(task: string, context?: object)\"}]},{\"id\":\"askClarification\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\"signatures\":[{\"code\":\"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"}]},{\"id\":\"reportSuccess\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportSuccess(message: string)\"}]},{\"id\":\"reportFailure\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportFailure(message: string)\"}]},{\"id\":\"inspectRuntime\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"hasInspectRuntime\",\"description\":\"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\"signatures\":[{\"code\":\"await inspectRuntime(): string\"}]},{\"id\":\"discover\",\"stages\":[\"executor\"],\"enabledByAny\":[\"discoveryMode\",\"skillsMode\"],\"description\":\"Load tool docs and skill guides into the next turn. Use one batched call.\",\"signatures\":[{\"code\":\"await discover(item: string): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(items: string[]): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { skills: string | string[] }): void\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}],\"examples\":[{\"code\":\"await discover('db');\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(['db', 'db.search']);\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ skills: ['release checklist'] });\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ tools: ['db'], skills: ['release checklist'] });\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}]},{\"id\":\"recall\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"memoriesMode\",\"description\":\"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\"signatures\":[{\"code\":\"await recall(searches: string[]): void\"}]},{\"id\":\"used\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"usageTrackingMode\",\"description\":\"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\"signatures\":[{\"code\":\"await used(id: string, reason?: string): void\"}]}]}"); if err != nil { return nil, err }; v_data = v }
+	v_template = coreGet(v_data, "responder_template", "")
+	{ v, err := _rlm_render_template(v_template, v_vars, "rlm/responder.md"); if err != nil { return nil, err }; v_out = v }
+	return v_out, nil
+}
+
+func _render_rlm_distiller_description(args ...Value) (Value, error) {
+	axirCoverageMark("_render_rlm_distiller_description")
+	var v_state Value
+	var v_options Value
+	var v_cm_has Value
+	var v_cm_state Value
+	var v_cm_text Value
+	var v_code_fence_language Value
+	var v_code_field_title Value
+	var v_context_fields Value
+	var v_context_var_list Value
+	var v_contract Value
+	var v_data Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_flags Value
+	var v_is_javascript Value
+	var v_language Value
+	var v_memories_mode Value
+	var v_memory_usage_camel Value
+	var v_memory_usage_mode Value
+	var v_out Value
+	var v_primitives_list Value
+	var v_template Value
+	var v_usage_instructions Value
+	var v_vars Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_cm_has
+	_ = v_cm_state
+	_ = v_cm_text
+	_ = v_code_fence_language
+	_ = v_code_field_title
+	_ = v_context_fields
+	_ = v_context_var_list
+	_ = v_contract
+	_ = v_data
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_flags
+	_ = v_is_javascript
+	_ = v_language
+	_ = v_memories_mode
+	_ = v_memory_usage_camel
+	_ = v_memory_usage_mode
+	_ = v_out
+	_ = v_primitives_list
+	_ = v_template
+	_ = v_usage_instructions
+	_ = v_vars
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_contract = coreGet(v_state, "runtime_contract", v_empty_map)
+	{ v, err := _build_rlm_flags(v_options); if err != nil { return nil, err }; v_flags = v }
+	{ v, err := _render_actor_primitives_list("distiller", v_flags); if err != nil { return nil, err }; v_primitives_list = v }
+	v_context_fields = coreGet(v_state, "context_fields", v_empty_list)
+	{ v, err := _rlm_context_var_list(v_context_fields); if err != nil { return nil, err }; v_context_var_list = v }
+	v_language = coreGet(v_contract, "language", "JavaScript")
+	v_code_field_title = coreGet(v_contract, "code_field_title", "Javascript Code")
+	v_code_fence_language = coreGet(v_contract, "code_fence_language", "js")
+	v_is_javascript = coreGet(v_contract, "is_javascript", true)
+	v_usage_instructions = coreGet(v_contract, "usage_instructions", "")
+	v_memories_mode = coreGet(v_flags, "memoriesMode", false)
+	v_memory_usage_camel = coreGet(v_options, "memoryUsageMode", false)
+	v_memory_usage_mode = coreGet(v_options, "memory_usage_mode", v_memory_usage_camel)
+	v_cm_state = coreGet(v_state, "context_map", nil)
+	v_cm_text = coreGet(v_cm_state, "text", "")
+	v_cm_has = _core_ne(v_cm_text, "")
+	v_vars = Object()
+	if err := coreSet(v_vars, "contextVarList", v_context_var_list); err != nil { return nil, err }
+	if err := coreSet(v_vars, "hasContextMap", v_cm_has); err != nil { return nil, err }
+	if err := coreSet(v_vars, "contextMapText", v_cm_text); err != nil { return nil, err }
+	if err := coreSet(v_vars, "isJavaScriptRuntime", v_is_javascript); err != nil { return nil, err }
+	if err := coreSet(v_vars, "memoriesMode", v_memories_mode); err != nil { return nil, err }
+	if err := coreSet(v_vars, "memoryUsageMode", v_memory_usage_mode); err != nil { return nil, err }
+	if err := coreSet(v_vars, "primitivesList", v_primitives_list); err != nil { return nil, err }
+	if err := coreSet(v_vars, "runtimeCodeFenceLanguage", v_code_fence_language); err != nil { return nil, err }
+	if err := coreSet(v_vars, "runtimeCodeFieldTitle", v_code_field_title); err != nil { return nil, err }
+	if err := coreSet(v_vars, "runtimeLanguageName", v_language); err != nil { return nil, err }
+	if err := coreSet(v_vars, "runtimeUsageInstructions", v_usage_instructions); err != nil { return nil, err }
+	{ v, err := _core_json_parse("{\"schema_version\":\"axir-rlm-prompts-v1\",\"executor_template\":\"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller stage produced two extra inputs:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.\\n\\nRead `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"responder_template\":\"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\"distiller_template\":\"## Distiller\\n\\nYou (`distiller`) read the available context and forward an actionable request to the downstream **executor** stage, which owns any available tools/functions and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete; put exact inputs (paths, ids, selected records, constraints) in `evidence`, or `{}` if context has nothing to narrow. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of tools or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration when context has nothing to narrow** (direct action request, or schema is already known) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"primitives\":[{\"id\":\"llmQuery\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask focused questions about the narrowed context you pass in.\",\"signatures\":[{\"code\":\"await llmQuery([{ query: string, context: any }, ...]): string[]\"}]},{\"id\":\"final\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\"signatures\":[{\"code\":\"await final(task: string, context?: object)\"}]},{\"id\":\"askClarification\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\"signatures\":[{\"code\":\"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"}]},{\"id\":\"reportSuccess\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportSuccess(message: string)\"}]},{\"id\":\"reportFailure\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportFailure(message: string)\"}]},{\"id\":\"inspectRuntime\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"hasInspectRuntime\",\"description\":\"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\"signatures\":[{\"code\":\"await inspectRuntime(): string\"}]},{\"id\":\"discover\",\"stages\":[\"executor\"],\"enabledByAny\":[\"discoveryMode\",\"skillsMode\"],\"description\":\"Load tool docs and skill guides into the next turn. Use one batched call.\",\"signatures\":[{\"code\":\"await discover(item: string): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(items: string[]): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { skills: string | string[] }): void\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}],\"examples\":[{\"code\":\"await discover('db');\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(['db', 'db.search']);\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ skills: ['release checklist'] });\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ tools: ['db'], skills: ['release checklist'] });\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}]},{\"id\":\"recall\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"memoriesMode\",\"description\":\"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\"signatures\":[{\"code\":\"await recall(searches: string[]): void\"}]},{\"id\":\"used\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"usageTrackingMode\",\"description\":\"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\"signatures\":[{\"code\":\"await used(id: string, reason?: string): void\"}]}]}"); if err != nil { return nil, err }; v_data = v }
+	v_template = coreGet(v_data, "distiller_template", "")
+	{ v, err := _rlm_render_template(v_template, v_vars, "rlm/distiller.md"); if err != nil { return nil, err }; v_out = v }
 	return v_out, nil
 }
 
@@ -17097,6 +17759,7 @@ func _resolve_agent_context_policy(args ...Value) (Value, error) {
 	var v_summarizer_options Value
 	var v_summarizer_snake_key Value
 	var v_target_prompt_chars Value
+	var v_tombstoning_opt Value
 	if len(args) > 0 { v_options = args[0] }
 	_ = v_options
 	_ = v_action_replay
@@ -17157,6 +17820,7 @@ func _resolve_agent_context_policy(args ...Value) (Value, error) {
 	_ = v_summarizer_options
 	_ = v_summarizer_snake_key
 	_ = v_target_prompt_chars
+	_ = v_tombstoning_opt
 	v_empty_map = Object()
 	{ v, err := _agent_context_policy_registry(); if err != nil { return nil, err }; v_context_registry = v }
 	v_option_keys = coreGet(v_context_registry, "option_keys", v_empty_map)
@@ -17268,7 +17932,8 @@ func _resolve_agent_context_policy(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "hindsightEvaluation", v_hindsight); err != nil { return nil, err }
 	if err := coreSet(v_out, "pruneRank", v_prune_rank); err != nil { return nil, err }
 	if err := coreSet(v_out, "rankPruneGraceTurns", 2); err != nil { return nil, err }
-	if err := coreSet(v_out, "tombstoning", v_none_value); err != nil { return nil, err }
+	v_tombstoning_opt = coreGet(v_options, "tombstoning", v_none_value)
+	if err := coreSet(v_out, "tombstoning", v_tombstoning_opt); err != nil { return nil, err }
 	if err := coreSet(v_out, "stateSummary", v_state_summary); err != nil { return nil, err }
 	if err := coreSet(v_out, "stateInspection", v_state_inspection); err != nil { return nil, err }
 	if err := coreSet(v_out, "checkpoints", v_checkpoints); err != nil { return nil, err }
@@ -18601,22 +19266,29 @@ func _agent_apply_context_management(args ...Value) (Value, error) {
 	var v_enabled Value
 	var v_entries Value
 	var v_entry Value
+	var v_err_code Value
+	var v_err_output Value
 	var v_error_pruning Value
 	var v_event Value
 	var v_existing Value
 	var v_has_pairs Value
 	var v_has_prev Value
 	var v_kind Value
+	var v_llm_input Value
 	var v_missing Value
 	var v_policy Value
 	var v_prev Value
 	var v_prev_is_error Value
+	var v_res_code Value
 	var v_resolved Value
 	var v_resolved_turn Value
 	var v_summary_chars Value
+	var v_tomb_is_obj Value
+	var v_tomb_is_true Value
 	var v_tombstone Value
 	var v_tombstoning Value
 	var v_turn Value
+	var v_want_llm Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	_ = v_count
@@ -18626,22 +19298,29 @@ func _agent_apply_context_management(args ...Value) (Value, error) {
 	_ = v_enabled
 	_ = v_entries
 	_ = v_entry
+	_ = v_err_code
+	_ = v_err_output
 	_ = v_error_pruning
 	_ = v_event
 	_ = v_existing
 	_ = v_has_pairs
 	_ = v_has_prev
 	_ = v_kind
+	_ = v_llm_input
 	_ = v_missing
 	_ = v_policy
 	_ = v_prev
 	_ = v_prev_is_error
+	_ = v_res_code
 	_ = v_resolved
 	_ = v_resolved_turn
 	_ = v_summary_chars
+	_ = v_tomb_is_obj
+	_ = v_tomb_is_true
 	_ = v_tombstone
 	_ = v_tombstoning
 	_ = v_turn
+	_ = v_want_llm
 	v_empty_list = MutableArray()
 	v_entries = coreGet(v_state, "action_log", v_empty_list)
 	v_policy = coreGet(v_state, "context_policy", nil)
@@ -18686,6 +19365,19 @@ func _agent_apply_context_management(args ...Value) (Value, error) {
 					v_summary_chars = _core_len(v_tombstone)
 					if err := coreSet(v_event, "summaryChars", v_summary_chars); err != nil { return nil, err }
 					if _, err := _agent_record_context_event(v_state, v_event); err != nil { return nil, err }
+					v_tomb_is_true = _core_eq(v_tombstoning, true)
+					v_tomb_is_obj = coreTypeIs(v_tombstoning, "object")
+					v_want_llm = _core_or(v_tomb_is_true, v_tomb_is_obj)
+					if coreTruthy(v_want_llm) {
+						if err := coreSet(v_prev, "tombstone_llm_pending", true); err != nil { return nil, err }
+						v_err_code = coreGet(v_prev, "code", "")
+						v_err_output = coreGet(v_prev, "output", "")
+						v_res_code = coreGet(v_entry, "code", "")
+						v_llm_input = _core_string_format("errorCode:\n{}\n\nerrorOutput:\n{}\n\nresolutionCode:\n{}", v_err_code, v_err_output, v_res_code)
+						if err := coreSet(v_prev, "tombstone_llm_input", v_llm_input); err != nil { return nil, err }
+					} else {
+					// empty
+					}
 				} else {
 				// empty
 				}
@@ -18700,6 +19392,71 @@ func _agent_apply_context_management(args ...Value) (Value, error) {
 	}
 	if err := coreSet(v_state, "action_log", v_entries); err != nil { return nil, err }
 	return v_entries, nil
+}
+
+func _agent_apply_llm_tombstone_summary(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_apply_llm_tombstone_summary")
+	var v_state Value
+	var v_client Value
+	var v_options Value
+	var v_empty_list Value
+	var v_entries Value
+	var v_entry Value
+	var v_event Value
+	var v_has_text Value
+	var v_instruction Value
+	var v_kind Value
+	var v_llm_input Value
+	var v_pending Value
+	var v_summary_chars Value
+	var v_tombstone Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_client = args[1] }
+	_ = v_client
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_empty_list
+	_ = v_entries
+	_ = v_entry
+	_ = v_event
+	_ = v_has_text
+	_ = v_instruction
+	_ = v_kind
+	_ = v_llm_input
+	_ = v_pending
+	_ = v_summary_chars
+	_ = v_tombstone
+	v_empty_list = MutableArray()
+	v_entries = coreGet(v_state, "action_log", v_empty_list)
+	for _, v_entry = range coreIter(v_entries) {
+		v_pending = coreGet(v_entry, "tombstone_llm_pending", false)
+		if coreTruthy(v_pending) {
+			v_llm_input = coreGet(v_entry, "tombstone_llm_input", "")
+			v_instruction = "You are an internal AxAgent tombstone summarizer.\n\nWrite the output as exactly one concise line.\n- Start with [TOMBSTONE]:\n- Summarize the resolved error and the successful fix.\n- Mention one failed approach to avoid when possible.\n- Do not include code fences, bullet points, or extra prose.\n- Keep it roughly 20-40 tokens."
+			{ v, err := _context_map_complete(v_client, v_instruction, v_llm_input); if err != nil { return nil, err }; v_tombstone = v }
+			v_has_text = _core_ne(v_tombstone, "")
+			if coreTruthy(v_has_text) {
+				if err := coreSet(v_entry, "tombstone", v_tombstone); err != nil { return nil, err }
+				if err := coreSet(v_entry, "tombstone_source", "model"); err != nil { return nil, err }
+				if err := coreSet(v_entry, "tombstone_llm_pending", false); err != nil { return nil, err }
+				v_event = Object()
+				{ v, err := _agent_context_event_name("tombstone_created"); if err != nil { return nil, err }; v_kind = v }
+				if err := coreSet(v_event, "kind", v_kind); err != nil { return nil, err }
+				if err := coreSet(v_event, "stage", "executor"); err != nil { return nil, err }
+				if err := coreSet(v_event, "source", "model"); err != nil { return nil, err }
+				v_summary_chars = _core_len(v_tombstone)
+				if err := coreSet(v_event, "summaryChars", v_summary_chars); err != nil { return nil, err }
+				if _, err := _agent_record_context_event(v_state, v_event); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	if err := coreSet(v_state, "action_log", v_entries); err != nil { return nil, err }
+	return v_state, nil
 }
 
 func _agent_working_code_state(args ...Value) (Value, error) {
@@ -18929,6 +19686,10 @@ func _agent_refresh_checkpoint_state(args ...Value) (Value, error) {
 	var v_coverable Value
 	var v_covered_count Value
 	var v_covered_turns Value
+	var v_cp_context_policy Value
+	var v_cp_empty Value
+	var v_cp_summarizer_opts Value
+	var v_cp_want_llm Value
 	var v_created_kind Value
 	var v_current Value
 	var v_disabled_reason Value
@@ -18978,6 +19739,10 @@ func _agent_refresh_checkpoint_state(args ...Value) (Value, error) {
 	_ = v_coverable
 	_ = v_covered_count
 	_ = v_covered_turns
+	_ = v_cp_context_policy
+	_ = v_cp_empty
+	_ = v_cp_summarizer_opts
+	_ = v_cp_want_llm
 	_ = v_created_kind
 	_ = v_current
 	_ = v_disabled_reason
@@ -19106,6 +19871,16 @@ func _agent_refresh_checkpoint_state(args ...Value) (Value, error) {
 	if err := coreSet(v_checkpoint, "fingerprint", v_fingerprint); err != nil { return nil, err }
 	if err := coreSet(v_checkpoint, "summary", v_summary); err != nil { return nil, err }
 	if err := coreSet(v_checkpoint, "turns", v_covered_turns); err != nil { return nil, err }
+	v_cp_empty = Object()
+	v_cp_context_policy = coreGet(v_state, "context_policy", v_cp_empty)
+	v_cp_summarizer_opts = coreGet(v_cp_context_policy, "summarizerOptions", nil)
+	v_cp_want_llm = _core_is_not_none(v_cp_summarizer_opts)
+	if coreTruthy(v_cp_want_llm) {
+		if err := coreSet(v_checkpoint, "llm_pending", true); err != nil { return nil, err }
+		if err := coreSet(v_checkpoint, "llm_input", v_summary); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	if err := coreSet(v_state, "checkpoint_state", v_checkpoint); err != nil { return nil, err }
 	v_event = Object()
 	{ v, err := _agent_context_event_name("checkpoint_created"); if err != nil { return nil, err }; v_created_kind = v }
@@ -20162,6 +20937,7 @@ func _agent_sanitize_action_log_entries(args ...Value) (Value, error) {
 	var v_has_state_delta Value
 	var v_has_step_kind Value
 	var v_has_tombstone Value
+	var v_has_tombstone_source Value
 	var v_has_triggered_by Value
 	var v_out Value
 	var v_output Value
@@ -20188,6 +20964,7 @@ func _agent_sanitize_action_log_entries(args ...Value) (Value, error) {
 	var v_tags Value
 	var v_tags_is_list Value
 	var v_tombstone Value
+	var v_tombstone_source Value
 	var v_tools Value
 	var v_tools_is_list Value
 	var v_triggered_by Value
@@ -20220,6 +20997,7 @@ func _agent_sanitize_action_log_entries(args ...Value) (Value, error) {
 	_ = v_has_state_delta
 	_ = v_has_step_kind
 	_ = v_has_tombstone
+	_ = v_has_tombstone_source
 	_ = v_has_triggered_by
 	_ = v_out
 	_ = v_output
@@ -20246,6 +21024,7 @@ func _agent_sanitize_action_log_entries(args ...Value) (Value, error) {
 	_ = v_tags
 	_ = v_tags_is_list
 	_ = v_tombstone
+	_ = v_tombstone_source
 	_ = v_tools
 	_ = v_tools_is_list
 	_ = v_triggered_by
@@ -20432,6 +21211,13 @@ func _agent_sanitize_action_log_entries(args ...Value) (Value, error) {
 		v_has_tombstone = _core_ne(v_tombstone, "")
 		if coreTruthy(v_has_tombstone) {
 			if err := coreSet(v_clean, "tombstone", v_tombstone); err != nil { return nil, err }
+			v_tombstone_source = coreGet(v_entry, "tombstone_source", "")
+			v_has_tombstone_source = _core_ne(v_tombstone_source, "")
+			if coreTruthy(v_has_tombstone_source) {
+				if err := coreSet(v_clean, "tombstone_source", v_tombstone_source); err != nil { return nil, err }
+			} else {
+			// empty
+			}
 		} else {
 		// empty
 		}
@@ -22528,6 +23314,7 @@ func _agent_export_runtime_state(args ...Value) (Value, error) {
 	var v_checkpoint_state Value
 	var v_clean_action_log Value
 	var v_context_events Value
+	var v_context_map Value
 	var v_context_policy Value
 	var v_discovered Value
 	var v_empty_list Value
@@ -22558,6 +23345,7 @@ func _agent_export_runtime_state(args ...Value) (Value, error) {
 	_ = v_checkpoint_state
 	_ = v_clean_action_log
 	_ = v_context_events
+	_ = v_context_map
 	_ = v_context_policy
 	_ = v_discovered
 	_ = v_empty_list
@@ -22602,6 +23390,7 @@ func _agent_export_runtime_state(args ...Value) (Value, error) {
 	v_context_policy = coreGet(v_state, "context_policy", v_empty_map)
 	v_context_events = coreGet(v_state, "context_events", v_empty_list)
 	v_checkpoint_state = coreGet(v_state, "checkpoint_state", nil)
+	v_context_map = coreGet(v_state, "context_map", nil)
 	v_runtime_state_summary = coreGet(v_state, "runtime_state_summary", "")
 	v_actor_model_state = coreGet(v_state, "actor_model_state", v_empty_map)
 	v_provenance = coreGet(v_state, "provenance", v_empty_map)
@@ -22627,6 +23416,7 @@ func _agent_export_runtime_state(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "context_policy", v_context_policy); err != nil { return nil, err }
 	if err := coreSet(v_out, "context_events", v_context_events); err != nil { return nil, err }
 	if err := coreSet(v_out, "checkpoint_state", v_checkpoint_state); err != nil { return nil, err }
+	if err := coreSet(v_out, "context_map", v_context_map); err != nil { return nil, err }
 	if err := coreSet(v_out, "runtime_state_summary", v_runtime_state_summary); err != nil { return nil, err }
 	if err := coreSet(v_out, "actor_model_state", v_actor_model_state); err != nil { return nil, err }
 	if err := coreSet(v_out, "provenance", v_provenance); err != nil { return nil, err }
@@ -22644,6 +23434,7 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	var v_checkpoint_state Value
 	var v_clean_restore_action_log Value
 	var v_context_events Value
+	var v_context_map Value
 	var v_discovered Value
 	var v_empty_list Value
 	var v_empty_map Value
@@ -22675,6 +23466,7 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	_ = v_checkpoint_state
 	_ = v_clean_restore_action_log
 	_ = v_context_events
+	_ = v_context_map
 	_ = v_discovered
 	_ = v_empty_list
 	_ = v_empty_map
@@ -22716,6 +23508,7 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	v_run_trace = coreGet(v_snapshot, "trace", nil)
 	v_context_events = coreGet(v_snapshot, "context_events", v_empty_list)
 	v_checkpoint_state = coreGet(v_snapshot, "checkpoint_state", nil)
+	v_context_map = coreGet(v_snapshot, "context_map", nil)
 	v_runtime_state_summary = coreGet(v_snapshot, "runtime_state_summary", "")
 	v_actor_model_state = coreGet(v_snapshot, "actor_model_state", v_empty_map)
 	v_provenance = coreGet(v_snapshot, "provenance", v_empty_map)
@@ -22736,6 +23529,7 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "runtime_globals", v_runtime_globals); err != nil { return nil, err }
 	if err := coreSet(v_state, "context_events", v_context_events); err != nil { return nil, err }
 	if err := coreSet(v_state, "checkpoint_state", v_checkpoint_state); err != nil { return nil, err }
+	if err := coreSet(v_state, "context_map", v_context_map); err != nil { return nil, err }
 	if err := coreSet(v_state, "runtime_state_summary", v_runtime_state_summary); err != nil { return nil, err }
 	if err := coreSet(v_state, "actor_model_state", v_actor_model_state); err != nil { return nil, err }
 	if err := coreSet(v_state, "provenance", v_provenance); err != nil { return nil, err }
@@ -23740,7 +24534,11 @@ func _build_distiller_inputs(args ...Value) (Value, error) {
 	axirCoverageMark("_build_distiller_inputs")
 	var v_state Value
 	var v_values Value
+	var v_cm_has Value
+	var v_cm_state Value
+	var v_cm_text Value
 	var v_context Value
+	var v_ctx_out Value
 	var v_empty_map Value
 	var v_out Value
 	var v_split Value
@@ -23748,16 +24546,29 @@ func _build_distiller_inputs(args ...Value) (Value, error) {
 	_ = v_state
 	if len(args) > 1 { v_values = args[1] }
 	_ = v_values
+	_ = v_cm_has
+	_ = v_cm_state
+	_ = v_cm_text
 	_ = v_context
+	_ = v_ctx_out
 	_ = v_empty_map
 	_ = v_out
 	_ = v_split
 	v_empty_map = Object()
 	{ v, err := _split_context_values(v_state, v_values); if err != nil { return nil, err }; v_split = v }
 	v_context = coreGet(v_split, "context", v_empty_map)
+	v_cm_state = coreGet(v_state, "context_map", nil)
+	v_cm_text = coreGet(v_cm_state, "text", "")
+	v_cm_has = _core_ne(v_cm_text, "")
+	v_ctx_out = _core_map_merge(v_empty_map, v_context)
+	if coreTruthy(v_cm_has) {
+		if err := coreSet(v_ctx_out, "contextMap", v_cm_text); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	v_out = Object()
 	if err := coreSet(v_out, "input", v_values); err != nil { return nil, err }
-	if err := coreSet(v_out, "context", v_context); err != nil { return nil, err }
+	if err := coreSet(v_out, "context", v_ctx_out); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -23942,7 +24753,7 @@ func _normalize_agent_completion_payload(args ...Value) (Value, error) {
 	v_valid = _core_or(v_is_final, v_is_clarification)
 	v_invalid = _core_not(v_valid)
 	if coreTruthy(v_invalid) {
-		v_message = _core_string_format("agent stage did not return a completion payload: {}", v_payload)
+		v_message = _core_string_format("agent stage did not return a completion payload (a live model returns prose, but this stage expects a structured completion): pass options.runtime with a code engine so the executor runs model-generated code that calls final(...), or use a client that returns a structured final/askClarification completion. got: {}", v_payload)
 		v_error = _core_runtime_error(v_message)
 		return nil, asAxError(v_error)
 	} else {
@@ -24220,6 +25031,1038 @@ func _extract_agent_runtime_code(args ...Value) (Value, error) {
 	return v_code, nil
 }
 
+func _agent_apply_llm_checkpoint_summary(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_apply_llm_checkpoint_summary")
+	var v_state Value
+	var v_client Value
+	var v_options Value
+	var v_checkpoint Value
+	var v_empty_map Value
+	var v_has_checkpoint Value
+	var v_has_text Value
+	var v_instruction Value
+	var v_llm_input Value
+	var v_messages Value
+	var v_pending Value
+	var v_request Value
+	var v_response Value
+	var v_sys Value
+	var v_text Value
+	var v_updated Value
+	var v_usr Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_client = args[1] }
+	_ = v_client
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_checkpoint
+	_ = v_empty_map
+	_ = v_has_checkpoint
+	_ = v_has_text
+	_ = v_instruction
+	_ = v_llm_input
+	_ = v_messages
+	_ = v_pending
+	_ = v_request
+	_ = v_response
+	_ = v_sys
+	_ = v_text
+	_ = v_updated
+	_ = v_usr
+	v_empty_map = Object()
+	v_checkpoint = coreGet(v_state, "checkpoint_state", nil)
+	v_has_checkpoint = _core_is_not_none(v_checkpoint)
+	if coreTruthy(v_has_checkpoint) {
+		v_pending = coreGet(v_checkpoint, "llm_pending", false)
+		if coreTruthy(v_pending) {
+			v_llm_input = coreGet(v_checkpoint, "llm_input", "")
+			v_instruction = "You are an internal AxAgent trajectory summarizer. Compress the execution history into a concise ledger with exactly these labels in order: Objective:, Current state and artifacts:, Exact callables and formats:, Evidence:, User constraints and preferences:, Failures to avoid:, Next step:. Use 'none' when a section is empty. Be concise and factual."
+			v_messages = MutableArray()
+			v_sys = Object()
+			if err := coreSet(v_sys, "role", "system"); err != nil { return nil, err }
+			if err := coreSet(v_sys, "content", v_instruction); err != nil { return nil, err }
+			v_messages = coreAppend(v_messages, v_sys)
+			v_usr = Object()
+			if err := coreSet(v_usr, "role", "user"); err != nil { return nil, err }
+			if err := coreSet(v_usr, "content", v_llm_input); err != nil { return nil, err }
+			v_messages = coreAppend(v_messages, v_usr)
+			v_request = Object()
+			if err := coreSet(v_request, "chat_prompt", v_messages); err != nil { return nil, err }
+			{ v, err := _core_ai_complete_once(v_client, v_request); if err != nil { return nil, err }; v_response = v }
+			v_text = coreGet(v_response, "content", "")
+			v_has_text = _core_ne(v_text, "")
+			if coreTruthy(v_has_text) {
+				v_updated = _core_map_merge(v_empty_map, v_checkpoint)
+				if err := coreSet(v_updated, "summary", v_text); err != nil { return nil, err }
+				if err := coreSet(v_updated, "summary_source", "model"); err != nil { return nil, err }
+				if err := coreSet(v_updated, "llm_pending", false); err != nil { return nil, err }
+				if err := coreSet(v_state, "checkpoint_state", v_updated); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_state, nil
+}
+
+func _context_map_sections(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_sections")
+	var v_s1 Value
+	var v_s2 Value
+	var v_s3 Value
+	var v_s4 Value
+	var v_s5 Value
+	var v_s6 Value
+	var v_sections Value
+	_ = v_s1
+	_ = v_s2
+	_ = v_s3
+	_ = v_s4
+	_ = v_s5
+	_ = v_s6
+	_ = v_sections
+	v_sections = MutableArray()
+	v_s1 = Object()
+	if err := coreSet(v_s1, "name", "context_roadmap"); err != nil { return nil, err }
+	if err := coreSet(v_s1, "title", "CONTEXT ROADMAP"); err != nil { return nil, err }
+	if err := coreSet(v_s1, "slug", "cr"); err != nil { return nil, err }
+	v_sections = coreAppend(v_sections, v_s1)
+	v_s2 = Object()
+	if err := coreSet(v_s2, "name", "context_understanding"); err != nil { return nil, err }
+	if err := coreSet(v_s2, "title", "CONTEXT UNDERSTANDING"); err != nil { return nil, err }
+	if err := coreSet(v_s2, "slug", "cu"); err != nil { return nil, err }
+	v_sections = coreAppend(v_sections, v_s2)
+	v_s3 = Object()
+	if err := coreSet(v_s3, "name", "domain_constants"); err != nil { return nil, err }
+	if err := coreSet(v_s3, "title", "DOMAIN CONSTANTS"); err != nil { return nil, err }
+	if err := coreSet(v_s3, "slug", "dc"); err != nil { return nil, err }
+	v_sections = coreAppend(v_sections, v_s3)
+	v_s4 = Object()
+	if err := coreSet(v_s4, "name", "parsing_schema"); err != nil { return nil, err }
+	if err := coreSet(v_s4, "title", "PARSING SCHEMA"); err != nil { return nil, err }
+	if err := coreSet(v_s4, "slug", "ps"); err != nil { return nil, err }
+	v_sections = coreAppend(v_sections, v_s4)
+	v_s5 = Object()
+	if err := coreSet(v_s5, "name", "reusable_results"); err != nil { return nil, err }
+	if err := coreSet(v_s5, "title", "REUSABLE RESULTS"); err != nil { return nil, err }
+	if err := coreSet(v_s5, "slug", "rr"); err != nil { return nil, err }
+	v_sections = coreAppend(v_sections, v_s5)
+	v_s6 = Object()
+	if err := coreSet(v_s6, "name", "error_patterns"); err != nil { return nil, err }
+	if err := coreSet(v_s6, "title", "ERROR PATTERNS"); err != nil { return nil, err }
+	if err := coreSet(v_s6, "slug", "ep"); err != nil { return nil, err }
+	v_sections = coreAppend(v_sections, v_s6)
+	return v_sections, nil
+}
+
+func _context_map_parse_items(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_parse_items")
+	var v_text Value
+	var v_content Value
+	var v_content_ok Value
+	var v_current Value
+	var v_id Value
+	var v_id_ok Value
+	var v_id_raw Value
+	var v_is_header Value
+	var v_is_item Value
+	var v_item Value
+	var v_items Value
+	var v_left Value
+	var v_line Value
+	var v_lines Value
+	var v_match Value
+	var v_parts Value
+	var v_right Value
+	var v_sec Value
+	var v_sec_name Value
+	var v_sec_title Value
+	var v_sections Value
+	var v_title Value
+	var v_title_raw Value
+	var v_valid Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_content
+	_ = v_content_ok
+	_ = v_current
+	_ = v_id
+	_ = v_id_ok
+	_ = v_id_raw
+	_ = v_is_header
+	_ = v_is_item
+	_ = v_item
+	_ = v_items
+	_ = v_left
+	_ = v_line
+	_ = v_lines
+	_ = v_match
+	_ = v_parts
+	_ = v_right
+	_ = v_sec
+	_ = v_sec_name
+	_ = v_sec_title
+	_ = v_sections
+	_ = v_title
+	_ = v_title_raw
+	_ = v_valid
+	{ v, err := _context_map_sections(); if err != nil { return nil, err }; v_sections = v }
+	v_items = MutableArray()
+	v_lines = _core_string_split_trim_nonempty(v_text, "\n")
+	v_current = "context_understanding"
+	for _, v_line = range coreIter(v_lines) {
+		v_is_header = _core_string_starts_with(v_line, "##")
+		if coreTruthy(v_is_header) {
+			v_title_raw = _core_string_replace(v_line, "#", "")
+			v_title = coreStringTrim(v_title_raw)
+			for _, v_sec = range coreIter(v_sections) {
+				v_sec_title = coreGet(v_sec, "title", nil)
+				v_match = _core_eq(v_sec_title, v_title)
+				if coreTruthy(v_match) {
+					v_sec_name = coreGet(v_sec, "name", nil)
+					v_current = v_sec_name
+				} else {
+				// empty
+				}
+			}
+		} else {
+			v_is_item = _core_string_starts_with(v_line, "[")
+			if coreTruthy(v_is_item) {
+				v_parts = _core_string_split_once(v_line, "]")
+				v_left = coreGet(v_parts, "left", "")
+				v_right = coreGet(v_parts, "right", "")
+				v_id_raw = _core_string_replace(v_left, "[", "")
+				v_id = coreStringTrim(v_id_raw)
+				v_content = coreStringTrim(v_right)
+				v_id_ok = _core_ne(v_id, "")
+				v_content_ok = _core_ne(v_content, "")
+				v_valid = _core_and(v_id_ok, v_content_ok)
+				if coreTruthy(v_valid) {
+					v_item = Object()
+					if err := coreSet(v_item, "id", v_id); err != nil { return nil, err }
+					if err := coreSet(v_item, "section", v_current); err != nil { return nil, err }
+					if err := coreSet(v_item, "content", v_content); err != nil { return nil, err }
+					v_items = coreAppend(v_items, v_item)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+	}
+	return v_items, nil
+}
+
+func _context_map_render_items(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_render_items")
+	var v_items Value
+	var v_content Value
+	var v_header Value
+	var v_id Value
+	var v_in_sec Value
+	var v_item Value
+	var v_item_sec Value
+	var v_line Value
+	var v_parts Value
+	var v_sec Value
+	var v_sec_name Value
+	var v_sec_title Value
+	var v_sections Value
+	var v_text Value
+	if len(args) > 0 { v_items = args[0] }
+	_ = v_items
+	_ = v_content
+	_ = v_header
+	_ = v_id
+	_ = v_in_sec
+	_ = v_item
+	_ = v_item_sec
+	_ = v_line
+	_ = v_parts
+	_ = v_sec
+	_ = v_sec_name
+	_ = v_sec_title
+	_ = v_sections
+	_ = v_text
+	{ v, err := _context_map_sections(); if err != nil { return nil, err }; v_sections = v }
+	v_parts = MutableArray()
+	for _, v_sec = range coreIter(v_sections) {
+		v_sec_name = coreGet(v_sec, "name", nil)
+		v_sec_title = coreGet(v_sec, "title", nil)
+		v_header = _core_string_format("## {}", v_sec_title)
+		v_parts = coreAppend(v_parts, v_header)
+		for _, v_item = range coreIter(v_items) {
+			v_item_sec = coreGet(v_item, "section", nil)
+			v_in_sec = _core_eq(v_item_sec, v_sec_name)
+			if coreTruthy(v_in_sec) {
+				v_id = coreGet(v_item, "id", nil)
+				v_content = coreGet(v_item, "content", nil)
+				v_line = _core_string_format("[{}] {}", v_id, v_content)
+				v_parts = coreAppend(v_parts, v_line)
+			} else {
+			// empty
+			}
+		}
+	}
+	v_text = _core_string_join("\n", v_parts)
+	return v_text, nil
+}
+
+func _context_map_update_scores(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_update_scores")
+	var v_scores Value
+	var v_item_tags Value
+	var v_cur Value
+	var v_down Value
+	var v_down2 Value
+	var v_empty_map Value
+	var v_id Value
+	var v_is_harmful Value
+	var v_is_helpful Value
+	var v_is_obj Value
+	var v_is_stale Value
+	var v_out Value
+	var v_tag Value
+	var v_up Value
+	if len(args) > 0 { v_scores = args[0] }
+	_ = v_scores
+	if len(args) > 1 { v_item_tags = args[1] }
+	_ = v_item_tags
+	_ = v_cur
+	_ = v_down
+	_ = v_down2
+	_ = v_empty_map
+	_ = v_id
+	_ = v_is_harmful
+	_ = v_is_helpful
+	_ = v_is_obj
+	_ = v_is_stale
+	_ = v_out
+	_ = v_tag
+	_ = v_up
+	v_empty_map = Object()
+	v_out = _core_map_merge(v_empty_map, v_scores)
+	v_is_obj = coreTypeIs(v_item_tags, "object")
+	if coreTruthy(v_is_obj) {
+		for _, v_id = range coreIter(v_item_tags) {
+			v_tag = coreGet(v_item_tags, v_id, nil)
+			v_cur = coreGet(v_out, v_id, 0)
+			v_is_helpful = _core_eq(v_tag, "helpful")
+			if coreTruthy(v_is_helpful) {
+				v_up = _core_add(v_cur, 1)
+				if err := coreSet(v_out, v_id, v_up); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_is_harmful = _core_eq(v_tag, "harmful")
+			if coreTruthy(v_is_harmful) {
+				v_down = _core_add(v_cur, -1)
+				if err := coreSet(v_out, v_id, v_down); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_is_stale = _core_eq(v_tag, "stale")
+			if coreTruthy(v_is_stale) {
+				v_down2 = _core_add(v_cur, -1)
+				if err := coreSet(v_out, v_id, v_down2); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
+func _context_map_apply_operations(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_apply_operations")
+	var v_items Value
+	var v_operations Value
+	var v_next_id Value
+	var v_add_content Value
+	var v_add_item Value
+	var v_add_section Value
+	var v_content_ok Value
+	var v_counter Value
+	var v_del_a Value
+	var v_del_id Value
+	var v_deleted Value
+	var v_deletes Value
+	var v_has_replace Value
+	var v_id Value
+	var v_inc Value
+	var v_is_add Value
+	var v_is_delete Value
+	var v_is_list Value
+	var v_is_replace Value
+	var v_item Value
+	var v_keep Value
+	var v_kept Value
+	var v_new_content Value
+	var v_new_id Value
+	var v_old_content Value
+	var v_op Value
+	var v_out Value
+	var v_radd Value
+	var v_radd_content Value
+	var v_radd_section Value
+	var v_raw Value
+	var v_raw_adds Value
+	var v_rep_a Value
+	var v_rep_content Value
+	var v_rep_id Value
+	var v_replaces Value
+	var v_result_items Value
+	var v_sec Value
+	var v_sections Value
+	var v_slug Value
+	var v_smatch Value
+	var v_sname Value
+	var v_sslug Value
+	var v_type Value
+	if len(args) > 0 { v_items = args[0] }
+	_ = v_items
+	if len(args) > 1 { v_operations = args[1] }
+	_ = v_operations
+	if len(args) > 2 { v_next_id = args[2] }
+	_ = v_next_id
+	_ = v_add_content
+	_ = v_add_item
+	_ = v_add_section
+	_ = v_content_ok
+	_ = v_counter
+	_ = v_del_a
+	_ = v_del_id
+	_ = v_deleted
+	_ = v_deletes
+	_ = v_has_replace
+	_ = v_id
+	_ = v_inc
+	_ = v_is_add
+	_ = v_is_delete
+	_ = v_is_list
+	_ = v_is_replace
+	_ = v_item
+	_ = v_keep
+	_ = v_kept
+	_ = v_new_content
+	_ = v_new_id
+	_ = v_old_content
+	_ = v_op
+	_ = v_out
+	_ = v_radd
+	_ = v_radd_content
+	_ = v_radd_section
+	_ = v_raw
+	_ = v_raw_adds
+	_ = v_rep_a
+	_ = v_rep_content
+	_ = v_rep_id
+	_ = v_replaces
+	_ = v_result_items
+	_ = v_sec
+	_ = v_sections
+	_ = v_slug
+	_ = v_smatch
+	_ = v_sname
+	_ = v_sslug
+	_ = v_type
+	{ v, err := _context_map_sections(); if err != nil { return nil, err }; v_sections = v }
+	v_deletes = Object()
+	v_replaces = Object()
+	v_raw_adds = MutableArray()
+	v_is_list = coreTypeIs(v_operations, "list")
+	if coreTruthy(v_is_list) {
+		for _, v_op = range coreIter(v_operations) {
+			v_type = coreGet(v_op, "type", "")
+			v_is_delete = _core_eq(v_type, "DELETE")
+			if coreTruthy(v_is_delete) {
+				v_del_a = coreGet(v_op, "item_id", "")
+				v_del_id = coreGet(v_op, "itemId", v_del_a)
+				if err := coreSet(v_deletes, v_del_id, true); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_is_replace = _core_eq(v_type, "REPLACE")
+			if coreTruthy(v_is_replace) {
+				v_rep_a = coreGet(v_op, "item_id", "")
+				v_rep_id = coreGet(v_op, "itemId", v_rep_a)
+				v_rep_content = coreGet(v_op, "content", "")
+				if err := coreSet(v_replaces, v_rep_id, v_rep_content); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_is_add = _core_eq(v_type, "ADD")
+			if coreTruthy(v_is_add) {
+				v_add_section = coreGet(v_op, "section", "context_understanding")
+				v_add_content = coreGet(v_op, "content", "")
+				v_content_ok = _core_ne(v_add_content, "")
+				if coreTruthy(v_content_ok) {
+					v_raw = Object()
+					if err := coreSet(v_raw, "section", v_add_section); err != nil { return nil, err }
+					if err := coreSet(v_raw, "content", v_add_content); err != nil { return nil, err }
+					v_raw_adds = coreAppend(v_raw_adds, v_raw)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_result_items = MutableArray()
+	for _, v_item = range coreIter(v_items) {
+		v_id = coreGet(v_item, "id", nil)
+		v_deleted = coreGet(v_deletes, v_id, false)
+		v_keep = _core_not(v_deleted)
+		if coreTruthy(v_keep) {
+			v_kept = Object()
+			if err := coreSet(v_kept, "id", v_id); err != nil { return nil, err }
+			v_sec = coreGet(v_item, "section", nil)
+			if err := coreSet(v_kept, "section", v_sec); err != nil { return nil, err }
+			v_new_content = coreGet(v_replaces, v_id, nil)
+			v_has_replace = _core_is_not_none(v_new_content)
+			if coreTruthy(v_has_replace) {
+				if err := coreSet(v_kept, "content", v_new_content); err != nil { return nil, err }
+			} else {
+				v_old_content = coreGet(v_item, "content", nil)
+				if err := coreSet(v_kept, "content", v_old_content); err != nil { return nil, err }
+			}
+			v_result_items = coreAppend(v_result_items, v_kept)
+		} else {
+		// empty
+		}
+	}
+	v_counter = v_next_id
+	for _, v_radd = range coreIter(v_raw_adds) {
+		v_radd_section = coreGet(v_radd, "section", nil)
+		v_radd_content = coreGet(v_radd, "content", nil)
+		v_slug = "cu"
+		for _, v_sec = range coreIter(v_sections) {
+			v_sname = coreGet(v_sec, "name", nil)
+			v_smatch = _core_eq(v_sname, v_radd_section)
+			if coreTruthy(v_smatch) {
+				v_sslug = coreGet(v_sec, "slug", nil)
+				v_slug = v_sslug
+			} else {
+			// empty
+			}
+		}
+		v_new_id = _core_string_format("{}-{}", v_slug, v_counter)
+		v_inc = _core_add(v_counter, 1)
+		v_counter = v_inc
+		v_add_item = Object()
+		if err := coreSet(v_add_item, "id", v_new_id); err != nil { return nil, err }
+		if err := coreSet(v_add_item, "section", v_radd_section); err != nil { return nil, err }
+		if err := coreSet(v_add_item, "content", v_radd_content); err != nil { return nil, err }
+		v_result_items = coreAppend(v_result_items, v_add_item)
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "items", v_result_items); err != nil { return nil, err }
+	if err := coreSet(v_out, "next_id", v_counter); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _context_map_evict_to_budget(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_evict_to_budget")
+	var v_items Value
+	var v_scores Value
+	var v_max_chars Value
+	var v_count Value
+	var v_current Value
+	var v_empty Value
+	var v_first Value
+	var v_have_min Value
+	var v_iid Value
+	var v_is_min Value
+	var v_iscore Value
+	var v_item Value
+	var v_keep Value
+	var v_len Value
+	var v_lower Value
+	var v_min_id Value
+	var v_min_score Value
+	var v_next_items Value
+	var v_not_over Value
+	var v_over Value
+	var v_take Value
+	var v_text Value
+	if len(args) > 0 { v_items = args[0] }
+	_ = v_items
+	if len(args) > 1 { v_scores = args[1] }
+	_ = v_scores
+	if len(args) > 2 { v_max_chars = args[2] }
+	_ = v_max_chars
+	_ = v_count
+	_ = v_current
+	_ = v_empty
+	_ = v_first
+	_ = v_have_min
+	_ = v_iid
+	_ = v_is_min
+	_ = v_iscore
+	_ = v_item
+	_ = v_keep
+	_ = v_len
+	_ = v_lower
+	_ = v_min_id
+	_ = v_min_score
+	_ = v_next_items
+	_ = v_not_over
+	_ = v_over
+	_ = v_take
+	_ = v_text
+	v_current = v_items
+	for {
+		{ v, err := _context_map_render_items(v_current); if err != nil { return nil, err }; v_text = v }
+		v_len = _core_len(v_text)
+		v_over = _core_gt(v_len, v_max_chars)
+		v_not_over = _core_not(v_over)
+		if coreTruthy(v_not_over) {
+			break
+		} else {
+		// empty
+		}
+		v_count = _core_len(v_current)
+		v_empty = _core_eq(v_count, 0)
+		if coreTruthy(v_empty) {
+			break
+		} else {
+		// empty
+		}
+		v_min_id = ""
+		v_min_score = 0
+		v_have_min = false
+		for _, v_item = range coreIter(v_current) {
+			v_iid = coreGet(v_item, "id", nil)
+			v_iscore = coreGet(v_scores, v_iid, 0)
+			v_first = _core_not(v_have_min)
+			v_lower = _core_lt(v_iscore, v_min_score)
+			v_take = _core_or(v_first, v_lower)
+			if coreTruthy(v_take) {
+				v_min_id = v_iid
+				v_min_score = v_iscore
+				v_have_min = true
+			} else {
+			// empty
+			}
+		}
+		v_next_items = MutableArray()
+		for _, v_item = range coreIter(v_current) {
+			v_iid = coreGet(v_item, "id", nil)
+			v_is_min = _core_eq(v_iid, v_min_id)
+			v_keep = _core_not(v_is_min)
+			if coreTruthy(v_keep) {
+				v_next_items = coreAppend(v_next_items, v_item)
+			} else {
+			// empty
+			}
+		}
+		v_current = v_next_items
+	}
+	return v_current, nil
+}
+
+func _format_context_map_trajectory(args ...Value) (Value, error) {
+	axirCoverageMark("_format_context_map_trajectory")
+	var v_state Value
+	var v_action_log Value
+	var v_action_text Value
+	var v_empty_list Value
+	var v_out Value
+	var v_status_log Value
+	var v_status_text Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_action_log
+	_ = v_action_text
+	_ = v_empty_list
+	_ = v_out
+	_ = v_status_log
+	_ = v_status_text
+	v_empty_list = MutableArray()
+	v_action_log = coreGet(v_state, "action_log", v_empty_list)
+	v_action_text = _core_json_stable_stringify(v_action_log)
+	v_status_log = coreGet(v_state, "status_log", v_empty_list)
+	v_status_text = _core_json_stable_stringify(v_status_log)
+	v_out = _core_string_format("## Executor Action Log\n{}\n\n## Status Log\n{}", v_action_text, v_status_text)
+	return v_out, nil
+}
+
+func _context_map_complete(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_complete")
+	var v_client Value
+	var v_system Value
+	var v_user Value
+	var v_content Value
+	var v_messages Value
+	var v_request Value
+	var v_response Value
+	var v_sys Value
+	var v_usr Value
+	if len(args) > 0 { v_client = args[0] }
+	_ = v_client
+	if len(args) > 1 { v_system = args[1] }
+	_ = v_system
+	if len(args) > 2 { v_user = args[2] }
+	_ = v_user
+	_ = v_content
+	_ = v_messages
+	_ = v_request
+	_ = v_response
+	_ = v_sys
+	_ = v_usr
+	v_messages = MutableArray()
+	v_sys = Object()
+	if err := coreSet(v_sys, "role", "system"); err != nil { return nil, err }
+	if err := coreSet(v_sys, "content", v_system); err != nil { return nil, err }
+	v_messages = coreAppend(v_messages, v_sys)
+	v_usr = Object()
+	if err := coreSet(v_usr, "role", "user"); err != nil { return nil, err }
+	if err := coreSet(v_usr, "content", v_user); err != nil { return nil, err }
+	v_messages = coreAppend(v_messages, v_usr)
+	v_request = Object()
+	if err := coreSet(v_request, "chat_prompt", v_messages); err != nil { return nil, err }
+	{ v, err := _core_ai_complete_once(v_client, v_request); if err != nil { return nil, err }; v_response = v }
+	v_content = coreGet(v_response, "content", "")
+	return v_content, nil
+}
+
+func _context_map_parse_json(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_parse_json")
+	var v_content Value
+	var v_empty_map Value
+	var v_is_empty Value
+	var v_is_obj Value
+	var v_looks_object Value
+	var v_not_object Value
+	var v_parsed Value
+	var v_trimmed Value
+	if len(args) > 0 { v_content = args[0] }
+	_ = v_content
+	_ = v_empty_map
+	_ = v_is_empty
+	_ = v_is_obj
+	_ = v_looks_object
+	_ = v_not_object
+	_ = v_parsed
+	_ = v_trimmed
+	v_empty_map = Object()
+	v_trimmed = coreStringTrim(v_content)
+	v_is_empty = _core_eq(v_trimmed, "")
+	if coreTruthy(v_is_empty) {
+		return v_empty_map, nil
+	} else {
+	// empty
+	}
+	v_looks_object = _core_string_starts_with(v_trimmed, "{")
+	v_not_object = _core_not(v_looks_object)
+	if coreTruthy(v_not_object) {
+		return v_empty_map, nil
+	} else {
+	// empty
+	}
+	{ v, err := _core_json_parse(v_trimmed); if err != nil { return nil, err }; v_parsed = v }
+	v_is_obj = coreTypeIs(v_parsed, "object")
+	if coreTruthy(v_is_obj) {
+		return v_parsed, nil
+	} else {
+	// empty
+	}
+	return v_empty_map, nil
+}
+
+func _agent_evolve_context_map(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_evolve_context_map")
+	var v_state Value
+	var v_client Value
+	var v_options Value
+	var v_applied Value
+	var v_carto_parsed Value
+	var v_carto_resp Value
+	var v_carto_sys Value
+	var v_carto_user Value
+	var v_carto_user_head Value
+	var v_cm Value
+	var v_current_chars Value
+	var v_current_text Value
+	var v_distiller_parsed Value
+	var v_distiller_resp Value
+	var v_distiller_sys Value
+	var v_distiller_user Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_evicted Value
+	var v_evolve_ok Value
+	var v_evolve_steps Value
+	var v_has_cm Value
+	var v_infinite Value
+	var v_item_tags Value
+	var v_items Value
+	var v_max_chars Value
+	var v_new_items Value
+	var v_new_next_id Value
+	var v_new_scores Value
+	var v_new_steps Value
+	var v_new_text Value
+	var v_next_id Value
+	var v_operations Value
+	var v_reflection Value
+	var v_scores Value
+	var v_should_evolve Value
+	var v_steps Value
+	var v_task Value
+	var v_trajectory Value
+	var v_under_budget Value
+	var v_updated Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_client = args[1] }
+	_ = v_client
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_applied
+	_ = v_carto_parsed
+	_ = v_carto_resp
+	_ = v_carto_sys
+	_ = v_carto_user
+	_ = v_carto_user_head
+	_ = v_cm
+	_ = v_current_chars
+	_ = v_current_text
+	_ = v_distiller_parsed
+	_ = v_distiller_resp
+	_ = v_distiller_sys
+	_ = v_distiller_user
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_evicted
+	_ = v_evolve_ok
+	_ = v_evolve_steps
+	_ = v_has_cm
+	_ = v_infinite
+	_ = v_item_tags
+	_ = v_items
+	_ = v_max_chars
+	_ = v_new_items
+	_ = v_new_next_id
+	_ = v_new_scores
+	_ = v_new_steps
+	_ = v_new_text
+	_ = v_next_id
+	_ = v_operations
+	_ = v_reflection
+	_ = v_scores
+	_ = v_should_evolve
+	_ = v_steps
+	_ = v_task
+	_ = v_trajectory
+	_ = v_under_budget
+	_ = v_updated
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_cm = coreGet(v_state, "context_map", nil)
+	v_has_cm = _core_is_not_none(v_cm)
+	v_infinite = coreGet(v_cm, "infiniteEvolve", false)
+	v_steps = coreGet(v_cm, "steps", 0)
+	v_evolve_steps = coreGet(v_cm, "evolveSteps", 0)
+	v_under_budget = _core_lt(v_steps, v_evolve_steps)
+	v_evolve_ok = _core_or(v_infinite, v_under_budget)
+	v_should_evolve = _core_and(v_has_cm, v_evolve_ok)
+	if coreTruthy(v_should_evolve) {
+		v_current_text = coreGet(v_cm, "text", "")
+		v_scores = coreGet(v_cm, "scores", v_empty_map)
+		v_max_chars = coreGet(v_cm, "maxChars", 4000)
+		v_next_id = coreGet(v_cm, "next_id", 1)
+		v_task = coreGet(v_state, "task_description", "")
+		{ v, err := _format_context_map_trajectory(v_state); if err != nil { return nil, err }; v_trajectory = v }
+		v_distiller_sys = "You are the context-map Distiller for a recurring external context used by an AxAgent RLM loop.\n\nYour job is to read the completed trajectory and identify reusable orientation knowledge about the external context. The context map is a persistent cache of understanding, not a transcript summary, task playbook, or answer cache.\n\nCache only orientation work: would a future agent asking a completely different question about the same context benefit from knowing this?\n\nReview every existing context-map item before proposing new knowledge. Tag each existing item ID as exactly one of helpful, harmful, neutral, or stale. Treat unused-but-correct domain knowledge as neutral, not harmful.\n\nReturn:\n- diagnosis: concise analysis of orientation work vs. question-specific work.\n- itemTags: object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\n- cacheCandidates: JSON array of objects with section, value, transferability, and rationale."
+		v_distiller_user = _core_string_format("task: {}\n\ncontextMap:\n{}\n\ntrajectory:\n{}", v_task, v_current_text, v_trajectory)
+		{ v, err := _context_map_complete(v_client, v_distiller_sys, v_distiller_user); if err != nil { return nil, err }; v_distiller_resp = v }
+		{ v, err := _context_map_parse_json(v_distiller_resp); if err != nil { return nil, err }; v_distiller_parsed = v }
+		v_item_tags = coreGet(v_distiller_parsed, "itemTags", v_empty_map)
+		v_reflection = _core_json_stringify(v_distiller_parsed)
+		v_current_chars = _core_len(v_current_text)
+		v_carto_sys = "You are the context-map Cartographer for a recurring external context used by an AxAgent RLM loop.\n\nTranslate the Distiller reflection into a small set of concrete context-map edits. Maintain a concise, high-value context map that stores shared understanding of the external context, not answers to individual questions.\n\nPrefer REPLACE over ADD when an existing item can be made more correct, compact, or general. DELETE stale, misleading, redundant, low-value, verbose, or question-specific items. ADD only transferable context understanding. When the map is near or over budget, remove or rewrite low-value entries first. If nothing is worth keeping, return an empty operations list.\n\nReturn operations as JSON objects under the key operations:\n- {\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"...\"}\n- {\"type\":\"DELETE\",\"item_id\":\"cu-1\"}\n- {\"type\":\"REPLACE\",\"item_id\":\"cu-1\",\"content\":\"...\"}"
+		v_carto_user_head = _core_string_format("task: {}\n\ncontextMap:\n{}\n\ndistillerReflection:\n{}", v_task, v_current_text, v_reflection)
+		v_carto_user = _core_string_format("{}\n\ncurrentChars: {}\nmaxChars: {}", v_carto_user_head, v_current_chars, v_max_chars)
+		{ v, err := _context_map_complete(v_client, v_carto_sys, v_carto_user); if err != nil { return nil, err }; v_carto_resp = v }
+		{ v, err := _context_map_parse_json(v_carto_resp); if err != nil { return nil, err }; v_carto_parsed = v }
+		v_operations = coreGet(v_carto_parsed, "operations", v_empty_list)
+		{ v, err := _context_map_parse_items(v_current_text); if err != nil { return nil, err }; v_items = v }
+		{ v, err := _context_map_update_scores(v_scores, v_item_tags); if err != nil { return nil, err }; v_new_scores = v }
+		{ v, err := _context_map_apply_operations(v_items, v_operations, v_next_id); if err != nil { return nil, err }; v_applied = v }
+		v_new_items = coreGet(v_applied, "items", v_empty_list)
+		v_new_next_id = coreGet(v_applied, "next_id", v_next_id)
+		{ v, err := _context_map_evict_to_budget(v_new_items, v_new_scores, v_max_chars); if err != nil { return nil, err }; v_evicted = v }
+		{ v, err := _context_map_render_items(v_evicted); if err != nil { return nil, err }; v_new_text = v }
+		v_new_steps = _core_add(v_steps, 1)
+		v_updated = _core_map_merge(v_empty_map, v_cm)
+		if err := coreSet(v_updated, "text", v_new_text); err != nil { return nil, err }
+		if err := coreSet(v_updated, "scores", v_new_scores); err != nil { return nil, err }
+		if err := coreSet(v_updated, "steps", v_new_steps); err != nil { return nil, err }
+		if err := coreSet(v_updated, "next_id", v_new_next_id); err != nil { return nil, err }
+		if err := coreSet(v_state, "context_map", v_updated); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_state, nil
+}
+
+func _agent_transcribe_one_audio(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_transcribe_one_audio")
+	var v_client Value
+	var v_audio Value
+	var v_transcribe_opts Value
+	var v_options Value
+	var v_empty_map Value
+	var v_has_data Value
+	var v_is_object Value
+	var v_request Value
+	var v_response Value
+	var v_text Value
+	if len(args) > 0 { v_client = args[0] }
+	_ = v_client
+	if len(args) > 1 { v_audio = args[1] }
+	_ = v_audio
+	if len(args) > 2 { v_transcribe_opts = args[2] }
+	_ = v_transcribe_opts
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
+	_ = v_empty_map
+	_ = v_has_data
+	_ = v_is_object
+	_ = v_request
+	_ = v_response
+	_ = v_text
+	v_empty_map = Object()
+	v_is_object = coreTypeIs(v_audio, "object")
+	if coreTruthy(v_is_object) {
+		v_has_data = _core_map_contains(v_audio, "data")
+		if coreTruthy(v_has_data) {
+			v_request = _core_map_merge(v_empty_map, v_transcribe_opts)
+			if err := coreSet(v_request, "audio", v_audio); err != nil { return nil, err }
+			v_response = _core_agent_transcribe(v_client, v_request, v_options)
+			v_text = coreGet(v_response, "text", "")
+			return v_text, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_audio, nil
+}
+
+func _agent_transcribe_audio_inputs(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_transcribe_audio_inputs")
+	var v_state Value
+	var v_client Value
+	var v_values Value
+	var v_options Value
+	var v_do_single Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_field Value
+	var v_fname Value
+	var v_ftype Value
+	var v_has Value
+	var v_input_fields Value
+	var v_is_audio Value
+	var v_is_list Value
+	var v_is_string Value
+	var v_item Value
+	var v_item_text Value
+	var v_result Value
+	var v_sig Value
+	var v_speech Value
+	var v_text Value
+	var v_tname Value
+	var v_transcribe_opts Value
+	var v_transcribed Value
+	var v_value Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_client = args[1] }
+	_ = v_client
+	if len(args) > 2 { v_values = args[2] }
+	_ = v_values
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
+	_ = v_do_single
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_field
+	_ = v_fname
+	_ = v_ftype
+	_ = v_has
+	_ = v_input_fields
+	_ = v_is_audio
+	_ = v_is_list
+	_ = v_is_string
+	_ = v_item
+	_ = v_item_text
+	_ = v_result
+	_ = v_sig
+	_ = v_speech
+	_ = v_text
+	_ = v_tname
+	_ = v_transcribe_opts
+	_ = v_transcribed
+	_ = v_value
+	v_empty_list = MutableArray()
+	v_empty_map = Object()
+	v_sig = coreGet(v_state, "signature", v_empty_map)
+	v_input_fields = coreGet(v_sig, "input_fields", v_empty_list)
+	v_speech = coreGet(v_options, "speech", v_empty_map)
+	v_transcribe_opts = coreGet(v_speech, "transcribe", v_empty_map)
+	v_result = _core_map_merge(v_empty_map, v_values)
+	for _, v_field = range coreIter(v_input_fields) {
+		v_ftype = coreGet(v_field, "type", v_empty_map)
+		v_tname = coreGet(v_ftype, "name", "")
+		v_is_audio = _core_eq(v_tname, "audio")
+		if coreTruthy(v_is_audio) {
+			v_fname = coreGet(v_field, "name", nil)
+			v_has = _core_map_contains(v_result, v_fname)
+			if coreTruthy(v_has) {
+				v_value = coreGet(v_result, v_fname, nil)
+				v_is_string = coreTypeIs(v_value, "string")
+				v_is_list = coreTypeIs(v_value, "list")
+				if coreTruthy(v_is_list) {
+					v_transcribed = MutableArray()
+					for _, v_item = range coreIter(v_value) {
+						{ v, err := _agent_transcribe_one_audio(v_client, v_item, v_transcribe_opts, v_options); if err != nil { return nil, err }; v_item_text = v }
+						v_transcribed = coreAppend(v_transcribed, v_item_text)
+					}
+					if err := coreSet(v_result, v_fname, v_transcribed); err != nil { return nil, err }
+				} else {
+					v_do_single = _core_not(v_is_string)
+					if coreTruthy(v_do_single) {
+						{ v, err := _agent_transcribe_one_audio(v_client, v_value, v_transcribe_opts, v_options); if err != nil { return nil, err }; v_text = v }
+						if err := coreSet(v_result, v_fname, v_text); err != nil { return nil, err }
+					} else {
+					// empty
+					}
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return v_result, nil
+}
+
 func _agent_forward(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_forward")
 	var v_state Value
@@ -24262,6 +26105,7 @@ func _agent_forward(args ...Value) (Value, error) {
 	var v_state_options Value
 	var v_step Value
 	var v_too_many Value
+	var v_transcribed_values Value
 	var v_usage Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
@@ -24310,8 +26154,12 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_state_options
 	_ = v_step
 	_ = v_too_many
+	_ = v_transcribed_values
 	_ = v_usage
+	{ v, err := _agent_transcribe_audio_inputs(v_state, v_client, v_values, v_options); if err != nil { return nil, err }; v_transcribed_values = v }
+	v_values = v_transcribed_values
 	if _, err := _agent_begin_trace(v_state, v_values); err != nil { return nil, err }
+	if _, err := _agent_apply_llm_checkpoint_summary(v_state, v_client, v_options); err != nil { return nil, err }
 	v_state_options = coreGet(v_state, "options", nil)
 	v_runtime_from_state = coreGet(v_state_options, "runtime", nil)
 	v_runtime_from_options = coreGet(v_options, "runtime", v_runtime_from_state)
@@ -24395,6 +26243,10 @@ func _agent_forward(args ...Value) (Value, error) {
 		{ v, err := _normalize_agent_completion_payload(v_executor_output); if err != nil { return nil, err }; v_executor_payload = v }
 		if _, err := _throw_agent_clarification(v_executor_payload, v_state); err != nil { return nil, err }
 	}
+	if _, err := _agent_apply_llm_checkpoint_summary(v_state, v_client, v_options); err != nil { return nil, err }
+	if _, err := _agent_apply_context_management(v_state); err != nil { return nil, err }
+	if _, err := _agent_apply_llm_tombstone_summary(v_state, v_client, v_options); err != nil { return nil, err }
+	if _, err := _agent_evolve_context_map(v_state, v_client, v_options); err != nil { return nil, err }
 	{ v, err := _build_responder_inputs(v_state, v_values, v_executor_payload); if err != nil { return nil, err }; v_responder_values = v }
 	v_responder_request_event = Object()
 	if err := coreSet(v_responder_request_event, "stage", "responder"); err != nil { return nil, err }
@@ -27026,6 +28878,13 @@ func (c contextBoundAIClient) Stream(ctx context.Context, request map[string]Val
 	return c.inner.Stream(c.ctx, request, options)
 }
 
+func (c contextBoundAIClient) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	if t, ok := c.inner.(interface{ Transcribe(context.Context, map[string]Value, map[string]Value) (Value, error) }); ok {
+		return t.Transcribe(c.ctx, request, options)
+	}
+	return Object("text", ""), nil
+}
+
 type Transport interface { Call(context.Context, Value) (Value, error) }
 
 type ScriptedTransport struct { Responses []Value; Requests []Value }
@@ -27828,9 +29687,9 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	if options == nil { options = Object() }
 	state := asMap(mustCore(_agent_factory(signature, options)))
 	sig := NewSignature(signature)
-	distillerOptions := Object("validation_retries", 0, "id", "ctx.root.actor")
-	executorOptions := Object("validation_retries", 0, "id", "task.root.actor")
-	responderOptions := Object("validation_retries", coreGet(options, "validation_retries", 2), "id", "task.root.responder")
+	distillerOptions := Object("validation_retries", 0, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
+	executorOptions := Object("validation_retries", 0, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
+	responderOptions := Object("validation_retries", coreGet(options, "validation_retries", 2), "id", "task.root.responder", "instruction", coreGet(state, "responder_description", ""))
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContext:json -> completion:json"))
 	return &AxAgent{Signature:sig, Options:options, State:state, Executor:NewAx(executorSignature,executorOptions), Responder:NewAx(signature,responderOptions), Distiller:NewAx(distillerSignature,distillerOptions)}
@@ -28842,6 +30701,22 @@ func _core_agent_skill_search(values ...Value) Value {
 	scripted := coreGet(options, "skill_search_results", coreGet(options, "skillSearchResults", Object()))
 	return scriptedAgentSearchResults(scripted, searches, true)
 }
+// _core_agent_transcribe backs intrinsic.agent.transcribe: it calls the AI client's transcribe
+// method (build->transport->normalize lives in the client) so audio inputs become text before the
+// agent loop. Any client with a Transcribe method satisfies it (real providers + the scripted
+// conformance client), so the AIClient interface stays untouched.
+func _core_agent_transcribe(values ...Value) Value {
+	if len(values) < 2 { return Object("text", "") }
+	client := values[0]
+	request := asMap(values[1])
+	options := map[string]Value{}
+	if len(values) > 2 { options = asMap(values[2]) }
+	ai, ok := client.(interface{ Transcribe(context.Context, map[string]Value, map[string]Value) (Value, error) })
+	if !ok { return Object("text", "") }
+	out, err := ai.Transcribe(context.Background(), request, options)
+	if err != nil { panic(AxError{Category: "network", Message: err.Error()}) }
+	return out
+}
 func _core_agent_callable_invoke(values ...Value) Value {
 	if len(values) == 0 { return Object("status", "error", "error", "unknown callable: ") }
 	state := values[0]
@@ -28896,8 +30771,16 @@ func (e FixtureError) Error() string { return e.Message }
 type conformanceScriptedAI struct {
 	Responses []Value
 	StreamEvents []Value
+	TranscribeResponses []Value
 	Requests []map[string]Value
 	ChatCalls int
+}
+func (f *conformanceScriptedAI) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	f.Requests = append(f.Requests, cloneMap(request))
+	if len(f.TranscribeResponses) == 0 { return Object("text", ""), nil }
+	raw := f.TranscribeResponses[0]
+	f.TranscribeResponses = f.TranscribeResponses[1:]
+	return raw, nil
 }
 
 func (f *conformanceScriptedAI) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
@@ -29021,6 +30904,10 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAgentRuntimeSession(fixture)
 	case "agent_runtime_protocol":
 		runConformanceAgentRuntimeProtocol(fixture)
+	case "agent_prompt":
+		runConformanceAgentPrompt(fixture)
+	case "agent_runtime_real":
+		runConformanceAgentRuntimeReal(fixture)
 	default:
 		panic(AxError{Category:"fixture", Message:"unsupported Go conformance fixture kind "+kind})
 	}
@@ -29657,7 +31544,7 @@ func runConformanceFlow(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_plan", nil); expected != nil { assertEqual(mustCore(_flow_plan(flow.State)), expected, "flow plan") }
 	if expected := coreGet(fixture, "expected_plan_subset", nil); expected != nil { assertListSubset(coreGet(mustCore(_flow_plan(flow.State)), "steps", mustCore(_flow_plan(flow.State))), expected, "flow plan") }
 	if display(coreGet(fixture, "operation", "")) == "plan" { return }
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 	forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
 	if seed := coreGet(fixture, "cache_seed_value", nil); seed != nil {
 		cacheStore := asMap(coreGet(forwardOptions, "cache_store", coreGet(forwardOptions, "cacheStore", Object())))
@@ -29777,7 +31664,7 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		evidence := mustCore(_build_optimizer_evidence_batch(coreGet(fixture, "eval_result", Object()), components))
 		if expected := coreGet(fixture, "expected_evidence_subset", nil); expected != nil { assertSubset(evidence, expected, "optimizer evidence") }
 	case "evaluate":
-		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 		result := conformanceProgramEvaluateOptimization(program, client, coreGet(fixture, "dataset", Array()), asMap(coreGet(fixture, "candidate_map", Object())), asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_evaluation_subset", nil); expected != nil { assertSubset(result, expected, "optimization evaluation") }
 		if expected := coreGet(fixture, "expected_evaluation_rows_subset", nil); expected != nil { assertListSubset(coreGet(result, "rows", Array()), expected, "optimization evaluation rows") }
@@ -29797,7 +31684,7 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		}
 		var evaluate func(Value, map[string]Value) Value
 		if usesEvaluator {
-			client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+			client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 			evaluate = func(candidateMap Value, stepOptions map[string]Value) Value {
 				merged := cloneMap(opts)
 				for _, key := range orderedKeys(stepOptions) { if key != "__order" { coreSet(merged, key, stepOptions[key]) } }
@@ -29823,7 +31710,7 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 	case "eval":
 		ag, ok := program.(*AxAgent)
 		if !ok { panic(AxError{Category:"fixture", Message:"eval operation requires agent program"}) }
-		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 		task := asMap(coreGet(fixture, "task", Object("input", coreGet(fixture, "input", Object()))))
 		prediction := ag.EvaluateOptimizationTask(client, task, asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_prediction_subset", nil); expected != nil { assertSubset(prediction, expected, "eval prediction") }
@@ -30296,8 +32183,71 @@ func runConformanceAgentRuntimePolicy(fixture map[string]Value) {
 	assertAgentTrace(ag, fixture)
 }
 
+// conformanceRealRuntimeFactories holds real engines registered by the conformance
+// binary (package main), keyed by engine id. RunConformanceFixture lives in package ax
+// and cannot import a concrete engine like goja without an import cycle, so the binary
+// injects one here via RegisterConformanceRealRuntime.
+var conformanceRealRuntimeFactories = map[string]func(map[string]Value) (CodeRuntime, error){}
+
+// RegisterConformanceRealRuntime supplies a real CodeRuntime for agent_runtime_real
+// fixtures (the G1 antidote gate): it forces a real engine to actually execute
+// model-authored code end-to-end through forward() -- the one thing no scripted fixture
+// can prove, and the reason a non-functional agent() shipped past every other gate.
+func RegisterConformanceRealRuntime(id string, factory func(map[string]Value) (CodeRuntime, error)) {
+	conformanceRealRuntimeFactories[id] = factory
+}
+
+// runConformanceAgentRuntimeReal drives the full agent forward() loop against a REAL
+// embedded engine (not a ScriptedCodeRuntime): the recorded transcript supplies the
+// model turns, but the executor's javascriptCode is genuinely executed by the engine,
+// and the completion must be produced by that execution.
+func runConformanceAgentRuntimeReal(fixture map[string]Value) {
+	engineID := display(coreGet(fixture, "runtime_engine", "javascript-goja"))
+	factory := conformanceRealRuntimeFactories[engineID]
+	if factory == nil {
+		panic(AxError{Category: "fixture", Message: "no real runtime engine registered for " + engineID + "; the conformance binary must call ax.RegisterConformanceRealRuntime"})
+	}
+	runtime, runtimeErr := factory(asMap(coreGet(fixture, "runtime_options", Object())))
+	if runtimeErr != nil { panic(runtimeErr) }
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
+	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
+	coreSet(options, "runtime", runtime)
+	ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
+	output, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
+	if forwardErr != nil { panic(forwardErr) }
+	if expected := coreGet(fixture, "expected_output", nil); expected != nil { assertEqual(output, expected, "agent_runtime_real output") }
+	if expected := coreGet(fixture, "expected_result_subset", nil); expected != nil { assertSubset(output, expected, "agent_runtime_real output subset") }
+	if expected := coreGet(fixture, "expected_request_count", nil); expected != nil && len(client.Requests) != int(num(expected)) {
+		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d requests, got %d", int(num(expected)), len(client.Requests))})
+	}
+}
+
+// runConformanceAgentPrompt is a prompt-parity gate (G3): it builds a real agent
+// and asserts the RLM stage instructions were actually rendered into agent state.
+// On a hollow agent (executor description never rendered from IR) the asserted
+// state keys are absent, so this fixture fails -- which is exactly the defect that
+// slipped a non-functional agent() past every other gate.
+func runConformanceAgentPrompt(fixture map[string]Value) {
+	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
+	ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
+	expects := asMap(coreGet(fixture, "expected_description_contains", Object()))
+	for field, raw := range expects {
+		if field == "__order" { continue }
+		desc := display(coreGet(ag.State, field, ""))
+		if strings.TrimSpace(desc) == "" {
+			panic(AxError{Category: "fixture", Message: "agent stage description " + field + " is empty; RLM prompt was not rendered into agent state"})
+		}
+		for _, item := range asSlice(raw) {
+			needle := display(item)
+			if !strings.Contains(desc, needle) {
+				panic(AxError{Category: "fixture", Message: fmt.Sprintf("agent stage description %s missing %q: %s", field, needle, desc)})
+			}
+		}
+	}
+}
+
 func runConformanceAgentForward(fixture map[string]Value) {
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	var runtime *conformanceScriptedCodeRuntime
 	if script := coreGet(fixture, "runtime_script", nil); script != nil {
@@ -30312,6 +32262,7 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	_, err := safeValue(func() Value {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 		if state := coreGet(fixture, "set_state", nil); state != nil { ag.SetState(state) }
+		if snapshot := coreGet(fixture, "restore_runtime_state", nil); snapshot != nil { ag.RestoreRuntimeState(snapshot) }
 		out, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
 		if forwardErr != nil { panic(forwardErr) }
 		output = out

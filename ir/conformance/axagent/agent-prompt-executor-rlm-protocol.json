@@ -1,0 +1,14 @@
+{
+  "kind": "agent_prompt",
+  "name": "agent-prompt-executor-rlm-protocol",
+  "signature": "question:string -> answer:string",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "expected_description_contains": {
+    "executor_description": ["final(", "askClarification("],
+    "responder_description": ["evidence"]
+  }
+}

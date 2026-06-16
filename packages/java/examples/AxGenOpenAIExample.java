@@ -1,4 +1,3 @@
-// docs:start provider-axgen
 import dev.axllm.ax.*;
 import java.util.*;
 
@@ -21,4 +20,3 @@ public final class AxGenOpenAIExample {
     System.out.println(out);
   }
 }
-// docs:end provider-axgen

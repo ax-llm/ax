@@ -117,6 +117,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"axllm/schema.py":                                       schema,
 		"axllm/tool.py":                                         pyTool,
 		"axllm/runtime.py":                                      pyRuntime,
+		"axllm/runtime_quickjs.py":                              pyRuntimeQuickjs,
 		"axllm/prompt.py":                                       prompt,
 		"axllm/ai.py":                                           ai,
 		"axllm/gen.py":                                          gen,
@@ -134,8 +135,6 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_openai_api.py":                          pyAxGenOpenAIExample,
 		"examples/provider_mapping_no_key.py":                   pyProviderMappingNoKeyExample,
 		"examples/provider_stream_no_key.py":                    pyProviderStreamNoKeyExample,
-		"examples/axagent_pipeline.py":                          pyAxAgentPipelineExample,
-		"examples/agent_openai_api.py":                          pyAxAgentOpenAIExample,
 		"examples/runtime_adapter.py":                           pyRuntimeAdapterExample,
 		"examples/runtime_protocol.py":                          pyRuntimeProtocolExample,
 		"examples/runtime_profiles/javascript_quickjs.py":       pyJavaScriptQuickJSProfilePythonExample,
@@ -230,8 +229,6 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/AxGenOpenAIExample.java":                            javaAxGenOpenAIExample,
 		"examples/ProviderMappingNoKeyExample.java":                   javaProviderMappingNoKeyExample,
 		"examples/ProviderStreamNoKeyExample.java":                    javaProviderStreamNoKeyExample,
-		"examples/AxAgentPipelineExample.java":                        javaAxAgentPipelineExample,
-		"examples/AgentOpenAIExample.java":                            javaAgentOpenAIExample,
 		"examples/RuntimeAdapterExample.java":                         javaRuntimeAdapterExample,
 		"examples/RuntimeProtocolExample.java":                        javaRuntimeProtocolExample,
 		"examples/runtime_profiles/JavaScriptQuickJsExample.java":     javaJavaScriptQuickJSProfileExample,
@@ -285,8 +282,6 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_openai_api.cpp":                         cppAxGenOpenAIExample,
 		"examples/provider_mapping_no_key.cpp":                  cppProviderMappingNoKeyExample,
 		"examples/provider_stream_no_key.cpp":                   cppProviderStreamNoKeyExample,
-		"examples/axagent_pipeline.cpp":                         cppAxAgentPipelineExample,
-		"examples/agent_openai_api.cpp":                         cppAgentOpenAIExample,
 		"examples/runtime_adapter.cpp":                          cppRuntimeAdapterExample,
 		"examples/runtime_protocol.cpp":                         cppRuntimeProtocolExample,
 		"axllm/runtime/quickjs/quickjs_runtime.hpp":             cppQuickJSRuntimeHeader,
@@ -332,8 +327,6 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_openai_api/main.go":                 goAxGenOpenAIExample,
 		"examples/provider_mapping_no_key/main.go":          goProviderMappingNoKeyExample,
 		"examples/provider_stream_no_key/main.go":           goProviderStreamNoKeyExample,
-		"examples/axagent_pipeline/main.go":                 goAxAgentPipelineExample,
-		"examples/agent_openai_api/main.go":                 goAxAgentOpenAIExample,
 		"examples/runtime_adapter/main.go":                  goRuntimeAdapterExample,
 		"examples/runtime_protocol/main.go":                 goRuntimeProtocolExample,
 		"examples/runtime_profiles/javascript_goja/main.go": goJavaScriptGojaProfileExample,
@@ -372,8 +365,6 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"examples/provider_stream_no_key.rs":              rustProviderStreamNoKeyExample,
 		"examples/axgen_scripted_client_tool.rs":          rustAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api.rs":                    rustAxGenOpenAIExample,
-		"examples/axagent_pipeline.rs":                    rustAxAgentPipelineExample,
-		"examples/agent_openai_api.rs":                    rustAxAgentOpenAIExample,
 		"examples/axflow_program_graph.rs":                rustAxFlowProgramGraphExample,
 		"examples/flow_openai_api.rs":                     rustAxFlowOpenAIExample,
 		"examples/audio_responses_mapping.rs":             rustAudioResponsesMappingExample,
@@ -1951,7 +1942,6 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client and tool",
 				"- `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport",
 				"- `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport",
-				"- `python examples/axagent_pipeline.py`: deterministic AxAgent pipeline",
 				"- `python examples/axflow_program_graph.py`: AxFlow program graph",
 				"- `python examples/audio_responses_mapping.py`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `python examples/realtime_audio_events.py`: Grok/Gemini realtime audio setup, input, and event folding",
@@ -1963,7 +1953,6 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			),
 			ProviderExamples: readmeLines(
 				"- `OPENAI_API_KEY=... python examples/axgen_openai_api.py`: AxGen with a real OpenAI-compatible provider API",
-				"- `OPENAI_API_KEY=... python examples/agent_openai_api.py`: AxAgent with a real OpenAI-compatible provider API",
 				"- `OPENAI_API_KEY=... python examples/flow_openai_api.py`: AxFlow with a real OpenAI-compatible provider API",
 			),
 			RuntimeProfiles: readmeLines(
@@ -2009,7 +1998,6 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/AxGenScriptedClientToolExample.java`: AxGen with a scripted client and tool",
 				"- `examples/ProviderMappingNoKeyExample.java`: provider mapping through a scripted transport",
 				"- `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport",
-				"- `examples/AxAgentPipelineExample.java`: deterministic AxAgent pipeline",
 				"- `examples/AxFlowProgramGraphExample.java`: AxFlow program graph",
 				"- `examples/AudioResponsesMappingExample.java`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `examples/RealtimeAudioEventsExample.java`: Grok/Gemini realtime audio setup, input, and event folding",
@@ -2021,7 +2009,6 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			),
 			ProviderExamples: readmeLines(
 				"- `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/AxGenOpenAIExample.java && java -cp .:examples AxGenOpenAIExample`: AxGen with a real OpenAI-compatible provider API",
-				"- `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/AgentOpenAIExample.java && java -cp .:examples AgentOpenAIExample`: AxAgent with a real OpenAI-compatible provider API",
 				"- `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/FlowOpenAIExample.java && java -cp .:examples FlowOpenAIExample`: AxFlow with a real OpenAI-compatible provider API",
 			),
 			RuntimeProfiles: readmeLines(
@@ -2066,7 +2053,6 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/axgen_scripted_client_tool.cpp`: AxGen with a scripted client and tool",
 				"- `examples/provider_mapping_no_key.cpp`: provider mapping through a scripted transport",
 				"- `examples/provider_stream_no_key.cpp`: provider streaming through a scripted SSE transport",
-				"- `examples/axagent_pipeline.cpp`: deterministic AxAgent pipeline",
 				"- `examples/axflow_program_graph.cpp`: AxFlow program graph",
 				"- `examples/audio_responses_mapping.cpp`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `examples/realtime_audio_events.cpp`: Grok/Gemini realtime audio setup, input, and event folding",
@@ -2078,7 +2064,6 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			),
 			ProviderExamples: readmeLines(
 				"- `OPENAI_API_KEY=... ./build/axgen_openai_api`: AxGen with a real OpenAI-compatible provider API after building examples",
-				"- `OPENAI_API_KEY=... ./build/agent_openai_api`: AxAgent with a real OpenAI-compatible provider API after building examples",
 				"- `OPENAI_API_KEY=... ./build/flow_openai_api`: AxFlow with a real OpenAI-compatible provider API after building examples",
 			),
 			RuntimeProfiles: readmeLines(
@@ -2126,7 +2111,6 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `go run ./examples/axgen_scripted_client_tool`: AxGen with a scripted client and tool",
 				"- `go run ./examples/provider_mapping_no_key`: provider mapping through a scripted transport",
 				"- `go run ./examples/provider_stream_no_key`: provider streaming through a scripted SSE transport",
-				"- `go run ./examples/axagent_pipeline`: deterministic AxAgent pipeline",
 				"- `go run ./examples/axflow_program_graph`: AxFlow program graph",
 				"- `go run ./examples/audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `go run ./examples/realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding",
@@ -2138,7 +2122,6 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			),
 			ProviderExamples: readmeLines(
 				"- From the repo root, `OPENAI_API_KEY=... npm run example -- go axgen_openai_api.go`: AxGen with a real OpenAI-compatible provider API",
-				"- From the repo root, `OPENAI_API_KEY=... npm run example -- go agent_openai_api.go`: AxAgent with a real OpenAI-compatible provider API",
 				"- From the repo root, `OPENAI_API_KEY=... npm run example -- go flow_openai_api.go`: AxFlow with a real OpenAI-compatible provider API",
 			),
 			RuntimeProfiles: readmeLines(
@@ -2186,7 +2169,6 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `cargo run --example provider_mapping_no_key`: provider mapping through a scripted transport",
 				"- `cargo run --example provider_stream_no_key`: provider streaming through a scripted SSE transport",
 				"- `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool",
-				"- `cargo run --example axagent_pipeline`: deterministic AxAgent pipeline",
 				"- `cargo run --example axflow_program_graph`: AxFlow program graph",
 				"- `cargo run --example audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `cargo run --example realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding",
@@ -2199,7 +2181,6 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			),
 			ProviderExamples: readmeLines(
 				"- `OPENAI_API_KEY=... cargo run --example axgen_openai_api`: AxGen with a real OpenAI-compatible provider API",
-				"- `OPENAI_API_KEY=... cargo run --example agent_openai_api`: AxAgent with a real OpenAI-compatible provider API",
 				"- `OPENAI_API_KEY=... cargo run --example flow_openai_api`: AxFlow with a real OpenAI-compatible provider API",
 			),
 			RuntimeProfiles: readmeLines(

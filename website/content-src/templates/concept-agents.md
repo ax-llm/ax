@@ -11,7 +11,7 @@ There are two common paths:
 - **Short agents** compose a typed final answer with a small set of tools or child agents.
 - **Long-horizon agents** use RLM runtime sessions, context policy, context maps, memory, skills, and optimizer artifacts to keep multi-step work resumable.
 
-See [short agent examples]({{langRoot}}/examples/short-agents/) and [long-horizon agent examples]({{langRoot}}/examples/long-horizon-agents/).
+See [short agent examples]({{langRoot}}/examples/short-agents/) and [Advanced Start]({{langRoot}}/advanced-start/) for the broader Ax path.
 
 The important design choice for long-horizon work is RLM: the model does not merely emit one answer. It writes small runtime steps, Ax executes those steps in a persistent session, and the next turn sees compact evidence plus live runtime state.
 
@@ -116,7 +116,7 @@ Long-running agents need a context policy:
 
 Context maps are different: they are persistent orientation caches for repeated runs over the same long context, repository, document set, or system. Use them when many tasks ask different questions over the same material.
 
-For concrete code, see [long-horizon agent examples]({{langRoot}}/examples/long-horizon-agents/).
+For concrete code, see [Advanced Start]({{langRoot}}/advanced-start/) and the generated [examples]({{langRoot}}/examples/).
 
 ## Memory And Skills
 

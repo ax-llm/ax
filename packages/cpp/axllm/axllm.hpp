@@ -210,6 +210,7 @@ struct Core {
   static Value agent_runtime_close(Value session);
   static Value agent_memory_search(Value state, Value searches, Value already_loaded);
   static Value agent_skill_search(Value state, Value searches);
+  static Value agent_transcribe(Value client, Value request, Value options);
   static Value agent_callable_invoke(Value state, Value request, Value options);
   static Value stream_event_content_parts(Value event);
   static Value openai_normalize_chat_response(Value raw);
@@ -439,12 +440,24 @@ struct Core {
   static Value _agent_context_event_reason(Value stable_id);
   static Value _agent_policy_registry(Value policy, Value flags);
   static Value _policy_flag_enabled(Value flags, Value condition);
+  static Value _build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace);
   static Value _select_actor_primitives(Value registry, Value stage);
   static Value _select_protocol_actions(Value registry);
-  static Value _build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace);
   static Value _select_runtime_globals(Value registry);
   static Value _validate_policy_reserved_names(Value registry, Value name);
   static Value _render_actor_primitive_guidance(Value registry, Value stage);
+  static Value _rlm_flag_enabled(Value flags, Value flag);
+  static Value _rlm_any_flag_enabled(Value flags, Value flag_names);
+  static Value _rlm_entry_enabled(Value entry, Value flags);
+  static Value _render_runtime_primitive(Value primitive, Value flags);
+  static Value _render_actor_primitives_list(Value stage, Value flags);
+  static Value _build_rlm_flags(Value options);
+  static Value _rlm_context_var_list(Value context_fields);
+  static Value _rlm_context_var_summary(Value context_fields);
+  static Value _rlm_render_template(Value template_, Value vars, Value context);
+  static Value _render_rlm_executor_description(Value state, Value options);
+  static Value _render_rlm_responder_description(Value state, Value options);
+  static Value _render_rlm_distiller_description(Value state, Value options);
   static Value _record_policy_event(Value state, Value action, Value payload);
   static Value _normalize_policy_action_result(Value action, Value payload);
   static Value _build_agent_actor_prompt_policy(Value state);
@@ -468,6 +481,7 @@ struct Core {
   static Value _agent_fallback_checkpoint_summary(Value entries, Value turns);
   static Value _agent_build_deterministic_tombstone(Value error_entry, Value resolution_entry);
   static Value _agent_apply_context_management(Value state);
+  static Value _agent_apply_llm_tombstone_summary(Value state, Value client, Value options);
   static Value _agent_working_code_state(Value entries, Value turns);
   static Value _agent_refresh_checkpoint_state(Value state);
   static Value _agent_build_action_log_parts(Value state, Value hygiene_mode);
@@ -532,6 +546,19 @@ struct Core {
   static Value _agent_set_state(Value state, Value runtime_state);
   static Value _agent_stage_options(Value state, Value stage, Value forward_options);
   static Value _extract_agent_runtime_code(Value state, Value executor_output);
+  static Value _agent_apply_llm_checkpoint_summary(Value state, Value client, Value options);
+  static Value _context_map_sections();
+  static Value _context_map_parse_items(Value text);
+  static Value _context_map_render_items(Value items);
+  static Value _context_map_update_scores(Value scores, Value item_tags);
+  static Value _context_map_apply_operations(Value items, Value operations, Value next_id);
+  static Value _context_map_evict_to_budget(Value items, Value scores, Value max_chars);
+  static Value _format_context_map_trajectory(Value state);
+  static Value _context_map_complete(Value client, Value system, Value user);
+  static Value _context_map_parse_json(Value content);
+  static Value _agent_evolve_context_map(Value state, Value client, Value options);
+  static Value _agent_transcribe_one_audio(Value client, Value audio, Value transcribe_opts, Value options);
+  static Value _agent_transcribe_audio_inputs(Value state, Value client, Value values, Value options);
   static Value _agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
@@ -578,6 +605,13 @@ class AIClient {
   virtual ~AIClient() = default;
   virtual Value complete(Value request) = 0;
   virtual Value chat(Value request);
+  // Default so intrinsic.agent.transcribe can call transcribe through an AIClient* (the agent's
+  // scripted client extends the base AIClient). AxAIService and the scripted client override it.
+  virtual Value transcribe(Value request, Value options) {
+    (void)request;
+    (void)options;
+    return Value::object();
+  }
 };
 
 class AxAIService : public AIClient {

@@ -96,52 +96,6 @@ assert response["results"][0]["content"] == "hello from scripted transport", res
 print("python-axai-ok")
 `
 
-const pyAxAgentPipelineExample = `from axllm import AxCodeRuntime, AxCodeSession, agent
-
-
-class ScriptedService:
-    def __init__(self):
-        self.responses = [
-            {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"},
-            {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"},
-            {"content": "{\"answer\":\"Paris\"}"},
-        ]
-
-    def chat(self, request):
-        if not self.responses:
-            raise RuntimeError("scripted service exhausted")
-        raw = self.responses.pop(0)
-        return {"results": [{"content": raw["content"], "function_calls": []}]}
-
-
-class ScriptedSession(AxCodeSession):
-    def execute(self, code, options=None):
-        return {"type": "final", "args": [{"answer": "runtime"}]}
-
-    def inspect_globals(self, options=None):
-        return {}
-
-    def export_state(self, options=None):
-        return {"globals": {}}
-
-    def restore_state(self, snapshot, options=None):
-        return snapshot
-
-
-class ScriptedRuntime(AxCodeRuntime):
-    def create_session(self, globals, options=None):
-        return ScriptedSession()
-
-
-qa = agent("question:string -> answer:string", {"contextFields": []})
-out = qa.forward(ScriptedService(), {"question": "Capital of France?"})
-assert out == {"answer": "Paris"}, out
-assert qa.get_chat_log()[-1]["name"] == "responder"
-runtime_out = qa.test(ScriptedRuntime(), "final({answer: 'runtime'})", {"question": "runtime?"})
-assert runtime_out["kind"] == "final", runtime_out
-print("python-axagent-ok")
-`
-
 const pyAxFlowProgramGraphExample = `from axllm import ax, flow
 
 
@@ -383,51 +337,6 @@ public final class ProviderMappingNoKeyExample {
       throw new RuntimeException("bad response: " + response);
     }
     System.out.println("java-axai-ok");
-  }
-}
-`
-
-const javaAxAgentPipelineExample = `import dev.axllm.ax.*;
-import java.util.*;
-
-public final class AxAgentPipelineExample {
-  static final class ScriptedService implements AiClient {
-    final List<Map<String, Object>> responses = new ArrayList<>(List.of(
-      Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"),
-      Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"),
-      Map.of("content", "{\"answer\":\"Paris\"}")
-    ));
-
-    public Map<String, Object> complete(Map<String, Object> request) {
-      if (responses.isEmpty()) throw new RuntimeException("scripted service exhausted");
-      return responses.remove(0);
-    }
-  }
-
-  static final class ScriptedRuntime implements AxCodeRuntime {
-    public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
-      return new ScriptedSession();
-    }
-  }
-
-  static final class ScriptedSession implements AxCodeSession {
-    public Object execute(String code, Map<String, Object> options) {
-      return Map.of("type", "final", "args", List.of(Map.of("answer", "runtime")));
-    }
-    public Object inspectGlobals(Map<String, Object> options) { return Map.of(); }
-    public Object exportState(Map<String, Object> options) { return Map.of("globals", Map.of()); }
-    public Object restoreState(Object snapshot, Map<String, Object> options) { return snapshot; }
-    public Object close() { return Map.of("closed", true); }
-  }
-
-  public static void main(String[] args) {
-    AxAgent qa = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of()));
-    Map<String, Object> out = qa.forward(new ScriptedService(), Map.of("question", "Capital of France?"));
-    if (!"Paris".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
-    if (!"responder".equals(((Map<?, ?>) qa.getChatLog().get(qa.getChatLog().size() - 1)).get("name"))) throw new RuntimeException("bad chat log");
-    Map<String, Object> runtimeOut = qa.test(new ScriptedRuntime(), "final({answer:'runtime'})");
-    if (!"final".equals(runtimeOut.get("kind"))) throw new RuntimeException("bad runtime output: " + runtimeOut);
-    System.out.println("java-axagent-ok");
   }
 }
 `
@@ -710,53 +619,6 @@ int main() {
 }
 `
 
-const cppAxAgentPipelineExample = `#include "axllm/axllm.hpp"
-#include <iostream>
-
-struct ScriptedService : axllm::AIClient {
-  axllm::Array responses = {
-    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"}}),
-    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"}}),
-    axllm::object({{"content", "{\"answer\":\"Paris\"}"}})
-  };
-
-  axllm::Value complete(axllm::Value) override {
-    if (responses.empty()) throw axllm::AxError("fixture", "scripted service exhausted");
-    axllm::Value out = responses.front();
-    responses.erase(responses.begin());
-    return out;
-  }
-};
-
-struct ScriptedSession : axllm::AxCodeSession {
-  axllm::Value execute(axllm::Value, axllm::Value = axllm::Value::object()) override {
-    return axllm::object({{"type", "final"}, {"args", axllm::array({axllm::object({{"answer", "runtime"}})})}});
-  }
-  axllm::Value inspect(axllm::Value = axllm::Value::object()) override { return axllm::Value::object(); }
-  axllm::Value export_state(axllm::Value = axllm::Value::object()) override { return axllm::object({{"globals", axllm::Value::object()}}); }
-  axllm::Value restore_state(axllm::Value snapshot, axllm::Value = axllm::Value::object()) override { return snapshot; }
-  axllm::Value close() override { return axllm::object({{"closed", true}}); }
-};
-
-struct ScriptedRuntime : axllm::AxCodeRuntime {
-  ScriptedSession session;
-  axllm::AxCodeSession* create_session(axllm::Value, axllm::Value = axllm::Value::object()) override { return &session; }
-};
-
-int main() {
-  auto qa = axllm::agent("question:string -> answer:string", axllm::object({{"contextFields", axllm::array({})}}));
-  ScriptedService service;
-  axllm::Value out = qa.forward(service, axllm::object({{"question", "Capital of France?"}}));
-  if (!axllm::equal(axllm::Core::get(out, "answer"), "Paris")) return 1;
-  axllm::Value last = axllm::Core::get(qa.get_chat_log(), 2);
-  if (!axllm::equal(axllm::Core::get(last, "name"), "responder")) return 2;
-  ScriptedRuntime runtime;
-  axllm::Value runtime_out = qa.test(runtime, "final({answer:'runtime'})");
-  if (!axllm::equal(axllm::Core::get(runtime_out, "kind"), "final")) return 3;
-  std::cout << "cpp-axagent-ok\n";
-}
-`
-
 const cppAxFlowProgramGraphExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
@@ -960,67 +822,6 @@ events = list(client.stream({"chat_prompt": [{"role": "user", "content": "stream
 text = "".join((event["results"][0].get("content") or "") for event in events)
 assert text == "hello", events
 print("python-provider-stream-no-key", text)
-`
-
-const pyAxAgentOpenAIExample = `import json
-import os
-
-from axllm import OpenAICompatibleClient, agent
-
-
-api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
-if not api_key:
-    raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.")
-
-client = OpenAICompatibleClient(
-    api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-4.1-mini"),
-    model_config={"temperature": 0},
-)
-
-
-class ProviderAgentClient:
-    def __init__(self, inner):
-        self.inner = inner
-        self.raw_model_answer = None
-        self.calls = 0
-
-    def complete(self, _request):
-        self.calls += 1
-        if self.raw_model_answer is None:
-            response = self.inner.complete(
-                {
-                    "chat_prompt": [
-                        {
-                            "role": "user",
-                            "content": "In one sentence, explain what Ax helps developers build.",
-                        }
-                    ]
-                }
-            )
-            self.raw_model_answer = response["content"]
-        if self.calls == 1:
-            payload = {"completion": {"type": "final", "args": ["Answer", {}]}}
-        elif self.calls == 2:
-            payload = {
-                "completion": {
-                    "type": "final",
-                    "args": ["Answer", {"answer": self.raw_model_answer}],
-                }
-            }
-        else:
-            payload = {"answer": self.raw_model_answer}
-        return {"content": json.dumps(payload)}
-
-
-assistant = agent("question:string -> answer:string", {"contextFields": []})
-stage_client = ProviderAgentClient(client)
-output = assistant.forward(
-    stage_client,
-    {"question": "In one sentence, explain what Ax helps developers build."},
-)
-
-print(json.dumps({"agentOutput": output, "rawModelAnswer": stage_client.raw_model_answer}, indent=2, sort_keys=True))
 `
 
 const pyAxFlowOpenAIExample = `import json
@@ -1239,71 +1040,6 @@ public final class ProviderStreamNoKeyExample {
     }
     if (!"hello".contentEquals(text)) throw new RuntimeException("bad stream: " + text);
     System.out.println("java-provider-stream-no-key " + text);
-  }
-}
-`
-
-const javaAgentOpenAIExample = `import dev.axllm.ax.*;
-import java.util.*;
-
-public final class AgentOpenAIExample {
-  static final class ProviderAgentClient implements AiClient {
-    final OpenAICompatibleClient inner;
-    String rawModelAnswer;
-    int calls = 0;
-
-    ProviderAgentClient(OpenAICompatibleClient inner) {
-      this.inner = inner;
-    }
-
-    public Map<String, Object> complete(Map<String, Object> request) throws Exception {
-      calls += 1;
-      if (rawModelAnswer == null) {
-        Map<String, Object> response =
-            inner.complete(
-                Map.of(
-                    "chat_prompt",
-                    List.of(
-                        Map.of(
-                            "role",
-                            "user",
-                            "content",
-                            "In one sentence, explain what Ax helps developers build."))));
-        rawModelAnswer = String.valueOf(response.get("content"));
-      }
-      Map<String, Object> payload;
-      if (calls == 1) {
-        payload = Map.of("completion", Map.of("type", "final", "args", List.of("Answer", Map.of())));
-      } else if (calls == 2) {
-        payload =
-            Map.of(
-                "completion",
-                Map.of("type", "final", "args", List.of("Answer", Map.of("answer", rawModelAnswer))));
-      } else {
-        payload = Map.of("answer", rawModelAnswer);
-      }
-      return Map.of("content", Json.stringify(payload));
-    }
-  }
-
-  public static void main(String[] args) throws Exception {
-    String apiKey = System.getenv("OPENAI_API_KEY");
-    if (apiKey == null || apiKey.isBlank()) apiKey = System.getenv("OPENAI_APIKEY");
-    if (apiKey == null || apiKey.isBlank()) {
-      throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.");
-    }
-    String model = System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini");
-    OpenAICompatibleClient client =
-        new OpenAICompatibleClient(
-            Map.of("api_key", apiKey, "model", model, "model_config", Map.of("temperature", 0.0)));
-
-    AxAgent assistant = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of()));
-    ProviderAgentClient stageClient = new ProviderAgentClient(client);
-    Map<String, Object> output =
-        assistant.forward(
-            stageClient,
-            Map.of("question", "In one sentence, explain what Ax helps developers build."));
-    System.out.println(Json.stringify(Map.of("agentOutput", output, "rawModelAnswer", stageClient.rawModelAnswer)));
   }
 }
 `
@@ -1560,78 +1296,6 @@ int main() {
   }
   if (text != "hello") return 1;
   std::cout << "cpp-provider-stream-no-key " << text << "\n";
-}
-`
-
-const cppAgentOpenAIExample = `#include "axllm/axllm.hpp"
-
-#include <cstdlib>
-#include <iostream>
-
-struct ProviderAgentClient : axllm::AIClient {
-  axllm::OpenAICompatibleClient& inner;
-  axllm::Value raw_model_answer;
-  int calls = 0;
-
-  explicit ProviderAgentClient(axllm::OpenAICompatibleClient& inner_) : inner(inner_) {}
-
-  axllm::Value complete(axllm::Value) override {
-    calls += 1;
-    if (raw_model_answer.is_null()) {
-      axllm::Value response = inner.complete(axllm::object({
-          {"chat_prompt",
-           axllm::array({
-               axllm::object({
-                   {"role", "user"},
-                   {"content", "In one sentence, explain what Ax helps developers build."},
-               }),
-           })},
-      }));
-      raw_model_answer = axllm::Core::get(response, "content");
-    }
-    axllm::Value payload;
-    if (calls == 1) {
-      payload = axllm::object({
-          {"completion", axllm::object({{"type", "final"}, {"args", axllm::array({"Answer", axllm::Value::object()})}})},
-      });
-    } else if (calls == 2) {
-      payload = axllm::object({
-          {"completion",
-           axllm::object({
-               {"type", "final"},
-               {"args", axllm::array({"Answer", axllm::object({{"answer", raw_model_answer}})})},
-           })},
-      });
-    } else {
-      payload = axllm::object({{"answer", raw_model_answer}});
-    }
-    return axllm::object({{"content", axllm::stringify(payload)}});
-  }
-};
-
-int main() {
-  const char* key = std::getenv("OPENAI_API_KEY");
-  if (key == nullptr || std::string(key).empty()) key = std::getenv("OPENAI_APIKEY");
-  if (key == nullptr || std::string(key).empty()) {
-    std::cerr << "Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.\n";
-    return 2;
-  }
-
-  const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
-      {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-4.1-mini" : model},
-      {"model_config", axllm::object({{"temperature", 0}})},
-  }));
-  auto assistant = axllm::agent(
-      "question:string -> answer:string",
-      axllm::object({{"contextFields", axllm::array({})}}));
-  ProviderAgentClient stage_client(client);
-  axllm::Value output = assistant.forward(
-      stage_client,
-      axllm::object({{"question", "In one sentence, explain what Ax helps developers build."}}));
-  std::cout << axllm::stringify(axllm::object({{"agentOutput", output}, {"rawModelAnswer", stage_client.raw_model_answer}}))
-            << "\n";
 }
 `
 

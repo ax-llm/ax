@@ -137,15 +137,16 @@ skills. The committed package output lives under `packages/python`,
 `packages/java`, `packages/cpp`, `packages/go`, and `packages/rust`; AxIR
 remains the source of truth.
 
-TypeScript examples remain under `src/examples`. Generated Python, Java, C++,
-Go, and Rust examples are canonical under `packages/<language>/examples` and run
-through `npm run example -- <language> <file>`.
-`npm run example -- list` groups the examples by language and marks no-key
-deterministic examples separately from provider API examples. The runner uses
-the committed package source under `packages/<language>`, resolves generated
-language examples from packages first, and writes only build scratch data under
-`src/examples/.generated/`. The examples cover
-signatures, AxGen, AxAgent, AxFlow, OpenAI Responses audio mapping,
+Public examples remain under `src/examples/<language>/<group>/` and are
+generated from each file's `ax-example` header. Generated Python, Java, C++,
+Go, and Rust package fixtures remain canonical under
+`packages/<language>/examples` for AxIR verification and can still run through
+`npm run example -- <language> <file>`.
+`npm run example -- list` groups only the public provider-backed catalog by
+language. The runner uses the committed package source under
+`packages/<language>` for non-TypeScript examples and writes only build scratch
+data under `src/examples/.generated/`. Internal fixtures cover signatures,
+AxGen, AxAgent, AxFlow, OpenAI Responses audio mapping,
 Grok/Gemini realtime event folding, MCP scripted transports, runtime adapters,
 optimizer artifacts, and GEPA.
 

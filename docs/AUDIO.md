@@ -33,7 +33,6 @@ Providers without a compatible batch endpoint throw `AxMediaNotSupportedError`.
 
 Runnable examples:
 
-- `src/examples/audio-batch-and-agent.ts` writes generated MP3 artifacts under `src/examples/output/` and plays them immediately.
 - `src/examples/audio-chat.ts voice` streams realtime audio chunks, saves a WAV, and plays it when a local player is available.
 - `src/examples/audio-chat.ts transcribe` streams `presentation.wav` into realtime transcription and prints transcript deltas.
 

@@ -48,7 +48,6 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `go run ./examples/axgen_scripted_client_tool`: AxGen with a scripted client and tool
 - `go run ./examples/provider_mapping_no_key`: provider mapping through a scripted transport
 - `go run ./examples/provider_stream_no_key`: provider streaming through a scripted SSE transport
-- `go run ./examples/axagent_pipeline`: deterministic AxAgent pipeline
 - `go run ./examples/axflow_program_graph`: AxFlow program graph
 - `go run ./examples/audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `go run ./examples/realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding
@@ -61,7 +60,6 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - From the repo root, `OPENAI_API_KEY=... npm run example -- go axgen_openai_api.go`: AxGen with a real OpenAI-compatible provider API
-- From the repo root, `OPENAI_API_KEY=... npm run example -- go agent_openai_api.go`: AxAgent with a real OpenAI-compatible provider API
 - From the repo root, `OPENAI_API_KEY=... npm run example -- go flow_openai_api.go`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents

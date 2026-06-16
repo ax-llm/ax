@@ -28,6 +28,8 @@
     "axir:check-packages": "node scripts/check-axir-packages.mjs",
     "axir:audit:coverage": "node scripts/run-axir.mjs audit coverage ir/axcore/root.axir",
     "axir:perturb:check": "node scripts/axir-perturb-check.mjs",
+    "axir:gate:anti-facade": "node scripts/axir-anti-facade-check.mjs",
+    "axir:gate:ledger": "node scripts/axir-ledger-check.mjs",
     "skills:check": "node scripts/check-skills.mjs",
     "axir:verify:dev": "node scripts/run-axir.mjs verify --mode dev --jobs 0 --progress",
     "axir:verify:release": "node scripts/run-axir.mjs verify --mode release --jobs 0 --progress",

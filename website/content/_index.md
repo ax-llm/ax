@@ -19,27 +19,31 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
     <span><i class="home-proof-dot proof-teal" aria-hidden="true"></i>Audio + realtime</span>
     <span><i class="home-proof-dot proof-green" aria-hidden="true"></i>Evaluate and optimize</span>
   </div>
-{{< home-language-controls >}}
   <div class="home-actions">
     <a href="/typescript/quick-start/">Get started</a>
     <a class="home-button-secondary" href="https://github.com/ax-llm/ax">GitHub</a>
-  </div>
-{{< home-install >}}
-  <div class="home-hero-stats" data-home-stats data-repo="ax-llm/ax" data-npm-package="@ax-llm/ax" aria-label="Project stats">
-    <a href="https://github.com/ax-llm/ax" hidden><strong data-stat="stars"></strong><span>GitHub stars</span></a>
-    <a href="https://www.npmjs.com/package/@ax-llm/ax" hidden><strong data-stat="downloads"></strong><span>npm downloads/week</span></a>
   </div>
 </div>
 <div class="home-hero-panel" aria-label="Ax signature runtime preview">
 {{< home-code topic="classifier" group="hero" >}}
 {{< home-output topic="classifier" title="Typed output" >}}
 </div>
+</section>
+
+<div class="home-install-strip">
+{{< home-language-controls >}}
+{{< home-install >}}
+  <div class="home-hero-stats" data-home-stats data-repo="ax-llm/ax" data-npm-package="@ax-llm/ax" aria-label="Project stats">
+    <a href="https://github.com/ax-llm/ax" hidden><strong data-stat="stars"></strong><span>GitHub stars</span></a>
+    <a href="https://www.npmjs.com/package/@ax-llm/ax" hidden><strong data-stat="downloads"></strong><span>npm downloads/week</span></a>
+  </div>
+</div>
+
 <div class="home-agent-strip">
   <p><strong>Using Claude Code or Cursor?</strong> Point your coding agent at Ax — every language ships installable, versioned skills your agent can follow.</p>
 {{< home-install field="skillsCommand" class="home-install-skills" label="Install Ax agent skills" >}}
   <a class="home-agent-strip-link" href="/typescript/skills/">Browse agent skills</a>
 </div>
-</section>
 
 <nav class="home-paths" aria-label="Choose your path">
   <a href="/typescript/quick-start/"><strong>Quick Start</strong><span>Install Ax and run the smallest typed generation program.</span></a>

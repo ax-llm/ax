@@ -67,7 +67,7 @@ flowchart TB
 - Keep provider keys outside source code.
 - Prefer model aliases like `fast`, `smart`, or `cheap` when app callers should not know provider model IDs.
 - Trace request latency, retries, token usage, cost, route choice, media mode, and model key.
-- Keep provider-api examples separate from no-key examples.
+- Keep public provider examples separate from internal conformance fixtures.
 - Use OpenAI-compatible clients for generated-language package examples when that is the supported provider path.
 
 See [ai() LLM models]({{langRoot}}/subsystems/ai/) and [ai() API]({{langRoot}}/api/ai/).

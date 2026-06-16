@@ -206,7 +206,7 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
 
 - [customer-support.ts](src/examples/customer-support.ts) - Complete support system
 - [food-search.ts](src/examples/food-search.ts) - Restaurant recommendations with tools
-- [simple-optimizer-test.ts](src/examples/simple-optimizer-test.ts) - Automatic optimization
+- [optimize.ts](src/examples/optimize.ts) - Automatic optimization
 - [axagent-gepa-optimization.ts](src/examples/axagent-gepa-optimization.ts) - Agent optimization with GEPA
 - [ax-flow-enhanced-demo.ts](src/examples/ax-flow-enhanced-demo.ts) - Complex workflows
 

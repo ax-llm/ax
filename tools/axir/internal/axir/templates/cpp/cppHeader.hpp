@@ -210,6 +210,7 @@ struct Core {
   static Value agent_runtime_close(Value session);
   static Value agent_memory_search(Value state, Value searches, Value already_loaded);
   static Value agent_skill_search(Value state, Value searches);
+  static Value agent_transcribe(Value client, Value request, Value options);
   static Value agent_callable_invoke(Value state, Value request, Value options);
   static Value stream_event_content_parts(Value event);
   static Value openai_normalize_chat_response(Value raw);
@@ -224,6 +225,13 @@ class AIClient {
   virtual ~AIClient() = default;
   virtual Value complete(Value request) = 0;
   virtual Value chat(Value request);
+  // Default so intrinsic.agent.transcribe can call transcribe through an AIClient* (the agent's
+  // scripted client extends the base AIClient). AxAIService and the scripted client override it.
+  virtual Value transcribe(Value request, Value options) {
+    (void)request;
+    (void)options;
+    return Value::object();
+  }
 };
 
 class AxAIService : public AIClient {

@@ -1,4 +1,3 @@
-// docs:start provider-flow
 #include "axllm/axllm.hpp"
 
 #include <cstdlib>
@@ -31,4 +30,3 @@ int main() {
       axllm::object({{"topic", "how Ax composes typed LLM programs"}}));
   std::cout << axllm::stringify(output) << "\n";
 }
-// docs:end provider-flow

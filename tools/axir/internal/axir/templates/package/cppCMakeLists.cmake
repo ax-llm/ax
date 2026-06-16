@@ -59,8 +59,6 @@ if(AX_BUILD_EXAMPLES)
     axgen_openai_api
     provider_mapping_no_key
     provider_stream_no_key
-    axagent_pipeline
-    agent_openai_api
     runtime_adapter
     runtime_protocol
     axflow_program_graph

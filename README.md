@@ -85,11 +85,12 @@ runner uses those committed packages and runs examples without asking you to
 remember compiler commands:
 
 ```bash
-npm run example -- python signature_schema.py
-npm run example -- java SignatureSchemaExample.java
-npm run example -- cpp signature_schema.cpp
-npm run example -- go signature_schema.go
-npm run example -- rust signature_schema.rs
+npm run example -- list
+npm run example -- python src/examples/python/generation/axgen-openai.py
+npm run example -- java src/examples/java/generation/BasicGenerationExample.java
+npm run example -- cpp src/examples/cpp/generation/basic_generation.cpp
+npm run example -- go src/examples/go/generation/basic_generation.go
+npm run example -- rust src/examples/rust/generation/basic_generation.rs
 ```
 
 See [`src/examples/README.md`](src/examples/README.md) for runnable examples,
@@ -519,27 +520,21 @@ npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extr
 ```bash
 OPENAI_APIKEY=your-key npm run tsx ./src/examples/<name>.ts
 npm run example -- list
-npm run example -- python axagent_pipeline.py
-npm run example -- java AxFlowProgramGraphExample.java
-npm run example -- cpp realtime_audio_events.cpp
-npm run example -- go signature_schema.go
-npm run example -- rust signature_schema.rs
-npm run example -- ts src/examples/mcp-scripted-tools.ts
-npm run example -- python mcp_scripted_tools.py
-npm run example -- python axgen_openai_api.py
-npm run example -- java AxGenOpenAIExample.java
-npm run example -- cpp axgen_openai_api.cpp
-npm run example -- go axgen_openai_api.go
-npm run example -- rust axgen_openai_api.rs
+npm run example -- list --json
+npm run example -- ts src/examples/typescript/generation/axgen-openai.ts
+npm run example -- python src/examples/python/short-agents/agent-openai.py
+npm run example -- java src/examples/java/flows/SequentialFlowExample.java
+npm run example -- cpp src/examples/cpp/audio/speech_audio.cpp
+npm run example -- go src/examples/go/optimization/axgen_optimization.go
+npm run example -- rust src/examples/rust/generation/basic_generation.rs
 ```
 
-`npm run example -- list` shows `no-key` and `provider-api` examples for
-TypeScript, Python, Java, C++, Go, and Rust. No-key examples cover signatures,
-AxAgent, AxFlow, MCP scripted transports, audio/realtime mapping, runtime adapters,
-optimizer artifacts, and GEPA with deterministic local clients. Provider API
-examples call real provider HTTP and read credentials from `.env`. TypeScript
-examples live under `src/examples`; generated language examples are canonical in
-`packages/<language>/examples` and are resolved from those packages first.
+`npm run example -- list` shows public provider-backed examples for TypeScript,
+Python, Java, C++, Go, and Rust. Public examples live under
+`src/examples/<language>/<group>/`, use `ax-example` metadata headers, call real
+providers, and read credentials from `.env`. Internal generated-package fixtures
+remain under `packages/<language>/examples` for AxIR verification, but the public
+catalog and website are generated only from `src/examples/<language>/`.
 
 Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `audio-chat.ts`, `audio-batch-and-agent.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `openai-compatible.ts`, `ax-flow-enhanced-demo.ts`. [Browse all examples →](src/examples/)
 

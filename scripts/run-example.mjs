@@ -5,6 +5,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  readPublicExampleCatalog,
+  resolvePublicExample,
+} from './example-catalog.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
@@ -46,221 +50,6 @@ const languageDir = {
   rust: 'rust',
 };
 
-const exampleCatalog = {
-  ts: [
-    [
-      'provider-api',
-      'src/examples/rlm-context-map-live.ts',
-      'AxAgent context-map OpenAI API run',
-    ],
-    [
-      'no-key',
-      'src/examples/rlm-context-management.ts',
-      'AxAgent context pressure',
-    ],
-    [
-      'provider-api',
-      'src/examples/summarize.ts',
-      'AxGen OpenAI-compatible API run',
-    ],
-    [
-      'provider-api',
-      'src/examples/audio-chat.ts voice',
-      'Realtime audio voice stream',
-    ],
-    [
-      'no-key',
-      'src/examples/mcp-scripted-tools.ts',
-      'MCP scripted transport tools',
-    ],
-    [
-      'no-key',
-      'src/examples/mcp-stdio-framing.ts',
-      'MCP stdio JSON-RPC framing',
-    ],
-    [
-      'provider-api',
-      'src/examples/mcp-client-linear.ts',
-      'Linear MCP Streamable HTTP run',
-    ],
-  ],
-  python: [
-    ['no-key', 'signature_schema.py', 'Signature and schema smoke'],
-    ['no-key', 'provider_mapping_no_key.py', 'OpenAI-compatible mapping smoke'],
-    [
-      'no-key',
-      'provider_stream_no_key.py',
-      'OpenAI-compatible streaming smoke',
-    ],
-    [
-      'no-key',
-      'axgen_scripted_client_tool.py',
-      'AxGen scripted client and tool',
-    ],
-    ['no-key', 'axagent_pipeline.py', 'Deterministic AxAgent forward and logs'],
-    ['no-key', 'axflow_program_graph.py', 'Deterministic AxFlow graph'],
-    ['no-key', 'audio_responses_mapping.py', 'OpenAI Responses audio mapping'],
-    [
-      'no-key',
-      'realtime_audio_events.py',
-      'Grok and Gemini realtime event folding',
-    ],
-    ['no-key', 'runtime_adapter.py', 'Custom AxCodeRuntime session'],
-    ['no-key', 'optimizer_artifact.py', 'Optimizer artifact apply round trip'],
-    ['no-key', 'gepa_local_optimizer.py', 'Local GEPA engine run'],
-    ['no-key', 'mcp_scripted_tools.py', 'MCP scripted transport tools'],
-    ['provider-api', 'axgen_openai_api.py', 'AxGen OpenAI API run'],
-    ['provider-api', 'agent_openai_api.py', 'AxAgent OpenAI API run'],
-    ['provider-api', 'flow_openai_api.py', 'AxFlow OpenAI API run'],
-  ],
-  java: [
-    ['no-key', 'SignatureSchemaExample.java', 'Signature and schema smoke'],
-    [
-      'no-key',
-      'ProviderMappingNoKeyExample.java',
-      'OpenAI-compatible mapping smoke',
-    ],
-    [
-      'no-key',
-      'ProviderStreamNoKeyExample.java',
-      'OpenAI-compatible streaming smoke',
-    ],
-    [
-      'no-key',
-      'AxGenScriptedClientToolExample.java',
-      'AxGen scripted client and tool',
-    ],
-    [
-      'no-key',
-      'AxAgentPipelineExample.java',
-      'Deterministic AxAgent forward and logs',
-    ],
-    ['no-key', 'AxFlowProgramGraphExample.java', 'Deterministic AxFlow graph'],
-    [
-      'no-key',
-      'AudioResponsesMappingExample.java',
-      'OpenAI Responses audio mapping',
-    ],
-    [
-      'no-key',
-      'RealtimeAudioEventsExample.java',
-      'Grok and Gemini realtime event folding',
-    ],
-    ['no-key', 'RuntimeAdapterExample.java', 'Custom AxCodeRuntime session'],
-    [
-      'no-key',
-      'OptimizerArtifactExample.java',
-      'Optimizer artifact apply round trip',
-    ],
-    ['no-key', 'GEPALocalOptimizerExample.java', 'Local GEPA engine run'],
-    [
-      'no-key',
-      'AxMCPScriptedToolsExample.java',
-      'MCP scripted transport tools',
-    ],
-    ['provider-api', 'AxGenOpenAIExample.java', 'AxGen OpenAI API run'],
-    ['provider-api', 'AgentOpenAIExample.java', 'AxAgent OpenAI API run'],
-    ['provider-api', 'FlowOpenAIExample.java', 'AxFlow OpenAI API run'],
-  ],
-  cpp: [
-    ['no-key', 'signature_schema.cpp', 'Signature and schema smoke'],
-    [
-      'no-key',
-      'provider_mapping_no_key.cpp',
-      'OpenAI-compatible mapping smoke',
-    ],
-    [
-      'no-key',
-      'provider_stream_no_key.cpp',
-      'OpenAI-compatible streaming smoke',
-    ],
-    [
-      'no-key',
-      'axgen_scripted_client_tool.cpp',
-      'AxGen scripted client and tool',
-    ],
-    [
-      'no-key',
-      'axagent_pipeline.cpp',
-      'Deterministic AxAgent forward and logs',
-    ],
-    ['no-key', 'axflow_program_graph.cpp', 'Deterministic AxFlow graph'],
-    ['no-key', 'audio_responses_mapping.cpp', 'OpenAI Responses audio mapping'],
-    [
-      'no-key',
-      'realtime_audio_events.cpp',
-      'Grok and Gemini realtime event folding',
-    ],
-    ['no-key', 'runtime_adapter.cpp', 'Custom AxCodeRuntime session'],
-    ['no-key', 'optimizer_artifact.cpp', 'Optimizer artifact apply round trip'],
-    ['no-key', 'gepa_local_optimizer.cpp', 'Local GEPA engine run'],
-    ['no-key', 'mcp_scripted_tools.cpp', 'MCP scripted transport tools'],
-    ['provider-api', 'axgen_openai_api.cpp', 'AxGen OpenAI API run'],
-    ['provider-api', 'agent_openai_api.cpp', 'AxAgent OpenAI API run'],
-    ['provider-api', 'flow_openai_api.cpp', 'AxFlow OpenAI API run'],
-  ],
-  go: [
-    ['no-key', 'signature_schema.go', 'Signature and schema smoke'],
-    ['no-key', 'provider_mapping_no_key.go', 'OpenAI-compatible mapping smoke'],
-    [
-      'no-key',
-      'provider_stream_no_key.go',
-      'OpenAI-compatible streaming smoke',
-    ],
-    [
-      'no-key',
-      'axgen_scripted_client_tool.go',
-      'AxGen scripted client and tool',
-    ],
-    ['no-key', 'axagent_pipeline.go', 'Deterministic AxAgent forward and logs'],
-    ['no-key', 'axflow_program_graph.go', 'Deterministic AxFlow graph'],
-    ['no-key', 'audio_responses_mapping.go', 'OpenAI Responses audio mapping'],
-    [
-      'no-key',
-      'realtime_audio_events.go',
-      'Grok and Gemini realtime event folding',
-    ],
-    ['no-key', 'runtime_adapter.go', 'Custom AxCodeRuntime session'],
-    ['no-key', 'runtime_protocol.go', 'Process AxCodeRuntime protocol'],
-    ['no-key', 'optimizer_artifact.go', 'Optimizer artifact smoke'],
-    ['no-key', 'gepa_local_optimizer.go', 'Local GEPA engine run'],
-    ['no-key', 'mcp_scripted_tools.go', 'MCP scripted transport tools'],
-    ['provider-api', 'axgen_openai_api.go', 'AxGen OpenAI API run'],
-    ['provider-api', 'agent_openai_api.go', 'AxAgent OpenAI API run'],
-    ['provider-api', 'flow_openai_api.go', 'AxFlow OpenAI API run'],
-  ],
-  rust: [
-    ['no-key', 'signature_schema.rs', 'Signature and schema smoke'],
-    ['no-key', 'provider_mapping_no_key.rs', 'OpenAI-compatible mapping smoke'],
-    [
-      'no-key',
-      'provider_stream_no_key.rs',
-      'OpenAI-compatible streaming smoke',
-    ],
-    [
-      'no-key',
-      'axgen_scripted_client_tool.rs',
-      'AxGen scripted client and tool',
-    ],
-    ['no-key', 'axagent_pipeline.rs', 'Deterministic AxAgent forward and logs'],
-    ['no-key', 'axflow_program_graph.rs', 'Deterministic AxFlow graph'],
-    ['no-key', 'audio_responses_mapping.rs', 'OpenAI Responses audio mapping'],
-    [
-      'no-key',
-      'realtime_audio_events.rs',
-      'Grok and Gemini realtime event folding',
-    ],
-    ['no-key', 'runtime_adapter.rs', 'Custom AxCodeRuntime session'],
-    ['no-key', 'runtime_protocol.rs', 'Process AxCodeRuntime protocol'],
-    ['no-key', 'optimizer_artifact.rs', 'Optimizer artifact smoke'],
-    ['no-key', 'gepa_local_optimizer.rs', 'Local GEPA engine run'],
-    ['no-key', 'mcp_scripted_tools.rs', 'MCP scripted transport tools'],
-    ['provider-api', 'axgen_openai_api.rs', 'AxGen OpenAI API run'],
-    ['provider-api', 'agent_openai_api.rs', 'AxAgent OpenAI API run'],
-    ['provider-api', 'flow_openai_api.rs', 'AxFlow OpenAI API run'],
-  ],
-};
-
 const env = loadDotEnv();
 if (!env.GOCACHE) env.GOCACHE = path.join(generatedRoot, 'go-build');
 if (!env.AXIR_REPO_ROOT) env.AXIR_REPO_ROOT = repoRoot;
@@ -274,9 +63,10 @@ if (!env.AXIR_AXJS_RUNTIME_SERVER) {
   );
 }
 const args = process.argv.slice(2);
+const publicExampleCatalog = await readPublicExampleCatalog({ repoRoot });
 
 if (args.length === 0) usage(1);
-if (args[0] === 'list') listExamples();
+if (args[0] === 'list') listExamples(publicExampleCatalog, args);
 
 let language = normalizeLanguage(args[0]);
 let exampleArg;
@@ -293,7 +83,7 @@ if (language) {
 
 if (!language || !exampleArg) usage(1);
 
-const example = resolveExample(language, exampleArg);
+const example = resolveExample(language, exampleArg, publicExampleCatalog);
 
 switch (language) {
   case 'ts':
@@ -320,25 +110,32 @@ switch (language) {
 
 function usage(code) {
   console.error(`Usage:
-  npm run example -- ts src/examples/summarize.ts
-  npm run example -- python axgen_openai_api.py
-  npm run example -- java AxGenOpenAIExample.java
-  npm run example -- cpp axgen_openai_api.cpp
-  npm run example -- go axgen_openai_api.go
-  npm run example -- go signature_schema.go
-  npm run example -- rust signature_schema.rs
+  npm run example -- typescript src/examples/typescript/generation/axgen-openai.ts
+  npm run example -- python src/examples/python/generation/axgen-openai.py
+  npm run example -- java src/examples/java/generation/AxGenOpenAIExample.java
+  npm run example -- cpp src/examples/cpp/generation/axgen_openai.cpp
+  npm run example -- go src/examples/go/generation/axgen_openai.go
+  npm run example -- rust src/examples/rust/generation/axgen_openai.rs
   npm run example -- list
+  npm run example -- list --json
 
-You can also pass a full example path and let the runner infer the language.`);
+You can also pass a full example path and let the runner infer the language.
+Generated package fixtures under packages/<language>/examples can still be run by explicit path for verification.`);
   process.exit(code);
 }
 
-function listExamples() {
-  for (const [language, rows] of Object.entries(exampleCatalog)) {
+function listExamples(catalog, listArgs) {
+  if (listArgs.includes('--json')) {
+    console.log(JSON.stringify(catalog, null, 2));
+    process.exit(0);
+  }
+
+  for (const [language, rows] of Object.entries(catalog.byLanguage)) {
     console.log(`${language}:`);
-    for (const [kind, file, description] of rows) {
-      const command = `npm run example -- ${language} ${file}`;
-      console.log(`  ${kind.padEnd(12)} ${command.padEnd(64)} ${description}`);
+    for (const example of rows) {
+      console.log(
+        `  ${example.group.padEnd(14)} ${example.level.padEnd(12)} ${example.command.padEnd(82)} ${example.title} - ${example.description}`
+      );
     }
     console.log('');
   }
@@ -384,7 +181,12 @@ function inferLanguage(examplePath) {
   return null;
 }
 
-function resolveExample(language, exampleArg) {
+function resolveExample(language, exampleArg, catalog) {
+  const publicExample = resolvePublicExample(catalog, language, exampleArg);
+  if (publicExample) {
+    return path.join(repoRoot, publicExample.sourcePath);
+  }
+
   const ext = path.extname(exampleArg);
   const withExt =
     ext || !defaultExt[language]

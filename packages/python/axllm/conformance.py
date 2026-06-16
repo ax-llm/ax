@@ -66,6 +66,7 @@ from .agent import (
 )
 from .prompt import AxPromptTemplate, collect_template_variable_names, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, RuntimeCapabilities, RuntimeEnvelope, RuntimeProtocolError
+from .runtime_quickjs import AxQuickJsCodeRuntime
 from .schema import strip_internal, to_json_schema, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
@@ -77,10 +78,11 @@ class FixtureError(AssertionError):
 
 
 class ConformanceScriptedAI(AxBaseAI):
-    def __init__(self, responses=None, stream_events=None):
+    def __init__(self, responses=None, stream_events=None, transcribe_responses=None):
         super().__init__(name="scripted", model="scripted-chat", embed_model="scripted-embed")
         self.responses = list(responses or [])
         self.stream_events = list(stream_events or [])
+        self.transcribe_responses = list(transcribe_responses or [])
         self.requests = []
         self.chat_calls = 0
 
@@ -104,6 +106,8 @@ class ConformanceScriptedAI(AxBaseAI):
 
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         self.requests.append(copy.deepcopy(request))
+        if self.transcribe_responses:
+            return copy.deepcopy(self.transcribe_responses.pop(0))
         return {"text": "fixture transcript"}
 
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -506,6 +510,10 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_agent_runtime_adapter(fixture)
         elif kind == "agent_runtime_protocol":
             _run_agent_runtime_protocol(fixture)
+        elif kind == "agent_prompt":
+            _run_agent_prompt(fixture)
+        elif kind == "agent_runtime_real":
+            _run_agent_forward(fixture)
         elif kind == "program_contract":
             _run_program_contract(fixture)
         elif kind == "flow":
@@ -681,7 +689,7 @@ def _run_forward(fixture):
         gen.add_field_processor(processor.get("field"), processor.get("processor", processor.get("op")))
     if "stop_functions" in fixture or "stopFunctions" in fixture:
         gen.set_stop_functions(fixture.get("stop_functions") or fixture.get("stopFunctions") or [])
-    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
+    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
     try:
         output = gen.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))
     except Exception as exc:
@@ -817,7 +825,7 @@ def _run_flow(fixture):
             _assert_list_subset(fl.get_plan(), fixture["expected_plan_subset"], "flow plan")
         if fixture.get("operation") == "plan":
             return
-        client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
+        client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
         forward_options = copy.deepcopy(fixture.get("forward_options") or {})
         if "cache_seed_value" in fixture:
             cache_store = forward_options.setdefault("cache_store", {})
@@ -1055,7 +1063,7 @@ def _run_optimize(fixture):
         if operation == "evaluate":
             if not hasattr(program, "evaluate_optimization"):
                 raise FixtureError("evaluate operation requires an optimizable program")
-            client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
+            client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
             result = program.evaluate_optimization(client, fixture.get("dataset") or [], fixture.get("candidate_map") or {}, fixture.get("eval_options") or {})
             if "expected_evaluation_subset" in fixture:
                 _assert_subset(result, fixture["expected_evaluation_subset"], "optimization evaluation")
@@ -1096,7 +1104,7 @@ def _run_optimize(fixture):
             return
         if operation == "helper":
             opts = copy.deepcopy(fixture.get("optimize_options") or {})
-            client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
+            client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
             opts.setdefault("studentAI", client)
             opts.setdefault("teacherAI", client)
             artifact = optimize(program, fixture.get("dataset") or [], opts)
@@ -1120,7 +1128,7 @@ def _run_optimize(fixture):
         if operation == "eval":
             if not isinstance(program, AxAgent):
                 raise FixtureError("eval operation requires agent program")
-            client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
+            client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
             prediction = program.evaluate_optimization_task(client, fixture.get("task") or {"input": fixture.get("input") or {}}, fixture.get("eval_options") or {})
             if "expected_prediction_subset" in fixture:
                 _assert_subset(prediction, fixture["expected_prediction_subset"], "eval prediction")
@@ -1220,8 +1228,38 @@ def _verification_instruments_summary():
     }
 
 
+def _run_agent_prompt(fixture):
+    # Prompt-parity gate (G3): build a real agent and assert the RLM stage instructions
+    # were actually rendered into agent state. A hollow agent (RLM prompt never rendered
+    # from IR) has empty/absent description keys, so this fails -- catching the exact
+    # defect that slipped a non-functional agent() past every other gate.
+    ag = agent(
+        fixture.get("signature", "question:string -> answer:string"),
+        copy.deepcopy(fixture.get("options") or {}),
+    )
+    expects = fixture.get("expected_description_contains") or {}
+    for field, needles in expects.items():
+        if field == "__order":
+            continue
+        desc = ag.state.get(field, "")
+        if not isinstance(desc, str) or desc.strip() == "":
+            raise FixtureError(
+                f"agent stage description {field} is empty; RLM prompt was not rendered into agent state"
+            )
+        for needle in needles or []:
+            if needle not in desc:
+                raise FixtureError(
+                    f"agent stage description {field} missing {needle!r}: {desc}"
+                )
+
+
+# The QuickJS engine lives in the shippable axllm.runtime_quickjs module; conformance
+# imports it so the gate exercises the same code users get via `pip install axllm[runtime-quickjs]`.
+_AxQuickJsRuntime = AxQuickJsCodeRuntime
+
+
 def _run_agent_forward(fixture):
-    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [])
+    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
     runtime = None
     agent_options = copy.deepcopy(fixture.get("options") or {})
     if "runtime_script" in fixture:
@@ -1232,11 +1270,16 @@ def _run_agent_forward(fixture):
             usage_instructions=runtime_config.get("usageInstructions", runtime_config.get("usage_instructions", "")),
         )
         agent_options["runtime"] = runtime
+    if "runtime_engine" in fixture:
+        runtime = _AxQuickJsRuntime()
+        agent_options["runtime"] = runtime
     ag = None
     try:
         ag = agent(fixture.get("signature"), agent_options)
         if "set_state" in fixture:
             ag.set_state(fixture.get("set_state") or {})
+        if "restore_runtime_state" in fixture:
+            ag.restore_runtime_state(fixture.get("restore_runtime_state") or {})
         output = ag.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))
     except AxAgentClarificationError as exc:
         expected = fixture.get("expected_error_contains")

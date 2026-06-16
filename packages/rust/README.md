@@ -49,7 +49,6 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `cargo run --example provider_mapping_no_key`: provider mapping through a scripted transport
 - `cargo run --example provider_stream_no_key`: provider streaming through a scripted SSE transport
 - `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool
-- `cargo run --example axagent_pipeline`: deterministic AxAgent pipeline
 - `cargo run --example axflow_program_graph`: AxFlow program graph
 - `cargo run --example audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `cargo run --example realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding
@@ -63,7 +62,6 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - `OPENAI_API_KEY=... cargo run --example axgen_openai_api`: AxGen with a real OpenAI-compatible provider API
-- `OPENAI_API_KEY=... cargo run --example agent_openai_api`: AxAgent with a real OpenAI-compatible provider API
 - `OPENAI_API_KEY=... cargo run --example flow_openai_api`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents

@@ -1,0 +1,91 @@
+{
+  "schema_version": "axir-behavioral-parity-v1",
+  "description": "Completeness ledger. Provenance proves emitted-code <= IR op (origin). This ledger proves COMPLETENESS: every claimed behavioral capability maps to the IR op(s) that implement it AND at least one conformance fixture that exercises it for real. A capability with no real fixture is unverifiable and must not be claimed. scripts/axir-ledger-check.mjs fails the build if any listed op or fixture is missing. This is the structural answer to why a non-functional agent() shipped: provenance could not see behavior that was absent from both the IR and the packages, and no gate required a real-execution fixture.",
+  "entries": [
+    {
+      "capability": "agent.rlm.prompt_rendered",
+      "summary": "The agent executor/responder RLM instruction is rendered from IR into agent state (not empty).",
+      "ir_ops": ["@agent_factory"],
+      "fixtures": ["axagent/agent-prompt-executor-rlm-protocol.json"],
+      "gate": "G3 prompt-parity",
+      "state": "red-until-port: executor_description is not yet rendered by @agent_factory"
+    },
+    {
+      "capability": "agent.rlm.real_execution",
+      "summary": "A real embedded engine executes model-authored code end-to-end through forward() and produces the completion -- NOT a ScriptedCodeRuntime returning canned payloads.",
+      "ir_ops": ["@agent_forward"],
+      "fixtures": ["axagent-real/agent-runtime-real-javascript-final.json"],
+      "gate": "G1 real-engine antidote",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES: go (goja), rust (quickjs feature), cpp (quickjs profile -DAX_CONFORMANCE_QUICKJS), python (in-process quickjs wheel), java (quickjs4j/chicory via reflection). Each runs the full forward() loop through a real engine executing model-authored final() code. Engines are optional deps, so agent_runtime_real runs in engine-enabled build lanes, not the default conformance suite."
+    },
+    {
+      "capability": "agent.audio.transcription",
+      "summary": "Audio-typed input fields are transcribed to text via the AI client before the agent loop, and the transcribed text reaches the distiller/executor request -- NOT a canned string.",
+      "ir_ops": [
+        "@agent_transcribe_audio_inputs",
+        "@agent_transcribe_one_audio"
+      ],
+      "fixtures": ["axagent/agent-audio-transcription.json"],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Required converting rust's chat-only scoped client bridge to a method-dispatch closure FnMut(&str,Value) so chat+transcribe share one &mut borrow; transcribe added to the rust AxAIClient trait + cpp base AIClient + java AiClient interface. The new intrinsic.agent.transcribe is bound in all four explicit host-name maps and drift-guarded by TestAgentCrossLanguageParity."
+    },
+    {
+      "capability": "agent.context.llm_checkpoint_summary",
+      "summary": "When summarizerOptions is set, a pending checkpoint is summarized by a real model call (intrinsic.ai.complete_once) and the model's summary replaces the deterministic fallback -- NOT a canned value. Deterministic fallback is retained when the flag is off.",
+      "ir_ops": [
+        "@agent_apply_llm_checkpoint_summary",
+        "@agent_refresh_checkpoint_state"
+      ],
+      "fixtures": ["axagent/agent-checkpoint-llm-summary.json"],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Uses the op-callable raw-chat intrinsic intrinsic.ai.complete_once (already bridged in all five incl. rust's scoped closure), so no new per-language host code. restore_runtime_state handling was added to all five agent_forward conformance runners to pre-set the pending checkpoint. The fixture asserts expected_exported_state_subset.checkpoint_state.summary == the model response AND summary_source==model, so mutating the model response fails the test (anti-hardcode verified: an impl that ignored the model output or hardcoded a summary would not pass)."
+    },
+    {
+      "capability": "agent.context.map_read_and_evolve",
+      "summary": "The cross-run context map is read (injected into the distiller's context + the distiller prompt's hasContextMap section) AND evolved by a full TS-parity two-stage pipeline: a context-map distiller (itemTags + cacheCandidates) then a cartographer (ADD/DELETE/REPLACE operations), both via intrinsic.ai.complete_once. Operations apply to parsed [id] items across 6 fixed sections; helpful/harmful/stale tags adjust per-item scores; score-based eviction trims the map to maxChars; evolution is gated by infiniteEvolve || steps<evolveSteps. The evolved map persists through export/restore. Distiller scores AND cartographer operations are both asserted from the model, not canned.",
+      "ir_ops": [
+        "@agent_factory",
+        "@agent_evolve_context_map",
+        "@context_map_parse_items",
+        "@context_map_render_items",
+        "@context_map_apply_operations",
+        "@context_map_update_scores",
+        "@context_map_evict_to_budget",
+        "@build_distiller_inputs",
+        "@render_rlm_distiller_description",
+        "@agent_export_runtime_state",
+        "@agent_restore_runtime_state"
+      ],
+      "fixtures": [
+        "axagent/agent-context-map-config.json",
+        "axagent/agent-context-map-read.json",
+        "axagent/agent-context-map-evolve.json",
+        "axagent/agent-context-map-evict.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES (full TS parity). Create: @agent_factory builds state.context_map from options.contextMap (map string/snapshot + maxChars/infiniteEvolve/evolveSteps/scores/next_id) -- agent-context-map-config uses a FRESH agent (no restore), the cartographer ADDs an item, and the exported text+scores+steps are asserted. Read: agent-context-map-read restores a non-evolving map (infiniteEvolve:false, evolveSteps:0) and asserts the map text reaches the DISTILLER request, isolating read from evolve. Evolve: agent-context-map-evolve asserts the distiller itemTags update scores AND the cartographer ADD operation mints a new [id] item in the rendered text (mutating either model response fails the test). Evict: agent-context-map-evict tags an item harmful and asserts it is dropped under a tight maxChars while the neutral item survives (flipping the tag to helpful fails the test). next_id is a persisted counter (no numeric id parsing -- rust mul rejects string operands, so ids are minted from the counter and eviction tie-breaks on text order). context_map is part of the export/restore state contract."
+    },
+    {
+      "capability": "agent.context.tombstone_llm",
+      "summary": "When contextPolicy.tombstoning is enabled, a resolved-error action-log entry (error turn followed by a success turn) gets its tombstone written by a real model call (intrinsic.ai.complete_once with the TS TOMBSTONE_SUMMARIZER_DESCRIPTION) -- a one-line [TOMBSTONE]: summary -- replacing the deterministic fallback, with tombstone_source=model. Also wires @agent_apply_context_management into the live forward loop (previously it ran only in the fixture op), so deterministic tombstones + error-pruning now run during forward().",
+      "ir_ops": [
+        "@agent_apply_context_management",
+        "@agent_apply_llm_tombstone_summary",
+        "@agent_build_deterministic_tombstone"
+      ],
+      "fixtures": ["axagent/agent-tombstone-llm.json"],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. agent-tombstone-llm restores an action_log with an error entry (tags:[error]) followed by a success entry, sets options.tombstoning:true, and asserts the exported action_log[0].tombstone == the model response with tombstone_source==model (the action-log sanitizer was extended to preserve tombstone_source). Mutating the model response fails the test (anti-hardcode verified). Mirrors the checkpoint summarizer pattern (llm_pending/llm_input set in @agent_apply_context_management, consumed by @agent_apply_llm_tombstone_summary post-loop)."
+    }
+  ]
+}

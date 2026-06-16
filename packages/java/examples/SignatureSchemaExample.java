@@ -1,4 +1,3 @@
-// docs:start signature-schema
 import dev.axllm.ax.*;
 import java.util.*;
 
@@ -11,4 +10,3 @@ public final class SignatureSchemaExample {
     System.out.println("java-signature-schema-ok");
   }
 }
-// docs:end signature-schema

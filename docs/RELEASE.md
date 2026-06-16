@@ -135,25 +135,21 @@ For local examples, use the shared runner from the repo root:
 
 ```bash
 npm run example -- list
-npm run example -- python agent_pipeline.py
-npm run example -- java FlowProgramGraphExample.java
-npm run example -- cpp realtime_audio_events.cpp
-npm run example -- go signature_schema.go
-npm run example -- rust signature_schema.rs
-npm run example -- python axgen_openai_api.py
-npm run example -- java AxGenOpenAIExample.java
-npm run example -- cpp axgen_openai_api.cpp
-npm run example -- go axgen_openai_api.go
-npm run example -- rust axgen_openai_api.rs
+npm run example -- list --json
+npm run example -- python src/examples/python/generation/axgen-openai.py
+npm run example -- java src/examples/java/flows/SequentialFlowExample.java
+npm run example -- cpp src/examples/cpp/audio/speech_audio.cpp
+npm run example -- go src/examples/go/optimization/axgen_optimization.go
+npm run example -- rust src/examples/rust/generation/basic_generation.rs
 ```
 
 The runner loads `.env`, uses the committed package source under
 `packages/<language>`, writes build scratch data under `src/examples/.generated/`,
-and runs the checked-in example source. No-key examples use deterministic local
-clients/transports and cover AxAgent, AxFlow, provider audio/realtime mapping,
-runtime adapters, optimizer artifacts, and GEPA. Provider API examples call real
-provider HTTP and require provider keys such as `OPENAI_API_KEY` or
-`OPENAI_APIKEY`.
+and runs the checked-in public example source. Public examples call real
+providers and require keys such as `OPENAI_API_KEY` or `OPENAI_APIKEY`.
+Internal generated package fixtures use deterministic local clients/transports
+and cover AxAgent, AxFlow, provider audio/realtime mapping, runtime adapters,
+optimizer artifacts, and GEPA.
 
 ## Publishing Shape
 

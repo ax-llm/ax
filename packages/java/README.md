@@ -46,7 +46,6 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/AxGenScriptedClientToolExample.java`: AxGen with a scripted client and tool
 - `examples/ProviderMappingNoKeyExample.java`: provider mapping through a scripted transport
 - `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport
-- `examples/AxAgentPipelineExample.java`: deterministic AxAgent pipeline
 - `examples/AxFlowProgramGraphExample.java`: AxFlow program graph
 - `examples/AudioResponsesMappingExample.java`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `examples/RealtimeAudioEventsExample.java`: Grok/Gemini realtime audio setup, input, and event folding
@@ -59,7 +58,6 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/AxGenOpenAIExample.java && java -cp .:examples AxGenOpenAIExample`: AxGen with a real OpenAI-compatible provider API
-- `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/AgentOpenAIExample.java && java -cp .:examples AgentOpenAIExample`: AxAgent with a real OpenAI-compatible provider API
 - `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/FlowOpenAIExample.java && java -cp .:examples FlowOpenAIExample`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents

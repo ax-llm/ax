@@ -996,6 +996,13 @@ func (c contextBoundAIClient) Stream(ctx context.Context, request map[string]Val
 	return c.inner.Stream(c.ctx, request, options)
 }
 
+func (c contextBoundAIClient) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	if t, ok := c.inner.(interface{ Transcribe(context.Context, map[string]Value, map[string]Value) (Value, error) }); ok {
+		return t.Transcribe(c.ctx, request, options)
+	}
+	return Object("text", ""), nil
+}
+
 type Transport interface { Call(context.Context, Value) (Value, error) }
 
 type ScriptedTransport struct { Responses []Value; Requests []Value }
@@ -1798,9 +1805,9 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	if options == nil { options = Object() }
 	state := asMap(mustCore(_agent_factory(signature, options)))
 	sig := NewSignature(signature)
-	distillerOptions := Object("validation_retries", 0, "id", "ctx.root.actor")
-	executorOptions := Object("validation_retries", 0, "id", "task.root.actor")
-	responderOptions := Object("validation_retries", coreGet(options, "validation_retries", 2), "id", "task.root.responder")
+	distillerOptions := Object("validation_retries", 0, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
+	executorOptions := Object("validation_retries", 0, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
+	responderOptions := Object("validation_retries", coreGet(options, "validation_retries", 2), "id", "task.root.responder", "instruction", coreGet(state, "responder_description", ""))
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContext:json -> completion:json"))
 	return &AxAgent{Signature:sig, Options:options, State:state, Executor:NewAx(executorSignature,executorOptions), Responder:NewAx(signature,responderOptions), Distiller:NewAx(distillerSignature,distillerOptions)}
@@ -2812,6 +2819,22 @@ func _core_agent_skill_search(values ...Value) Value {
 	scripted := coreGet(options, "skill_search_results", coreGet(options, "skillSearchResults", Object()))
 	return scriptedAgentSearchResults(scripted, searches, true)
 }
+// _core_agent_transcribe backs intrinsic.agent.transcribe: it calls the AI client's transcribe
+// method (build->transport->normalize lives in the client) so audio inputs become text before the
+// agent loop. Any client with a Transcribe method satisfies it (real providers + the scripted
+// conformance client), so the AIClient interface stays untouched.
+func _core_agent_transcribe(values ...Value) Value {
+	if len(values) < 2 { return Object("text", "") }
+	client := values[0]
+	request := asMap(values[1])
+	options := map[string]Value{}
+	if len(values) > 2 { options = asMap(values[2]) }
+	ai, ok := client.(interface{ Transcribe(context.Context, map[string]Value, map[string]Value) (Value, error) })
+	if !ok { return Object("text", "") }
+	out, err := ai.Transcribe(context.Background(), request, options)
+	if err != nil { panic(AxError{Category: "network", Message: err.Error()}) }
+	return out
+}
 func _core_agent_callable_invoke(values ...Value) Value {
 	if len(values) == 0 { return Object("status", "error", "error", "unknown callable: ") }
 	state := values[0]
@@ -2866,8 +2889,16 @@ func (e FixtureError) Error() string { return e.Message }
 type conformanceScriptedAI struct {
 	Responses []Value
 	StreamEvents []Value
+	TranscribeResponses []Value
 	Requests []map[string]Value
 	ChatCalls int
+}
+func (f *conformanceScriptedAI) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	f.Requests = append(f.Requests, cloneMap(request))
+	if len(f.TranscribeResponses) == 0 { return Object("text", ""), nil }
+	raw := f.TranscribeResponses[0]
+	f.TranscribeResponses = f.TranscribeResponses[1:]
+	return raw, nil
 }
 
 func (f *conformanceScriptedAI) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
@@ -2991,6 +3022,10 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAgentRuntimeSession(fixture)
 	case "agent_runtime_protocol":
 		runConformanceAgentRuntimeProtocol(fixture)
+	case "agent_prompt":
+		runConformanceAgentPrompt(fixture)
+	case "agent_runtime_real":
+		runConformanceAgentRuntimeReal(fixture)
 	default:
 		panic(AxError{Category:"fixture", Message:"unsupported Go conformance fixture kind "+kind})
 	}
@@ -3627,7 +3662,7 @@ func runConformanceFlow(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_plan", nil); expected != nil { assertEqual(mustCore(_flow_plan(flow.State)), expected, "flow plan") }
 	if expected := coreGet(fixture, "expected_plan_subset", nil); expected != nil { assertListSubset(coreGet(mustCore(_flow_plan(flow.State)), "steps", mustCore(_flow_plan(flow.State))), expected, "flow plan") }
 	if display(coreGet(fixture, "operation", "")) == "plan" { return }
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 	forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
 	if seed := coreGet(fixture, "cache_seed_value", nil); seed != nil {
 		cacheStore := asMap(coreGet(forwardOptions, "cache_store", coreGet(forwardOptions, "cacheStore", Object())))
@@ -3747,7 +3782,7 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		evidence := mustCore(_build_optimizer_evidence_batch(coreGet(fixture, "eval_result", Object()), components))
 		if expected := coreGet(fixture, "expected_evidence_subset", nil); expected != nil { assertSubset(evidence, expected, "optimizer evidence") }
 	case "evaluate":
-		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 		result := conformanceProgramEvaluateOptimization(program, client, coreGet(fixture, "dataset", Array()), asMap(coreGet(fixture, "candidate_map", Object())), asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_evaluation_subset", nil); expected != nil { assertSubset(result, expected, "optimization evaluation") }
 		if expected := coreGet(fixture, "expected_evaluation_rows_subset", nil); expected != nil { assertListSubset(coreGet(result, "rows", Array()), expected, "optimization evaluation rows") }
@@ -3767,7 +3802,7 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		}
 		var evaluate func(Value, map[string]Value) Value
 		if usesEvaluator {
-			client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+			client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 			evaluate = func(candidateMap Value, stepOptions map[string]Value) Value {
 				merged := cloneMap(opts)
 				for _, key := range orderedKeys(stepOptions) { if key != "__order" { coreSet(merged, key, stepOptions[key]) } }
@@ -3793,7 +3828,7 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 	case "eval":
 		ag, ok := program.(*AxAgent)
 		if !ok { panic(AxError{Category:"fixture", Message:"eval operation requires agent program"}) }
-		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 		task := asMap(coreGet(fixture, "task", Object("input", coreGet(fixture, "input", Object()))))
 		prediction := ag.EvaluateOptimizationTask(client, task, asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_prediction_subset", nil); expected != nil { assertSubset(prediction, expected, "eval prediction") }
@@ -4266,8 +4301,71 @@ func runConformanceAgentRuntimePolicy(fixture map[string]Value) {
 	assertAgentTrace(ag, fixture)
 }
 
+// conformanceRealRuntimeFactories holds real engines registered by the conformance
+// binary (package main), keyed by engine id. RunConformanceFixture lives in package ax
+// and cannot import a concrete engine like goja without an import cycle, so the binary
+// injects one here via RegisterConformanceRealRuntime.
+var conformanceRealRuntimeFactories = map[string]func(map[string]Value) (CodeRuntime, error){}
+
+// RegisterConformanceRealRuntime supplies a real CodeRuntime for agent_runtime_real
+// fixtures (the G1 antidote gate): it forces a real engine to actually execute
+// model-authored code end-to-end through forward() -- the one thing no scripted fixture
+// can prove, and the reason a non-functional agent() shipped past every other gate.
+func RegisterConformanceRealRuntime(id string, factory func(map[string]Value) (CodeRuntime, error)) {
+	conformanceRealRuntimeFactories[id] = factory
+}
+
+// runConformanceAgentRuntimeReal drives the full agent forward() loop against a REAL
+// embedded engine (not a ScriptedCodeRuntime): the recorded transcript supplies the
+// model turns, but the executor's javascriptCode is genuinely executed by the engine,
+// and the completion must be produced by that execution.
+func runConformanceAgentRuntimeReal(fixture map[string]Value) {
+	engineID := display(coreGet(fixture, "runtime_engine", "javascript-goja"))
+	factory := conformanceRealRuntimeFactories[engineID]
+	if factory == nil {
+		panic(AxError{Category: "fixture", Message: "no real runtime engine registered for " + engineID + "; the conformance binary must call ax.RegisterConformanceRealRuntime"})
+	}
+	runtime, runtimeErr := factory(asMap(coreGet(fixture, "runtime_options", Object())))
+	if runtimeErr != nil { panic(runtimeErr) }
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
+	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
+	coreSet(options, "runtime", runtime)
+	ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
+	output, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
+	if forwardErr != nil { panic(forwardErr) }
+	if expected := coreGet(fixture, "expected_output", nil); expected != nil { assertEqual(output, expected, "agent_runtime_real output") }
+	if expected := coreGet(fixture, "expected_result_subset", nil); expected != nil { assertSubset(output, expected, "agent_runtime_real output subset") }
+	if expected := coreGet(fixture, "expected_request_count", nil); expected != nil && len(client.Requests) != int(num(expected)) {
+		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d requests, got %d", int(num(expected)), len(client.Requests))})
+	}
+}
+
+// runConformanceAgentPrompt is a prompt-parity gate (G3): it builds a real agent
+// and asserts the RLM stage instructions were actually rendered into agent state.
+// On a hollow agent (executor description never rendered from IR) the asserted
+// state keys are absent, so this fixture fails -- which is exactly the defect that
+// slipped a non-functional agent() past every other gate.
+func runConformanceAgentPrompt(fixture map[string]Value) {
+	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
+	ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
+	expects := asMap(coreGet(fixture, "expected_description_contains", Object()))
+	for field, raw := range expects {
+		if field == "__order" { continue }
+		desc := display(coreGet(ag.State, field, ""))
+		if strings.TrimSpace(desc) == "" {
+			panic(AxError{Category: "fixture", Message: "agent stage description " + field + " is empty; RLM prompt was not rendered into agent state"})
+		}
+		for _, item := range asSlice(raw) {
+			needle := display(item)
+			if !strings.Contains(desc, needle) {
+				panic(AxError{Category: "fixture", Message: fmt.Sprintf("agent stage description %s missing %q: %s", field, needle, desc)})
+			}
+		}
+	}
+}
+
 func runConformanceAgentForward(fixture map[string]Value) {
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	var runtime *conformanceScriptedCodeRuntime
 	if script := coreGet(fixture, "runtime_script", nil); script != nil {
@@ -4282,6 +4380,7 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	_, err := safeValue(func() Value {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 		if state := coreGet(fixture, "set_state", nil); state != nil { ag.SetState(state) }
+		if snapshot := coreGet(fixture, "restore_runtime_state", nil); snapshot != nil { ag.RestoreRuntimeState(snapshot) }
 		out, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
 		if forwardErr != nil { panic(forwardErr) }
 		output = out

@@ -1,0 +1,54 @@
+{
+  "expected_action_log_subset": [
+    {
+      "tombstone": "[TOMBSTONE]: Resolved the callThing TypeError by defining it before use; avoid calling undefined helpers.",
+      "tombstone_source": "model"
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_contains": ["AxAgent tombstone summarizer"],
+  "input": {
+    "question": "Capital of France?"
+  },
+  "kind": "agent_forward",
+  "name": "agent-tombstone-llm",
+  "options": {
+    "contextFields": [],
+    "tombstoning": true
+  },
+  "restore_runtime_state": {
+    "action_log": [
+      {
+        "code": "callThing()",
+        "output": "TypeError: callThing is not a function",
+        "tags": ["error"],
+        "turn": 1,
+        "type": "code"
+      },
+      {
+        "code": "defineThing(); callThing()",
+        "output": "ok",
+        "tags": [],
+        "turn": 2,
+        "type": "code"
+      }
+    ]
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
+    },
+    {
+      "content": "[TOMBSTONE]: Resolved the callThing TypeError by defining it before use; avoid calling undefined helpers."
+    },
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

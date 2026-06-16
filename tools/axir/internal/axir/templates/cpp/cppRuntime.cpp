@@ -787,6 +787,14 @@ Value Core::ai_complete_once(Value client, Value request) {
   if (it == client_registry().end() || it->second == nullptr) throw AxError("runtime", "client does not implement AIClient");
   return chat_response_to_completion(it->second->chat(request));
 }
+Value Core::agent_transcribe(Value client, Value request, Value options) {
+  // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
+  // text before the agent loop (the client passes through @agent_forward as a real client).
+  std::string id = str(get_key(client, "__client_id"));
+  auto it = client_registry().find(id);
+  if (it == client_registry().end() || it->second == nullptr) return object({{"text", std::string("")}});
+  return it->second->transcribe(request, options);
+}
 Value Core::retry_sleep(Value) { return Value(); }
 Value Core::tool_invoke(Value fn, Value params) {
   Value args = get_key(fn, "args", Value::array());
@@ -3268,9 +3276,9 @@ AxFlow& AxFlow::add_step(Value kind, Value name, Value program, Value options) {
 
 AxAgent::AxAgent(Value signature, Value options) {
   state_ = Core::_agent_factory(std::move(signature), options);
-  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}}));
-  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}}));
-  responder_ = std::make_unique<AxGen>(Core::get(state_, "signature"), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}}));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  responder_ = std::make_unique<AxGen>(Core::get(state_, "signature"), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
 }
 
 Value AxAgent::forward(AIClient& client, Value values, Value options) {

@@ -13,7 +13,7 @@ Pick the path by task shape:
 - **Short agents:** quick tool calls, small child-agent composition, and compact final responses.
 - **Long-horizon agents:** RLM runtime execution, context policy, context maps, memory, skills, and optimizer artifacts.
 
-See [short agent examples]({{langRoot}}/examples/short-agents/) and [long-horizon agent examples]({{langRoot}}/examples/long-horizon-agents/).
+See [short agent examples]({{langRoot}}/examples/short-agents/) and [Advanced Start]({{langRoot}}/advanced-start/) for the broader Ax path.
 
 {{< svg "agent-tree" "Agent tree" >}}
 

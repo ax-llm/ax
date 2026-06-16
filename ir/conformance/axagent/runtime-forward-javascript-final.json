@@ -9,13 +9,16 @@
       "kind": "final"
     }
   ],
-  "expected_executed": [
-    "final(\"Answer\", {\"answer\": \"from runtime\"})"
-  ],
+  "expected_executed": ["final(\"Answer\", {\"answer\": \"from runtime\"})"],
   "expected_output": {
     "answer": "from runtime"
   },
   "expected_request_count": 3,
+  "expected_request_contains": [
+    "## Executor",
+    "await final(task: string, context?: object)",
+    "Answer Synthesis Agent"
+  ],
   "expected_runtime_contract_subset": {
     "code_fence_language": "js",
     "code_field_name": "javascriptCode",

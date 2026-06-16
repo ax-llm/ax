@@ -94,6 +94,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.agent.clarification_error":             "core_agent_clarification_error",
 	"intrinsic.agent.memory_search":                   "core_agent_memory_search",
 	"intrinsic.agent.skill_search":                    "core_agent_skill_search",
+	"intrinsic.agent.transcribe":                      "core_agent_transcribe",
 	"intrinsic.agent.runtime.create_session":          "core_agent_runtime_create_session",
 	"intrinsic.agent.runtime.execute":                 "core_agent_runtime_execute",
 	"intrinsic.agent.runtime.inspect":                 "core_agent_runtime_inspect",

@@ -59,6 +59,8 @@ language backends.
 Use `tools/website-md/skills/website-md-language-docs/SKILL.md` when changing
 features, languages, examples, API symbols, AxIR capabilities, or generated
 website language docs.
+Public language features should keep generated package source, public runnable
+examples, and website markdown in sync in the same PR.
 
 ## AxIR Backlog For Portable TS Changes
 
