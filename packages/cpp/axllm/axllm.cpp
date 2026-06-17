@@ -7650,7 +7650,11 @@ Value Core::_build_gen_chat_request(Value gen, Value messages, Value options) {
     }
   }
   Value response_format = Value::object();
-  if (Core::truthy(has_code_field)) {
+  Value fn_count = Core::len(function_specs);
+  Value has_functions = Core::gt(fn_count, Value(0));
+  Value no_functions = Core::not_(has_functions);
+  Value use_json_schema = Core::or_(has_code_field, no_functions);
+  if (Core::truthy(use_json_schema)) {
     Value schema_options = Value::object();
     Core::set(schema_options, Value("strictStructuredOutputs"), Value(true));
     Value code_schema = Core::_schema_to_json_schema_impl(output_fields, Value("output"), schema_options);
@@ -7661,7 +7665,7 @@ Value Core::_build_gen_chat_request(Value gen, Value messages, Value options) {
     Core::set(response_format, Value("type"), Value("json_schema"));
     Core::set(response_format, Value("schema"), code_schema_wrap);
   }
-  if (!Core::truthy(has_code_field)) {
+  if (!Core::truthy(use_json_schema)) {
     Core::set(response_format, Value("type"), Value("json_object"));
   }
   Core::set(request, Value("response_format"), response_format);
@@ -8052,12 +8056,6 @@ Value Core::_serialize_optimized_artifact(Value artifact) {
   return text;
 }
 
-Value Core::_run_assertions(Value gen, Value output) {
-  axir_coverage_mark("_run_assertions");
-  Core::axgen_run_assertions(gen, output);
-  return Value();
-}
-
 Value Core::_deserialize_optimized_artifact(Value text, Value components) {
   axir_coverage_mark("_deserialize_optimized_artifact");
   Value artifact = Core::json_parse(text);
@@ -8065,9 +8063,9 @@ Value Core::_deserialize_optimized_artifact(Value text, Value components) {
   return validated;
 }
 
-Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
-  axir_coverage_mark("_append_assertion_retry_messages");
-  Core::_append_validation_retry_messages_impl(messages, response, error);
+Value Core::_run_assertions(Value gen, Value output) {
+  axir_coverage_mark("_run_assertions");
+  Core::axgen_run_assertions(gen, output);
   return Value();
 }
 
@@ -8091,16 +8089,16 @@ Value Core::_optimization_changed_components(Value components, Value component_m
   return changes;
 }
 
+Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
+  axir_coverage_mark("_append_assertion_retry_messages");
+  Core::_append_validation_retry_messages_impl(messages, response, error);
+  return Value();
+}
+
 Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
   axir_coverage_mark("_record_trace");
   Core::axgen_record_trace(gen, input, output, status);
   return Value();
-}
-
-Value Core::_should_continue_steps(Value gen, Value calls) {
-  axir_coverage_mark("_should_continue_steps");
-  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
-  return should_continue;
 }
 
 Value Core::_optimization_component_current_map(Value components) {
@@ -8112,6 +8110,30 @@ Value Core::_optimization_component_current_map(Value components) {
     Core::set(out, id, current);
   }
   return out;
+}
+
+Value Core::_should_continue_steps(Value gen, Value calls) {
+  axir_coverage_mark("_should_continue_steps");
+  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
+  return should_continue;
+}
+
+Value Core::_normalize_optimization_dataset(Value dataset) {
+  axir_coverage_mark("_normalize_optimization_dataset");
+  Value empty_list = Value::array();
+  Value is_object = Core::type_is(dataset, Value("object"));
+  if (Core::truthy(is_object)) {
+    Value train = Core::get(dataset, Value("train"), empty_list);
+    Value validation = Core::get(dataset, Value("validation"), empty_list);
+    Value out_obj = Value::object();
+    Core::set(out_obj, Value("train"), train);
+    Core::set(out_obj, Value("validation"), validation);
+    return out_obj;
+  }
+  Value out_list = Value::object();
+  Core::set(out_list, Value("train"), dataset);
+  Core::set(out_list, Value("validation"), empty_list);
+  return out_list;
 }
 
 Value Core::_complete_with_retries_impl(Value client, Value request, Value retries) {
@@ -8138,24 +8160,6 @@ Value Core::_complete_with_retries_impl(Value client, Value request, Value retri
   throw Core::as_error(last_error);
 }
 
-Value Core::_normalize_optimization_dataset(Value dataset) {
-  axir_coverage_mark("_normalize_optimization_dataset");
-  Value empty_list = Value::array();
-  Value is_object = Core::type_is(dataset, Value("object"));
-  if (Core::truthy(is_object)) {
-    Value train = Core::get(dataset, Value("train"), empty_list);
-    Value validation = Core::get(dataset, Value("validation"), empty_list);
-    Value out_obj = Value::object();
-    Core::set(out_obj, Value("train"), train);
-    Core::set(out_obj, Value("validation"), validation);
-    return out_obj;
-  }
-  Value out_list = Value::object();
-  Core::set(out_list, Value("train"), dataset);
-  Core::set(out_list, Value("validation"), empty_list);
-  return out_list;
-}
-
 Value Core::_normalize_optimization_metric_scores(Value raw) {
   axir_coverage_mark("_normalize_optimization_metric_scores");
   Value is_number = Core::type_is(raw, Value("number"));
@@ -8178,18 +8182,6 @@ Value Core::_parse_output_impl(Value content) {
   Value text = Core::string_trim(content);
   Value output = Core::json_parse(text);
   return output;
-}
-
-Value Core::_tool_spec_impl(Value fn) {
-  axir_coverage_mark("_tool_spec_impl");
-  Value spec = Value::object();
-  Value name = Core::get(fn, Value("name"), Value());
-  Value description = Core::get(fn, Value("description"), Value());
-  Value parameters = Core::get(fn, Value("parameters"), Value());
-  Core::set(spec, Value("name"), name);
-  Core::set(spec, Value("description"), description);
-  Core::set(spec, Value("parameters"), parameters);
-  return spec;
 }
 
 Value Core::_scalarize_optimization_scores(Value scores, Value options) {
@@ -8215,6 +8207,18 @@ Value Core::_scalarize_optimization_scores(Value scores, Value options) {
   }
   Value avg = Core::div(sum, count);
   return avg;
+}
+
+Value Core::_tool_spec_impl(Value fn) {
+  axir_coverage_mark("_tool_spec_impl");
+  Value spec = Value::object();
+  Value name = Core::get(fn, Value("name"), Value());
+  Value description = Core::get(fn, Value("description"), Value());
+  Value parameters = Core::get(fn, Value("parameters"), Value());
+  Core::set(spec, Value("name"), name);
+  Core::set(spec, Value("description"), description);
+  Core::set(spec, Value("parameters"), parameters);
+  return spec;
 }
 
 Value Core::_function_call_mode_impl(Value mode) {
@@ -8750,7 +8754,7 @@ Value Core::_agent_factory(Value signature, Value options) {
   Core::set(state, Value("executor_exclude_fields"), executor_exclude);
   Core::set(state, Value("responder_exclude_fields"), responder_exclude);
   Value code_field_name = Core::get(runtime_contract, Value("code_field_name"), Value("javascriptCode"));
-  Value runtime_distiller_signature = Core::string_format(Value("input:json, context:json -> {}:code"), code_field_name);
+  Value runtime_distiller_signature = Core::string_format(Value("input:json, context:json, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), code_field_name);
   Value distiller_signature = Value("input:json, context:json -> completion:json");
   if (Core::truthy(runtime_enabled)) {
     distiller_signature = runtime_distiller_signature;
@@ -8762,6 +8766,10 @@ Value Core::_agent_factory(Value signature, Value options) {
     executor_signature = runtime_executor_signature;
   }
   Core::set(state, Value("executor_signature"), executor_signature);
+  Value llm_query_signature = Value("task:string, context:json -> answer:string");
+  Core::set(state, Value("llm_query_signature"), llm_query_signature);
+  Value llm_query_description = Value("You answer ONE focused question using only the provided context object. Return just the answer text — concise, specific, and grounded in the context. Do not restate the question.");
+  Core::set(state, Value("llm_query_description"), llm_query_description);
   Value responder_signature = Core::_build_responder_signature(sig, context_fields);
   Core::set(state, Value("responder_signature"), responder_signature);
   Core::set(state, Value("chat_log"), chat_log);
@@ -10561,6 +10569,18 @@ Value Core::_agent_render_full_action_entry(Value state, Value entry) {
   }
   Value code = Core::get(entry, Value("code"), Value(""));
   Value output = Core::get(entry, Value("output"), Value(""));
+  Value full_is_error = Core::get(entry, Value("is_error"), Value(false));
+  if (Core::truthy(full_is_error)) {
+    Value full_error = Core::get(entry, Value("error"), Value(""));
+    Value full_err_text = Core::string_format(Value("[runtime error] {}"), full_error);
+    Value full_output_has = Core::ne(output, Value(""));
+    if (Core::truthy(full_output_has)) {
+      output = Core::string_format(Value("{}\n{}"), output, full_err_text);
+    }
+    if (!Core::truthy(full_output_has)) {
+      output = full_err_text;
+    }
+  }
   Value text = Core::string_format(Value("```{}\n{}\n```\nResult:\n{}"), fence, code, output);
   return text;
 }
@@ -10570,6 +10590,11 @@ Value Core::_agent_render_compact_action_entry(Value entry, Value turn, Value re
   Value kind = Core::get(entry, Value("kind"), Value("result"));
   Value state_delta = Core::get(entry, Value("stateDelta"), Value("No durable runtime state update"));
   Value output = Core::get(entry, Value("output"), Value(""));
+  Value compact_is_error = Core::get(entry, Value("is_error"), Value(false));
+  if (Core::truthy(compact_is_error)) {
+    Value compact_error = Core::get(entry, Value("error"), Value(""));
+    output = Core::string_format(Value("[runtime error] {}"), compact_error);
+  }
   Value callables = Core::_agent_entry_callables_text(entry);
   Value distilled = Core::_agent_distill_structured_action_output(output);
   Value has_distilled = Core::ne(distilled, Value(""));
@@ -12946,6 +12971,15 @@ Value Core::_normalize_agent_runtime_step_result(Value raw, Value code) {
     is_error = Core::get(raw, Value("is_error"), Value(false));
     result = Core::get(raw, Value("result"), raw);
     output = Core::get(raw, Value("output"), Value(""));
+    Value output_is_empty = Core::eq(output, Value(""));
+    if (Core::truthy(output_is_empty)) {
+      Value raw_logs = Core::get(raw, Value("logs"), Value());
+      Value raw_logs_is_list = Core::type_is(raw_logs, Value("list"));
+      if (Core::truthy(raw_logs_is_list)) {
+        Value joined_logs = Core::string_join(Value("\n"), raw_logs);
+        output = joined_logs;
+      }
+    }
     error_message = Core::get(raw, Value("error"), Value(""));
     error_category = Core::get(raw, Value("error_category"), Value(""));
     completion_payload = Core::get(raw, Value("completion_payload"), Value());
@@ -13188,6 +13222,23 @@ Value Core::_agent_runtime_export_session_state(Value state, Value session, Valu
   return snapshot;
 }
 
+Value Core::_agent_runtime_refresh_state_summary(Value state, Value session, Value options) {
+  axir_coverage_mark("_agent_runtime_refresh_state_summary");
+  Value empty_map = Value::object();
+  Value none = Core::none();
+  Value policy = Core::get(state, Value("context_policy"), Value());
+  Value state_summary = Core::get(policy, Value("stateSummary"), empty_map);
+  Value enabled = Core::get(state_summary, Value("enabled"), Value(false));
+  if (Core::truthy(enabled)) {
+    Value runtime_options = Core::_agent_runtime_execution_options(state, options);
+    Value raw_snapshot = Core::agent_runtime_export_state(session, runtime_options);
+    Value snapshot = Core::_normalize_agent_runtime_snapshot(raw_snapshot);
+    Core::set(state, Value("runtime_session_state"), snapshot);
+    return snapshot;
+  }
+  return none;
+}
+
 Value Core::_agent_runtime_restore_session_state(Value state, Value session, Value snapshot, Value options) {
   axir_coverage_mark("_agent_runtime_restore_session_state");
   Value normalized_snapshot = Core::_normalize_agent_runtime_snapshot(snapshot);
@@ -13271,6 +13322,17 @@ Value Core::_build_distiller_inputs(Value state, Value values) {
   Value out = Value::object();
   Core::set(out, Value("input"), values);
   Core::set(out, Value("context"), ctx_out);
+  Value actor_context = Core::_agent_prepare_actor_context(state);
+  Value guidance_text = Core::get(actor_context, Value("guidanceLog"), Value("[]"));
+  Value action_text = Core::get(actor_context, Value("actionLog"), Value("(no actions yet)"));
+  Value summary_text = Core::get(actor_context, Value("summarizedActorLog"), Value(""));
+  Value runtime_text = Core::get(actor_context, Value("liveRuntimeState"), Value(""));
+  Value pressure_text = Core::get(actor_context, Value("contextPressure"), Value(""));
+  Core::set(out, Value("summarizedActorLog"), summary_text);
+  Core::set(out, Value("guidanceLog"), guidance_text);
+  Core::set(out, Value("actionLog"), action_text);
+  Core::set(out, Value("liveRuntimeState"), runtime_text);
+  Core::set(out, Value("contextPressure"), pressure_text);
   return out;
 }
 
@@ -14054,6 +14116,43 @@ Value Core::_agent_transcribe_audio_inputs(Value state, Value client, Value valu
   return result;
 }
 
+Value Core::_agent_run_llm_query_one(Value sub_gen, Value client, Value item) {
+  axir_coverage_mark("_agent_run_llm_query_one");
+  Value empty_map = Value::object();
+  Value query = Value("");
+  Value context = empty_map;
+  Value item_is_string = Core::type_is(item, Value("string"));
+  if (Core::truthy(item_is_string)) {
+    query = item;
+  }
+  if (!Core::truthy(item_is_string)) {
+    query = Core::get(item, Value("query"), Value(""));
+    context = Core::get(item, Value("context"), empty_map);
+  }
+  Value values = Value::object();
+  Core::set(values, Value("task"), query);
+  Core::set(values, Value("context"), context);
+  Value sub_options = Value::object();
+  Value output = Core::agent_stage_forward(sub_gen, client, values, sub_options);
+  Value answer = Core::get(output, Value("answer"), Value(""));
+  return answer;
+}
+
+Value Core::_agent_run_llm_query(Value sub_gen, Value client, Value params) {
+  axir_coverage_mark("_agent_run_llm_query");
+  Value params_is_list = Core::type_is(params, Value("list"));
+  if (Core::truthy(params_is_list)) {
+    Value answers = Value::array();
+    for (auto item : Core::iter(params)) {
+      Value one = Core::_agent_run_llm_query_one(sub_gen, client, item);
+      Core::append(answers, one);
+    }
+    return answers;
+  }
+  Value single = Core::_agent_run_llm_query_one(sub_gen, client, params);
+  return single;
+}
+
 Value Core::_agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options) {
   axir_coverage_mark("_agent_forward");
   Value transcribed_values = Core::_agent_transcribe_audio_inputs(state, client, values, options);
@@ -14102,6 +14201,11 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
       Value distiller_code = Core::_extract_agent_runtime_code(state, distiller_output);
       Value distiller_runtime_step = Core::_agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options);
       distiller_session = Core::get(state, Value("runtime_session"), distiller_session);
+      Value distiller_step_error = Core::get(distiller_runtime_step, Value("is_error"), Value(false));
+      Value distiller_step_ok = Core::not_(distiller_step_error);
+      if (Core::truthy(distiller_step_ok)) {
+        Core::_agent_runtime_refresh_state_summary(state, distiller_session, options);
+      }
       Value distiller_completion = Core::get(distiller_runtime_step, Value("completion_payload"), Value());
       Value distiller_has_completion = Core::type_is(distiller_completion, Value("object"));
       if (Core::truthy(distiller_has_completion)) {
@@ -14113,6 +14217,8 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
     Value distiller_session_reset = Core::none();
     Core::set(state, Value("runtime_session"), distiller_session_reset);
     Core::set(state, Value("action_log"), distiller_saved_action_log);
+    Value distiller_state_reset = Value::object();
+    Core::set(state, Value("runtime_session_state"), distiller_state_reset);
   }
   if (!Core::truthy(runtime_enabled)) {
     Value distiller_values = Core::_build_distiller_inputs(state, values);
@@ -14163,6 +14269,11 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
       Value code = Core::_extract_agent_runtime_code(state, executor_output);
       Value runtime_step = Core::_agent_runtime_execute_step(state, runtime_from_options, session, code, options);
       session = Core::get(state, Value("runtime_session"), session);
+      Value exec_step_error = Core::get(runtime_step, Value("is_error"), Value(false));
+      Value exec_step_ok = Core::not_(exec_step_error);
+      if (Core::truthy(exec_step_ok)) {
+        Core::_agent_runtime_refresh_state_summary(state, session, options);
+      }
       Value completion_payload = Core::get(runtime_step, Value("completion_payload"), Value());
       Value has_completion = Core::type_is(completion_payload, Value("object"));
       if (Core::truthy(has_completion)) {

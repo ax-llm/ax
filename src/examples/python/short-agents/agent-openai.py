@@ -1,7 +1,7 @@
 # ax-example:start
-# title: Python Short Agent
+# title: Python Grounded Support Agent
 # group: short-agents
-# description: Runs a compact Ax agent against OpenAI with a typed final answer.
+# description: Answers a support question grounded in a handbook that is kept out of the model prompt via contextFields.
 # provider: openai
 # env: OPENAI_API_KEY, OPENAI_APIKEY
 # level: beginner
@@ -12,7 +12,7 @@ import json
 import os
 
 from axllm import OpenAICompatibleClient, agent
-
+from axllm.runtime_quickjs import AxQuickJsCodeRuntime
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
@@ -20,31 +20,48 @@ if not api_key:
 
 client = OpenAICompatibleClient(
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-4.1-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-4o-mini"),
     model_config={"temperature": 0},
 )
 
+# The handbook can be arbitrarily large. Listing it in `contextFields` keeps it
+# in the agent's runtime so it never inflates the model prompt -- the agent reads
+# it through code, not through tokens. That is the whole point of an Ax agent
+# over a plain gen() call: the source material stays out of the context window.
+handbook = """
+# Acme Cloud -- Support Handbook
 
-class OpenAIBackedAgentClient:
-    def __init__(self, inner):
-        self.inner = inner
-        self.raw_model_answer = None
-        self.calls = 0
+## Billing
+- Invoices are issued on the 1st of each month and are due net-15.
+- Plan downgrades take effect at the END of the current billing cycle, not immediately.
+- Refunds are issued to the original payment method within 5 business days.
 
-    def complete(self, _request):
-        self.calls += 1
-        if self.raw_model_answer is None:
-            response = self.inner.complete({"chat_prompt": [{"role": "user", "content": "What does Ax make easier when building production LLM features?"}]})
-            self.raw_model_answer = response["content"]
-        payload = {"answer": self.raw_model_answer}
-        if self.calls == 1:
-            payload = {"completion": {"type": "final", "args": ["Answer", {}]}}
-        elif self.calls == 2:
-            payload = {"completion": {"type": "final", "args": ["Answer", {"answer": self.raw_model_answer, "usedContext": True, "plan": ["Declare a signature", "Run an agent", "Optimize with examples"]}]}}
-        return {"content": json.dumps(payload)}
+## Access
+- Seats can be added by any workspace Owner under Settings -> Members.
+- SSO (SAML) is available on Enterprise; SCIM provisioning is Owner-only.
 
+## Incidents
+- Status and uptime are published at status.acme.example.
+- Sev-1 incidents page the on-call within 5 minutes; updates post every 30 minutes.
 
-assistant = agent('question:string -> answer:string', {"contextFields": []})
-stage_client = OpenAIBackedAgentClient(client)
-output = assistant.forward(stage_client, {"question": "What does Ax make easier when building production LLM features?"})
-print(json.dumps({"agentOutput": output, "rawModelAnswer": stage_client.raw_model_answer}, indent=2, sort_keys=True))
+## Data
+- Exports are available in CSV and JSON from Settings -> Data.
+- Deleted workspaces are recoverable for 30 days, then permanently purged.
+""".strip()
+
+assistant = agent(
+    'question:string, handbook:string -> answer:string, citations:string[] "Handbook sections the answer relies on"',
+    # Keep the handbook in the runtime, out of the prompt.
+    {"contextFields": ["handbook"], "runtime": {"language": "JavaScript"}},
+)
+
+result = assistant.forward(
+    client,
+    {
+        "question": "A customer downgraded their plan today. When does it take effect, and can they get a refund for the current cycle?",
+        "handbook": handbook,
+    },
+    {"runtime": AxQuickJsCodeRuntime(), "max_actor_steps": 12},
+)
+
+print(json.dumps(result, indent=2, sort_keys=True))

@@ -21,6 +21,20 @@
       "state": "VERIFIED IN ALL FIVE LANGUAGES: go (goja), rust (quickjs feature), cpp (quickjs profile -DAX_CONFORMANCE_QUICKJS), python (in-process quickjs wheel), java (quickjs4j/chicory via reflection). Each runs the full forward() loop through a real engine executing model-authored final() code. Engines are optional deps, so agent_runtime_real runs in engine-enabled build lanes, not the default conformance suite."
     },
     {
+      "capability": "agent.rlm.multi_turn_convergence",
+      "summary": "Across multiple distiller and executor turns, each turn's request carries the accumulated per-turn feedback -- the Action Log and the refreshed liveRuntimeState snapshot of live session variables -- so the model sees its own prior work and converges to final(), instead of re-exploring blindly until max_actor_steps. NOT a 1-2-turn canned case.",
+      "ir_ops": [
+        "@agent_forward",
+        "@agent_runtime_refresh_state_summary",
+        "@build_distiller_inputs"
+      ],
+      "fixtures": ["axagent-real/agent-runtime-real-multi-turn-feedback.json"],
+      "gate": "G1 real-engine antidote + G6 response perturbation",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED via a real-engine fixture driving a 2-turn distiller and a 2-turn executor: the later request must contain a marker produced by executing the earlier turn. distillProbe7731 can only reach the distiller's 2nd request through the newly-provided distiller actionLog/liveRuntimeState (@build_distiller_inputs); 'Current runtime state:' + execLiveStateProbe8842 can only reach the executor's 2nd request when @agent_runtime_refresh_state_summary repopulates runtime_session_state each non-error turn. Proven to FAIL without the fix (distiller request was input/context-only and liveRuntimeState rendered empty) and anti-hardcoded by the response-perturbation gate (mutating the probe responses drops the markers and fails the runner)."
+    },
+    {
       "capability": "agent.audio.transcription",
       "summary": "Audio-typed input fields are transcribed to text via the AI client before the agent loop, and the transcribed text reaches the distiller/executor request -- NOT a canned string.",
       "ir_ops": [

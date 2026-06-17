@@ -1,0 +1,44 @@
+{
+  "kind": "agent_runtime_real",
+  "name": "agent-runtime-real-multi-turn-feedback",
+  "runtime_engine": "javascript",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Triage the incident"
+  },
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "contextPolicy": {
+      "preset": "lean",
+      "budget": "balanced"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"globalThis.distillProbe7731 = 'seen';\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Triage the request\\\", { evidence: 'rollback-v811' })\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"globalThis.execLiveStateProbe8842 = 'present';\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"done\\\", { answer: 'mitigated' })\"}"
+    },
+    {
+      "content": "{\"answer\":\"mitigated\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "mitigated"
+  },
+  "expected_request_count": 5,
+  "expected_request_contains": [
+    "distillProbe7731",
+    "Current runtime state:",
+    "execLiveStateProbe8842"
+  ]
+}

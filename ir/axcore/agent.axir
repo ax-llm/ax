@@ -87,7 +87,7 @@ module @ax.agent version "0.1" {
       core.set %state["executor_exclude_fields"] = %executor_exclude
       core.set %state["responder_exclude_fields"] = %responder_exclude
       %code_field_name = core.get %runtime_contract["code_field_name"] default "javascriptCode"
-      %runtime_distiller_signature = core.call intrinsic.string.format("input:json, context:json -> {}:code", %code_field_name)
+      %runtime_distiller_signature = core.call intrinsic.string.format("input:json, context:json, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", %code_field_name)
       %distiller_signature = core.let "input:json, context:json -> completion:json"
       core.if %runtime_enabled {
         %distiller_signature = core.let %runtime_distiller_signature
@@ -99,6 +99,10 @@ module @ax.agent version "0.1" {
         %executor_signature = core.let %runtime_executor_signature
       }
       core.set %state["executor_signature"] = %executor_signature
+      %llm_query_signature = core.let "task:string, context:json -> answer:string"
+      core.set %state["llm_query_signature"] = %llm_query_signature
+      %llm_query_description = core.let "You answer ONE focused question using only the provided context object. Return just the answer text — concise, specific, and grounded in the context. Do not restate the question."
+      core.set %state["llm_query_description"] = %llm_query_description
       %responder_signature = core.call @build_responder_signature(%sig, %context_fields)
       core.set %state["responder_signature"] = %responder_signature
       core.set %state["chat_log"] = %chat_log
@@ -2022,6 +2026,17 @@ module @ax.agent version "0.1" {
       }
       %code = core.get %entry["code"] default ""
       %output = core.get %entry["output"] default ""
+      %full_is_error = core.get %entry["is_error"] default false
+      core.if %full_is_error {
+        %full_error = core.get %entry["error"] default ""
+        %full_err_text = core.call intrinsic.string.format("[runtime error] {}", %full_error)
+        %full_output_has = core.call intrinsic.ne(%output, "")
+        core.if %full_output_has {
+          %output = core.call intrinsic.string.format("{}\n{}", %output, %full_err_text)
+        } else {
+          %output = core.let %full_err_text
+        }
+      }
       %text = core.call intrinsic.string.format("```{}\n{}\n```\nResult:\n{}", %fence, %code, %output)
       core.return %text
     }
@@ -2036,6 +2051,11 @@ module @ax.agent version "0.1" {
       %kind = core.get %entry["kind"] default "result"
       %state_delta = core.get %entry["stateDelta"] default "No durable runtime state update"
       %output = core.get %entry["output"] default ""
+      %compact_is_error = core.get %entry["is_error"] default false
+      core.if %compact_is_error {
+        %compact_error = core.get %entry["error"] default ""
+        %output = core.call intrinsic.string.format("[runtime error] {}", %compact_error)
+      }
       %callables = core.call @agent_entry_callables_text(%entry)
       %distilled = core.call @agent_distill_structured_action_output(%output)
       %has_distilled = core.call intrinsic.ne(%distilled, "")
@@ -4574,6 +4594,15 @@ module @ax.agent version "0.1" {
         %is_error = core.get %raw["is_error"] default false
         %result = core.get %raw["result"] default %raw
         %output = core.get %raw["output"] default ""
+        %output_is_empty = core.call intrinsic.eq(%output, "")
+        core.if %output_is_empty {
+          %raw_logs = core.get %raw["logs"] default null
+          %raw_logs_is_list = core.type_is %raw_logs type "list"
+          core.if %raw_logs_is_list {
+            %joined_logs = core.call intrinsic.string.join("\n", %raw_logs)
+            %output = core.let %joined_logs
+          }
+        }
         %error_message = core.get %raw["error"] default ""
         %error_category = core.get %raw["error_category"] default ""
         %completion_payload = core.get %raw["completion_payload"] default null
@@ -4843,6 +4872,28 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.runtime @agent_runtime_refresh_state_summary {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json) -> json throws"
+    body @entry(%state: json, %session: json, %options: json) {
+      %empty_map = core.map
+      %none = core.call intrinsic.none()
+      %policy = core.get %state["context_policy"] default null
+      %state_summary = core.get %policy["stateSummary"] default %empty_map
+      %enabled = core.get %state_summary["enabled"] default false
+      core.if %enabled {
+        %runtime_options = core.call @agent_runtime_execution_options(%state, %options)
+        %raw_snapshot = core.call intrinsic.agent.runtime.export_state(%session, %runtime_options)
+        %snapshot = core.call @normalize_agent_runtime_snapshot(%raw_snapshot)
+        core.set %state["runtime_session_state"] = %snapshot
+        core.return %snapshot
+      }
+      core.return %none
+    }
+  }
+
   op ax.agent.runtime @agent_runtime_restore_session_state {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -4948,6 +4999,17 @@ module @ax.agent version "0.1" {
       %out = core.map
       core.set %out["input"] = %values
       core.set %out["context"] = %ctx_out
+      %actor_context = core.call @agent_prepare_actor_context(%state)
+      %guidance_text = core.get %actor_context["guidanceLog"] default "[]"
+      %action_text = core.get %actor_context["actionLog"] default "(no actions yet)"
+      %summary_text = core.get %actor_context["summarizedActorLog"] default ""
+      %runtime_text = core.get %actor_context["liveRuntimeState"] default ""
+      %pressure_text = core.get %actor_context["contextPressure"] default ""
+      core.set %out["summarizedActorLog"] = %summary_text
+      core.set %out["guidanceLog"] = %guidance_text
+      core.set %out["actionLog"] = %action_text
+      core.set %out["liveRuntimeState"] = %runtime_text
+      core.set %out["contextPressure"] = %pressure_text
       core.return %out
     }
   }
@@ -5852,6 +5914,52 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_run_llm_query_one {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json) -> string throws"
+    body @entry(%sub_gen: json, %client: json, %item: json) {
+      %empty_map = core.map
+      %query = core.let ""
+      %context = core.let %empty_map
+      %item_is_string = core.type_is %item type "string"
+      core.if %item_is_string {
+        %query = core.let %item
+      } else {
+        %query = core.get %item["query"] default ""
+        %context = core.get %item["context"] default %empty_map
+      }
+      %values = core.map
+      core.set %values["task"] = %query
+      core.set %values["context"] = %context
+      %sub_options = core.map
+      %output = core.call intrinsic.agent.stage_forward(%sub_gen, %client, %values, %sub_options)
+      %answer = core.get %output["answer"] default ""
+      core.return %answer
+    }
+  }
+
+  op ax.agent.semantic @agent_run_llm_query {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json) -> json throws"
+    body @entry(%sub_gen: json, %client: json, %params: json) {
+      %params_is_list = core.type_is %params type "list"
+      core.if %params_is_list {
+        %answers = core.list
+        core.for %item in %params {
+          %one = core.call @agent_run_llm_query_one(%sub_gen, %client, %item)
+          core.append %answers, %one
+        }
+        core.return %answers
+      }
+      %single = core.call @agent_run_llm_query_one(%sub_gen, %client, %params)
+      core.return %single
+    }
+  }
+
   op ax.agent.semantic @agent_forward {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -5904,6 +6012,11 @@ module @ax.agent version "0.1" {
           %distiller_code = core.call @extract_agent_runtime_code(%state, %distiller_output)
           %distiller_runtime_step = core.call @agent_runtime_execute_step(%state, %runtime_from_options, %distiller_session, %distiller_code, %options)
           %distiller_session = core.get %state["runtime_session"] default %distiller_session
+          %distiller_step_error = core.get %distiller_runtime_step["is_error"] default false
+          %distiller_step_ok = core.call intrinsic.not(%distiller_step_error)
+          core.if %distiller_step_ok {
+            core.call @agent_runtime_refresh_state_summary(%state, %distiller_session, %options)
+          }
           %distiller_completion = core.get %distiller_runtime_step["completion_payload"] default null
           %distiller_has_completion = core.type_is %distiller_completion type "object"
           core.if %distiller_has_completion {
@@ -5915,6 +6028,8 @@ module @ax.agent version "0.1" {
         %distiller_session_reset = core.call intrinsic.none()
         core.set %state["runtime_session"] = %distiller_session_reset
         core.set %state["action_log"] = %distiller_saved_action_log
+        %distiller_state_reset = core.map
+        core.set %state["runtime_session_state"] = %distiller_state_reset
       } else {
         %distiller_values = core.call @build_distiller_inputs(%state, %values)
         %distiller_request_event = core.map
@@ -5964,6 +6079,11 @@ module @ax.agent version "0.1" {
           %code = core.call @extract_agent_runtime_code(%state, %executor_output)
           %runtime_step = core.call @agent_runtime_execute_step(%state, %runtime_from_options, %session, %code, %options)
           %session = core.get %state["runtime_session"] default %session
+          %exec_step_error = core.get %runtime_step["is_error"] default false
+          %exec_step_ok = core.call intrinsic.not(%exec_step_error)
+          core.if %exec_step_ok {
+            core.call @agent_runtime_refresh_state_summary(%state, %session, %options)
+          }
           %completion_payload = core.get %runtime_step["completion_payload"] default null
           %has_completion = core.type_is %completion_payload type "object"
           core.if %has_completion {

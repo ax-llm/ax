@@ -647,8 +647,18 @@ class AxAgent:
         self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": 0, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", "")})
         self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": 0, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
         self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
+        self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
 
     def forward(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
+        options = options or {}
+        runtime = options.get("runtime")
+        if runtime is None:
+            runtime = self.options.get("runtime")
+        # Wire the built-in llmQuery primitive: a focused sub-query the model can
+        # await inside the runtime. The logic lives in the AxIR-generated helper;
+        # this wrapper only registers the host callable that closes over this client.
+        if runtime is not None and hasattr(runtime, "register_callable"):
+            runtime.register_callable("llmQuery", lambda params: _agent_run_llm_query(self.llm_query, client, params))
         return _agent_forward(
             self.state,
             self.distiller,
@@ -656,7 +666,7 @@ class AxAgent:
             self.responder,
             client,
             values or {},
-            options or {},
+            options,
         )
 
     def test(self, runtime: AxCodeRuntime, code: str, context_field_values: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
@@ -1327,7 +1337,7 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     state["executor_exclude_fields"] = executor_exclude
     state["responder_exclude_fields"] = responder_exclude
     code_field_name = _core_get(runtime_contract, "code_field_name", "javascriptCode")
-    runtime_distiller_signature = _core_string_format("input:json, context:json -> {}:code", code_field_name)
+    runtime_distiller_signature = _core_string_format("input:json, context:json, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
     distiller_signature = "input:json, context:json -> completion:json"
     if runtime_enabled:
         distiller_signature = runtime_distiller_signature
@@ -1341,6 +1351,10 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     else:
         pass
     state["executor_signature"] = executor_signature
+    llm_query_signature = "task:string, context:json -> answer:string"
+    state["llm_query_signature"] = llm_query_signature
+    llm_query_description = "You answer ONE focused question using only the provided context object. Return just the answer text — concise, specific, and grounded in the context. Do not restate the question."
+    state["llm_query_description"] = llm_query_description
     responder_signature = _build_responder_signature(sig, context_fields)
     state["responder_signature"] = responder_signature
     state["chat_log"] = chat_log
@@ -3159,6 +3173,17 @@ def _agent_render_full_action_entry(state: Any, entry: Any) -> str:
         pass
     code = _core_get(entry, "code", "")
     output = _core_get(entry, "output", "")
+    full_is_error = _core_get(entry, "is_error", False)
+    if full_is_error:
+        full_error = _core_get(entry, "error", "")
+        full_err_text = _core_string_format("[runtime error] {}", full_error)
+        full_output_has = _core_ne(output, "")
+        if full_output_has:
+            output = _core_string_format("{}\n{}", output, full_err_text)
+        else:
+            output = full_err_text
+    else:
+        pass
     text = _core_string_format("```{}\n{}\n```\nResult:\n{}", fence, code, output)
     return text
 
@@ -3168,6 +3193,12 @@ def _agent_render_compact_action_entry(entry: Any, turn: Any, reason: str) -> st
     kind = _core_get(entry, "kind", "result")
     state_delta = _core_get(entry, "stateDelta", "No durable runtime state update")
     output = _core_get(entry, "output", "")
+    compact_is_error = _core_get(entry, "is_error", False)
+    if compact_is_error:
+        compact_error = _core_get(entry, "error", "")
+        output = _core_string_format("[runtime error] {}", compact_error)
+    else:
+        pass
     callables = _agent_entry_callables_text(entry)
     distilled = _agent_distill_structured_action_output(output)
     has_distilled = _core_ne(distilled, "")
@@ -5547,6 +5578,17 @@ def _normalize_agent_runtime_step_result(raw: Any, code: str) -> Any:
         is_error = _core_get(raw, "is_error", False)
         result = _core_get(raw, "result", raw)
         output = _core_get(raw, "output", "")
+        output_is_empty = _core_eq(output, "")
+        if output_is_empty:
+            raw_logs = _core_get(raw, "logs", None)
+            raw_logs_is_list = _core_type_is(raw_logs, "list")
+            if raw_logs_is_list:
+                joined_logs = _core_string_join("\n", raw_logs)
+                output = joined_logs
+            else:
+                pass
+        else:
+            pass
         error_message = _core_get(raw, "error", "")
         error_category = _core_get(raw, "error_category", "")
         completion_payload = _core_get(raw, "completion_payload", None)
@@ -5805,6 +5847,24 @@ def _agent_runtime_export_session_state(state: Any, session: Any, options: Any) 
     return snapshot
 
 
+def _agent_runtime_refresh_state_summary(state: Any, session: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_refresh_state_summary")
+    empty_map = {}
+    none = _core_none()
+    policy = _core_get(state, "context_policy", None)
+    state_summary = _core_get(policy, "stateSummary", empty_map)
+    enabled = _core_get(state_summary, "enabled", False)
+    if enabled:
+        runtime_options = _agent_runtime_execution_options(state, options)
+        raw_snapshot = _core_agent_runtime_export_state(session, runtime_options)
+        snapshot = _normalize_agent_runtime_snapshot(raw_snapshot)
+        state["runtime_session_state"] = snapshot
+        return snapshot
+    else:
+        pass
+    return none
+
+
 def _agent_runtime_restore_session_state(state: Any, session: Any, snapshot: Any, options: Any) -> Any:
     _core_coverage_mark("_agent_runtime_restore_session_state")
     normalized_snapshot = _normalize_agent_runtime_snapshot(snapshot)
@@ -5884,6 +5944,17 @@ def _build_distiller_inputs(state: Any, values: Any) -> Any:
     out = {}
     out["input"] = values
     out["context"] = ctx_out
+    actor_context = _agent_prepare_actor_context(state)
+    guidance_text = _core_get(actor_context, "guidanceLog", "[]")
+    action_text = _core_get(actor_context, "actionLog", "(no actions yet)")
+    summary_text = _core_get(actor_context, "summarizedActorLog", "")
+    runtime_text = _core_get(actor_context, "liveRuntimeState", "")
+    pressure_text = _core_get(actor_context, "contextPressure", "")
+    out["summarizedActorLog"] = summary_text
+    out["guidanceLog"] = guidance_text
+    out["actionLog"] = action_text
+    out["liveRuntimeState"] = runtime_text
+    out["contextPressure"] = pressure_text
     return out
 
 
@@ -6689,6 +6760,41 @@ def _agent_transcribe_audio_inputs(state: Any, client: Any, values: Any, options
     return result
 
 
+def _agent_run_llm_query_one(sub_gen: Any, client: Any, item: Any) -> str:
+    _core_coverage_mark("_agent_run_llm_query_one")
+    empty_map = {}
+    query = ""
+    context = empty_map
+    item_is_string = _core_type_is(item, "string")
+    if item_is_string:
+        query = item
+    else:
+        query = _core_get(item, "query", "")
+        context = _core_get(item, "context", empty_map)
+    values = {}
+    values["task"] = query
+    values["context"] = context
+    sub_options = {}
+    output = _core_agent_stage_forward(sub_gen, client, values, sub_options)
+    answer = _core_get(output, "answer", "")
+    return answer
+
+
+def _agent_run_llm_query(sub_gen: Any, client: Any, params: Any) -> Any:
+    _core_coverage_mark("_agent_run_llm_query")
+    params_is_list = _core_type_is(params, "list")
+    if params_is_list:
+        answers = []
+        for item in params:
+            one = _agent_run_llm_query_one(sub_gen, client, item)
+            answers.append(one)
+        return answers
+    else:
+        pass
+    single = _agent_run_llm_query_one(sub_gen, client, params)
+    return single
+
+
 def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
     _core_coverage_mark("_agent_forward")
     transcribed_values = _agent_transcribe_audio_inputs(state, client, values, options)
@@ -6738,6 +6844,12 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
             distiller_code = _extract_agent_runtime_code(state, distiller_output)
             distiller_runtime_step = _agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options)
             distiller_session = _core_get(state, "runtime_session", distiller_session)
+            distiller_step_error = _core_get(distiller_runtime_step, "is_error", False)
+            distiller_step_ok = _core_not(distiller_step_error)
+            if distiller_step_ok:
+                _agent_runtime_refresh_state_summary(state, distiller_session, options)
+            else:
+                pass
             distiller_completion = _core_get(distiller_runtime_step, "completion_payload", None)
             distiller_has_completion = _core_type_is(distiller_completion, "object")
             if distiller_has_completion:
@@ -6749,6 +6861,8 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
         distiller_session_reset = _core_none()
         state["runtime_session"] = distiller_session_reset
         state["action_log"] = distiller_saved_action_log
+        distiller_state_reset = {}
+        state["runtime_session_state"] = distiller_state_reset
     else:
         distiller_values = _build_distiller_inputs(state, values)
         distiller_request_event = {}
@@ -6798,6 +6912,12 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
             code = _extract_agent_runtime_code(state, executor_output)
             runtime_step = _agent_runtime_execute_step(state, runtime_from_options, session, code, options)
             session = _core_get(state, "runtime_session", session)
+            exec_step_error = _core_get(runtime_step, "is_error", False)
+            exec_step_ok = _core_not(exec_step_error)
+            if exec_step_ok:
+                _agent_runtime_refresh_state_summary(state, session, options)
+            else:
+                pass
             completion_payload = _core_get(runtime_step, "completion_payload", None)
             has_completion = _core_type_is(completion_payload, "object")
             if has_completion:

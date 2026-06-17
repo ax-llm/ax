@@ -935,7 +935,11 @@ def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any) -> Ax
         else:
             pass
     response_format = {}
-    if has_code_field:
+    fn_count = _core_len(function_specs)
+    has_functions = _core_gt(fn_count, 0)
+    no_functions = _core_not(has_functions)
+    use_json_schema = _core_or(has_code_field, no_functions)
+    if use_json_schema:
         schema_options = {}
         schema_options["strictStructuredOutputs"] = True
         code_schema = _schema_to_json_schema_impl(output_fields, "output", schema_options)
@@ -1346,12 +1350,6 @@ def _serialize_optimized_artifact(artifact: Any) -> str:
     return text
 
 
-def _run_assertions(gen: AxGen, output: Any) -> None:
-    _core_coverage_mark("_run_assertions")
-    _core_axgen_run_assertions(gen, output)
-    return None
-
-
 def _deserialize_optimized_artifact(text: str, components: Any) -> Any:
     _core_coverage_mark("_deserialize_optimized_artifact")
     artifact = _core_json_parse(text)
@@ -1359,9 +1357,9 @@ def _deserialize_optimized_artifact(text: str, components: Any) -> Any:
     return validated
 
 
-def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> None:
-    _core_coverage_mark("_append_assertion_retry_messages")
-    _append_validation_retry_messages_impl(messages, response, error)
+def _run_assertions(gen: AxGen, output: Any) -> None:
+    _core_coverage_mark("_run_assertions")
+    _core_axgen_run_assertions(gen, output)
     return None
 
 
@@ -1385,16 +1383,16 @@ def _optimization_changed_components(components: Any, component_map: Any) -> lis
     return changes
 
 
+def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> None:
+    _core_coverage_mark("_append_assertion_retry_messages")
+    _append_validation_retry_messages_impl(messages, response, error)
+    return None
+
+
 def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
     _core_coverage_mark("_record_trace")
     _core_axgen_record_trace(gen, input, output, status)
     return None
-
-
-def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
-    _core_coverage_mark("_should_continue_steps")
-    should_continue = _core_axgen_should_continue_steps(gen, calls)
-    return should_continue
 
 
 def _optimization_component_current_map(components: Any) -> Any:
@@ -1405,6 +1403,31 @@ def _optimization_component_current_map(components: Any) -> Any:
         current = _core_get(component, "current", None)
         out[id] = current
     return out
+
+
+def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
+    _core_coverage_mark("_should_continue_steps")
+    should_continue = _core_axgen_should_continue_steps(gen, calls)
+    return should_continue
+
+
+def _normalize_optimization_dataset(dataset: Any) -> Any:
+    _core_coverage_mark("_normalize_optimization_dataset")
+    empty_list = []
+    is_object = _core_type_is(dataset, "object")
+    if is_object:
+        train = _core_get(dataset, "train", empty_list)
+        validation = _core_get(dataset, "validation", empty_list)
+        out_obj = {}
+        out_obj["train"] = train
+        out_obj["validation"] = validation
+        return out_obj
+    else:
+        pass
+    out_list = {}
+    out_list["train"] = dataset
+    out_list["validation"] = empty_list
+    return out_list
 
 
 def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, retries: int) -> Any:
@@ -1427,25 +1450,6 @@ def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, retrie
             attempt = next_attempt
             continue
     raise last_error
-
-
-def _normalize_optimization_dataset(dataset: Any) -> Any:
-    _core_coverage_mark("_normalize_optimization_dataset")
-    empty_list = []
-    is_object = _core_type_is(dataset, "object")
-    if is_object:
-        train = _core_get(dataset, "train", empty_list)
-        validation = _core_get(dataset, "validation", empty_list)
-        out_obj = {}
-        out_obj["train"] = train
-        out_obj["validation"] = validation
-        return out_obj
-    else:
-        pass
-    out_list = {}
-    out_list["train"] = dataset
-    out_list["validation"] = empty_list
-    return out_list
 
 
 def _normalize_optimization_metric_scores(raw: Any) -> Any:
@@ -1474,18 +1478,6 @@ def _parse_output_impl(content: str) -> Any:
     return output
 
 
-def _tool_spec_impl(fn: Tool) -> Any:
-    _core_coverage_mark("_tool_spec_impl")
-    spec = {}
-    name = _core_get(fn, "name", None)
-    description = _core_get(fn, "description", None)
-    parameters = _core_get(fn, "parameters", None)
-    spec["name"] = name
-    spec["description"] = description
-    spec["parameters"] = parameters
-    return spec
-
-
 def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
     _core_coverage_mark("_scalarize_optimization_scores")
     metric_key = _core_get(options, "paretoMetricKey", "")
@@ -1510,6 +1502,18 @@ def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
         pass
     avg = _core_div(sum, count)
     return avg
+
+
+def _tool_spec_impl(fn: Tool) -> Any:
+    _core_coverage_mark("_tool_spec_impl")
+    spec = {}
+    name = _core_get(fn, "name", None)
+    description = _core_get(fn, "description", None)
+    parameters = _core_get(fn, "parameters", None)
+    spec["name"] = name
+    spec["description"] = description
+    spec["parameters"] = parameters
+    return spec
 
 
 def _function_call_mode_impl(mode: Any) -> str:
