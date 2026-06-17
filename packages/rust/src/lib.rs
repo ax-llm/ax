@@ -45177,6 +45177,19 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_distiller_values = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_error_event = CoreValue::Null;
+    let mut v_exec_args = CoreValue::Null;
+    let mut v_exec_distilled = CoreValue::Null;
+    let mut v_exec_empty_list = CoreValue::Null;
+    let mut v_exec_empty_map = CoreValue::Null;
+    let mut v_exec_extras = CoreValue::Null;
+    let mut v_exec_fallback_req = CoreValue::Null;
+    let mut v_exec_non_ctx = CoreValue::Null;
+    let mut v_exec_non_ctx_split = CoreValue::Null;
+    let mut v_exec_req = CoreValue::Null;
+    let mut v_exec_req_coerced = CoreValue::Null;
+    let mut v_exec_req_is_string = CoreValue::Null;
+    let mut v_exec_req_raw = CoreValue::Null;
+    let mut v_exec_runtime_values = CoreValue::Null;
     let mut v_exec_step_error = CoreValue::Null;
     let mut v_exec_step_ok = CoreValue::Null;
     let mut v_executor_options = CoreValue::Null;
@@ -45452,7 +45465,52 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     _throw_agent_clarification(&[v_distiller_payload.clone(), v_state.clone()])?;
     v_executor_payload = core_none(&[])?;
     if core_truthy(&v_runtime_enabled) {
-        v_globals = _agent_runtime_build_globals(&[v_state.clone(), v_values.clone()])?;
+        v_exec_empty_map = CoreValue::new_map();
+        v_exec_empty_list = CoreValue::new_list();
+        v_exec_args = core_get(
+            &v_distiller_payload,
+            &CoreValue::from("args"),
+            v_exec_empty_list.clone(),
+        );
+        v_exec_non_ctx_split = _split_context_values(&[v_state.clone(), v_values.clone()])?;
+        v_exec_non_ctx = core_get(
+            &v_exec_non_ctx_split,
+            &CoreValue::from("values"),
+            v_exec_empty_map.clone(),
+        );
+        v_exec_fallback_req = core_json_stringify(&[v_exec_non_ctx.clone()])?;
+        v_exec_req_raw = core_list_get(&[
+            v_exec_args.clone(),
+            CoreValue::Num(0f64),
+            v_exec_fallback_req.clone(),
+        ])?;
+        v_exec_req_is_string = core_type_is(&v_exec_req_raw, CoreValue::from("string"));
+        v_exec_req = v_exec_req_raw.clone();
+        if core_truthy(&v_exec_req_is_string) {
+        } else {
+            v_exec_req_coerced =
+                core_string_format(&[CoreValue::from("{}"), v_exec_req_raw.clone()])?;
+            v_exec_req = v_exec_req_coerced.clone();
+        }
+        v_exec_distilled = core_list_get(&[
+            v_exec_args.clone(),
+            CoreValue::Num(1f64),
+            v_exec_empty_map.clone(),
+        ])?;
+        v_exec_extras = CoreValue::new_map();
+        core_set(
+            &v_exec_extras,
+            CoreValue::from("executorRequest"),
+            v_exec_req.clone(),
+        )?;
+        core_set(
+            &v_exec_extras,
+            CoreValue::from("distilledContext"),
+            v_exec_distilled.clone(),
+        )?;
+        v_exec_runtime_values = core_map_merge(&[v_values.clone(), v_exec_extras.clone()])?;
+        v_globals =
+            _agent_runtime_build_globals(&[v_state.clone(), v_exec_runtime_values.clone()])?;
         v_session = core_get(
             &v_state,
             &CoreValue::from("runtime_session"),

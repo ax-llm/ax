@@ -26622,6 +26622,19 @@ func _agent_forward(args ...Value) (Value, error) {
 	var v_distiller_values Value
 	var v_error Value
 	var v_error_event Value
+	var v_exec_args Value
+	var v_exec_distilled Value
+	var v_exec_empty_list Value
+	var v_exec_empty_map Value
+	var v_exec_extras Value
+	var v_exec_fallback_req Value
+	var v_exec_non_ctx Value
+	var v_exec_non_ctx_split Value
+	var v_exec_req Value
+	var v_exec_req_coerced Value
+	var v_exec_req_is_string Value
+	var v_exec_req_raw Value
+	var v_exec_runtime_values Value
 	var v_exec_step_error Value
 	var v_exec_step_ok Value
 	var v_executor_options Value
@@ -26690,6 +26703,19 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_distiller_values
 	_ = v_error
 	_ = v_error_event
+	_ = v_exec_args
+	_ = v_exec_distilled
+	_ = v_exec_empty_list
+	_ = v_exec_empty_map
+	_ = v_exec_extras
+	_ = v_exec_fallback_req
+	_ = v_exec_non_ctx
+	_ = v_exec_non_ctx_split
+	_ = v_exec_req
+	_ = v_exec_req_coerced
+	_ = v_exec_req_is_string
+	_ = v_exec_req_raw
+	_ = v_exec_runtime_values
 	_ = v_exec_step_error
 	_ = v_exec_step_ok
 	_ = v_executor_options
@@ -26805,7 +26831,27 @@ func _agent_forward(args ...Value) (Value, error) {
 	if _, err := _throw_agent_clarification(v_distiller_payload, v_state); err != nil { return nil, err }
 	v_executor_payload = _core_none()
 	if coreTruthy(v_runtime_enabled) {
-		{ v, err := _agent_runtime_build_globals(v_state, v_values); if err != nil { return nil, err }; v_globals = v }
+		v_exec_empty_map = Object()
+		v_exec_empty_list = MutableArray()
+		v_exec_args = coreGet(v_distiller_payload, "args", v_exec_empty_list)
+		{ v, err := _split_context_values(v_state, v_values); if err != nil { return nil, err }; v_exec_non_ctx_split = v }
+		v_exec_non_ctx = coreGet(v_exec_non_ctx_split, "values", v_exec_empty_map)
+		v_exec_fallback_req = _core_json_stringify(v_exec_non_ctx)
+		v_exec_req_raw = _core_list_get(v_exec_args, 0, v_exec_fallback_req)
+		v_exec_req_is_string = coreTypeIs(v_exec_req_raw, "string")
+		v_exec_req = v_exec_req_raw
+		if coreTruthy(v_exec_req_is_string) {
+		// empty
+		} else {
+			v_exec_req_coerced = _core_string_format("{}", v_exec_req_raw)
+			v_exec_req = v_exec_req_coerced
+		}
+		v_exec_distilled = _core_list_get(v_exec_args, 1, v_exec_empty_map)
+		v_exec_extras = Object()
+		if err := coreSet(v_exec_extras, "executorRequest", v_exec_req); err != nil { return nil, err }
+		if err := coreSet(v_exec_extras, "distilledContext", v_exec_distilled); err != nil { return nil, err }
+		v_exec_runtime_values = _core_map_merge(v_values, v_exec_extras)
+		{ v, err := _agent_runtime_build_globals(v_state, v_exec_runtime_values); if err != nil { return nil, err }; v_globals = v }
 		v_session = coreGet(v_state, "runtime_session", nil)
 		v_max_steps = coreGet(v_options, "max_actor_steps", 4)
 		v_step = 0

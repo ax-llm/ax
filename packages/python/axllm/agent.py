@@ -6880,7 +6880,26 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     _throw_agent_clarification(distiller_payload, state)
     executor_payload = _core_none()
     if runtime_enabled:
-        globals = _agent_runtime_build_globals(state, values)
+        exec_empty_map = {}
+        exec_empty_list = []
+        exec_args = _core_get(distiller_payload, "args", exec_empty_list)
+        exec_non_ctx_split = _split_context_values(state, values)
+        exec_non_ctx = _core_get(exec_non_ctx_split, "values", exec_empty_map)
+        exec_fallback_req = _core_json_stringify(exec_non_ctx)
+        exec_req_raw = _core_list_get(exec_args, 0, exec_fallback_req)
+        exec_req_is_string = _core_type_is(exec_req_raw, "string")
+        exec_req = exec_req_raw
+        if exec_req_is_string:
+            pass
+        else:
+            exec_req_coerced = _core_string_format("{}", exec_req_raw)
+            exec_req = exec_req_coerced
+        exec_distilled = _core_list_get(exec_args, 1, exec_empty_map)
+        exec_extras = {}
+        exec_extras["executorRequest"] = exec_req
+        exec_extras["distilledContext"] = exec_distilled
+        exec_runtime_values = _core_map_merge(values, exec_extras)
+        globals = _agent_runtime_build_globals(state, exec_runtime_values)
         session = _core_get(state, "runtime_session", None)
         max_steps = _core_get(options, "max_actor_steps", 4)
         step = 0

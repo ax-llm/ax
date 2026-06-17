@@ -13486,7 +13486,28 @@ final class Core {
     Core._throw_agent_clarification(distiller_payload, state);
     Object executor_payload = Core.none();
     if (Core.truthy(runtime_enabled)) {
-      Object globals = Core._agent_runtime_build_globals(state, values);
+      Object exec_empty_map = new java.util.LinkedHashMap<String, Object>();
+      Object exec_empty_list = new java.util.ArrayList<Object>();
+      Object exec_args = Core.get(distiller_payload, "args", exec_empty_list);
+      Object exec_non_ctx_split = Core._split_context_values(state, values);
+      Object exec_non_ctx = Core.get(exec_non_ctx_split, "values", exec_empty_map);
+      Object exec_fallback_req = Core.jsonStringify(exec_non_ctx);
+      Object exec_req_raw = Core.listGet(exec_args, 0, exec_fallback_req);
+      Object exec_req_is_string = Core.typeIs(exec_req_raw, "string");
+      Object exec_req = exec_req_raw;
+      if (Core.truthy(exec_req_is_string)) {
+        // empty
+      }
+      if (!Core.truthy(exec_req_is_string)) {
+        Object exec_req_coerced = Core.stringFormat("{}", exec_req_raw);
+        exec_req = exec_req_coerced;
+      }
+      Object exec_distilled = Core.listGet(exec_args, 1, exec_empty_map);
+      Object exec_extras = new java.util.LinkedHashMap<String, Object>();
+      Core.set(exec_extras, "executorRequest", exec_req);
+      Core.set(exec_extras, "distilledContext", exec_distilled);
+      Object exec_runtime_values = Core.mapMerge(values, exec_extras);
+      Object globals = Core._agent_runtime_build_globals(state, exec_runtime_values);
       Object session = Core.get(state, "runtime_session", null);
       Object max_steps = Core.get(options, "max_actor_steps", 4);
       Object step = 0;

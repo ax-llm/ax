@@ -6048,7 +6048,30 @@ module @ax.agent version "0.1" {
       core.call @throw_agent_clarification(%distiller_payload, %state)
       %executor_payload = core.call intrinsic.none()
       core.if %runtime_enabled {
-        %globals = core.call @agent_runtime_build_globals(%state, %values)
+        // Expose the distiller's handoff (executorRequest + distilledContext) in the
+        // executor's runtime as inputs.executorRequest / inputs.distilledContext, so
+        // the model references them in code (e.g. final(task, inputs.distilledContext))
+        // instead of finding them undefined or retyping the evidence from the prompt.
+        %exec_empty_map = core.map
+        %exec_empty_list = core.list
+        %exec_args = core.get %distiller_payload["args"] default %exec_empty_list
+        %exec_non_ctx_split = core.call @split_context_values(%state, %values)
+        %exec_non_ctx = core.get %exec_non_ctx_split["values"] default %exec_empty_map
+        %exec_fallback_req = core.call intrinsic.json.stringify(%exec_non_ctx)
+        %exec_req_raw = core.call intrinsic.list.get(%exec_args, 0, %exec_fallback_req)
+        %exec_req_is_string = core.type_is %exec_req_raw type "string"
+        %exec_req = core.let %exec_req_raw
+        core.if %exec_req_is_string {
+        } else {
+          %exec_req_coerced = core.call intrinsic.string.format("{}", %exec_req_raw)
+          %exec_req = core.let %exec_req_coerced
+        }
+        %exec_distilled = core.call intrinsic.list.get(%exec_args, 1, %exec_empty_map)
+        %exec_extras = core.map
+        core.set %exec_extras["executorRequest"] = %exec_req
+        core.set %exec_extras["distilledContext"] = %exec_distilled
+        %exec_runtime_values = core.call intrinsic.map.merge(%values, %exec_extras)
+        %globals = core.call @agent_runtime_build_globals(%state, %exec_runtime_values)
         %session = core.get %state["runtime_session"] default null
         %max_steps = core.get %options["max_actor_steps"] default 4
         %step = core.let 0

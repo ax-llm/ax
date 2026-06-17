@@ -14238,7 +14238,28 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
   Core::_throw_agent_clarification(distiller_payload, state);
   Value executor_payload = Core::none();
   if (Core::truthy(runtime_enabled)) {
-    Value globals = Core::_agent_runtime_build_globals(state, values);
+    Value exec_empty_map = Value::object();
+    Value exec_empty_list = Value::array();
+    Value exec_args = Core::get(distiller_payload, Value("args"), exec_empty_list);
+    Value exec_non_ctx_split = Core::_split_context_values(state, values);
+    Value exec_non_ctx = Core::get(exec_non_ctx_split, Value("values"), exec_empty_map);
+    Value exec_fallback_req = Core::json_stringify(exec_non_ctx);
+    Value exec_req_raw = Core::list_get(exec_args, Value(0), exec_fallback_req);
+    Value exec_req_is_string = Core::type_is(exec_req_raw, Value("string"));
+    Value exec_req = exec_req_raw;
+    if (Core::truthy(exec_req_is_string)) {
+      // empty
+    }
+    if (!Core::truthy(exec_req_is_string)) {
+      Value exec_req_coerced = Core::string_format(Value("{}"), exec_req_raw);
+      exec_req = exec_req_coerced;
+    }
+    Value exec_distilled = Core::list_get(exec_args, Value(1), exec_empty_map);
+    Value exec_extras = Value::object();
+    Core::set(exec_extras, Value("executorRequest"), exec_req);
+    Core::set(exec_extras, Value("distilledContext"), exec_distilled);
+    Value exec_runtime_values = Core::map_merge(values, exec_extras);
+    Value globals = Core::_agent_runtime_build_globals(state, exec_runtime_values);
     Value session = Core::get(state, Value("runtime_session"), Value());
     Value max_steps = Core::get(options, Value("max_actor_steps"), Value(4));
     Value step = Value(0);
