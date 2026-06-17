@@ -99,6 +99,8 @@ module @ax.agent version "0.1" {
         %executor_signature = core.let %runtime_executor_signature
       }
       core.set %state["executor_signature"] = %executor_signature
+      %responder_signature = core.call @build_responder_signature(%sig, %context_fields)
+      core.set %state["responder_signature"] = %responder_signature
       core.set %state["chat_log"] = %chat_log
       core.set %state["usage"] = %usage
       core.set %state["runtime_state"] = %state_alpha
@@ -5019,6 +5021,10 @@ module @ax.agent version "0.1" {
       %args = core.get %executor_payload["args"] default %empty_list
       %task = core.call intrinsic.list.get(%args, 0, "")
       %context = core.call intrinsic.list.get(%args, 1, %empty_map)
+      %context_data = core.map
+      core.set %context_data["task"] = %task
+      core.set %context_data["evidence"] = %context
+      core.set %out["contextData"] = %context_data
       core.set %out["agentTask"] = %task
       core.set %out["agentContext"] = %context
       core.set %out["executorResult"] = %executor_payload
@@ -5028,6 +5034,120 @@ module @ax.agent version "0.1" {
         core.call intrinsic.map.delete(%non_ctx, %key)
       }
       core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_render_field_token {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> string"
+    body @entry(%field: json) {
+      %empty_list = core.list
+      %name = core.get %field["name"] default ""
+      %parts = core.list
+      core.append %parts, %name
+      %is_optional = core.get %field["is_optional"] default false
+      core.if %is_optional {
+        core.append %parts, "?"
+      }
+      %is_internal = core.get %field["is_internal"] default false
+      core.if %is_internal {
+        core.append %parts, "!"
+      }
+      %ftype = core.get %field["type"] default null
+      %tname = core.let ""
+      %has_type = core.call intrinsic.is_not_none(%ftype)
+      core.if %has_type {
+        %tname = core.get %ftype["name"] default ""
+        core.append %parts, ":"
+        core.append %parts, %tname
+        %is_array = core.get %ftype["is_array"] default false
+        core.if %is_array {
+          core.append %parts, "[]"
+        }
+        %is_class = core.call intrinsic.eq(%tname, "class")
+        core.if %is_class {
+          %options = core.get %ftype["options"] default %empty_list
+          %opt_count = core.call intrinsic.len(%options)
+          %has_opts = core.call intrinsic.ne(%opt_count, 0)
+          core.if %has_opts {
+            %opts_joined = core.call intrinsic.string.join(" | ", %options)
+            core.append %parts, " \""
+            core.append %parts, %opts_joined
+            core.append %parts, "\""
+          }
+        }
+      }
+      %description = core.get %field["description"] default ""
+      %desc_none = core.call intrinsic.is_none(%description)
+      core.if %desc_none {
+        %description = core.let ""
+      }
+      %has_desc = core.call intrinsic.ne(%description, "")
+      %is_class_desc = core.call intrinsic.eq(%tname, "class")
+      %not_class = core.call intrinsic.not(%is_class_desc)
+      %render_desc = core.call intrinsic.and(%has_desc, %not_class)
+      core.if %render_desc {
+        core.append %parts, " \""
+        core.append %parts, %description
+        core.append %parts, "\""
+      }
+      %result = core.call intrinsic.string.join("", %parts)
+      core.return %result
+    }
+  }
+
+  op ax.agent.semantic @build_responder_signature {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> string"
+    body @entry(%sig: json, %context_fields: json) {
+      %empty_list = core.list
+      %input_fields = core.get %sig["input_fields"] default %empty_list
+      %output_fields = core.get %sig["output_fields"] default %empty_list
+      %description = core.get %sig["description"] default ""
+      %desc_none = core.call intrinsic.is_none(%description)
+      core.if %desc_none {
+        %description = core.let ""
+      }
+      %input_tokens = core.list
+      core.for %field in %input_fields {
+        %fname = core.get %field["name"] default ""
+        %is_context = core.call intrinsic.contains(%context_fields, %fname)
+        %not_context = core.call intrinsic.not(%is_context)
+        core.if %not_context {
+          %tok = core.call @agent_render_field_token(%field)
+          core.append %input_tokens, %tok
+        }
+      }
+      %ctx_field = core.map
+      core.set %ctx_field["name"] = "contextData"
+      %ctx_type = core.map
+      core.set %ctx_type["name"] = "json"
+      core.set %ctx_field["type"] = %ctx_type
+      %ctx_tok = core.call @agent_render_field_token(%ctx_field)
+      core.append %input_tokens, %ctx_tok
+      %output_tokens = core.list
+      core.for %ofield in %output_fields {
+        %otok = core.call @agent_render_field_token(%ofield)
+        core.append %output_tokens, %otok
+      }
+      %inputs_joined = core.call intrinsic.string.join(", ", %input_tokens)
+      %outputs_joined = core.call intrinsic.string.join(", ", %output_tokens)
+      %body_parts = core.list
+      %has_desc = core.call intrinsic.ne(%description, "")
+      core.if %has_desc {
+        core.append %body_parts, "\""
+        core.append %body_parts, %description
+        core.append %body_parts, "\" "
+      }
+      core.append %body_parts, %inputs_joined
+      core.append %body_parts, " -> "
+      core.append %body_parts, %outputs_joined
+      %sig_string = core.call intrinsic.string.join("", %body_parts)
+      core.return %sig_string
     }
   }
 

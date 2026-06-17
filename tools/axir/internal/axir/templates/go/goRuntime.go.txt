@@ -1810,7 +1810,8 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	responderOptions := Object("validation_retries", coreGet(options, "validation_retries", 2), "id", "task.root.responder", "instruction", coreGet(state, "responder_description", ""))
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContext:json -> completion:json"))
-	return &AxAgent{Signature:sig, Options:options, State:state, Executor:NewAx(executorSignature,executorOptions), Responder:NewAx(signature,responderOptions), Distiller:NewAx(distillerSignature,distillerOptions)}
+	responderSignature := display(coreGet(state, "responder_signature", signature))
+	return &AxAgent{Signature:sig, Options:options, State:state, Executor:NewAx(executorSignature,executorOptions), Responder:NewAx(responderSignature,responderOptions), Distiller:NewAx(distillerSignature,distillerOptions)}
 }
 func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value,error) { return safeValue(func() Value { return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, bindAIClientContext(ctx, client), values, options)) }) }
 func (a *AxAgent) get(k string, fallback Value) Value { switch k { case "state": return a.State; case "signature": return a.Signature; case "options": return a.Options; case "executor": return a.Executor; case "responder": return a.Responder; case "distiller": return a.Distiller; default: return fallback } }
@@ -4340,6 +4341,43 @@ func runConformanceAgentRuntimeReal(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_request_count", nil); expected != nil && len(client.Requests) != int(num(expected)) {
 		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d requests, got %d", int(num(expected)), len(client.Requests))})
 	}
+	// Hold agent_runtime_real to the SAME request-content guards as the scripted
+	// agent_forward path (python/java/cpp/rust route both kinds through one handler).
+	// Without these the real-engine gate passes vacuously on expected_request_contains
+	// -- which is how an executor->responder evidence drop could ride along on a real
+	// engine while the strict engines enforced it.
+	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
+		text := stableStringify(client.Requests)
+		for _, item := range asSlice(expected) { if !strings.Contains(text, display(item)) { panic(AxError{Category: "fixture", Message: "agent request missing " + display(item) + ": " + text}) } }
+	}
+	if expected := coreGet(fixture, "expected_stage_request_not_contains", nil); expected != nil {
+		for _, raw := range asSlice(expected) {
+			spec := asMap(raw)
+			index := int(num(coreGet(spec, "index", 0)))
+			text := ""
+			if index < len(client.Requests) { text = stableStringify(client.Requests[index]) }
+			for _, item := range asSlice(coreGet(spec, "absent", Array())) { if strings.Contains(text, display(item)) { panic(AxError{Category: "fixture", Message: fmt.Sprintf("agent request %d unexpectedly contained %q: %s", index, display(item), text)}) } }
+		}
+	}
+	if expected := coreGet(fixture, "expected_stage_request_subset", nil); expected != nil {
+		for _, raw := range asSlice(expected) {
+			spec := asMap(raw)
+			index := int(num(coreGet(spec, "index", 0)))
+			if index >= len(client.Requests) { panic(AxError{Category: "fixture", Message: fmt.Sprintf("missing agent request index %d", index)}) }
+			assertSubset(client.Requests[index], coreGet(spec, "request", Object()), fmt.Sprintf("agent request %d", index))
+		}
+	}
+	if expected := coreGet(fixture, "expected_cached_request_indices", nil); expected != nil {
+		for _, rawIndex := range asSlice(expected) {
+			index := int(num(rawIndex))
+			if index >= len(client.Requests) { panic(AxError{Category: "fixture", Message: fmt.Sprintf("missing cached request index %d", index)}) }
+			found := false
+			prompt := coreGet(client.Requests[index], "chat_prompt", coreGet(client.Requests[index], "chatPrompt", Array()))
+			for _, message := range asSlice(prompt) { if coreTruthy(coreGet(message, "cache", false)) { found = true } }
+			if !found { panic(AxError{Category: "fixture", Message: fmt.Sprintf("agent request %d did not contain a cached prompt message", index)}) }
+		}
+	}
+	assertAgentTrace(ag, fixture)
 }
 
 // runConformanceAgentPrompt is a prompt-parity gate (G3): it builds a real agent

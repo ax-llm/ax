@@ -8762,6 +8762,8 @@ Value Core::_agent_factory(Value signature, Value options) {
     executor_signature = runtime_executor_signature;
   }
   Core::set(state, Value("executor_signature"), executor_signature);
+  Value responder_signature = Core::_build_responder_signature(sig, context_fields);
+  Core::set(state, Value("responder_signature"), responder_signature);
   Core::set(state, Value("chat_log"), chat_log);
   Core::set(state, Value("usage"), usage);
   Core::set(state, Value("runtime_state"), state_alpha);
@@ -13334,6 +13336,10 @@ Value Core::_build_responder_inputs(Value state, Value values, Value executor_pa
   Value args = Core::get(executor_payload, Value("args"), empty_list);
   Value task = Core::list_get(args, Value(0), Value(""));
   Value context = Core::list_get(args, Value(1), empty_map);
+  Value context_data = Value::object();
+  Core::set(context_data, Value("task"), task);
+  Core::set(context_data, Value("evidence"), context);
+  Core::set(out, Value("contextData"), context_data);
   Core::set(out, Value("agentTask"), task);
   Core::set(out, Value("agentContext"), context);
   Core::set(out, Value("executorResult"), executor_payload);
@@ -13343,6 +13349,110 @@ Value Core::_build_responder_inputs(Value state, Value values, Value executor_pa
     Core::map_delete(non_ctx, key);
   }
   return out;
+}
+
+Value Core::_agent_render_field_token(Value field) {
+  axir_coverage_mark("_agent_render_field_token");
+  Value empty_list = Value::array();
+  Value name = Core::get(field, Value("name"), Value(""));
+  Value parts = Value::array();
+  Core::append(parts, name);
+  Value is_optional = Core::get(field, Value("is_optional"), Value(false));
+  if (Core::truthy(is_optional)) {
+    Core::append(parts, Value("?"));
+  }
+  Value is_internal = Core::get(field, Value("is_internal"), Value(false));
+  if (Core::truthy(is_internal)) {
+    Core::append(parts, Value("!"));
+  }
+  Value ftype = Core::get(field, Value("type"), Value());
+  Value tname = Value("");
+  Value has_type = Core::is_not_none(ftype);
+  if (Core::truthy(has_type)) {
+    tname = Core::get(ftype, Value("name"), Value(""));
+    Core::append(parts, Value(":"));
+    Core::append(parts, tname);
+    Value is_array = Core::get(ftype, Value("is_array"), Value(false));
+    if (Core::truthy(is_array)) {
+      Core::append(parts, Value("[]"));
+    }
+    Value is_class = Core::eq(tname, Value("class"));
+    if (Core::truthy(is_class)) {
+      Value options = Core::get(ftype, Value("options"), empty_list);
+      Value opt_count = Core::len(options);
+      Value has_opts = Core::ne(opt_count, Value(0));
+      if (Core::truthy(has_opts)) {
+        Value opts_joined = Core::string_join(Value(" | "), options);
+        Core::append(parts, Value(" \""));
+        Core::append(parts, opts_joined);
+        Core::append(parts, Value("\""));
+      }
+    }
+  }
+  Value description = Core::get(field, Value("description"), Value(""));
+  Value desc_none = Core::is_none(description);
+  if (Core::truthy(desc_none)) {
+    description = Value("");
+  }
+  Value has_desc = Core::ne(description, Value(""));
+  Value is_class_desc = Core::eq(tname, Value("class"));
+  Value not_class = Core::not_(is_class_desc);
+  Value render_desc = Core::and_(has_desc, not_class);
+  if (Core::truthy(render_desc)) {
+    Core::append(parts, Value(" \""));
+    Core::append(parts, description);
+    Core::append(parts, Value("\""));
+  }
+  Value result = Core::string_join(Value(""), parts);
+  return result;
+}
+
+Value Core::_build_responder_signature(Value sig, Value context_fields) {
+  axir_coverage_mark("_build_responder_signature");
+  Value empty_list = Value::array();
+  Value input_fields = Core::get(sig, Value("input_fields"), empty_list);
+  Value output_fields = Core::get(sig, Value("output_fields"), empty_list);
+  Value description = Core::get(sig, Value("description"), Value(""));
+  Value desc_none = Core::is_none(description);
+  if (Core::truthy(desc_none)) {
+    description = Value("");
+  }
+  Value input_tokens = Value::array();
+  for (auto field : Core::iter(input_fields)) {
+    Value fname = Core::get(field, Value("name"), Value(""));
+    Value is_context = Core::contains(context_fields, fname);
+    Value not_context = Core::not_(is_context);
+    if (Core::truthy(not_context)) {
+      Value tok = Core::_agent_render_field_token(field);
+      Core::append(input_tokens, tok);
+    }
+  }
+  Value ctx_field = Value::object();
+  Core::set(ctx_field, Value("name"), Value("contextData"));
+  Value ctx_type = Value::object();
+  Core::set(ctx_type, Value("name"), Value("json"));
+  Core::set(ctx_field, Value("type"), ctx_type);
+  Value ctx_tok = Core::_agent_render_field_token(ctx_field);
+  Core::append(input_tokens, ctx_tok);
+  Value output_tokens = Value::array();
+  for (auto ofield : Core::iter(output_fields)) {
+    Value otok = Core::_agent_render_field_token(ofield);
+    Core::append(output_tokens, otok);
+  }
+  Value inputs_joined = Core::string_join(Value(", "), input_tokens);
+  Value outputs_joined = Core::string_join(Value(", "), output_tokens);
+  Value body_parts = Value::array();
+  Value has_desc = Core::ne(description, Value(""));
+  if (Core::truthy(has_desc)) {
+    Core::append(body_parts, Value("\""));
+    Core::append(body_parts, description);
+    Core::append(body_parts, Value("\" "));
+  }
+  Core::append(body_parts, inputs_joined);
+  Core::append(body_parts, Value(" -> "));
+  Core::append(body_parts, outputs_joined);
+  Value sig_string = Core::string_join(Value(""), body_parts);
+  return sig_string;
 }
 
 Value Core::_normalize_agent_completion_payload(Value output) {
@@ -16842,7 +16952,7 @@ AxAgent::AxAgent(Value signature, Value options) {
   state_ = Core::_agent_factory(std::move(signature), options);
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
-  responder_ = std::make_unique<AxGen>(Core::get(state_, "signature"), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
+  responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
 }
 
 Value AxAgent::forward(AIClient& client, Value values, Value options) {

@@ -538,6 +538,8 @@ struct Core {
   static Value _build_distiller_inputs(Value state, Value values);
   static Value _build_executor_inputs(Value state, Value values, Value distiller_payload);
   static Value _build_responder_inputs(Value state, Value values, Value executor_payload);
+  static Value _agent_render_field_token(Value field);
+  static Value _build_responder_signature(Value sig, Value context_fields);
   static Value _normalize_agent_completion_payload(Value output);
   static Value _throw_agent_clarification(Value payload, Value state);
   static Value _merge_agent_chat_log(Value state, Value distiller, Value executor, Value responder);

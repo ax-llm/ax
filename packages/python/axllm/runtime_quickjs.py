@@ -25,7 +25,7 @@ from .agent import AxCodeRuntime, AxCodeSession
 # names avoid a leading underscore so they read as JS, not python helpers.
 _PRELUDE = (
     "function axComplete(v){globalThis.__ax_completion=v;return v;}"
-    "function final(){return axComplete({type:'final',kind:'final',completion_payload:{args:Array.from(arguments)},args:Array.from(arguments)});}"
+    "function final(){return axComplete({type:'final',args:Array.from(arguments)});}"
     "function askClarification(){return axComplete({type:'askClarification',args:Array.from(arguments)});}"
     "function discover(r){return axComplete({kind:'discover',discover:r});}"
     "function recall(r){return axComplete({kind:'recall',recall:r});}"

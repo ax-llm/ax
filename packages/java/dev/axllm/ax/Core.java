@@ -7999,6 +7999,8 @@ final class Core {
       executor_signature = runtime_executor_signature;
     }
     Core.set(state, "executor_signature", executor_signature);
+    Object responder_signature = Core._build_responder_signature(sig, context_fields);
+    Core.set(state, "responder_signature", responder_signature);
     Core.set(state, "chat_log", chat_log);
     Core.set(state, "usage", usage);
     Core.set(state, "runtime_state", state_alpha);
@@ -12582,6 +12584,10 @@ final class Core {
     Object args = Core.get(executor_payload, "args", empty_list);
     Object task = Core.listGet(args, 0, "");
     Object context = Core.listGet(args, 1, empty_map);
+    Object context_data = new java.util.LinkedHashMap<String, Object>();
+    Core.set(context_data, "task", task);
+    Core.set(context_data, "evidence", context);
+    Core.set(out, "contextData", context_data);
     Core.set(out, "agentTask", task);
     Core.set(out, "agentContext", context);
     Core.set(out, "executorResult", executor_payload);
@@ -12591,6 +12597,110 @@ final class Core {
       Core.mapDelete(non_ctx, key);
     }
     return out;
+  }
+
+  static Object _agent_render_field_token(Object field) {
+    axirCoverageMark("_agent_render_field_token");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object name = Core.get(field, "name", "");
+    Object parts = new java.util.ArrayList<Object>();
+    Core.append(parts, name);
+    Object is_optional = Core.get(field, "is_optional", Boolean.FALSE);
+    if (Core.truthy(is_optional)) {
+      Core.append(parts, "?");
+    }
+    Object is_internal = Core.get(field, "is_internal", Boolean.FALSE);
+    if (Core.truthy(is_internal)) {
+      Core.append(parts, "!");
+    }
+    Object ftype = Core.get(field, "type", null);
+    Object tname = "";
+    Object has_type = Core.isNotNone(ftype);
+    if (Core.truthy(has_type)) {
+      tname = Core.get(ftype, "name", "");
+      Core.append(parts, ":");
+      Core.append(parts, tname);
+      Object is_array = Core.get(ftype, "is_array", Boolean.FALSE);
+      if (Core.truthy(is_array)) {
+        Core.append(parts, "[]");
+      }
+      Object is_class = Core.eq(tname, "class");
+      if (Core.truthy(is_class)) {
+        Object options = Core.get(ftype, "options", empty_list);
+        Object opt_count = Core.len(options);
+        Object has_opts = Core.ne(opt_count, 0);
+        if (Core.truthy(has_opts)) {
+          Object opts_joined = Core.stringJoin(" | ", options);
+          Core.append(parts, " \"");
+          Core.append(parts, opts_joined);
+          Core.append(parts, "\"");
+        }
+      }
+    }
+    Object description = Core.get(field, "description", "");
+    Object desc_none = Core.isNone(description);
+    if (Core.truthy(desc_none)) {
+      description = "";
+    }
+    Object has_desc = Core.ne(description, "");
+    Object is_class_desc = Core.eq(tname, "class");
+    Object not_class = Core.not(is_class_desc);
+    Object render_desc = Core.and(has_desc, not_class);
+    if (Core.truthy(render_desc)) {
+      Core.append(parts, " \"");
+      Core.append(parts, description);
+      Core.append(parts, "\"");
+    }
+    Object result = Core.stringJoin("", parts);
+    return result;
+  }
+
+  static Object _build_responder_signature(Object sig, Object context_fields) {
+    axirCoverageMark("_build_responder_signature");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object input_fields = Core.get(sig, "input_fields", empty_list);
+    Object output_fields = Core.get(sig, "output_fields", empty_list);
+    Object description = Core.get(sig, "description", "");
+    Object desc_none = Core.isNone(description);
+    if (Core.truthy(desc_none)) {
+      description = "";
+    }
+    Object input_tokens = new java.util.ArrayList<Object>();
+    for (Object field : Core.iter(input_fields)) {
+      Object fname = Core.get(field, "name", "");
+      Object is_context = Core.contains(context_fields, fname);
+      Object not_context = Core.not(is_context);
+      if (Core.truthy(not_context)) {
+        Object tok = Core._agent_render_field_token(field);
+        Core.append(input_tokens, tok);
+      }
+    }
+    Object ctx_field = new java.util.LinkedHashMap<String, Object>();
+    Core.set(ctx_field, "name", "contextData");
+    Object ctx_type = new java.util.LinkedHashMap<String, Object>();
+    Core.set(ctx_type, "name", "json");
+    Core.set(ctx_field, "type", ctx_type);
+    Object ctx_tok = Core._agent_render_field_token(ctx_field);
+    Core.append(input_tokens, ctx_tok);
+    Object output_tokens = new java.util.ArrayList<Object>();
+    for (Object ofield : Core.iter(output_fields)) {
+      Object otok = Core._agent_render_field_token(ofield);
+      Core.append(output_tokens, otok);
+    }
+    Object inputs_joined = Core.stringJoin(", ", input_tokens);
+    Object outputs_joined = Core.stringJoin(", ", output_tokens);
+    Object body_parts = new java.util.ArrayList<Object>();
+    Object has_desc = Core.ne(description, "");
+    if (Core.truthy(has_desc)) {
+      Core.append(body_parts, "\"");
+      Core.append(body_parts, description);
+      Core.append(body_parts, "\" ");
+    }
+    Core.append(body_parts, inputs_joined);
+    Core.append(body_parts, " -> ");
+    Core.append(body_parts, outputs_joined);
+    Object sig_string = Core.stringJoin("", body_parts);
+    return sig_string;
   }
 
   static Object _normalize_agent_completion_payload(Object output) {

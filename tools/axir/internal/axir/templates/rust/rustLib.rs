@@ -2019,6 +2019,11 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         &CoreValue::from("executor_signature"),
         CoreValue::Null,
     ))?;
+    let responder_signature = signature_from_record(&core_get(
+        &state,
+        &CoreValue::from("responder_signature"),
+        CoreValue::Null,
+    ))?;
     let validation_retries = {
         let raw = core_get(&options, &CoreValue::from("validation_retries"), CoreValue::Null);
         if raw.is_null() { json!(2) } else { core_value_to_json(&raw) }
@@ -2037,7 +2042,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
             json!({"validation_retries": 0, "id": "task.root.actor", "instruction": executor_instruction}),
         ),
         responder: agent_stage_gen(
-            signature,
+            responder_signature,
             json!({"validation_retries": validation_retries, "id": "task.root.responder", "instruction": responder_instruction}),
         ),
     })

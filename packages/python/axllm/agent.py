@@ -646,7 +646,7 @@ class AxAgent:
         self.signature = _core_get(self.state, "signature")
         self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": 0, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", "")})
         self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": 0, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
-        self.responder = AxGen(self.signature, {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
+        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
 
     def forward(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
         return _agent_forward(
@@ -1341,6 +1341,8 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     else:
         pass
     state["executor_signature"] = executor_signature
+    responder_signature = _build_responder_signature(sig, context_fields)
+    state["responder_signature"] = responder_signature
     state["chat_log"] = chat_log
     state["usage"] = usage
     state["runtime_state"] = state_alpha
@@ -5944,6 +5946,10 @@ def _build_responder_inputs(state: Any, values: Any, executor_payload: Any) -> A
     args = _core_get(executor_payload, "args", empty_list)
     task = _core_list_get(args, 0, "")
     context = _core_list_get(args, 1, empty_map)
+    context_data = {}
+    context_data["task"] = task
+    context_data["evidence"] = context
+    out["contextData"] = context_data
     out["agentTask"] = task
     out["agentContext"] = context
     out["executorResult"] = executor_payload
@@ -5952,6 +5958,119 @@ def _build_responder_inputs(state: Any, values: Any, executor_payload: Any) -> A
         _core_map_delete(out, key)
         _core_map_delete(non_ctx, key)
     return out
+
+
+def _agent_render_field_token(field: Any) -> str:
+    _core_coverage_mark("_agent_render_field_token")
+    empty_list = []
+    name = _core_get(field, "name", "")
+    parts = []
+    parts.append(name)
+    is_optional = _core_get(field, "is_optional", False)
+    if is_optional:
+        parts.append("?")
+    else:
+        pass
+    is_internal = _core_get(field, "is_internal", False)
+    if is_internal:
+        parts.append("!")
+    else:
+        pass
+    ftype = _core_get(field, "type", None)
+    tname = ""
+    has_type = _core_is_not_none(ftype)
+    if has_type:
+        tname = _core_get(ftype, "name", "")
+        parts.append(":")
+        parts.append(tname)
+        is_array = _core_get(ftype, "is_array", False)
+        if is_array:
+            parts.append("[]")
+        else:
+            pass
+        is_class = _core_eq(tname, "class")
+        if is_class:
+            options = _core_get(ftype, "options", empty_list)
+            opt_count = _core_len(options)
+            has_opts = _core_ne(opt_count, 0)
+            if has_opts:
+                opts_joined = _core_string_join(" | ", options)
+                parts.append(" \"")
+                parts.append(opts_joined)
+                parts.append("\"")
+            else:
+                pass
+        else:
+            pass
+    else:
+        pass
+    description = _core_get(field, "description", "")
+    desc_none = _core_is_none(description)
+    if desc_none:
+        description = ""
+    else:
+        pass
+    has_desc = _core_ne(description, "")
+    is_class_desc = _core_eq(tname, "class")
+    not_class = _core_not(is_class_desc)
+    render_desc = _core_and(has_desc, not_class)
+    if render_desc:
+        parts.append(" \"")
+        parts.append(description)
+        parts.append("\"")
+    else:
+        pass
+    result = _core_string_join("", parts)
+    return result
+
+
+def _build_responder_signature(sig: Any, context_fields: Any) -> str:
+    _core_coverage_mark("_build_responder_signature")
+    empty_list = []
+    input_fields = _core_get(sig, "input_fields", empty_list)
+    output_fields = _core_get(sig, "output_fields", empty_list)
+    description = _core_get(sig, "description", "")
+    desc_none = _core_is_none(description)
+    if desc_none:
+        description = ""
+    else:
+        pass
+    input_tokens = []
+    for field in input_fields:
+        fname = _core_get(field, "name", "")
+        is_context = _core_contains(context_fields, fname)
+        not_context = _core_not(is_context)
+        if not_context:
+            tok = _agent_render_field_token(field)
+            input_tokens.append(tok)
+        else:
+            pass
+    ctx_field = {}
+    ctx_field["name"] = "contextData"
+    ctx_type = {}
+    ctx_type["name"] = "json"
+    ctx_field["type"] = ctx_type
+    ctx_tok = _agent_render_field_token(ctx_field)
+    input_tokens.append(ctx_tok)
+    output_tokens = []
+    for ofield in output_fields:
+        otok = _agent_render_field_token(ofield)
+        output_tokens.append(otok)
+    inputs_joined = _core_string_join(", ", input_tokens)
+    outputs_joined = _core_string_join(", ", output_tokens)
+    body_parts = []
+    has_desc = _core_ne(description, "")
+    if has_desc:
+        body_parts.append("\"")
+        body_parts.append(description)
+        body_parts.append("\" ")
+    else:
+        pass
+    body_parts.append(inputs_joined)
+    body_parts.append(" -> ")
+    body_parts.append(outputs_joined)
+    sig_string = _core_string_join("", body_parts)
+    return sig_string
 
 
 def _normalize_agent_completion_payload(output: Any) -> Any:
