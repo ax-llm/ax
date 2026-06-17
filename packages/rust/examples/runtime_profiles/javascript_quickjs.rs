@@ -91,10 +91,8 @@ fn main() -> AxResult<()> {
         session.execute("final(marker())", json!({}))?.payload["args"][0]["ok"],
         true
     );
-    assert_eq!(
-        session.execute("badTool({})", json!({}))?.payload["error_category"],
-        "runtime"
-    );
+    let failed = session.execute("final({error: badTool({}).error})", json!({}))?;
+    assert_eq!(failed.payload["args"][0]["error"], "bad tool failed");
     assert_eq!(
         session
             .execute("throw new Error('boom')", json!({}))?

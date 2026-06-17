@@ -167,14 +167,23 @@ func (s *Session) Execute(code string, options map[string]ax.Value) ax.Value {
 	}
 	// The RLM prompt has the model write `await final(...)` / `await llmQuery(...)`, so actor
 	// code uses top-level await — illegal in a plain Function body. Compile it as an async
-	// function (AsyncFunction constructor) instead; the synchronous host primitives that set
-	// the completion run before the first await suspends, so the completion is captured.
-	_, err := s.vm.RunString("(async function(){}).constructor(" + string(body) + ")();")
+	// function (AsyncFunction constructor) instead. A synchronous `throw` inside an async
+	// function becomes a *rejected promise*, so attach a rejection handler that records
+	// __ax_error; goja drains the promise job queue when RunString returns, so the handler runs
+	// before we read the result. Without it the throw's error_category would be silently lost.
+	// The synchronous host primitives that set the completion run before the first await
+	// suspends, so the completion is captured too.
+	_, err := s.vm.RunString("globalThis.__ax_error = undefined; (async function(){}).constructor(" + string(body) + ")().then(function(){}, function(e){ globalThis.__ax_error = String((e && e.stack) ? e.stack : e); });")
 	if timer != nil && !timer.Stop() {
 		s.vm.ClearInterrupt()
 	}
+	// A timeout surfaces here as an uncatchable interrupt error (the `while (true) {}` path);
+	// keep that check ahead of the rejection so it stays categorized as a timeout.
 	if err != nil {
 		return runtimeError(err.Error(), errorCategory(err))
+	}
+	if actorError := s.vm.Get("__ax_error"); actorError != nil && !gojavm.IsUndefined(actorError) && !gojavm.IsNull(actorError) {
+		return runtimeError(fmt.Sprint(actorError.Export()), "runtime")
 	}
 	s.restoreReservedGlobals()
 	s.installBuiltins()

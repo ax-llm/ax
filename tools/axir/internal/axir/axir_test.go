@@ -1828,6 +1828,52 @@ func generatedCorePlaceholderLine(target, line string) bool {
 	}
 }
 
+// TestActorRuntimeSurfacesAsyncRejections guards the QuickJS async-rejection error_category bug.
+//
+// Commit a59eb9e4 wrapped RLM actor code in an async IIFE so the model's top-level
+// `await final(...)` is legal. But an async IIFE turns a synchronous `throw` into a *rejected
+// promise*: an engine that runs the IIFE without awaiting it or draining the job queue never
+// observes the rejection, so session.execute("throw ...") silently loses its
+// error_category=runtime. That break surfaces only in the runtime-profile examples, and the
+// java/python QuickJS4J profiles are skipped unless AXIR_QUICKJS4J_* is set, so it slipped past
+// CI. Each engine that wraps actor code in an async IIFE must surface rejections: libquickjs,
+// py-quickjs, and rquickjs attach a rejection handler that records __ax_error and drain the job
+// queue; goja attaches the same handler and relies on RunString draining the promise job queue on
+// return; quickjs4j awaits the IIFE so the host resolves its promise (propagating the rejection).
+// Lock those markers in so the await/drain cannot be silently dropped again.
+//
+// The goja (Go) and rquickjs (Rust) profiles run only under an explicit --runtime-profiles pass,
+// so the default suite does not exercise their error paths at runtime; these markers are the
+// regression guard that keeps their rejection handling in place.
+func TestActorRuntimeSurfacesAsyncRejections(t *testing.T) {
+	cases := []struct {
+		engine  string
+		rel     string
+		markers []string
+	}{
+		{"quickjs4j", "quickjs/javaQuickJSCodeSession.java", []string{"await (async function"}},
+		{"libquickjs", "quickjs/cppQuickJSRuntimeSource.cpp", []string{"JS_ExecutePendingJob", "__ax_error"}},
+		{"py-quickjs", "runtime/pyRuntimeQuickjs.py", []string{"execute_pending_job", "__ax_error"}},
+		{"rquickjs", "rust_quickjs/rustQuickJSRuntime.rs", []string{"execute_pending_job", "__ax_error"}},
+		{"goja", "goja/goGojaRuntime.go.txt", []string{".then(function(){}, function(e)", "__ax_error"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.engine, func(t *testing.T) {
+			path := filepath.Join(repoRootPath(), "tools", "axir", "internal", "axir", "templates", filepath.FromSlash(tc.rel))
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read actor runtime template %s: %v", tc.rel, err)
+			}
+			text := string(data)
+			for _, marker := range tc.markers {
+				if !strings.Contains(text, marker) {
+					t.Fatalf("%s runtime %s is missing rejection-surfacing marker %q: a synchronous throw in actor code would become an unhandled rejected promise and error_category=runtime would be lost (see commit a59eb9e4)", tc.engine, tc.rel, marker)
+				}
+			}
+		})
+	}
+}
+
 func TestGeneratedRuntimePlaceholderDetectorRejectsDefaultBodies(t *testing.T) {
 	for _, tc := range []struct {
 		target string
