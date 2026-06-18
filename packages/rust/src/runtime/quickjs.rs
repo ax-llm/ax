@@ -251,7 +251,16 @@ impl AxCodeSession for QuickJsCodeSession {
         // __ax_error and drain the job queue before reading the completion; otherwise the throw's
         // error_category would be silently swallowed. The synchronous host primitives that set the
         // completion run before the first await suspends, so the completion is captured too.
-        let body_literal = serde_json::to_string(&format!("with (globalThis) {{\n{code}\n}}"))?;
+        // Persistence: top-level const/let/var declared this turn are block-scoped to the
+        // async wrapper and would vanish next turn, but the RLM prompt promises a long-running
+        // REPL. Hoist the declared names onto globalThis (which persists), mirroring TS. Fail-open.
+        let code_literal = serde_json::to_string(code)?;
+        let persist_suffix = self
+            .eval_json_string(format!("axPersistSuffix({code_literal})"))
+            .unwrap_or_default();
+        let body_literal = serde_json::to_string(&format!(
+            "with (globalThis) {{\n{code}\n{persist_suffix}\n}}"
+        ))?;
         let run_source = format!(
             "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; __ax_install_host_callables(); (async function(){{}}).constructor({body_literal})().then(function(){{}}, function(e){{ globalThis.__ax_error = String((e && e.stack) ? e.stack : e); }});"
         );
@@ -522,6 +531,7 @@ fn is_builtin_reserved_name(name: &str) -> bool {
 }
 
 const QUICKJS_BOOTSTRAP: &str = r#"
+function axPersistSuffix(src){try{var n=[],s={},re=/(?:^|[\n;{}])\s*(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,m;while((m=re.exec(src))){if(!s[m[1]]){s[m[1]]=1;n.push(m[1]);}}return n.map(function(x){return 'try{globalThis['+JSON.stringify(x)+']='+x+';}catch(__e){}';}).join('');}catch(__e){return '';}}
 const __ax_builtin_reserved = [
   "Object", "Function", "Array", "Number", "parseFloat", "parseInt", "Infinity", "NaN",
   "undefined", "Boolean", "String", "Symbol", "Date", "Promise", "RegExp", "Error",
