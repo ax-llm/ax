@@ -5,8 +5,10 @@ from each file's `ax-example` metadata header. Every public example calls a real
 provider API and may require environment variables from the repo `.env`.
 
 The public catalog currently requires beginner, intermediate, and advanced
-examples for each language in `generation`, `short-agents`, `flows`,
-`optimization`, and `audio`. Add `story: <number>` to a header only when the
+examples for each language in `generation`, `short-agents`, `long-agents`,
+`flows`, `optimization`, and `audio`. The `long-agents` group holds the
+flagship DSPy+RLM+Peek agents (large context, native tools at scale, and skills
++ memory) in all six languages. Add `story: <number>` to a header only when the
 example should appear in the website Advanced Start path.
 
 List the current catalog:

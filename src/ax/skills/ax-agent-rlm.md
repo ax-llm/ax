@@ -471,6 +471,13 @@ Fetch these for full working code:
 - [RLM Discovery](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-discovery.ts) - discovery mode, grouped tools, child agents as functions, and semantic `llmQuery(...)`
 - [RLM Adaptive Replay](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-adaptive-replay.ts) - adaptive replay
 
+Flagship real-world long-agents (also ported to Python, Go, Rust, Java, and C++ under `src/examples/<lang>/long-agents/`; run with `npm run example -- <lang> <path>`):
+
+- [Incident Log Forensics](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/incident-log-forensics.ts) - large-context log forensics over `contextFields` (Gemini)
+- [Codebase Peek Map](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/codebase-peek-map.ts) - Peek-paper context-map orientation over a large repo snapshot
+- [Data Analyst with Tools](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/data-analyst-with-tools.ts) - large data dictionary in `contextFields` + typed warehouse tools the model queries instead of inlining
+- [Self-Improving Lab](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/self-improving-lab.ts) - many-tool agent that runs experiments, grades them with an independent verifier, and distills verified rules into memory
+
 ## Do Not Generate
 
 - Do not write a full multi-step RLM actor program in one turn.

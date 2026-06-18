@@ -325,6 +325,7 @@ skills?: readonly AxAgentSkillResult[];
 Fetch this for full working code:
 
 - [RLM Memories and Skills](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-memories-and-skills.ts) - `onMemoriesSearch` + `recall()` and `onSkillsSearch` + `discover({ skills })` with load observability and actual usage tracking via `onUsedMemories` / `onUsedSkills`
+- [Skills + Memory Ops Assistant](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/skills-and-memory-assistant.ts) - an on-call assistant that recalls past decisions from a memory store and loads the right runbook skill on demand (also ported to Python, Go, Rust, Java, and C++ under `src/examples/<lang>/long-agents/`). Non-TS/Python bindings use the static `memory_search_results` / `skill_search_results` config with `memoriesMode`/`skillsMode` rather than the host search callbacks.
 
 ## Do Not Generate
 

@@ -55,14 +55,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent RLM/runtime code using @ax-llm/ax. Use when the user asks about RLM code execution, AxJSRuntime, contextFields, contextPolicy, liveRuntimeState, promptLevel, stage prompt controls, executorModelPolicy, maxRuntimeChars, agent.test(...), llmQuery(...), recursionOptions, or long-running agent runtime behavior.",
       "url": "ax-agent-rlm/SKILL.md",
-      "digest": "sha256:79b767bf930fd28fdfae696b7801350ceedfad4387d1718418746d0ddcb971f8"
+      "digest": "sha256:92b7083306fd4e2a1d64449dfcd4601f1dde177b87dab39c2a4b3b42a8567f5d"
     },
     {
       "name": "ax-agent-memory-skills",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent memory retrieval, context-map, and dynamic skill-loading code using @ax-llm/ax. Use when the user asks about contextMap, AxAgentContextMap, onMemoriesSearch, recall(...), inputs.memories, onLoadedMemories, onUsedMemories, onSkillsSearch, discover({ skills }), onLoadedSkills, onUsedSkills, preloaded skills, loaded memory/skill IDs, or carrying memories across forward() calls.",
       "url": "ax-agent-memory-skills/SKILL.md",
-      "digest": "sha256:227c620c73a6bb163b59a1e4c54de998c0854bd509f48e87aeda967659c347ab"
+      "digest": "sha256:e2face35008f0e5ff4c307d26dd46bb3ca0a4e06d84dffb59eb2c2c65d7f2652"
     },
     {
       "name": "ax-agent-observability",

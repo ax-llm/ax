@@ -1,34 +1,58 @@
 // ax-example:start
 // title: TypeScript Multi-Model Panel
 // group: short-agents
-// description: Fans one question across several models via OpenRouter, then judges the candidates and synthesizes a single grounded answer.
+// description: Fans one question across three providers (OpenAI, Gemini, Anthropic), then judges the candidates and synthesizes a single grounded answer.
 // provider: openai
-// env: OPENROUTER_API_KEY
+// env: OPENAI_API_KEY, OPENAI_APIKEY, GOOGLE_APIKEY, ANTHROPIC_APIKEY
 // level: advanced
 // order: 40
 // ax-example:end
-import { type AxAIOpenAIModel, ai, ax } from '@ax-llm/ax';
+import {
+  AxAIAnthropicModel,
+  AxAIGoogleGeminiModel,
+  AxAIOpenAIModel,
+  ai,
+  ax,
+} from '@ax-llm/ax';
 
-const apiKey = process.env.OPENROUTER_API_KEY;
-if (!apiKey) {
-  throw new Error('Set OPENROUTER_API_KEY to run this example.');
+const openaiKey = process.env.OPENAI_API_KEY ?? process.env.OPENAI_APIKEY;
+const googleKey = process.env.GOOGLE_APIKEY ?? process.env.GOOGLE_API_KEY;
+const anthropicKey =
+  process.env.ANTHROPIC_APIKEY ?? process.env.ANTHROPIC_API_KEY;
+if (!openaiKey || !googleKey || !anthropicKey) {
+  throw new Error(
+    'Set OPENAI_APIKEY, GOOGLE_APIKEY, and ANTHROPIC_APIKEY to run this multi-provider panel.'
+  );
 }
 
-// One OpenRouter client; each call selects a different model with a per-call
-// override. This is plain `ax()` composition — no agent runtime needed — but it
-// shows how to build a research panel that disagrees, gets judged, and is
-// synthesized into one answer.
-const llm = ai({
-  name: 'openai',
-  apiKey,
-  apiURL: 'https://openrouter.ai/api/v1',
-  config: { model: 'openai/gpt-4o-mini' as AxAIOpenAIModel },
-});
-
-const panelModels = [
-  'openai/gpt-4o-mini',
-  'google/gemini-2.0-flash-001',
-  'anthropic/claude-3.5-haiku',
+// A panel of three different providers, each answering the same question
+// independently. This is plain `ax()` composition (no agent runtime) — fan out
+// to the panel, judge the candidates, then synthesize one grounded answer.
+const panel = [
+  {
+    model: 'openai/gpt-4o-mini',
+    llm: ai({
+      name: 'openai',
+      apiKey: openaiKey,
+      config: { model: AxAIOpenAIModel.GPT4OMini, temperature: 0 },
+    }),
+  },
+  {
+    model: 'google/gemini-3-flash',
+    llm: ai({
+      name: 'google-gemini',
+      apiKey: googleKey,
+      config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
+    }),
+  },
+  {
+    model: 'anthropic/claude-haiku-4.5',
+    llm: ai({
+      name: 'anthropic',
+      apiKey: anthropicKey,
+      config: { model: AxAIAnthropicModel.Claude45Haiku },
+    }),
+  },
 ];
 
 const researcher = ax(
@@ -52,17 +76,18 @@ synthesizer.setInstruction(
   'Write one final answer grounded in the candidates and review. Resolve conflicts explicitly.'
 );
 
-async function askPanelist(model: string, question: string) {
-  const response = await researcher.forward(llm, { question }, { model });
-  return { model, ...response };
-}
-
 async function fusion(question: string) {
+  // Each panelist is a different provider answering independently.
   const candidates = await Promise.all(
-    panelModels.map((model) => askPanelist(model, question))
+    panel.map(async ({ model, llm }) => ({
+      model,
+      ...(await researcher.forward(llm, { question })),
+    }))
   );
-  const review = await judge.forward(llm, { question, candidates });
-  return synthesizer.forward(llm, { question, candidates, review });
+  // The judge + synthesizer run on one of the panel clients (OpenAI here).
+  const orchestrator = panel[0].llm;
+  const review = await judge.forward(orchestrator, { question, candidates });
+  return synthesizer.forward(orchestrator, { question, candidates, review });
 }
 
 const final = await fusion(
