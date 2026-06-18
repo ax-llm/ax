@@ -77,6 +77,16 @@ func (r *Runtime) RegisterCallable(name string, handler HostCallable) *Runtime {
 	return r
 }
 
+// RegisterHostCallable is a structural adapter for the agent wrapper, which
+// cannot import this package (import cycle: goja imports axllm). The parameter
+// is the literal func type func(ax.Value)(ax.Value,error) — identical to
+// axllm's func(Value)(Value,error) since both Value aliases resolve to any — so
+// the wrapper can register the built-in llmQuery primitive through a
+// duck-typed interface without naming *goja.Runtime.
+func (r *Runtime) RegisterHostCallable(name string, handler func(ax.Value) (ax.Value, error)) {
+	r.RegisterCallable(name, HostCallable(handler))
+}
+
 func (r *Runtime) Language() string { return "JavaScript" }
 
 func (r *Runtime) UsageInstructions() string {
@@ -137,7 +147,12 @@ func (r *Runtime) CreateSession(globals map[string]ax.Value, options map[string]
 		_ = session.vm.Set(key, session.toJSONValue(safe))
 	}
 	for name := range hostCallables {
-		if session.reserved[name] {
+		// Reject only names the runtime itself installs (JS built-ins and
+		// bootstrap primitives like final). Agent-declared reserved names such
+		// as llmQuery are meant to be host-provided, so a host callable
+		// claiming one is the provisioning mechanism, not a conflict — matching
+		// the Python reference runtime.
+		if isBuiltInReservedName(name) {
 			return nil, ax.AxError{Category: "runtime", Message: "goja host callable conflicts with reserved runtime name: " + name}
 		}
 		session.reserved[name] = true

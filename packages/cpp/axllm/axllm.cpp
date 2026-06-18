@@ -17093,9 +17093,29 @@ AxAgent::AxAgent(Value signature, Value options) {
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
+  llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
 }
 
 Value AxAgent::forward(AIClient& client, Value values, Value options) {
+  // Wire the built-in llmQuery primitive onto the runtime carried in agent
+  // options (the same runtime the actor loop will create sessions on),
+  // mirroring the Go/Python/Rust/Java wrappers. The logic lives in the
+  // AxIR-generated helper; this only registers the host callable.
+  Value runtime_ref = Core::get(options, "runtime", Value());
+  if (runtime_ref.is_null()) {
+    runtime_ref = Core::get(Core::get(state_, "options", Value::object()), "runtime", Value());
+  }
+  std::string runtime_id = str(Core::get(runtime_ref, "__code_runtime_id", Value("")));
+  if (!runtime_id.empty()) {
+    auto it = code_runtime_registry().find(runtime_id);
+    if (it != code_runtime_registry().end() && it->second != nullptr) {
+      AxGen* sub = llm_query_.get();
+      AIClient* client_ptr = &client;
+      it->second->register_host_callable("llmQuery", [sub, client_ptr](Value params) -> Value {
+        return Core::_agent_run_llm_query(Core::agent_stage_ref(*sub), Core::client_ref(*client_ptr), std::move(params));
+      });
+    }
+  }
   return Core::_agent_forward(
       state_,
       Core::agent_stage_ref(*distiller_),

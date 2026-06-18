@@ -8,7 +8,9 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-pub type HostCallable = Arc<dyn Fn(Value) -> AxResult<Value> + Send + Sync + 'static>;
+// Alias the shared core type so the agent wrapper can register callables
+// (e.g. llmQuery) through the AxCodeRuntime::register_host_callable seam.
+pub type HostCallable = crate::AxHostCallable;
 
 #[derive(Clone)]
 pub struct QuickJsCodeRuntime {
@@ -92,6 +94,20 @@ impl AxCodeRuntime for QuickJsCodeRuntime {
             self.host_callables.clone(),
         )?))
     }
+
+    fn register_host_callable(
+        &mut self,
+        name: &str,
+        callable: crate::AxHostCallable,
+    ) -> AxResult<()> {
+        if is_reserved_name(name) {
+            return Err(AxError::runtime(format!(
+                "QuickJS host callable conflicts with reserved runtime name: {name}"
+            )));
+        }
+        self.host_callables.insert(name.to_string(), callable);
+        Ok(())
+    }
 }
 
 impl QuickJsCodeSession {
@@ -112,7 +128,12 @@ impl QuickJsCodeSession {
         let context = Context::full(&runtime).map_err(qjs_error)?;
         let mut reserved = reserved_names_from_options(&options);
         for name in host_callables.keys() {
-            if reserved.contains(name) || is_reserved_name(name) {
+            // Only reject names the runtime itself installs (JS built-ins and
+            // bootstrap primitives like final). Agent-declared reserved names
+            // (e.g. llmQuery) are *meant* to be host-provided, so a host
+            // callable claiming one is the provisioning mechanism, not a
+            // conflict — mirroring the Python reference runtime.
+            if is_reserved_name(name) {
                 return Err(AxError::runtime(format!(
                     "QuickJS host callable conflicts with reserved runtime name: {name}"
                 )));
@@ -262,7 +283,7 @@ impl AxCodeSession for QuickJsCodeSession {
             "with (globalThis) {{\n{code}\n{persist_suffix}\n}}"
         ))?;
         let run_source = format!(
-            "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; __ax_install_host_callables(); (async function(){{}}).constructor({body_literal})().then(function(){{}}, function(e){{ globalThis.__ax_error = String((e && e.stack) ? e.stack : e); }});"
+            "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; __ax_install_host_callables(); (async function(){{}}).constructor({body_literal})().then(function(){{}}, function(e){{ globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); }});"
         );
         let run_result = self
             .context

@@ -94,7 +94,7 @@ class AxQuickJsCodeSession(AxCodeSession):
         wrapper = (
             "(async()=>{\n" + code + "\n" + persist_suffix + "\n})().then("
             "function(r){globalThis.__ax_result=r;},"
-            "function(e){globalThis.__ax_error=String((e&&e.stack)?e.stack:e);});"
+            "function(e){globalThis.__ax_error=String((e&&e.message)?((e.name?e.name+': ':'')+e.message+(e.stack?(' '+e.stack):'')):((e&&e.stack)?e.stack:e));});"
         )
         try:
             self.ctx.eval(wrapper)

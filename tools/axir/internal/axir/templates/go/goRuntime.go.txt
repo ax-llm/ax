@@ -104,6 +104,19 @@ type AxArray struct {
 	Items []Value
 }
 
+// MarshalJSON serializes AxArray as a JSON array, not as the Go struct shape
+// {"Items":[...]}. Without this, json.Marshal leaks the wrapper struct: an
+// AxArray returned from a host callable (e.g. llmQuery) would cross into a JS
+// runtime as an object, so the model's documented `string[]` indexing (`[0]`)
+// would read undefined. The real-client request path normalizes via
+// runtimeJSONValue and is unaffected; this only fixes raw json.Marshal sites.
+func (a *AxArray) MarshalJSON() ([]byte, error) {
+	if a == nil || a.Items == nil {
+		return []byte("[]"), nil
+	}
+	return json.Marshal(a.Items)
+}
+
 func MutableArray(items ...Value) *AxArray {
 	return &AxArray{Items: append([]Value(nil), items...)}
 }
@@ -1800,7 +1813,12 @@ func (g *AxGen) ApplyOptimizedComponents(m map[string]Value) {
 	}
 }
 
-type AxAgent struct { State map[string]Value; Signature AxSignature; Options map[string]Value; Executor *AxGen; Responder *AxGen; Distiller *AxGen }
+type AxAgent struct { State map[string]Value; Signature AxSignature; Options map[string]Value; Executor *AxGen; Responder *AxGen; Distiller *AxGen; LlmQuery *AxGen }
+
+// runtimeCallableRegistrar is satisfied by any code runtime that can host a
+// callable (e.g. the goja *Runtime). Declared structurally so the agent wrapper
+// stays free of a direct runtime import (the goja package imports axllm).
+type runtimeCallableRegistrar interface { RegisterHostCallable(string, func(Value) (Value, error)) }
 func NewAgent(signature string, options map[string]Value) *AxAgent {
 	if options == nil { options = Object() }
 	state := asMap(mustCore(_agent_factory(signature, options)))
@@ -1811,9 +1829,23 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContext:json -> completion:json"))
 	responderSignature := display(coreGet(state, "responder_signature", signature))
-	return &AxAgent{Signature:sig, Options:options, State:state, Executor:NewAx(executorSignature,executorOptions), Responder:NewAx(responderSignature,responderOptions), Distiller:NewAx(distillerSignature,distillerOptions)}
+	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
+	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
+	return &AxAgent{Signature:sig, Options:options, State:state, Executor:NewAx(executorSignature,executorOptions), Responder:NewAx(responderSignature,responderOptions), Distiller:NewAx(distillerSignature,distillerOptions), LlmQuery:NewAx(llmQuerySignature,llmQueryOptions)}
 }
-func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value,error) { return safeValue(func() Value { return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, bindAIClientContext(ctx, client), values, options)) }) }
+func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value,error) {
+	boundClient := bindAIClientContext(ctx, client)
+	// Wire the built-in llmQuery primitive: a focused sub-query the model can
+	// await inside the runtime. The logic lives in the AxIR-generated helper;
+	// this wrapper only registers the host callable that closes over this client.
+	runtime := coreGet(options, "runtime", coreGet(a.Options, "runtime", nil))
+	if reg, ok := runtime.(runtimeCallableRegistrar); ok {
+		reg.RegisterHostCallable("llmQuery", func(params Value) (Value, error) {
+			return _agent_run_llm_query(a.LlmQuery, boundClient, params)
+		})
+	}
+	return safeValue(func() Value { return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, options)) })
+}
 func (a *AxAgent) get(k string, fallback Value) Value { switch k { case "state": return a.State; case "signature": return a.Signature; case "options": return a.Options; case "executor": return a.Executor; case "responder": return a.Responder; case "distiller": return a.Distiller; default: return fallback } }
 func (a *AxAgent) Test(runtime CodeRuntime, code string, values map[string]Value, options map[string]Value) (Value,error) { return safeValue(func() Value { return mustCore(_agent_runtime_test(a.State, runtime, code, values, options)) }) }
 func (a *AxAgent) ExecuteActorStep(runtime CodeRuntime, code string, values map[string]Value, options map[string]Value) (Value,error) {

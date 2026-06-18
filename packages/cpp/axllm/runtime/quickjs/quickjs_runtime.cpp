@@ -222,7 +222,7 @@ Value QuickJsCodeSession::execute(Value code, Value options) {
   }
   static const char kRunActor[] =
       "(async function(){}).constructor('with (globalThis) {\\n' + (globalThis.__ax_code || '') + '\\n' + axPersistSuffix(globalThis.__ax_code || '') + '\\n}')()"
-      ".then(function(){}, function(e){ globalThis.__ax_error = String((e && e.stack) ? e.stack : e); });";
+      ".then(function(){}, function(e){ globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); });";
   JSValue result = JS_Eval(context_, kRunActor, std::strlen(kRunActor), "<actor>", JS_EVAL_TYPE_GLOBAL);
   if (JS_IsException(result)) {
     JSValue exception = JS_GetException(context_);
@@ -348,6 +348,13 @@ QuickJsCodeRuntime& QuickJsCodeRuntime::register_callable(std::string name, Host
   if (!handler) throw AxError("runtime", "QuickJS host callable handler is required");
   host_callables_[std::move(name)] = std::move(handler);
   return *this;
+}
+
+// Implements the package-neutral AxCodeRuntime seam (used by the agent wrapper
+// to wire llmQuery); HostCallable is the same std::function<Value(Value)> type.
+void QuickJsCodeRuntime::register_host_callable(std::string name, std::function<Value(Value)> callable) {
+  if (!callable) return;
+  register_callable(std::move(name), std::move(callable));
 }
 
 AxCodeSession* QuickJsCodeRuntime::create_session(Value globals, Value options) {

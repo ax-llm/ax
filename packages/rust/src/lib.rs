@@ -2200,6 +2200,11 @@ pub struct AxAgent {
     distiller: CoreValue,
     executor: CoreValue,
     responder: CoreValue,
+    // Signature + instruction for the built-in llmQuery sub-query, kept as
+    // plain (Send + Sync) data so the host-callable closure can rebuild the
+    // sub-gen per call without capturing a non-Send CoreValue.
+    llm_query_signature: String,
+    llm_query_instruction: Value,
 }
 
 pub fn agent(spec: &str) -> AxResult<AxAgent> {
@@ -2255,6 +2260,17 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         &CoreValue::from("responder_description"),
         CoreValue::from(""),
     ));
+    let llm_query_signature = core_get(
+        &state,
+        &CoreValue::from("llm_query_signature"),
+        CoreValue::from("task:string, context:json -> answer:string"),
+    )
+    .text();
+    let llm_query_instruction = core_value_to_json(&core_get(
+        &state,
+        &CoreValue::from("llm_query_description"),
+        CoreValue::from(""),
+    ));
     Ok(AxAgent {
         state,
         distiller: agent_stage_gen(
@@ -2269,6 +2285,8 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
             responder_signature,
             json!({"validation_retries": validation_retries, "id": "task.root.responder", "instruction": responder_instruction}),
         ),
+        llm_query_signature,
+        llm_query_instruction,
     })
 }
 
@@ -2290,6 +2308,32 @@ impl AxAgent {
                 client.chat(request)
             }
         };
+        // Wire the built-in llmQuery primitive onto the runtime carried in
+        // agent options (the same host the actor loop will create sessions on),
+        // mirroring the Go/Python wrappers. The closure rebuilds a focused
+        // sub-gen per call and runs it through _agent_run_llm_query; it uses the
+        // thread-local client bound by with_core_client below (CoreValue::Null
+        // here resolves to that binding), so it captures only Send + Sync data.
+        let state_options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
+        let runtime_host = core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null);
+        if let CoreValue::Host(host) = &runtime_host {
+            let llm_query_signature = self.llm_query_signature.clone();
+            let llm_query_instruction = self.llm_query_instruction.clone();
+            let callable: AxHostCallable = Arc::new(move |params: Value| -> AxResult<Value> {
+                let signature = s(&llm_query_signature)?;
+                let sub_gen = agent_stage_gen(
+                    signature,
+                    json!({"validation_retries": 1, "id": "rlm.llmquery", "instruction": llm_query_instruction.clone()}),
+                );
+                let result = _agent_run_llm_query(&[
+                    sub_gen,
+                    CoreValue::Null,
+                    core_value_from_json(&params),
+                ])?;
+                Ok(core_value_to_json(&result))
+            });
+            host.register_runtime_callable("llmQuery", callable);
+        }
         let result = with_core_client(&mut chat, || {
             _agent_forward(&[
                 self.state.clone(),
@@ -3248,6 +3292,11 @@ pub fn get_supported_ai_models() -> Vec<&'static str> {
     vec!["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini"]
 }
 
+/// A host callable the agent runtime can expose to actor code (e.g. the
+/// built-in `llmQuery`). JSON-typed both ways so it crosses the runtime
+/// boundary cleanly; `Send + Sync` so a concrete runtime may store it.
+pub type AxHostCallable = Arc<dyn Fn(Value) -> AxResult<Value> + Send + Sync + 'static>;
+
 pub trait AxCodeRuntime {
     fn language(&self) -> &str;
 
@@ -3260,6 +3309,13 @@ pub trait AxCodeRuntime {
         globals: Value,
         options: Value,
     ) -> AxResult<Box<dyn AxCodeSession>>;
+
+    /// Register a host callable under `name`. Default no-op so runtimes that
+    /// do not host callables are unaffected; the embedded JS engines override
+    /// it so the agent wrapper can wire the built-in `llmQuery` primitive.
+    fn register_host_callable(&mut self, _name: &str, _callable: AxHostCallable) -> AxResult<()> {
+        Ok(())
+    }
 }
 
 pub trait AxCodeSession {
@@ -12120,6 +12176,13 @@ fn provider_ai_display_name(profile: &str) -> CoreValue {
 pub(crate) trait CoreHost {
     fn host_type(&self) -> &'static str;
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError>;
+    /// Register a host callable on the wrapped runtime, if this host wraps one.
+    /// Returns true when the host handled it. Default false (most hosts are not
+    /// runtimes); the code-runtime host overrides it. Used by the agent wrapper
+    /// to wire `llmQuery` onto the runtime carried inside agent options.
+    fn register_runtime_callable(&self, _name: &str, _callable: AxHostCallable) -> bool {
+        false
+    }
 }
 
 // Keeps #[derive(Debug)] on CoreValue working once the Host(Rc<dyn CoreHost>)
@@ -14092,6 +14155,13 @@ pub(crate) fn core_code_runtime_host_shared(
 impl CoreHost for CodeRuntimeHost {
     fn host_type(&self) -> &'static str {
         "AxCodeRuntime"
+    }
+
+    fn register_runtime_callable(&self, name: &str, callable: AxHostCallable) -> bool {
+        self.runtime
+            .borrow_mut()
+            .register_host_callable(name, callable)
+            .is_ok()
     }
 
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
