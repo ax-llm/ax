@@ -63,3 +63,6 @@ packages/**/*.so
 packages/**/*.dylib
 packages/**/*.exe
 !packages/cpp/CMakeLists.txt
+
+# Rust build artifacts (packages/rust is axir-generated; Cargo.lock is a build artifact)
+packages/rust/Cargo.lock
