@@ -15,7 +15,7 @@ public final class AnthropicClient extends OpenAICompatibleClient {
   private static Map<String, Object> normalize(Map<String, Object> options) {
     Map<String, Object> out = new LinkedHashMap<>(options == null ? Map.of() : options);
     out.putIfAbsent("api_key", System.getenv("ANTHROPIC_API_KEY"));
-    out.putIfAbsent("base_url", System.getenv().getOrDefault("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1"));
+    out.putIfAbsent("base_url", System.getenv().getOrDefault("ANTHROPIC_BASE_URL", "https://api.anthropic.com"));
     return out;
   }
 }

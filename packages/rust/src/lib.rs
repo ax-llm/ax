@@ -988,7 +988,7 @@ impl OpenAICompatibleClient {
     fn chat_path(&self) -> &'static str {
         match self.profile.as_str() {
             "openai-responses" => "/responses",
-            "anthropic" => "/messages",
+            "anthropic" => "/v1/messages",
             _ => "/chat/completions",
         }
     }
@@ -1378,7 +1378,7 @@ fn provider_defaults(provider: &str) -> Option<ProviderDefaults> {
         }),
         "anthropic" => Some(ProviderDefaults {
             profile: "anthropic",
-            api_url: "https://api.anthropic.com/v1",
+            api_url: "https://api.anthropic.com",
             model: "claude-3-7-sonnet-latest",
             embed_model: "text-embedding-3-small",
         }),
@@ -21299,7 +21299,7 @@ fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 core_set(
                     &v_descriptor,
                     CoreValue::from("baseUrl"),
-                    CoreValue::from("https://api.anthropic.com/v1"),
+                    CoreValue::from("https://api.anthropic.com"),
                 )?;
                 core_set(
                     &v_descriptor,
@@ -21327,8 +21327,8 @@ fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                     CoreValue::from("headers"),
                     v_extra_headers.clone(),
                 )?;
-                v_anthropic_chat = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":false}")])?;
-                v_anthropic_stream = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":true}")])?;
+                v_anthropic_chat = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":false}")])?;
+                v_anthropic_stream = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":true}")])?;
                 core_set(
                     &v_operations,
                     CoreValue::from("chat"),

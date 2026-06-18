@@ -543,7 +543,7 @@ class GoogleGeminiClient(ProviderOperationClient):
 class AnthropicClient(ProviderOperationClient):
     def __init__(self, **options):
         api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("ANTHROPIC_API_KEY")
-        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com/v1"
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
         super().__init__(
             "anthropic",
             "anthropic",
@@ -2977,15 +2977,15 @@ def provider_descriptor(profile: str) -> Any:
             features["thinking"] = True
         else:
             if is_anthropic:
-                descriptor["baseUrl"] = "https://api.anthropic.com/v1"
+                descriptor["baseUrl"] = "https://api.anthropic.com"
                 descriptor["auth"] = "anthropic_key"
                 descriptor["id"] = "anthropic"
                 descriptor["name"] = "anthropic"
                 descriptor["defaultModel"] = "claude-3-7-sonnet-latest"
                 extra_headers = _core_json_parse("{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"}")
                 descriptor["headers"] = extra_headers
-                anthropic_chat = _core_json_parse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":false}")
-                anthropic_stream = _core_json_parse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":true}")
+                anthropic_chat = _core_json_parse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":false}")
+                anthropic_stream = _core_json_parse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":true}")
                 operations["chat"] = anthropic_chat
                 operations["stream_chat"] = anthropic_stream
                 anthropic_images = _core_json_parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"]}")

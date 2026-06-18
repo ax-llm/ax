@@ -886,7 +886,7 @@ impl OpenAICompatibleClient {
     fn chat_path(&self) -> &'static str {
         match self.profile.as_str() {
             "openai-responses" => "/responses",
-            "anthropic" => "/messages",
+            "anthropic" => "/v1/messages",
             _ => "/chat/completions",
         }
     }
@@ -1255,7 +1255,7 @@ fn provider_defaults(provider: &str) -> Option<ProviderDefaults> {
         }),
         "anthropic" => Some(ProviderDefaults {
             profile: "anthropic",
-            api_url: "https://api.anthropic.com/v1",
+            api_url: "https://api.anthropic.com",
             model: "claude-3-7-sonnet-latest",
             embed_model: "text-embedding-3-small",
         }),

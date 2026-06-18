@@ -6584,15 +6584,15 @@ func provider_descriptor(args ...Value) (Value, error) {
 			if err := coreSet(v_features, "thinking", true); err != nil { return nil, err }
 		} else {
 			if coreTruthy(v_is_anthropic) {
-				if err := coreSet(v_descriptor, "baseUrl", "https://api.anthropic.com/v1"); err != nil { return nil, err }
+				if err := coreSet(v_descriptor, "baseUrl", "https://api.anthropic.com"); err != nil { return nil, err }
 				if err := coreSet(v_descriptor, "auth", "anthropic_key"); err != nil { return nil, err }
 				if err := coreSet(v_descriptor, "id", "anthropic"); err != nil { return nil, err }
 				if err := coreSet(v_descriptor, "name", "anthropic"); err != nil { return nil, err }
 				if err := coreSet(v_descriptor, "defaultModel", "claude-3-7-sonnet-latest"); err != nil { return nil, err }
 				{ v, err := _core_json_parse("{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"}"); if err != nil { return nil, err }; v_extra_headers = v }
 				if err := coreSet(v_descriptor, "headers", v_extra_headers); err != nil { return nil, err }
-				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":false}"); if err != nil { return nil, err }; v_anthropic_chat = v }
-				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":true}"); if err != nil { return nil, err }; v_anthropic_stream = v }
+				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":false}"); if err != nil { return nil, err }; v_anthropic_chat = v }
+				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":true}"); if err != nil { return nil, err }; v_anthropic_stream = v }
 				if err := coreSet(v_operations, "chat", v_anthropic_chat); err != nil { return nil, err }
 				if err := coreSet(v_operations, "stream_chat", v_anthropic_stream); err != nil { return nil, err }
 				{ v, err := _core_json_parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"]}"); if err != nil { return nil, err }; v_anthropic_images = v }

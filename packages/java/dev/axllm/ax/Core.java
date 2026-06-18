@@ -3680,15 +3680,15 @@ final class Core {
       }
       if (!Core.truthy(is_gemini)) {
         if (Core.truthy(is_anthropic)) {
-          Core.set(descriptor, "baseUrl", "https://api.anthropic.com/v1");
+          Core.set(descriptor, "baseUrl", "https://api.anthropic.com");
           Core.set(descriptor, "auth", "anthropic_key");
           Core.set(descriptor, "id", "anthropic");
           Core.set(descriptor, "name", "anthropic");
           Core.set(descriptor, "defaultModel", "claude-3-7-sonnet-latest");
           Object extra_headers = Core.jsonParse("{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"}");
           Core.set(descriptor, "headers", extra_headers);
-          Object anthropic_chat = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":false}");
-          Object anthropic_stream = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":true}");
+          Object anthropic_chat = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":false}");
+          Object anthropic_stream = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":true}");
           Core.set(operations, "chat", anthropic_chat);
           Core.set(operations, "stream_chat", anthropic_stream);
           Object anthropic_images = Core.jsonParse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"]}");
