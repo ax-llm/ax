@@ -1,7 +1,7 @@
 // ax-example:start
-// title: C++ Short Agent
+// title: C++ Grounded Support Agent
 // group: short-agents
-// description: Runs a compact Ax agent against OpenAI with a typed final answer.
+// description: Answers a support question grounded in a handbook that is kept out of the model prompt via contextFields.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: beginner
@@ -9,28 +9,9 @@
 // story: 20
 // ax-example:end
 #include "axllm/axllm.hpp"
+#include "axllm/runtime/quickjs/quickjs_runtime.hpp"
 #include <cstdlib>
-#include <fstream>
 #include <iostream>
-#include <sstream>
-
-struct OpenAIBackedAgentClient : axllm::AIClient {
-  axllm::OpenAICompatibleClient& inner;
-  axllm::Value raw_model_answer;
-  int calls = 0;
-  explicit OpenAIBackedAgentClient(axllm::OpenAICompatibleClient& inner_) : inner(inner_) {}
-  axllm::Value complete(axllm::Value) override {
-    calls += 1;
-    if (raw_model_answer.is_null()) {
-      axllm::Value response = inner.complete(axllm::object({{"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "What does Ax make easier when building production LLM features?"}})})}}));
-      raw_model_answer = axllm::Core::get(response, "content");
-    }
-    axllm::Value payload = axllm::object({{"answer", raw_model_answer}});
-    if (calls == 1) payload = axllm::object({{"completion", axllm::object({{"type", "final"}, {"args", axllm::array({"Answer", axllm::Value::object()})}})}});
-    if (calls == 2) payload = axllm::object({{"completion", axllm::object({{"type", "final"}, {"args", axllm::array({"Answer", axllm::object({{"answer", raw_model_answer}, {"usedContext", true}, {"plan", axllm::array({"Declare a signature", "Run an agent", "Optimize with examples"})}})})}})}});
-    return axllm::object({{"content", axllm::stringify(payload)}});
-  }
-};
 
 int main() {
   const char* key = std::getenv("OPENAI_API_KEY");
@@ -42,11 +23,50 @@ int main() {
   const char* model = std::getenv("AX_OPENAI_MODEL");
   axllm::OpenAICompatibleClient client(axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-4.1-mini" : model},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-4o-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
-  auto assistant = axllm::agent("question:string -> answer:string", axllm::object({{"contextFields", axllm::array({})}}));
-  OpenAIBackedAgentClient stage_client(client);
-  axllm::Value output = assistant.forward(stage_client, axllm::object({{"question", "What does Ax make easier when building production LLM features?"}}));
-  std::cout << axllm::stringify(axllm::object({{"agentOutput", output}, {"rawModelAnswer", stage_client.raw_model_answer}})) << "\n";
+
+  // The handbook can be arbitrarily large. Listing it in `contextFields` keeps it
+  // in the agent's runtime so it never inflates the model prompt -- the agent reads
+  // it through code, not through tokens. That is the whole point of an Ax agent
+  // over a plain gen() call: the source material stays out of the context window.
+  std::string handbook =
+      "# Acme Cloud -- Support Handbook\n"
+      "\n"
+      "## Billing\n"
+      "- Invoices are issued on the 1st of each month and are due net-15.\n"
+      "- Plan downgrades take effect at the END of the current billing cycle, not immediately.\n"
+      "- Refunds are issued to the original payment method within 5 business days.\n"
+      "\n"
+      "## Access\n"
+      "- Seats can be added by any workspace Owner under Settings -> Members.\n"
+      "- SSO (SAML) is available on Enterprise; SCIM provisioning is Owner-only.\n"
+      "\n"
+      "## Incidents\n"
+      "- Status and uptime are published at status.acme.example.\n"
+      "- Sev-1 incidents page the on-call within 5 minutes; updates post every 30 minutes.\n"
+      "\n"
+      "## Data\n"
+      "- Exports are available in CSV and JSON from Settings -> Data.\n"
+      "- Deleted workspaces are recoverable for 30 days, then permanently purged.";
+
+  auto assistant = axllm::agent(
+      "question:string, handbook:string -> answer:string, citations:string[] \"Handbook sections the answer relies on\"",
+      // Keep the handbook in the runtime, out of the prompt.
+      axllm::object({
+          {"contextFields", axllm::array({"handbook"})},
+          {"runtime", axllm::object({{"language", "JavaScript"}})},
+      }));
+
+  axllm::runtime::quickjs::QuickJsCodeRuntime runtime;
+  axllm::Value result = assistant.forward(
+      client,
+      axllm::object({
+          {"question", "A customer downgraded their plan today. When does it take effect, and can they get a refund for the current cycle?"},
+          {"handbook", handbook},
+      }),
+      axllm::object({{"runtime", axllm::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 12}}));
+
+  std::cout << axllm::stringify(result) << "\n";
 }

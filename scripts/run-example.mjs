@@ -250,14 +250,23 @@ async function runJava(examplePath, rest) {
   await rm(classesDir, { recursive: true, force: true });
   await mkdir(classesDir, { recursive: true });
 
+  // Agent examples use the in-process quickjs4j runtime; put it on the classpath.
+  const extraCp = exampleNeedsJsRuntime(examplePath)
+    ? resolveQuickjs4jClasspath()
+    : '';
+  const compileCp = extraCp ? `${outDir}${path.delimiter}${extraCp}` : outDir;
+  const runCp = extraCp
+    ? `${classesDir}${path.delimiter}${extraCp}`
+    : classesDir;
+
   const sources = await javaBaseSources(outDir);
   sources.push(examplePath);
-  run(javac, ['-cp', outDir, '-d', classesDir, ...sources], {
+  run(javac, ['-cp', compileCp, '-d', classesDir, ...sources], {
     cwd: repoRoot,
     env,
   });
 
-  run(java, ['-cp', classesDir, className, ...rest], {
+  run(java, ['-cp', runCp, className, ...rest], {
     cwd: repoRoot,
     env,
   });
@@ -267,6 +276,8 @@ async function runCpp(examplePath, rest) {
   const outDir = languagePackageDir('cpp');
   const stem = path.basename(examplePath, path.extname(examplePath));
   const cmake = findOptionalCommand(['cmake'], ['--version']);
+  const wantsRuntime = exampleNeedsJsRuntime(examplePath);
+  const qjs = wantsRuntime ? resolveQuickjsCppFlags() : null;
 
   if (cmake) {
     const buildDir = path.join(generatedRoot, 'cpp-cmake-build', stem);
@@ -279,22 +290,32 @@ async function runCpp(examplePath, rest) {
     await rm(scratchBuildDir, { recursive: true, force: true });
     await mkdir(scratchDir, { recursive: true });
 
-    run(
-      cmake,
-      [
-        '-S',
-        outDir,
-        '-B',
-        buildDir,
-        '-DAX_BUILD_EXAMPLES=OFF',
-        '-DAX_BUILD_CONFORMANCE=OFF',
-      ],
-      { cwd: repoRoot, env }
-    );
+    const configureArgs = [
+      '-S',
+      outDir,
+      '-B',
+      buildDir,
+      '-DAX_BUILD_EXAMPLES=OFF',
+      '-DAX_BUILD_CONFORMANCE=OFF',
+    ];
+    if (wantsRuntime) {
+      configureArgs.push(
+        '-DAX_BUILD_QUICKJS_PROFILE=ON',
+        `-DAX_QUICKJS_CFLAGS=${qjs.cflags}`,
+        `-DAX_QUICKJS_LDFLAGS=${qjs.ldflags}`
+      );
+    }
+    run(cmake, configureArgs, { cwd: repoRoot, env });
     run(cmake, ['--build', buildDir, '--target', 'axllm'], {
       cwd: repoRoot,
       env,
     });
+    if (wantsRuntime) {
+      run(cmake, ['--build', buildDir, '--target', 'axllm_quickjs'], {
+        cwd: repoRoot,
+        env,
+      });
+    }
     run(cmake, ['--install', buildDir, '--prefix', installDir], {
       cwd: repoRoot,
       env,
@@ -306,7 +327,8 @@ async function runCpp(examplePath, rest) {
 project(axllm_user_example LANGUAGES CXX)
 find_package(axllm CONFIG REQUIRED)
 add_executable(${stem} "${escapeCmakePath(examplePath)}")
-target_link_libraries(${stem} PRIVATE axllm::axllm)
+target_link_libraries(${stem} PRIVATE ${wantsRuntime ? 'axllm::axllm_quickjs' : 'axllm::axllm'})
+${wantsRuntime ? `target_compile_options(${stem} PRIVATE ${qjs.cflags})` : ''}
 `
     );
     run(
@@ -336,11 +358,16 @@ target_link_libraries(${stem} PRIVATE axllm::axllm)
   const cppSources = [path.join(outDir, 'axllm', 'axllm.cpp')];
   const mcpSource = path.join(outDir, 'axllm', 'mcp.cpp');
   if (existsSync(mcpSource)) cppSources.push(mcpSource);
-  run(
-    cxx,
-    ['-std=c++17', '-I', outDir, ...cppSources, examplePath, '-o', bin],
-    { cwd: repoRoot, env }
-  );
+  const cxxArgs = ['-std=c++17', '-I', outDir];
+  if (wantsRuntime) {
+    cppSources.push(
+      path.join(outDir, 'axllm', 'runtime', 'quickjs', 'quickjs_runtime.cpp')
+    );
+    cxxArgs.push(...qjs.cflags.split(/\s+/).filter(Boolean));
+  }
+  cxxArgs.push(...cppSources, examplePath, '-o', bin);
+  if (wantsRuntime) cxxArgs.push(...qjs.ldflags.split(/\s+/).filter(Boolean));
+  run(cxx, cxxArgs, { cwd: repoRoot, env });
   run(bin, rest, { cwd: repoRoot, env });
 }
 
@@ -369,7 +396,16 @@ replace github.com/ax-llm/ax/go => ${escapeGoModPath(outDir)}
     path.join(scratchDir, 'main.go'),
     await readFile(examplePath)
   );
-  run('go', ['run', '.', ...rest], { cwd: scratchDir, env });
+  // -mod=mod lets `go run` resolve the goja transitive dep (used by agent
+  // examples) that the generated scratch go.mod does not pin; it is already in
+  // the package's go.sum / module cache.
+  run('go', ['run', '.', ...rest], {
+    cwd: scratchDir,
+    env: {
+      ...env,
+      GOFLAGS: [env.GOFLAGS, '-mod=mod'].filter(Boolean).join(' '),
+    },
+  });
 }
 
 function escapeGoModPath(value) {
@@ -390,7 +426,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-axllm = { path = "${escapeCargoTomlPath(outDir)}" }
+axllm = { path = "${escapeCargoTomlPath(outDir)}"${exampleNeedsJsRuntime(examplePath) ? ', features = ["runtime-quickjs"]' : ''} }
 serde_json = "1"
 `
   );
@@ -443,6 +479,58 @@ async function javaBaseSources(outDir) {
   return entries
     .filter((entry) => entry.isFile() && entry.name.endsWith('.java'))
     .map((entry) => path.join(dir, entry.name));
+}
+
+function exampleNeedsJsRuntime(examplePath) {
+  // Only agent examples drive the embedded JS runtime; non-agent examples
+  // (generation, flows, ...) must not pull in the optional runtime build.
+  return /\/(short|long)-agents\//.test(
+    String(examplePath).replace(/\\/g, '/')
+  );
+}
+
+function resolveQuickjs4jClasspath() {
+  if (env.AXIR_QUICKJS4J_CP) return env.AXIR_QUICKJS4J_CP;
+  const script = path.join(
+    packagesRoot,
+    'java',
+    'examples',
+    'runtime_profiles',
+    'resolve_quickjs4j_cp.sh'
+  );
+  const result = spawnSync('sh', [script], {
+    cwd: repoRoot,
+    env,
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `Failed to resolve the quickjs4j classpath for Java agent examples (set AXIR_QUICKJS4J_CP to skip):\n${result.stderr || result.stdout}`
+    );
+  }
+  return result.stdout.trim().split(/\r?\n/).filter(Boolean).pop();
+}
+
+function resolveQuickjsCppFlags() {
+  let cflags = env.AXIR_QUICKJS_CFLAGS || env.AX_QUICKJS_CFLAGS || '';
+  let ldflags = env.AXIR_QUICKJS_LDFLAGS || env.AX_QUICKJS_LDFLAGS || '';
+  if (!cflags || !ldflags) {
+    // Auto-detect a Homebrew QuickJS install (matches the runtime_profiles README).
+    const prefix = ['/opt/homebrew/opt/quickjs', '/usr/local/opt/quickjs'].find(
+      (p) => existsSync(path.join(p, 'include', 'quickjs', 'quickjs.h'))
+    );
+    if (prefix) {
+      cflags = cflags || `-I${prefix}/include/quickjs`;
+      ldflags =
+        ldflags || `${prefix}/lib/quickjs/libquickjs.a -lm -ldl -pthread`;
+    }
+  }
+  if (!cflags || !ldflags) {
+    throw new Error(
+      'QuickJS headers/libraries not found for the C++ agent example. Set AXIR_QUICKJS_CFLAGS and AXIR_QUICKJS_LDFLAGS (see packages/cpp/examples/runtime_profiles/README.md).'
+    );
+  }
+  return { cflags, ldflags };
 }
 
 function run(command, args, options) {

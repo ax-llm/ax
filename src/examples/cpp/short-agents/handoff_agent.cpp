@@ -1,35 +1,16 @@
 // ax-example:start
-// title: C++ Specialist Agent
+// title: C++ Specialist Planner Agent
 // group: short-agents
-// description: Uses a focused specialist-style agent contract for a multi-part answer.
+// description: A specialist that plans a migration from a long brief held in contextFields, using a checkpointed contextPolicy and a runtime-output cap to stay compact.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: advanced
 // order: 30
 // ax-example:end
 #include "axllm/axllm.hpp"
+#include "axllm/runtime/quickjs/quickjs_runtime.hpp"
 #include <cstdlib>
-#include <fstream>
 #include <iostream>
-#include <sstream>
-
-struct OpenAIBackedAgentClient : axllm::AIClient {
-  axllm::OpenAICompatibleClient& inner;
-  axllm::Value raw_model_answer;
-  int calls = 0;
-  explicit OpenAIBackedAgentClient(axllm::OpenAICompatibleClient& inner_) : inner(inner_) {}
-  axllm::Value complete(axllm::Value) override {
-    calls += 1;
-    if (raw_model_answer.is_null()) {
-      axllm::Value response = inner.complete(axllm::object({{"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "Give a three-step path from typed generation to agents and optimization."}})})}}));
-      raw_model_answer = axllm::Core::get(response, "content");
-    }
-    axllm::Value payload = axllm::object({{"answer", raw_model_answer}});
-    if (calls == 1) payload = axllm::object({{"completion", axllm::object({{"type", "final"}, {"args", axllm::array({"Answer", axllm::Value::object()})}})}});
-    if (calls == 2) payload = axllm::object({{"completion", axllm::object({{"type", "final"}, {"args", axllm::array({"Answer", axllm::object({{"answer", raw_model_answer}, {"usedContext", true}, {"plan", axllm::array({"Declare a signature", "Run an agent", "Optimize with examples"})}})})}})}});
-    return axllm::object({{"content", axllm::stringify(payload)}});
-  }
-};
 
 int main() {
   const char* key = std::getenv("OPENAI_API_KEY");
@@ -41,11 +22,44 @@ int main() {
   const char* model = std::getenv("AX_OPENAI_MODEL");
   axllm::OpenAICompatibleClient client(axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-4.1-mini" : model},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-4o-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
-  auto assistant = axllm::agent("question:string -> plan:string[], answer:string", axllm::object({{"contextFields", axllm::array({})}}));
-  OpenAIBackedAgentClient stage_client(client);
-  axllm::Value output = assistant.forward(stage_client, axllm::object({{"question", "Give a three-step path from typed generation to agents and optimization."}}));
-  std::cout << axllm::stringify(axllm::object({{"agentOutput", output}, {"rawModelAnswer", stage_client.raw_model_answer}})) << "\n";
+
+  // A long, messy brief -- exactly the kind of input you do not want replayed into
+  // the prompt on every turn. `contextFields` holds it in the runtime, the
+  // `checkpointed` policy compacts older turns once the prompt grows, and
+  // `maxRuntimeChars` caps how much runtime output is echoed back.
+  std::string brief =
+      "# Migration brief: monolith -> services (draft, unordered notes)\n"
+      "\n"
+      "Current: single Rails monolith, Postgres primary + 1 replica, Sidekiq for jobs.\n"
+      "Pain: deploys take 40m, one bad migration locks the orders table, on-call burnout.\n"
+      "Constraints: no downtime windows > 5m, PCI scope must shrink, team of 6, 2 quarters.\n"
+      "Hot paths: checkout (writes orders, payments), search (read-heavy), notifications (async).\n"
+      "Known landmines: payments code has no tests; search shares the orders DB; a nightly\n"
+      "cron rebuilds the catalog and pins CPU for ~20m; the replica lags up to 90s under load.\n"
+      "Org wants: independent deploys for checkout, smaller blast radius, an audit trail.\n"
+      "Nice to have: event log for orders, read-model for search, feature flags.\n"
+      "Hard no: a big-bang rewrite; introducing Kubernetes this year.";
+
+  auto specialist = axllm::agent(
+      "brief:string, goal:string -> plan:string[] \"Ordered, concrete steps\", answer:string, risks:string[]",
+      axllm::object({
+          {"contextFields", axllm::array({"brief"})},
+          {"contextPolicy", axllm::object({{"preset", "checkpointed"}, {"budget", "balanced"}})},
+          {"maxRuntimeChars", 3000},
+          {"runtime", axllm::object({{"language", "JavaScript"}})},
+      }));
+
+  axllm::runtime::quickjs::QuickJsCodeRuntime runtime;
+  axllm::Value result = specialist.forward(
+      client,
+      axllm::object({
+          {"brief", brief},
+          {"goal", "Propose a safe, incremental 2-quarter plan to split checkout out first, respecting the hard constraints."},
+      }),
+      axllm::object({{"runtime", axllm::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 12}}));
+
+  std::cout << axllm::stringify(result) << "\n";
 }

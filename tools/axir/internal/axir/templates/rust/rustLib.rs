@@ -2401,6 +2401,20 @@ impl AxAgent {
             _ => Vec::new(),
         }
     }
+
+    /// Attach a code runtime so `forward()` can execute the actor's code in a
+    /// real engine. Wraps the runtime as a host value with full capabilities and
+    /// stores it under `options.runtime` (the same wiring the conformance runner
+    /// uses), enabling the Python/Go-style `agent(...).with_runtime(rt).forward(...)`.
+    pub fn with_runtime(self, runtime: Box<dyn AxCodeRuntime>) -> AxResult<Self> {
+        let host = core_code_runtime_host_shared(
+            Rc::new(RefCell::new(runtime)),
+            core_runtime_capabilities_full(),
+        );
+        let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
+        core_set(&options, CoreValue::from("runtime"), host)?;
+        Ok(self)
+    }
 }
 
 impl AxProgram for AxAgent {

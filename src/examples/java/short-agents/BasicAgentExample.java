@@ -1,7 +1,7 @@
 // ax-example:start
-// title: Java Short Agent
+// title: Java Grounded Support Agent
 // group: short-agents
-// description: Runs a compact Ax agent against OpenAI with a typed final answer.
+// description: Answers a support question grounded in a handbook that is kept out of the model prompt via contextFields.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: beginner
@@ -9,7 +9,7 @@
 // story: 20
 // ax-example:end
 import dev.axllm.ax.*;
-import java.nio.file.*;
+import dev.axllm.ax.runtime.quickjs.*;
 import java.util.*;
 
 public final class BasicAgentExample {
@@ -23,37 +23,51 @@ public final class BasicAgentExample {
   }
 
   static OpenAICompatibleClient client() {
-    return new OpenAICompatibleClient(
-        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini"), "model_config", Map.of("temperature", 0.0)));
+    return new OpenAICompatibleClient(Map.of(
+        "api_key", apiKey(),
+        "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4o-mini"),
+        "model_config", Map.of("temperature", 0.0)));
   }
 
-  static final class OpenAIBackedAgentClient implements AiClient {
-    final OpenAICompatibleClient inner;
-    String rawModelAnswer;
-    int calls;
-
-    OpenAIBackedAgentClient(OpenAICompatibleClient inner) { this.inner = inner; }
-
-    public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> options) throws Exception {
-      calls += 1;
-      if (rawModelAnswer == null) {
-        Map<String, Object> response = inner.chat(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "What does Ax make easier when building production LLM features?"))));
-        rawModelAnswer = String.valueOf(((Map<?, ?>) ((List<?>) response.get("results")).get(0)).get("content"));
-      }
-      Map<String, Object> payload = Map.of("answer", rawModelAnswer);
-      if (calls == 1) payload = Map.of("completion", Map.of("type", "final", "args", List.of("Answer", Map.of())));
-      if (calls == 2) payload = Map.of("completion", Map.of("type", "final", "args", List.of("Answer", Map.of("answer", rawModelAnswer, "usedContext", true, "plan", List.of("Declare a signature", "Run an agent", "Optimize with examples")))));
-      return Map.of("results", List.of(Map.of("content", Json.stringify(payload), "function_calls", List.of())));
-    }
-
-    public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> options) { return Map.of("embeddings", List.of()); }
-    public Iterable<Map<String, Object>> stream(Map<String, Object> request, Map<String, Object> options) { return List.of(); }
-  }
+  // The handbook can be arbitrarily large. Listing it in `contextFields` keeps it
+  // in the agent's runtime so it never inflates the model prompt -- the agent reads
+  // it through code, not through tokens. That is the whole point of an Ax agent
+  // over a plain gen() call: the source material stays out of the context window.
+  static final String HANDBOOK = String.join("\n",
+      "# Acme Cloud -- Support Handbook",
+      "",
+      "## Billing",
+      "- Invoices are issued on the 1st of each month and are due net-15.",
+      "- Plan downgrades take effect at the END of the current billing cycle, not immediately.",
+      "- Refunds are issued to the original payment method within 5 business days.",
+      "",
+      "## Access",
+      "- Seats can be added by any workspace Owner under Settings -> Members.",
+      "- SSO (SAML) is available on Enterprise; SCIM provisioning is Owner-only.",
+      "",
+      "## Incidents",
+      "- Status and uptime are published at status.acme.example.",
+      "- Sev-1 incidents page the on-call within 5 minutes; updates post every 30 minutes.",
+      "",
+      "## Data",
+      "- Exports are available in CSV and JSON from Settings -> Data.",
+      "- Deleted workspaces are recoverable for 30 days, then permanently purged.");
 
   public static void main(String[] args) throws Exception {
-    OpenAIBackedAgentClient stageClient = new OpenAIBackedAgentClient(client());
-    AxAgent assistant = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of()));
-    Map<String, Object> output = assistant.forward(stageClient, Map.of("question", "What does Ax make easier when building production LLM features?"));
-    System.out.println(Json.stringify(Map.of("agentOutput", output, "rawModelAnswer", stageClient.rawModelAnswer)));
+    AxAgent assistant = Ax.agent(
+        "question:string, handbook:string -> answer:string, citations:string[] \"Handbook sections the answer relies on\"",
+        // Keep the handbook in the runtime, out of the prompt.
+        Map.of("contextFields", List.of("handbook"), "runtime", Map.of("language", "JavaScript")));
+
+    try (AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime()) {
+      Map<String, Object> result = assistant.forward(
+          client(),
+          Map.of(
+              "question", "A customer downgraded their plan today. When does it take effect, and can they get a refund for the current cycle?",
+              "handbook", HANDBOOK),
+          Map.of("runtime", runtime, "max_actor_steps", 12));
+
+      System.out.println(Json.pretty(result));
+    }
   }
 }
