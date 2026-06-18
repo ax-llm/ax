@@ -24713,13 +24713,19 @@ func _build_distiller_inputs(args ...Value) (Value, error) {
 	var v_values Value
 	var v_action_text Value
 	var v_actor_context Value
+	var v_ck Value
 	var v_cm_has Value
 	var v_cm_state Value
 	var v_cm_text Value
 	var v_context Value
 	var v_ctx_out Value
+	var v_cv Value
+	var v_cv_len Value
+	var v_cv_str Value
 	var v_empty_map Value
 	var v_guidance_text Value
+	var v_meta_note Value
+	var v_non_ctx Value
 	var v_out Value
 	var v_pressure_text Value
 	var v_runtime_text Value
@@ -24731,13 +24737,19 @@ func _build_distiller_inputs(args ...Value) (Value, error) {
 	_ = v_values
 	_ = v_action_text
 	_ = v_actor_context
+	_ = v_ck
 	_ = v_cm_has
 	_ = v_cm_state
 	_ = v_cm_text
 	_ = v_context
 	_ = v_ctx_out
+	_ = v_cv
+	_ = v_cv_len
+	_ = v_cv_str
 	_ = v_empty_map
 	_ = v_guidance_text
+	_ = v_meta_note
+	_ = v_non_ctx
 	_ = v_out
 	_ = v_pressure_text
 	_ = v_runtime_text
@@ -24746,17 +24758,25 @@ func _build_distiller_inputs(args ...Value) (Value, error) {
 	v_empty_map = Object()
 	{ v, err := _split_context_values(v_state, v_values); if err != nil { return nil, err }; v_split = v }
 	v_context = coreGet(v_split, "context", v_empty_map)
+	v_non_ctx = coreGet(v_split, "values", v_empty_map)
 	v_cm_state = coreGet(v_state, "context_map", nil)
 	v_cm_text = coreGet(v_cm_state, "text", "")
 	v_cm_has = _core_ne(v_cm_text, "")
-	v_ctx_out = _core_map_merge(v_empty_map, v_context)
+	v_ctx_out = Object()
+	for _, v_ck = range coreIter(v_context) {
+		v_cv = coreGet(v_context, v_ck, nil)
+		v_cv_str = _core_string_format("{}", v_cv)
+		v_cv_len = _core_len(v_cv_str)
+		v_meta_note = _core_string_format("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents", v_ck, v_cv_len)
+		if err := coreSet(v_ctx_out, v_ck, v_meta_note); err != nil { return nil, err }
+	}
 	if coreTruthy(v_cm_has) {
 		if err := coreSet(v_ctx_out, "contextMap", v_cm_text); err != nil { return nil, err }
 	} else {
 	// empty
 	}
 	v_out = Object()
-	if err := coreSet(v_out, "input", v_values); err != nil { return nil, err }
+	if err := coreSet(v_out, "input", v_non_ctx); err != nil { return nil, err }
 	if err := coreSet(v_out, "context", v_ctx_out); err != nil { return nil, err }
 	{ v, err := _agent_prepare_actor_context(v_state); if err != nil { return nil, err }; v_actor_context = v }
 	v_guidance_text = coreGet(v_actor_context, "guidanceLog", "[]")

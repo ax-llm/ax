@@ -4,8 +4,8 @@
   "emitted_functions": 384,
   "files": {
     "axllm/agent.py": {
-      "emitted_lines": 5729,
-      "total_lines": 6989
+      "emitted_lines": 5736,
+      "total_lines": 6996
     },
     "axllm/ai.py": {
       "emitted_lines": 4799,

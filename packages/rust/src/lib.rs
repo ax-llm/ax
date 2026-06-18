@@ -43193,13 +43193,19 @@ fn _build_distiller_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_values = core_arg(args, 1);
     let mut v_action_text = CoreValue::Null;
     let mut v_actor_context = CoreValue::Null;
+    let mut v_ck = CoreValue::Null;
     let mut v_cm_has = CoreValue::Null;
     let mut v_cm_state = CoreValue::Null;
     let mut v_cm_text = CoreValue::Null;
     let mut v_context = CoreValue::Null;
     let mut v_ctx_out = CoreValue::Null;
+    let mut v_cv = CoreValue::Null;
+    let mut v_cv_len = CoreValue::Null;
+    let mut v_cv_str = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_guidance_text = CoreValue::Null;
+    let mut v_meta_note = CoreValue::Null;
+    let mut v_non_ctx = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_pressure_text = CoreValue::Null;
     let mut v_runtime_text = CoreValue::Null;
@@ -43208,15 +43214,24 @@ fn _build_distiller_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_empty_map = CoreValue::new_map();
     v_split = _split_context_values(&[v_state.clone(), v_values.clone()])?;
     v_context = core_get(&v_split, &CoreValue::from("context"), v_empty_map.clone());
+    v_non_ctx = core_get(&v_split, &CoreValue::from("values"), v_empty_map.clone());
     v_cm_state = core_get(&v_state, &CoreValue::from("context_map"), CoreValue::Null);
     v_cm_text = core_get(&v_cm_state, &CoreValue::from("text"), CoreValue::from(""));
     v_cm_has = core_ne(&[v_cm_text.clone(), CoreValue::from("")])?;
-    v_ctx_out = core_map_merge(&[v_empty_map.clone(), v_context.clone()])?;
+    v_ctx_out = CoreValue::new_map();
+    for v_ck in core_iter(&v_context)? {
+        let mut v_ck = v_ck;
+        v_cv = core_get(&v_context, &v_ck.clone(), CoreValue::Null);
+        v_cv_str = core_string_format(&[CoreValue::from("{}"), v_cv.clone()])?;
+        v_cv_len = core_len(&[v_cv_str.clone()])?;
+        v_meta_note = core_string_format(&[CoreValue::from("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents"), v_ck.clone(), v_cv_len.clone()])?;
+        core_set(&v_ctx_out, v_ck.clone(), v_meta_note.clone())?;
+    }
     if core_truthy(&v_cm_has) {
         core_set(&v_ctx_out, CoreValue::from("contextMap"), v_cm_text.clone())?;
     }
     v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("input"), v_values.clone())?;
+    core_set(&v_out, CoreValue::from("input"), v_non_ctx.clone())?;
     core_set(&v_out, CoreValue::from("context"), v_ctx_out.clone())?;
     v_actor_context = _agent_prepare_actor_context(&[v_state.clone()])?;
     v_guidance_text = core_get(

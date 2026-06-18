@@ -5933,16 +5933,23 @@ def _build_distiller_inputs(state: Any, values: Any) -> Any:
     empty_map = {}
     split = _split_context_values(state, values)
     context = _core_get(split, "context", empty_map)
+    non_ctx = _core_get(split, "values", empty_map)
     cm_state = _core_get(state, "context_map", None)
     cm_text = _core_get(cm_state, "text", "")
     cm_has = _core_ne(cm_text, "")
-    ctx_out = _core_map_merge(empty_map, context)
+    ctx_out = {}
+    for ck in context:
+        cv = _core_get(context, ck, None)
+        cv_str = _core_string_format("{}", cv)
+        cv_len = _core_len(cv_str)
+        meta_note = _core_string_format("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents", ck, cv_len)
+        ctx_out[ck] = meta_note
     if cm_has:
         ctx_out["contextMap"] = cm_text
     else:
         pass
     out = {}
-    out["input"] = values
+    out["input"] = non_ctx
     out["context"] = ctx_out
     actor_context = _agent_prepare_actor_context(state)
     guidance_text = _core_get(actor_context, "guidanceLog", "[]")

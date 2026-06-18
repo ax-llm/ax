@@ -4989,15 +4989,29 @@ module @ax.agent version "0.1" {
       %empty_map = core.map
       %split = core.call @split_context_values(%state, %values)
       %context = core.get %split["context"] default %empty_map
+      %non_ctx = core.get %split["values"] default %empty_map
       %cm_state = core.get %state["context_map"] default null
       %cm_text = core.get %cm_state["text"] default ""
       %cm_has = core.call intrinsic.ne(%cm_text, "")
-      %ctx_out = core.call intrinsic.map.merge(%empty_map, %context)
+      // Keep raw context fields OUT of the distiller prompt — they live in the runtime
+      // as inputs.<field>. Pass only lightweight metadata so the model reads/narrows
+      // them with code (and the persistent runtime keeps the narrowed result) instead
+      // of retyping the whole payload into the prompt each turn, which stalls the loop
+      // on large contexts. Mirrors the TS contextMetadata field + the contextFields
+      // promise that large context never inflates the model prompt.
+      %ctx_out = core.map
+      core.for %ck in %context {
+        %cv = core.get %context[%ck]
+        %cv_str = core.call intrinsic.string.format("{}", %cv)
+        %cv_len = core.call intrinsic.len(%cv_str)
+        %meta_note = core.call intrinsic.string.format("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents", %ck, %cv_len)
+        core.set %ctx_out[%ck] = %meta_note
+      }
       core.if %cm_has {
         core.set %ctx_out["contextMap"] = %cm_text
       }
       %out = core.map
-      core.set %out["input"] = %values
+      core.set %out["input"] = %non_ctx
       core.set %out["context"] = %ctx_out
       %actor_context = core.call @agent_prepare_actor_context(%state)
       %guidance_text = core.get %actor_context["guidanceLog"] default "[]"

@@ -161,7 +161,18 @@ func (s *Session) Execute(code string, options map[string]ax.Value) ax.Value {
 			s.vm.Interrupt("goja execution timed out")
 		})
 	}
-	body, marshalErr := json.Marshal("with (globalThis) {\n" + code + "\n}")
+	// Persistence: top-level const/let/var declared this turn are block-scoped to the
+	// async wrapper and would vanish next turn, but the RLM prompt promises a long-running
+	// REPL where state persists. Extract the declared names and assign them onto globalThis
+	// (the scope that survives), mirroring the TS runtime. Fail-open. (with(globalThis)
+	// already persists bare assignments; this covers declarations.)
+	persistSuffix := ""
+	if codeJSON, mErr := json.Marshal(code); mErr == nil {
+		if sv, sErr := s.vm.RunString("(function(src){try{var n=[],s={},re=/(?:^|[\\n;{}])\\s*(?:export\\s+)?(?:async\\s+)?(?:function|class|const|let|var)\\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,m;while((m=re.exec(src))){if(!s[m[1]]){s[m[1]]=1;n.push(m[1]);}}return n.map(function(x){return 'try{globalThis['+JSON.stringify(x)+']='+x+';}catch(__e){}';}).join('');}catch(__e){return '';}})(" + string(codeJSON) + ")"); sErr == nil && sv != nil && !gojavm.IsUndefined(sv) && !gojavm.IsNull(sv) {
+			persistSuffix = sv.String()
+		}
+	}
+	body, marshalErr := json.Marshal("with (globalThis) {\n" + code + "\n" + persistSuffix + "\n}")
 	if marshalErr != nil {
 		return runtimeError("goja actor code is not executable", "runtime")
 	}

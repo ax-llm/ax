@@ -17,12 +17,9 @@ api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
     raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.")
 
-# This triage agent reasons over a large incident report held in the runtime, so it
-# needs a capable model: gpt-4o converges reliably; smaller models tend to loop in the
-# distiller without reaching final() on large contexts.
 client = OpenAICompatibleClient(
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-4o"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-4o-mini"),
     model_config={"temperature": 0},
 )
 

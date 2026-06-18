@@ -13312,15 +13312,23 @@ Value Core::_build_distiller_inputs(Value state, Value values) {
   Value empty_map = Value::object();
   Value split = Core::_split_context_values(state, values);
   Value context = Core::get(split, Value("context"), empty_map);
+  Value non_ctx = Core::get(split, Value("values"), empty_map);
   Value cm_state = Core::get(state, Value("context_map"), Value());
   Value cm_text = Core::get(cm_state, Value("text"), Value(""));
   Value cm_has = Core::ne(cm_text, Value(""));
-  Value ctx_out = Core::map_merge(empty_map, context);
+  Value ctx_out = Value::object();
+  for (auto ck : Core::iter(context)) {
+    Value cv = Core::get(context, ck, Value());
+    Value cv_str = Core::string_format(Value("{}"), cv);
+    Value cv_len = Core::len(cv_str);
+    Value meta_note = Core::string_format(Value("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents"), ck, cv_len);
+    Core::set(ctx_out, ck, meta_note);
+  }
   if (Core::truthy(cm_has)) {
     Core::set(ctx_out, Value("contextMap"), cm_text);
   }
   Value out = Value::object();
-  Core::set(out, Value("input"), values);
+  Core::set(out, Value("input"), non_ctx);
   Core::set(out, Value("context"), ctx_out);
   Value actor_context = Core::_agent_prepare_actor_context(state);
   Value guidance_text = Core::get(actor_context, Value("guidanceLog"), Value("[]"));

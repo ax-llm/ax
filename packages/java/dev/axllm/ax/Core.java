@@ -12560,15 +12560,23 @@ final class Core {
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object split = Core._split_context_values(state, values);
     Object context = Core.get(split, "context", empty_map);
+    Object non_ctx = Core.get(split, "values", empty_map);
     Object cm_state = Core.get(state, "context_map", null);
     Object cm_text = Core.get(cm_state, "text", "");
     Object cm_has = Core.ne(cm_text, "");
-    Object ctx_out = Core.mapMerge(empty_map, context);
+    Object ctx_out = new java.util.LinkedHashMap<String, Object>();
+    for (Object ck : Core.iter(context)) {
+      Object cv = Core.get(context, ck, null);
+      Object cv_str = Core.stringFormat("{}", cv);
+      Object cv_len = Core.len(cv_str);
+      Object meta_note = Core.stringFormat("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents", ck, cv_len);
+      Core.set(ctx_out, ck, meta_note);
+    }
     if (Core.truthy(cm_has)) {
       Core.set(ctx_out, "contextMap", cm_text);
     }
     Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "input", values);
+    Core.set(out, "input", non_ctx);
     Core.set(out, "context", ctx_out);
     Object actor_context = Core._agent_prepare_actor_context(state);
     Object guidance_text = Core.get(actor_context, "guidanceLog", "[]");
