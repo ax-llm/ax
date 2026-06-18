@@ -8,7 +8,9 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-pub type HostCallable = Arc<dyn Fn(Value) -> AxResult<Value> + Send + Sync + 'static>;
+// Alias the shared core type so the agent wrapper can register callables
+// (e.g. llmQuery) through the AxCodeRuntime::register_host_callable seam.
+pub type HostCallable = crate::AxHostCallable;
 
 #[derive(Clone)]
 pub struct QuickJsCodeRuntime {
@@ -88,6 +90,16 @@ impl AxCodeRuntime for QuickJsCodeRuntime {
             self.host_callables.clone(),
         )?))
     }
+
+    fn register_host_callable(&mut self, name: &str, callable: crate::AxHostCallable) -> AxResult<()> {
+        if is_reserved_name(name) {
+            return Err(AxError::runtime(format!(
+                "QuickJS host callable conflicts with reserved runtime name: {name}"
+            )));
+        }
+        self.host_callables.insert(name.to_string(), callable);
+        Ok(())
+    }
 }
 
 impl QuickJsCodeSession {
@@ -108,7 +120,12 @@ impl QuickJsCodeSession {
         let context = Context::full(&runtime).map_err(qjs_error)?;
         let mut reserved = reserved_names_from_options(&options);
         for name in host_callables.keys() {
-            if reserved.contains(name) || is_reserved_name(name) {
+            // Only reject names the runtime itself installs (JS built-ins and
+            // bootstrap primitives like final). Agent-declared reserved names
+            // (e.g. llmQuery) are *meant* to be host-provided, so a host
+            // callable claiming one is the provisioning mechanism, not a
+            // conflict — mirroring the Python reference runtime.
+            if is_reserved_name(name) {
                 return Err(AxError::runtime(format!(
                     "QuickJS host callable conflicts with reserved runtime name: {name}"
                 )));
@@ -229,26 +246,58 @@ impl AxCodeSession for QuickJsCodeSession {
         }
         // The RLM prompt has the model write `await final(...)` / `await llmQuery(...)`, so actor
         // code uses top-level await — illegal in a plain script eval. Compile it as an async
-        // function (AsyncFunction constructor) so await is legal; the synchronous host primitives
-        // that set the completion run before the first await suspends, so it is captured here.
-        let body_literal = serde_json::to_string(&format!("with (globalThis) {{\n{code}\n}}"))?;
-        let source = format!(
-            "globalThis.__ax_completion = undefined; __ax_install_host_callables(); (async function(){{}}).constructor({body_literal})(); JSON.stringify(globalThis.__ax_completion === undefined ? {{kind: 'result', result: null}} : globalThis.__ax_completion);"
+        // function (AsyncFunction constructor) so await is legal. A synchronous `throw` inside an
+        // async function becomes a *rejected promise*, so attach a rejection handler that records
+        // __ax_error and drain the job queue before reading the completion; otherwise the throw's
+        // error_category would be silently swallowed. The synchronous host primitives that set the
+        // completion run before the first await suspends, so the completion is captured too.
+        // Persistence: top-level const/let/var declared this turn are block-scoped to the
+        // async wrapper and would vanish next turn, but the RLM prompt promises a long-running
+        // REPL. Hoist the declared names onto globalThis (which persists), mirroring TS. Fail-open.
+        let code_literal = serde_json::to_string(code)?;
+        let persist_suffix = self
+            .eval_json_string(format!("axPersistSuffix({code_literal})"))
+            .unwrap_or_default();
+        let body_literal = serde_json::to_string(&format!("with (globalThis) {{\n{code}\n{persist_suffix}\n}}"))?;
+        let run_source = format!(
+            "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; __ax_install_host_callables(); (async function(){{}}).constructor({body_literal})().then(function(){{}}, function(e){{ globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); }});"
         );
-        let result = self.eval_json_string(source);
-        self.runtime.set_interrupt_handler(None);
-        match result {
-            Ok(text) => {
-                let payload: Value = serde_json::from_str(&text).map_err(|error| {
-                    AxError::runtime(format!("malformed QuickJS actor output: {error}"))
-                })?;
-                Ok(RuntimeEnvelope { payload })
+        let run_result = self
+            .context
+            .with(|ctx| ctx.eval::<(), _>(run_source).map_err(qjs_error));
+        // A timeout fires the interrupt handler during the synchronous run-eval and surfaces as an
+        // Err here (the `while (true) {}` path); report it before draining so it is categorized as
+        // a timeout rather than a generic runtime error.
+        if let Err(error) = run_result {
+            self.runtime.set_interrupt_handler(None);
+            if timed_out.load(Ordering::SeqCst) {
+                return Ok(error_envelope("QuickJS execution timed out", "timeout"));
             }
-            Err(error) if timed_out.load(Ordering::SeqCst) => {
-                Ok(error_envelope("QuickJS execution timed out", "timeout"))
-            }
-            Err(error) => Ok(error_envelope(error.message, "runtime")),
+            return Ok(error_envelope(error.message, "runtime"));
         }
+        // Drain awaited continuations and the rejection handler so __ax_error / __ax_completion
+        // reflect the final actor state (rquickjs does not run pending jobs automatically).
+        while self.runtime.is_job_pending() {
+            if self.runtime.execute_pending_job().is_err() {
+                break;
+            }
+        }
+        self.runtime.set_interrupt_handler(None);
+        let actor_error: Value = serde_json::from_str(&self.eval_json_string(
+            "JSON.stringify(globalThis.__ax_error === undefined ? null : globalThis.__ax_error)"
+                .to_string(),
+        )?)?;
+        if let Some(message) = actor_error.as_str() {
+            return Ok(error_envelope(message.to_string(), "runtime"));
+        }
+        let completion = self.eval_json_string(
+            "JSON.stringify(globalThis.__ax_completion === undefined ? {kind: 'result', result: null} : globalThis.__ax_completion)"
+                .to_string(),
+        )?;
+        let payload: Value = serde_json::from_str(&completion).map_err(|error| {
+            AxError::runtime(format!("malformed QuickJS actor output: {error}"))
+        })?;
+        Ok(RuntimeEnvelope { payload })
     }
 
     fn inspect_globals(&mut self, _options: Value) -> AxResult<Value> {
@@ -477,6 +526,7 @@ fn is_builtin_reserved_name(name: &str) -> bool {
 }
 
 const QUICKJS_BOOTSTRAP: &str = r#"
+function axPersistSuffix(src){try{var n=[],s={},re=/(?:^|[\n;{}])\s*(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,m;while((m=re.exec(src))){if(!s[m[1]]){s[m[1]]=1;n.push(m[1]);}}return n.map(function(x){return 'try{globalThis['+JSON.stringify(x)+']='+x+';}catch(__e){}';}).join('');}catch(__e){return '';}}
 const __ax_builtin_reserved = [
   "Object", "Function", "Array", "Number", "parseFloat", "parseInt", "Infinity", "NaN",
   "undefined", "Boolean", "String", "Symbol", "Date", "Promise", "RegExp", "Error",
@@ -532,7 +582,7 @@ function __ax_install_host_callables() {
     }
   }
 }
-function final() { return __ax_complete({ type: "final", kind: "final", completion_payload: { args: Array.from(arguments) }, args: Array.from(arguments) }); }
+function final() { return __ax_complete({ type: "final", args: Array.from(arguments) }); }
 function askClarification() { return __ax_complete({ type: "askClarification", args: Array.from(arguments) }); }
 function discover(request) { return __ax_complete({ kind: "discover", discover: request }); }
 function recall(request) { return __ax_complete({ kind: "recall", recall: request }); }

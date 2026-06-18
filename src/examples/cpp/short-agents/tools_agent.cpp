@@ -1,35 +1,16 @@
 // ax-example:start
-// title: C++ Tool-Guided Agent
+// title: C++ Incident Triage Agent
 // group: short-agents
-// description: Uses provider reasoning plus local context to shape a concise agent answer.
+// description: Triages a noisy incident report held in contextFields, using a lean contextPolicy to keep the raw log out of the prompt while it reasons.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: intermediate
 // order: 20
 // ax-example:end
 #include "axllm/axllm.hpp"
+#include "axllm/runtime/quickjs/quickjs_runtime.hpp"
 #include <cstdlib>
-#include <fstream>
 #include <iostream>
-#include <sstream>
-
-struct OpenAIBackedAgentClient : axllm::AIClient {
-  axllm::OpenAICompatibleClient& inner;
-  axllm::Value raw_model_answer;
-  int calls = 0;
-  explicit OpenAIBackedAgentClient(axllm::OpenAICompatibleClient& inner_) : inner(inner_) {}
-  axllm::Value complete(axllm::Value) override {
-    calls += 1;
-    if (raw_model_answer.is_null()) {
-      axllm::Value response = inner.complete(axllm::object({{"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "Use local context to choose between generation, agents, and flows."}})})}}));
-      raw_model_answer = axllm::Core::get(response, "content");
-    }
-    axllm::Value payload = axllm::object({{"answer", raw_model_answer}});
-    if (calls == 1) payload = axllm::object({{"completion", axllm::object({{"type", "final"}, {"args", axllm::array({"Answer", axllm::Value::object()})}})}});
-    if (calls == 2) payload = axllm::object({{"completion", axllm::object({{"type", "final"}, {"args", axllm::array({"Answer", axllm::object({{"answer", raw_model_answer}, {"usedContext", true}, {"plan", axllm::array({"Declare a signature", "Run an agent", "Optimize with examples"})}})})}})}});
-    return axllm::object({{"content", axllm::stringify(payload)}});
-  }
-};
 
 int main() {
   const char* key = std::getenv("OPENAI_API_KEY");
@@ -41,11 +22,44 @@ int main() {
   const char* model = std::getenv("AX_OPENAI_MODEL");
   axllm::OpenAICompatibleClient client(axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-4.1-mini" : model},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-4o-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
-  auto assistant = axllm::agent("question:string -> answer:string, usedContext:boolean", axllm::object({{"contextFields", axllm::array({})}}));
-  OpenAIBackedAgentClient stage_client(client);
-  axllm::Value output = assistant.forward(stage_client, axllm::object({{"question", "Use local context to choose between generation, agents, and flows."}}));
-  std::cout << axllm::stringify(axllm::object({{"agentOutput", output}, {"rawModelAnswer", stage_client.raw_model_answer}})) << "\n";
+
+  // A raw, noisy incident report. It lives in `contextFields`, so the agent works
+  // it inside the runtime; `contextPolicy: lean` keeps the prompt compact by
+  // preferring live runtime state and summaries over replaying the raw text.
+  std::string report =
+      "[2026-03-02 14:01:22Z] INFO  gateway       deploy svc-checkout-edge v812 -> prod (channel: canary 10%)\n"
+      "[2026-03-02 14:03:10Z] WARN  checkout-api  p95 latency 1180ms (baseline 240ms) region=eu-west-1\n"
+      "[2026-03-02 14:04:55Z] ERROR checkout-api  502 from svc-payments-gw: upstream timeout (10s) tenant_tier=enterprise\n"
+      "[2026-03-02 14:05:01Z] ERROR checkout-api  502 from svc-payments-gw: upstream timeout (10s) tenant_tier=enterprise\n"
+      "[2026-03-02 14:05:40Z] WARN  payments-gw   circuit half-open, 3 retries exhausted for order=ord_99214\n"
+      "[2026-03-02 14:06:12Z] INFO  gateway       canary widened 10% -> 50% for svc-checkout-edge v812\n"
+      "[2026-03-02 14:07:33Z] ERROR checkout-api  502 from svc-payments-gw: upstream timeout (10s) tenant_tier=enterprise\n"
+      "[2026-03-02 14:08:02Z] ERROR checkout-api  user-visible: \"Payment could not be processed\" shown to 1,284 sessions\n"
+      "[2026-03-02 14:09:48Z] WARN  payments-gw   connection pool exhausted (max=64) waiting=210\n"
+      "[2026-03-02 14:11:20Z] INFO  on-call       paged: SEV-2 opened (eu-west-1 checkout error rate 38%)\n"
+      "[2026-03-02 14:14:05Z] INFO  gateway       rollback svc-checkout-edge v812 -> v811 (channel: prod 100%)\n"
+      "[2026-03-02 14:17:41Z] INFO  checkout-api  p95 latency 260ms, error rate 0.4% region=eu-west-1\n"
+      "[2026-03-02 14:19:10Z] INFO  on-call       SEV-2 mitigated, monitoring for 30m";
+
+  auto triage = axllm::agent(
+      "report:string, question:string -> severity:class \"low, medium, high, critical\", rootCause:string, nextSteps:string[], evidence:string[] \"Quoted log lines that support the assessment\"",
+      axllm::object({
+          {"contextFields", axllm::array({"report"})},
+          {"contextPolicy", axllm::object({{"preset", "lean"}, {"budget", "balanced"}})},
+          {"runtime", axllm::object({{"language", "JavaScript"}})},
+      }));
+
+  axllm::runtime::quickjs::QuickJsCodeRuntime runtime;
+  axllm::Value result = triage.forward(
+      client,
+      axllm::object({
+          {"report", report},
+          {"question", "What happened, how bad was it, and what should the on-call do next? Cite the lines you relied on."},
+      }),
+      axllm::object({{"runtime", axllm::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 12}}));
+
+  std::cout << axllm::stringify(result) << "\n";
 }

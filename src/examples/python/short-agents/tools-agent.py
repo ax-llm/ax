@@ -1,7 +1,7 @@
 # ax-example:start
-# title: Python Tool-Guided Agent
+# title: Python Incident Triage Agent
 # group: short-agents
-# description: Uses provider reasoning plus local context to shape a concise agent answer.
+# description: Triages a noisy incident report held in contextFields, using a lean contextPolicy to keep the raw log out of the prompt while it reasons.
 # provider: openai
 # env: OPENAI_API_KEY, OPENAI_APIKEY
 # level: intermediate
@@ -11,7 +11,7 @@ import json
 import os
 
 from axllm import OpenAICompatibleClient, agent
-
+from axllm.runtime_quickjs import AxQuickJsCodeRuntime
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
@@ -19,31 +19,45 @@ if not api_key:
 
 client = OpenAICompatibleClient(
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-4.1-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-4o-mini"),
     model_config={"temperature": 0},
 )
 
+# A raw, noisy incident report. It lives in `contextFields`, so the agent works
+# it inside the runtime; `contextPolicy: lean` keeps the prompt compact by
+# preferring live runtime state and summaries over replaying the raw text.
+report = """
+[2026-03-02 14:01:22Z] INFO  gateway       deploy svc-checkout-edge v812 -> prod (channel: canary 10%)
+[2026-03-02 14:03:10Z] WARN  checkout-api  p95 latency 1180ms (baseline 240ms) region=eu-west-1
+[2026-03-02 14:04:55Z] ERROR checkout-api  502 from svc-payments-gw: upstream timeout (10s) tenant_tier=enterprise
+[2026-03-02 14:05:01Z] ERROR checkout-api  502 from svc-payments-gw: upstream timeout (10s) tenant_tier=enterprise
+[2026-03-02 14:05:40Z] WARN  payments-gw   circuit half-open, 3 retries exhausted for order=ord_99214
+[2026-03-02 14:06:12Z] INFO  gateway       canary widened 10% -> 50% for svc-checkout-edge v812
+[2026-03-02 14:07:33Z] ERROR checkout-api  502 from svc-payments-gw: upstream timeout (10s) tenant_tier=enterprise
+[2026-03-02 14:08:02Z] ERROR checkout-api  user-visible: "Payment could not be processed" shown to 1,284 sessions
+[2026-03-02 14:09:48Z] WARN  payments-gw   connection pool exhausted (max=64) waiting=210
+[2026-03-02 14:11:20Z] INFO  on-call       paged: SEV-2 opened (eu-west-1 checkout error rate 38%)
+[2026-03-02 14:14:05Z] INFO  gateway       rollback svc-checkout-edge v812 -> v811 (channel: prod 100%)
+[2026-03-02 14:17:41Z] INFO  checkout-api  p95 latency 260ms, error rate 0.4% region=eu-west-1
+[2026-03-02 14:19:10Z] INFO  on-call       SEV-2 mitigated, monitoring for 30m
+""".strip()
 
-class OpenAIBackedAgentClient:
-    def __init__(self, inner):
-        self.inner = inner
-        self.raw_model_answer = None
-        self.calls = 0
+triage = agent(
+    'report:string, question:string -> severity:class "low, medium, high, critical", rootCause:string, nextSteps:string[], evidence:string[] "Quoted log lines that support the assessment"',
+    {
+        "contextFields": ["report"],
+        "contextPolicy": {"preset": "lean", "budget": "balanced"},
+        "runtime": {"language": "JavaScript"},
+    },
+)
 
-    def complete(self, _request):
-        self.calls += 1
-        if self.raw_model_answer is None:
-            response = self.inner.complete({"chat_prompt": [{"role": "user", "content": "Use local context to choose between generation, agents, and flows."}]})
-            self.raw_model_answer = response["content"]
-        payload = {"answer": self.raw_model_answer}
-        if self.calls == 1:
-            payload = {"completion": {"type": "final", "args": ["Answer", {}]}}
-        elif self.calls == 2:
-            payload = {"completion": {"type": "final", "args": ["Answer", {"answer": self.raw_model_answer, "usedContext": True, "plan": ["Declare a signature", "Run an agent", "Optimize with examples"]}]}}
-        return {"content": json.dumps(payload)}
+result = triage.forward(
+    client,
+    {
+        "report": report,
+        "question": "What happened, how bad was it, and what should the on-call do next? Cite the lines you relied on.",
+    },
+    {"runtime": AxQuickJsCodeRuntime(), "max_actor_steps": 12},
+)
 
-
-assistant = agent('question:string -> answer:string, usedContext:boolean', {"contextFields": []})
-stage_client = OpenAIBackedAgentClient(client)
-output = assistant.forward(stage_client, {"question": "Use local context to choose between generation, agents, and flows."})
-print(json.dumps({"agentOutput": output, "rawModelAnswer": stage_client.raw_model_answer}, indent=2, sort_keys=True))
+print(json.dumps(result, indent=2, sort_keys=True))

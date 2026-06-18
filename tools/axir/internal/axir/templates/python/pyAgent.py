@@ -644,9 +644,19 @@ class AxAgent:
         self.signature = _core_get(self.state, "signature")
         self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": 0, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", "")})
         self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": 0, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
-        self.responder = AxGen(self.signature, {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
+        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
+        self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
 
     def forward(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
+        options = options or {}
+        runtime = options.get("runtime")
+        if runtime is None:
+            runtime = self.options.get("runtime")
+        # Wire the built-in llmQuery primitive: a focused sub-query the model can
+        # await inside the runtime. The logic lives in the AxIR-generated helper;
+        # this wrapper only registers the host callable that closes over this client.
+        if runtime is not None and hasattr(runtime, "register_callable"):
+            runtime.register_callable("llmQuery", lambda params: _agent_run_llm_query(self.llm_query, client, params))
         return _agent_forward(
             self.state,
             self.distiller,
@@ -654,7 +664,7 @@ class AxAgent:
             self.responder,
             client,
             values or {},
-            options or {},
+            options,
         )
 
     def test(self, runtime: AxCodeRuntime, code: str, context_field_values: dict[str, Any] | None = None, options: dict[str, Any] | None = None):

@@ -21,6 +21,34 @@
       "state": "VERIFIED IN ALL FIVE LANGUAGES: go (goja), rust (quickjs feature), cpp (quickjs profile -DAX_CONFORMANCE_QUICKJS), python (in-process quickjs wheel), java (quickjs4j/chicory via reflection). Each runs the full forward() loop through a real engine executing model-authored final() code. Engines are optional deps, so agent_runtime_real runs in engine-enabled build lanes, not the default conformance suite."
     },
     {
+      "capability": "agent.rlm.multi_turn_convergence",
+      "summary": "Across multiple distiller and executor turns, each turn's request carries the accumulated per-turn feedback -- the Action Log and the refreshed liveRuntimeState snapshot of live session variables -- so the model sees its own prior work and converges to final(), instead of re-exploring blindly until max_actor_steps. NOT a 1-2-turn canned case.",
+      "ir_ops": [
+        "@agent_forward",
+        "@agent_runtime_refresh_state_summary",
+        "@build_distiller_inputs"
+      ],
+      "fixtures": ["axagent-real/agent-runtime-real-multi-turn-feedback.json"],
+      "gate": "G1 real-engine antidote + G6 response perturbation",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED via a real-engine fixture driving a 2-turn distiller and a 2-turn executor: the later request must contain a marker produced by executing the earlier turn. distillProbe7731 can only reach the distiller's 2nd request through the newly-provided distiller actionLog/liveRuntimeState (@build_distiller_inputs); 'Current runtime state:' + execLiveStateProbe8842 can only reach the executor's 2nd request when @agent_runtime_refresh_state_summary repopulates runtime_session_state each non-error turn. Proven to FAIL without the fix (distiller request was input/context-only and liveRuntimeState rendered empty) and anti-hardcoded by the response-perturbation gate (mutating the probe responses drops the markers and fails the runner)."
+    },
+    {
+      "capability": "agent.rlm.llm_query_subquery",
+      "summary": "Actor code can await the built-in llmQuery([{query, context}]) primitive: each item runs a focused sub-query through a dedicated AxGen (task:string, context:json -> answer:string) against the same client, and the answers return to the runtime as a real string[] the model indexes -- NOT a stub or canned value.",
+      "ir_ops": [
+        "@agent_run_llm_query",
+        "@agent_run_llm_query_one",
+        "@agent_factory"
+      ],
+      "fixtures": ["axagent-real/agent-runtime-real-llm-query.json"],
+      "gate": "G1 real-engine antidote + G6 response perturbation",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES via a real-engine fixture: the executor awaits llmQuery([{query:'llmQueryTaskProbe5521', context:{detail:'contextMarker8843'}}]) (both markers must appear in the sub-query request, proving the sub-gen ran with the passed task+context), captures the result, then finals with answer:'EXTRACTED_'+result[0]. 'EXTRACTED_subAnswerMarker9931' can only reach the responder request when the sub-query consumed the scripted answer AND the returned value is a JS array the model indexes with [0] -- which exposed and drove a Go fix (AxArray.MarshalJSON, so the wrapper struct serializes as a JSON array across the host-callable boundary) and an rquickjs fix (a host callable may claim an agent-declared reserved primitive name like llmQuery; only runtime-installed built-ins conflict). Each language registers llmQuery through a package-neutral seam (Go runtimeCallableRegistrar + goja RegisterHostCallable; Rust AxCodeRuntime::register_host_callable trait method + CoreHost::register_runtime_callable; Java AxCodeRuntime.HostCallable default method; C++ AxCodeRuntime::register_host_callable virtual recovered via code_runtime_registry; Python register_callable). Anti-hardcoded by the response-perturbation gate (mutating the sub-query answer or the executor code drops the marker and fails the runner)."
+    },
+    {
       "capability": "agent.audio.transcription",
       "summary": "Audio-typed input fields are transcribed to text via the AI client before the agent loop, and the transcribed text reaches the distiller/executor request -- NOT a canned string.",
       "ir_ops": [

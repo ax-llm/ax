@@ -53,7 +53,7 @@ public final class PythonPyodideExample {
         "functions", List.of(Map.of("name", "search", "description", "Search docs"))
       ));
       ScriptedAI forwardClient = new ScriptedAI(List.of(
-        Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"),
+        Map.of("content", "{\"pythonCode\":\"final('Run actor', {})\"}"),
         Map.of("content", "{\"pythonCode\":\"counter = 41\\ndiscover({'tools': ['search']})\"}"),
         Map.of("content", "{\"pythonCode\":\"recall('prefs')\"}"),
         Map.of("content", "{\"pythonCode\":\"hit = search({'query': inputs['question']})\\nfinal('Answer', {'answer': hit['title']})\"}"),
@@ -81,7 +81,7 @@ public final class PythonPyodideExample {
 
       AxAgent guideAgent = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "Python")));
       ScriptedAI guideClient = new ScriptedAI(List.of(
-        Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide\",{}]}}"),
+        Map.of("content", "{\"pythonCode\":\"final('Guide', {})\"}"),
         Map.of("content", "{\"pythonCode\":\"guideAgent('Prefer concise final.')\"}"),
         Map.of("content", "{\"pythonCode\":\"final('Answer', {'answer': 'Concise'})\"}"),
         Map.of("content", "{\"answer\":\"Concise\"}")
@@ -97,7 +97,7 @@ public final class PythonPyodideExample {
 
       AxAgent clarificationAgent = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "Python")));
       ScriptedAI clarificationClient = new ScriptedAI(List.of(
-        Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Ask\",{}]}}"),
+        Map.of("content", "{\"pythonCode\":\"final('Ask', {})\"}"),
         Map.of("content", "{\"pythonCode\":\"askClarification('Need detail?')\"}")
       ));
       try {

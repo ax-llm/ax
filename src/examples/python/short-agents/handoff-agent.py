@@ -1,7 +1,7 @@
 # ax-example:start
-# title: Python Specialist Agent
+# title: Python Specialist Planner Agent
 # group: short-agents
-# description: Uses a focused specialist-style agent contract for a multi-part answer.
+# description: A specialist that plans a migration from a long brief held in contextFields, using a checkpointed contextPolicy and a runtime-output cap to stay compact.
 # provider: openai
 # env: OPENAI_API_KEY, OPENAI_APIKEY
 # level: advanced
@@ -11,7 +11,7 @@ import json
 import os
 
 from axllm import OpenAICompatibleClient, agent
-
+from axllm.runtime_quickjs import AxQuickJsCodeRuntime
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
@@ -19,31 +19,45 @@ if not api_key:
 
 client = OpenAICompatibleClient(
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-4.1-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-4o-mini"),
     model_config={"temperature": 0},
 )
 
+# A long, messy brief -- exactly the kind of input you do not want replayed into
+# the prompt on every turn. `contextFields` holds it in the runtime, the
+# `checkpointed` policy compacts older turns once the prompt grows, and
+# `maxRuntimeChars` caps how much runtime output is echoed back.
+brief = """
+# Migration brief: monolith -> services (draft, unordered notes)
 
-class OpenAIBackedAgentClient:
-    def __init__(self, inner):
-        self.inner = inner
-        self.raw_model_answer = None
-        self.calls = 0
+Current: single Rails monolith, Postgres primary + 1 replica, Sidekiq for jobs.
+Pain: deploys take 40m, one bad migration locks the orders table, on-call burnout.
+Constraints: no downtime windows > 5m, PCI scope must shrink, team of 6, 2 quarters.
+Hot paths: checkout (writes orders, payments), search (read-heavy), notifications (async).
+Known landmines: payments code has no tests; search shares the orders DB; a nightly
+cron rebuilds the catalog and pins CPU for ~20m; the replica lags up to 90s under load.
+Org wants: independent deploys for checkout, smaller blast radius, an audit trail.
+Nice to have: event log for orders, read-model for search, feature flags.
+Hard no: a big-bang rewrite; introducing Kubernetes this year.
+""".strip()
 
-    def complete(self, _request):
-        self.calls += 1
-        if self.raw_model_answer is None:
-            response = self.inner.complete({"chat_prompt": [{"role": "user", "content": "Give a three-step path from typed generation to agents and optimization."}]})
-            self.raw_model_answer = response["content"]
-        payload = {"answer": self.raw_model_answer}
-        if self.calls == 1:
-            payload = {"completion": {"type": "final", "args": ["Answer", {}]}}
-        elif self.calls == 2:
-            payload = {"completion": {"type": "final", "args": ["Answer", {"answer": self.raw_model_answer, "usedContext": True, "plan": ["Declare a signature", "Run an agent", "Optimize with examples"]}]}}
-        return {"content": json.dumps(payload)}
+specialist = agent(
+    'brief:string, goal:string -> plan:string[] "Ordered, concrete steps", answer:string, risks:string[]',
+    {
+        "contextFields": ["brief"],
+        "contextPolicy": {"preset": "checkpointed", "budget": "balanced"},
+        "maxRuntimeChars": 3000,
+        "runtime": {"language": "JavaScript"},
+    },
+)
 
+result = specialist.forward(
+    client,
+    {
+        "brief": brief,
+        "goal": "Propose a safe, incremental 2-quarter plan to split checkout out first, respecting the hard constraints.",
+    },
+    {"runtime": AxQuickJsCodeRuntime(), "max_actor_steps": 12},
+)
 
-assistant = agent('question:string -> plan:string[], answer:string', {"contextFields": []})
-stage_client = OpenAIBackedAgentClient(client)
-output = assistant.forward(stage_client, {"question": "Give a three-step path from typed generation to agents and optimization."})
-print(json.dumps({"agentOutput": output, "rawModelAnswer": stage_client.raw_model_answer}, indent=2, sort_keys=True))
+print(json.dumps(result, indent=2, sort_keys=True))

@@ -1,7 +1,7 @@
 // ax-example:start
-// title: Go Short Agent
+// title: Go Grounded Support Agent
 // group: short-agents
-// description: Runs a compact Ax agent against OpenAI with a typed final answer.
+// description: Answers a support question grounded in a handbook that is kept out of the model prompt via contextFields.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: beginner
@@ -15,58 +15,83 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	ax "github.com/ax-llm/ax/go"
+	axgoja "github.com/ax-llm/ax/go/runtime/goja"
 )
-
-type openAIBackedAgentClient struct {
-	inner *ax.OpenAICompatibleClient
-	rawModelAnswer string
-	calls int
-}
-
-func (c *openAIBackedAgentClient) Chat(ctx context.Context, request map[string]ax.Value, options map[string]ax.Value) (ax.Value, error) {
-	c.calls++
-	if c.rawModelAnswer == "" {
-		response, err := c.inner.Chat(ctx, map[string]ax.Value{"chat_prompt": ax.Array(ax.Object("role", "user", "content", "What does Ax make easier when building production LLM features?"))}, nil)
-		if err != nil { return nil, err }
-		first := response.(map[string]ax.Value)["results"].([]ax.Value)[0].(map[string]ax.Value)
-		c.rawModelAnswer, _ = first["content"].(string)
-	}
-	payload := ax.Object("answer", c.rawModelAnswer)
-	if c.calls == 1 { payload = ax.Object("completion", ax.Object("type", "final", "args", ax.Array("Answer", ax.Object()))) }
-	if c.calls == 2 { payload = ax.Object("completion", ax.Object("type", "final", "args", ax.Array("Answer", ax.Object("answer", c.rawModelAnswer, "usedContext", true, "plan", ax.Array("Declare a signature", "Run an agent", "Optimize with examples"))))) }
-	data, err := json.Marshal(payload)
-	if err != nil { return nil, err }
-	return ax.Object("results", ax.Array(ax.Object("content", string(data), "function_calls", ax.Array()))), nil
-}
-func (c *openAIBackedAgentClient) Embed(context.Context, map[string]ax.Value, map[string]ax.Value) (ax.Value, error) { return ax.Object("embeddings", ax.Array()), nil }
-func (c *openAIBackedAgentClient) Stream(context.Context, map[string]ax.Value, map[string]ax.Value) ([]ax.Value, error) { return nil, nil }
-
 
 func openAIClient() *ax.OpenAICompatibleClient {
 	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" { apiKey = os.Getenv("OPENAI_APIKEY") }
-	if apiKey == "" { panic("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.") }
+	if apiKey == "" {
+		apiKey = os.Getenv("OPENAI_APIKEY")
+	}
+	if apiKey == "" {
+		panic("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.")
+	}
 	model := os.Getenv("AX_OPENAI_MODEL")
-	if model == "" { model = "gpt-4.1-mini" }
+	if model == "" {
+		model = "gpt-4o-mini"
+	}
 	return ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
 }
 
 func printJSON(value ax.Value) {
 	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 	fmt.Println(string(data))
 }
 
+// The handbook can be arbitrarily large. Listing it in `contextFields` keeps it
+// in the agent's runtime so it never inflates the model prompt -- the agent reads
+// it through code, not through tokens. That is the whole point of an Ax agent
+// over a plain gen() call: the source material stays out of the context window.
+var handbook = strings.TrimSpace(`
+# Acme Cloud -- Support Handbook
+
+## Billing
+- Invoices are issued on the 1st of each month and are due net-15.
+- Plan downgrades take effect at the END of the current billing cycle, not immediately.
+- Refunds are issued to the original payment method within 5 business days.
+
+## Access
+- Seats can be added by any workspace Owner under Settings -> Members.
+- SSO (SAML) is available on Enterprise; SCIM provisioning is Owner-only.
+
+## Incidents
+- Status and uptime are published at status.acme.example.
+- Sev-1 incidents page the on-call within 5 minutes; updates post every 30 minutes.
+
+## Data
+- Exports are available in CSV and JSON from Settings -> Data.
+- Deleted workspaces are recoverable for 30 days, then permanently purged.
+`)
+
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	client := openAIClient()
-	stageClient := &openAIBackedAgentClient{inner: client}
-	assistant := ax.NewAgent("question:string -> answer:string", map[string]ax.Value{"contextFields": ax.Array()})
-	output, err := assistant.Forward(ctx, stageClient, map[string]ax.Value{"question": "What does Ax make easier when building production LLM features?"}, nil)
-	if err != nil { panic(err) }
-	printJSON(ax.Object("agentOutput", output, "rawModelAnswer", stageClient.rawModelAnswer))
+
+	// Keep the handbook in the runtime, out of the prompt.
+	assistant := ax.NewAgent(
+		`question:string, handbook:string -> answer:string, citations:string[] "Handbook sections the answer relies on"`,
+		map[string]ax.Value{"contextFields": ax.Array("handbook"), "runtime": ax.Object("language", "JavaScript")},
+	)
+
+	output, err := assistant.Forward(
+		ctx,
+		client,
+		map[string]ax.Value{
+			"question": "A customer downgraded their plan today. When does it take effect, and can they get a refund for the current cycle?",
+			"handbook": handbook,
+		},
+		map[string]ax.Value{"runtime": axgoja.NewRuntime(), "max_actor_steps": 12},
+	)
+	if err != nil {
+		panic(err)
+	}
+	printJSON(output)
 }

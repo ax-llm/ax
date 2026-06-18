@@ -72,6 +72,11 @@ const __ax_builtin_reserved = [
   "console", "final", "askClarification", "discover", "recall", "used", "reportSuccess",
   "reportFailure", "guideAgent"
 ];
+// Persistence: top-level const/let/var declared this turn are block-scoped to the async
+// wrapper and would vanish next turn, but the RLM prompt promises a long-running REPL.
+// Extract the declared names so they can be assigned onto globalThis (which persists),
+// mirroring the TS runtime. Fail-open.
+function axPersistSuffix(src){try{var n=[],s={},re=/(?:^|[\n;{}])\s*(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,m;while((m=re.exec(src))){if(!s[m[1]]){s[m[1]]=1;n.push(m[1]);}}return n.map(function(x){return 'try{globalThis['+JSON.stringify(x)+']='+x+';}catch(__e){}';}).join('');}catch(__e){return '';}}
 function __ax_has_name(values, name) {
   if (!Array.isArray(values)) return false;
   for (let i = 0; i < values.length; i++) {
@@ -216,8 +221,8 @@ Value QuickJsCodeSession::execute(Value code, Value options) {
     JS_FreeValue(context_, global);
   }
   static const char kRunActor[] =
-      "(async function(){}).constructor('with (globalThis) {\\n' + (globalThis.__ax_code || '') + '\\n}')()"
-      ".then(function(){}, function(e){ globalThis.__ax_error = String((e && e.stack) ? e.stack : e); });";
+      "(async function(){}).constructor('with (globalThis) {\\n' + (globalThis.__ax_code || '') + '\\n' + axPersistSuffix(globalThis.__ax_code || '') + '\\n}')()"
+      ".then(function(){}, function(e){ globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); });";
   JSValue result = JS_Eval(context_, kRunActor, std::strlen(kRunActor), "<actor>", JS_EVAL_TYPE_GLOBAL);
   if (JS_IsException(result)) {
     JSValue exception = JS_GetException(context_);
@@ -343,6 +348,13 @@ QuickJsCodeRuntime& QuickJsCodeRuntime::register_callable(std::string name, Host
   if (!handler) throw AxError("runtime", "QuickJS host callable handler is required");
   host_callables_[std::move(name)] = std::move(handler);
   return *this;
+}
+
+// Implements the package-neutral AxCodeRuntime seam (used by the agent wrapper
+// to wire llmQuery); HostCallable is the same std::function<Value(Value)> type.
+void QuickJsCodeRuntime::register_host_callable(std::string name, std::function<Value(Value)> callable) {
+  if (!callable) return;
+  register_callable(std::move(name), std::move(callable));
 }
 
 AxCodeSession* QuickJsCodeRuntime::create_session(Value globals, Value options) {

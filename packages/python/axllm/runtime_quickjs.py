@@ -25,7 +25,7 @@ from .agent import AxCodeRuntime, AxCodeSession
 # names avoid a leading underscore so they read as JS, not python helpers.
 _PRELUDE = (
     "function axComplete(v){globalThis.__ax_completion=v;return v;}"
-    "function final(){return axComplete({type:'final',kind:'final',completion_payload:{args:Array.from(arguments)},args:Array.from(arguments)});}"
+    "function final(){return axComplete({type:'final',args:Array.from(arguments)});}"
     "function askClarification(){return axComplete({type:'askClarification',args:Array.from(arguments)});}"
     "function discover(r){return axComplete({kind:'discover',discover:r});}"
     "function recall(r){return axComplete({kind:'recall',recall:r});}"
@@ -34,11 +34,18 @@ _PRELUDE = (
     "function reportFailure(m){return axComplete({kind:'status',status:{type:'failed',message:String(m||'')}});}"
     "function guideAgent(g){return axComplete({type:'guide_agent',guidance:String(g||'')});}"
     "function axHc(name){return function(params){var r=JSON.parse(globalThis.__ax_host_call(name,JSON.stringify(params===undefined?null:params)));if(r.ok)return r.result;return{kind:'error',is_error:true,error_category:String(r.category||'runtime'),error:String(r.error||('host callable failed: '+name))};};}"
-    "function axSnap(){var o={};for(var k of Object.getOwnPropertyNames(globalThis)){if(k.indexOf('__ax_')===0)continue;var v=globalThis[k];if(typeof v==='function'||typeof v==='undefined')continue;try{JSON.stringify(v);o[k]=v;}catch(e){}}return JSON.stringify(o);}"
+    "function axSnap(){var R=globalThis.__ax_reserved||{};var o={};for(var k of Object.getOwnPropertyNames(globalThis)){if(k.indexOf('__ax_')===0)continue;if(R[k])continue;var v=globalThis[k];if(typeof v==='function'||typeof v==='undefined')continue;try{JSON.stringify(v);o[k]=v;}catch(e){}}return JSON.stringify(o);}"
     # console: the executor inspects intermediate values with console.log; capture each
     # turn's output into __ax_logs so the host can surface it back into the action log.
     "function axLog(){var a=Array.prototype.slice.call(arguments);globalThis.__ax_logs.push(a.map(function(x){return (typeof x==='string')?x:(function(){try{return JSON.stringify(x);}catch(e){return String(x);}})();}).join(' '));}"
     "globalThis.console={log:axLog,error:axLog,warn:axLog,info:axLog,debug:axLog};"
+    # Persistence suffix: the RLM prompt promises a long-running REPL where state
+    # persists across turns, but each turn runs in a fresh async wrapper so top-level
+    # const/let/var would vanish. Mirror the TS runtime: extract top-level declared
+    # names and assign them onto globalThis (the one scope that persists) after the
+    # turn's code. Fail-open (per-assignment try/catch) so nested/undeclared names are
+    # harmlessly skipped. See src/ax/funcs/worker.runtime.ts.
+    "function axPersistSuffix(src){try{var n=[],s={},re=/(?:^|[\\n;{}])\\s*(?:export\\s+)?(?:async\\s+)?(?:function|class|const|let|var)\\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,m;while((m=re.exec(src))){if(!s[m[1]]){s[m[1]]=1;n.push(m[1]);}}return n.map(function(x){return 'try{globalThis['+JSON.stringify(x)+']='+x+';}catch(__e){}';}).join('');}catch(__e){return '';}}"
 )
 
 
@@ -53,6 +60,12 @@ class AxQuickJsCodeSession(AxCodeSession):
             self.ctx.eval("globalThis[%s]=axHc(%s);" % (json.dumps(name), json.dumps(name)))
         for key, value in (globals_ or {}).items():
             self.ctx.eval("globalThis[%s]=JSON.parse(%s);" % (json.dumps(key), json.dumps(json.dumps(value))))
+        # Baseline of reserved globals: every name present before the agent runs any
+        # code (JS built-ins like Math/JSON/Reflect, the prelude helpers, host callables,
+        # and injected inputs). axSnap excludes these so the runtime-state summary shows
+        # only the model's own variables, not engine built-ins (which would otherwise
+        # crowd out real variables under the maxEntries cap).
+        self.ctx.eval("globalThis.__ax_reserved=Object.create(null);Object.getOwnPropertyNames(globalThis).forEach(function(k){globalThis.__ax_reserved[k]=1;});")
 
     def _host_call(self, name, params_json):
         handler = self.runtime.host_callables.get(name)
@@ -74,10 +87,14 @@ class AxQuickJsCodeSession(AxCodeSession):
             "globalThis.__ax_completion=undefined;globalThis.__ax_result=undefined;"
             "globalThis.__ax_error=undefined;globalThis.__ax_logs=[];"
         )
+        try:
+            persist_suffix = self.ctx.eval("axPersistSuffix(" + json.dumps(code) + ")") or ""
+        except Exception:
+            persist_suffix = ""
         wrapper = (
-            "(async()=>{\n" + code + "\n})().then("
+            "(async()=>{\n" + code + "\n" + persist_suffix + "\n})().then("
             "function(r){globalThis.__ax_result=r;},"
-            "function(e){globalThis.__ax_error=String((e&&e.stack)?e.stack:e);});"
+            "function(e){globalThis.__ax_error=String((e&&e.message)?((e.name?e.name+': ':'')+e.message+(e.stack?(' '+e.stack):'')):((e&&e.stack)?e.stack:e));});"
         )
         try:
             self.ctx.eval(wrapper)

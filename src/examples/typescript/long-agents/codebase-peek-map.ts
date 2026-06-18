@@ -154,7 +154,7 @@ const analyst = agent(
         console.log(`\n[context map updated]\n${updatedMap.text}`);
       },
     },
-    maxTurns: 12,
+    maxTurns: 24,
   }
 );
 

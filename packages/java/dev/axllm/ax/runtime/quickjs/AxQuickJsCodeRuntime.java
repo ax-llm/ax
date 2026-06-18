@@ -32,6 +32,14 @@ public final class AxQuickJsCodeRuntime implements AxCodeRuntime, AutoCloseable 
     return this;
   }
 
+  // Adapts the package-neutral AxCodeRuntime.HostCallable seam (used by the
+  // agent wrapper to wire llmQuery) onto this runtime's native callable type.
+  @Override
+  public void registerHostCallable(String name, AxCodeRuntime.HostCallable callable) {
+    if (callable == null) return;
+    registerCallable(name, callable::call);
+  }
+
   public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
     Map<String, Object> mergedOptions = new LinkedHashMap<>(options == null ? Map.of() : options);
     mergedOptions.put("runtimePolicy", mergePolicy(runtimePolicy, mergedOptions.get("runtimePolicy")));

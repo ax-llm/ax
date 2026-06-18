@@ -166,7 +166,12 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
   }
 
   private static final String QUICKJS_SOURCE = """
-function __ax_run(payloadJson) {
+// Persistence: top-level const/let/var declared this turn are block-scoped to the async
+// wrapper and would vanish next turn, but the RLM prompt promises a long-running REPL.
+// Extract the declared names so they can be assigned onto globalThis (which persists),
+// mirroring the TS runtime. Fail-open.
+function axPersistSuffix(src){try{var n=[],s={},re=/(?:^|[\\n;{}])\\s*(?:export\\s+)?(?:async\\s+)?(?:function|class|const|let|var)\\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,m;while((m=re.exec(src))){if(!s[m[1]]){s[m[1]]=1;n.push(m[1]);}}return n.map(function(x){return 'try{globalThis['+JSON.stringify(x)+']='+x+';}catch(__e){}';}).join('');}catch(__e){return '';}}
+async function __ax_run(payloadJson) {
   const payload = JSON.parse(payloadJson || "{}");
   const reserved = new Set([
     "Object", "Function", "Array", "Number", "parseFloat", "parseInt", "Infinity", "NaN",
@@ -236,9 +241,13 @@ function __ax_run(payloadJson) {
   let result;
   try {
     // RLM actor code uses top-level await (`await final(...)`), illegal in a plain Function
-    // body; compile it as an async function so await is legal. The synchronous host primitives
-    // that set __ax_completion run before the first await suspends, so it is captured here.
-    (async function(){}).constructor("with (globalThis) { " + (payload.code || "") + "\\n}")();
+    // body; compile it as an async function so await is legal, and await it so the whole body
+    // runs to completion. Without the await a synchronous `throw` becomes an unhandled rejected
+    // promise that the surrounding try/catch never sees, silently dropping error_category;
+    // awaiting surfaces both synchronous throws and post-await rejections as runtime errors
+    // here. quickjs4j resolves this guest function's returned promise before handing the result
+    // back to the host, mirroring the libquickjs/py-quickjs engines that drain the job queue.
+    await (async function(){}).constructor("with (globalThis) { " + (payload.code || "") + "\\n" + axPersistSuffix(payload.code || "") + "\\n}")();
     result = globalThis.__ax_completion;
   } catch (error) {
     return JSON.stringify({ok: false, category: "runtime", error: String((error && error.message) || error)});

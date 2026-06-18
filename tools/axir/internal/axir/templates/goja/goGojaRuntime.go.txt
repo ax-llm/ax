@@ -77,6 +77,16 @@ func (r *Runtime) RegisterCallable(name string, handler HostCallable) *Runtime {
 	return r
 }
 
+// RegisterHostCallable is a structural adapter for the agent wrapper, which
+// cannot import this package (import cycle: goja imports axllm). The parameter
+// is the literal func type func(ax.Value)(ax.Value,error) — identical to
+// axllm's func(Value)(Value,error) since both Value aliases resolve to any — so
+// the wrapper can register the built-in llmQuery primitive through a
+// duck-typed interface without naming *goja.Runtime.
+func (r *Runtime) RegisterHostCallable(name string, handler func(ax.Value) (ax.Value, error)) {
+	r.RegisterCallable(name, HostCallable(handler))
+}
+
 func (r *Runtime) Language() string { return "JavaScript" }
 
 func (r *Runtime) UsageInstructions() string {
@@ -137,7 +147,12 @@ func (r *Runtime) CreateSession(globals map[string]ax.Value, options map[string]
 		_ = session.vm.Set(key, session.toJSONValue(safe))
 	}
 	for name := range hostCallables {
-		if session.reserved[name] {
+		// Reject only names the runtime itself installs (JS built-ins and
+		// bootstrap primitives like final). Agent-declared reserved names such
+		// as llmQuery are meant to be host-provided, so a host callable
+		// claiming one is the provisioning mechanism, not a conflict — matching
+		// the Python reference runtime.
+		if isBuiltInReservedName(name) {
 			return nil, ax.AxError{Category: "runtime", Message: "goja host callable conflicts with reserved runtime name: " + name}
 		}
 		session.reserved[name] = true
@@ -161,20 +176,40 @@ func (s *Session) Execute(code string, options map[string]ax.Value) ax.Value {
 			s.vm.Interrupt("goja execution timed out")
 		})
 	}
-	body, marshalErr := json.Marshal("with (globalThis) {\n" + code + "\n}")
+	// Persistence: top-level const/let/var declared this turn are block-scoped to the
+	// async wrapper and would vanish next turn, but the RLM prompt promises a long-running
+	// REPL where state persists. Extract the declared names and assign them onto globalThis
+	// (the scope that survives), mirroring the TS runtime. Fail-open. (with(globalThis)
+	// already persists bare assignments; this covers declarations.)
+	persistSuffix := ""
+	if codeJSON, mErr := json.Marshal(code); mErr == nil {
+		if sv, sErr := s.vm.RunString("(function(src){try{var n=[],s={},re=/(?:^|[\\n;{}])\\s*(?:export\\s+)?(?:async\\s+)?(?:function|class|const|let|var)\\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,m;while((m=re.exec(src))){if(!s[m[1]]){s[m[1]]=1;n.push(m[1]);}}return n.map(function(x){return 'try{globalThis['+JSON.stringify(x)+']='+x+';}catch(__e){}';}).join('');}catch(__e){return '';}})(" + string(codeJSON) + ")"); sErr == nil && sv != nil && !gojavm.IsUndefined(sv) && !gojavm.IsNull(sv) {
+			persistSuffix = sv.String()
+		}
+	}
+	body, marshalErr := json.Marshal("with (globalThis) {\n" + code + "\n" + persistSuffix + "\n}")
 	if marshalErr != nil {
 		return runtimeError("goja actor code is not executable", "runtime")
 	}
 	// The RLM prompt has the model write `await final(...)` / `await llmQuery(...)`, so actor
 	// code uses top-level await — illegal in a plain Function body. Compile it as an async
-	// function (AsyncFunction constructor) instead; the synchronous host primitives that set
-	// the completion run before the first await suspends, so the completion is captured.
-	_, err := s.vm.RunString("(async function(){}).constructor(" + string(body) + ")();")
+	// function (AsyncFunction constructor) instead. A synchronous `throw` inside an async
+	// function becomes a *rejected promise*, so attach a rejection handler that records
+	// __ax_error; goja drains the promise job queue when RunString returns, so the handler runs
+	// before we read the result. Without it the throw's error_category would be silently lost.
+	// The synchronous host primitives that set the completion run before the first await
+	// suspends, so the completion is captured too.
+	_, err := s.vm.RunString("globalThis.__ax_error = undefined; (async function(){}).constructor(" + string(body) + ")().then(function(){}, function(e){ globalThis.__ax_error = String((e && e.stack) ? e.stack : e); });")
 	if timer != nil && !timer.Stop() {
 		s.vm.ClearInterrupt()
 	}
+	// A timeout surfaces here as an uncatchable interrupt error (the `while (true) {}` path);
+	// keep that check ahead of the rejection so it stays categorized as a timeout.
 	if err != nil {
 		return runtimeError(err.Error(), errorCategory(err))
+	}
+	if actorError := s.vm.Get("__ax_error"); actorError != nil && !gojavm.IsUndefined(actorError) && !gojavm.IsNull(actorError) {
+		return runtimeError(fmt.Sprint(actorError.Export()), "runtime")
 	}
 	s.restoreReservedGlobals()
 	s.installBuiltins()

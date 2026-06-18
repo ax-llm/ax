@@ -40,7 +40,7 @@ try:
     )
     forward_client = ScriptedClient(
         [
-            {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"},
+            {"content": "{\"pythonCode\":\"final('Run actor', {})\"}"},
             {"content": "{\"pythonCode\":\"counter = 41\\ndiscover({'tools': ['search']})\"}"},
             {"content": "{\"pythonCode\":\"recall('prefs')\"}"},
             {
@@ -70,7 +70,7 @@ try:
     guide_agent = agent("question:string -> answer:string", {"runtime": {"language": "Python"}})
     guide_client = ScriptedClient(
         [
-            {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide\",{}]}}"},
+            {"content": "{\"pythonCode\":\"final('Guide', {})\"}"},
             {"content": "{\"pythonCode\":\"guideAgent('Prefer concise final.')\"}"},
             {"content": "{\"pythonCode\":\"final('Answer', {'answer': 'Concise'})\"}"},
             {"content": "{\"answer\":\"Concise\"}"},
@@ -88,7 +88,7 @@ try:
     clarification_agent = agent("question:string -> answer:string", {"runtime": {"language": "Python"}})
     clarification_client = ScriptedClient(
         [
-            {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Ask\",{}]}}"},
+            {"content": "{\"pythonCode\":\"final('Ask', {})\"}"},
             {"content": "{\"pythonCode\":\"askClarification('Need detail?')\"}"},
         ]
     )

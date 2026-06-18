@@ -387,19 +387,19 @@ struct Core {
   static Value _render_demos(Value gen);
   static Value _apply_field_processors(Value gen, Value output);
   static Value _serialize_optimized_artifact(Value artifact);
-  static Value _run_assertions(Value gen, Value output);
   static Value _deserialize_optimized_artifact(Value text, Value components);
-  static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
+  static Value _run_assertions(Value gen, Value output);
   static Value _optimization_changed_components(Value components, Value component_map);
+  static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
   static Value _record_trace(Value gen, Value input, Value output, Value status);
-  static Value _should_continue_steps(Value gen, Value calls);
   static Value _optimization_component_current_map(Value components);
-  static Value _complete_with_retries_impl(Value client, Value request, Value retries);
+  static Value _should_continue_steps(Value gen, Value calls);
   static Value _normalize_optimization_dataset(Value dataset);
+  static Value _complete_with_retries_impl(Value client, Value request, Value retries);
   static Value _normalize_optimization_metric_scores(Value raw);
   static Value _parse_output_impl(Value content);
-  static Value _tool_spec_impl(Value fn);
   static Value _scalarize_optimization_scores(Value scores, Value options);
+  static Value _tool_spec_impl(Value fn);
   static Value _function_call_mode_impl(Value mode);
   static Value _optimization_action_name_matches(Value expected, Value call);
   static Value _response_function_calls_impl(Value response);
@@ -531,6 +531,7 @@ struct Core {
   static Value _agent_runtime_execute_step(Value state, Value runtime, Value session, Value code, Value options);
   static Value _agent_runtime_inspect_state(Value state, Value session, Value options);
   static Value _agent_runtime_export_session_state(Value state, Value session, Value options);
+  static Value _agent_runtime_refresh_state_summary(Value state, Value session, Value options);
   static Value _agent_runtime_restore_session_state(Value state, Value session, Value snapshot, Value options);
   static Value _agent_runtime_close_session(Value state, Value session);
   static Value _agent_runtime_test(Value state, Value runtime, Value code, Value values, Value options);
@@ -538,6 +539,8 @@ struct Core {
   static Value _build_distiller_inputs(Value state, Value values);
   static Value _build_executor_inputs(Value state, Value values, Value distiller_payload);
   static Value _build_responder_inputs(Value state, Value values, Value executor_payload);
+  static Value _agent_render_field_token(Value field);
+  static Value _build_responder_signature(Value sig, Value context_fields);
   static Value _normalize_agent_completion_payload(Value output);
   static Value _throw_agent_clarification(Value payload, Value state);
   static Value _merge_agent_chat_log(Value state, Value distiller, Value executor, Value responder);
@@ -559,6 +562,8 @@ struct Core {
   static Value _agent_evolve_context_map(Value state, Value client, Value options);
   static Value _agent_transcribe_one_audio(Value client, Value audio, Value transcribe_opts, Value options);
   static Value _agent_transcribe_audio_inputs(Value state, Value client, Value values, Value options);
+  static Value _agent_run_llm_query_one(Value sub_gen, Value client, Value item);
+  static Value _agent_run_llm_query(Value sub_gen, Value client, Value params);
   static Value _agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
@@ -1014,6 +1019,10 @@ class AxCodeRuntime {
   virtual std::string language() const { return "JavaScript"; }
   virtual std::string usage_instructions() const { return ""; }
   virtual AxCodeSession* create_session(Value globals, Value options = Value::object()) = 0;
+  // Register a host callable under `name`. Default no-op so runtimes that do
+  // not host callables are unaffected; the embedded JS engines override it so
+  // the agent wrapper can wire the built-in `llmQuery` primitive.
+  virtual void register_host_callable(std::string /*name*/, std::function<Value(Value)> /*callable*/) {}
 };
 
 struct RuntimeCapabilities {
@@ -1164,6 +1173,7 @@ class AxAgent : public AxProgram {
   std::unique_ptr<AxGen> distiller_;
   std::unique_ptr<AxGen> executor_;
   std::unique_ptr<AxGen> responder_;
+  std::unique_ptr<AxGen> llm_query_;
 };
 
 std::string stringify(const Value& value);

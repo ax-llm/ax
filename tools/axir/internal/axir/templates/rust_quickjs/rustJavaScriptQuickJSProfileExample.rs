@@ -52,7 +52,8 @@ fn main() -> AxResult<()> {
     assert_eq!(session.execute("guideAgent('try this')", json!({}))?.payload["type"], "guide_agent");
     assert_eq!(session.execute("final(search({query: inputs.question}))", json!({}))?.payload["args"][0]["answer"], "result for host");
     assert_eq!(session.execute("final(marker())", json!({}))?.payload["args"][0]["ok"], true);
-    assert_eq!(session.execute("badTool({})", json!({}))?.payload["error_category"], "runtime");
+    let failed = session.execute("final({error: badTool({}).error})", json!({}))?;
+    assert_eq!(failed.payload["args"][0]["error"], "bad tool failed");
     assert_eq!(session.execute("throw new Error('boom')", json!({}))?.payload["error_category"], "runtime");
     assert_eq!(session.execute("while (true) {}", json!({"timeoutMs": 1}))?.payload["error_category"], "timeout");
     session.patch_globals(json!({"bindings": {"final": "blocked", "answer": "patched"}}), json!({}))?;

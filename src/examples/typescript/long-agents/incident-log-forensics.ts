@@ -134,7 +134,7 @@ const logRLM = agent(
       preset: 'lean',
       budget: 'balanced',
     },
-    maxTurns: 24,
+    maxTurns: 40,
     // Cap how much runtime output is echoed back into the action log per turn.
     maxRuntimeChars: 12_000,
     // Watch the actor work through the export.

@@ -17,7 +17,7 @@
     "answer": "AxIR is portable"
   },
   "expected_request_contains": [
-    "Large document",
+    "inputs.document",
     "Distilled Context",
     "AxIR is portable"
   ],
@@ -29,9 +29,7 @@
   "kind": "agent_forward",
   "name": "context-routing",
   "options": {
-    "contextFields": [
-      "document"
-    ]
+    "contextFields": ["document"]
   },
   "responses": [
     {

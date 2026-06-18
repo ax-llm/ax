@@ -634,6 +634,10 @@ class AxCodeRuntime {
   virtual std::string language() const { return "JavaScript"; }
   virtual std::string usage_instructions() const { return ""; }
   virtual AxCodeSession* create_session(Value globals, Value options = Value::object()) = 0;
+  // Register a host callable under `name`. Default no-op so runtimes that do
+  // not host callables are unaffected; the embedded JS engines override it so
+  // the agent wrapper can wire the built-in `llmQuery` primitive.
+  virtual void register_host_callable(std::string /*name*/, std::function<Value(Value)> /*callable*/) {}
 };
 
 struct RuntimeCapabilities {
@@ -784,6 +788,7 @@ class AxAgent : public AxProgram {
   std::unique_ptr<AxGen> distiller_;
   std::unique_ptr<AxGen> executor_;
   std::unique_ptr<AxGen> responder_;
+  std::unique_ptr<AxGen> llm_query_;
 };
 
 std::string stringify(const Value& value);

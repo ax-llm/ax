@@ -1,14 +1,14 @@
 // ax-example:start
-// title: Java Tool-Guided Agent
+// title: Java Incident Triage Agent
 // group: short-agents
-// description: Uses provider reasoning plus local context to shape a concise agent answer.
+// description: Triages a noisy incident report held in contextFields, using a lean contextPolicy to keep the raw log out of the prompt while it reasons.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: intermediate
 // order: 20
 // ax-example:end
 import dev.axllm.ax.*;
-import java.nio.file.*;
+import dev.axllm.ax.runtime.quickjs.*;
 import java.util.*;
 
 public final class ToolsAgentExample {
@@ -22,37 +22,47 @@ public final class ToolsAgentExample {
   }
 
   static OpenAICompatibleClient client() {
-    return new OpenAICompatibleClient(
-        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini"), "model_config", Map.of("temperature", 0.0)));
+    return new OpenAICompatibleClient(Map.of(
+        "api_key", apiKey(),
+        "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4o-mini"),
+        "model_config", Map.of("temperature", 0.0)));
   }
 
-  static final class OpenAIBackedAgentClient implements AiClient {
-    final OpenAICompatibleClient inner;
-    String rawModelAnswer;
-    int calls;
-
-    OpenAIBackedAgentClient(OpenAICompatibleClient inner) { this.inner = inner; }
-
-    public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> options) throws Exception {
-      calls += 1;
-      if (rawModelAnswer == null) {
-        Map<String, Object> response = inner.chat(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "Use local context to choose between generation, agents, and flows."))));
-        rawModelAnswer = String.valueOf(((Map<?, ?>) ((List<?>) response.get("results")).get(0)).get("content"));
-      }
-      Map<String, Object> payload = Map.of("answer", rawModelAnswer);
-      if (calls == 1) payload = Map.of("completion", Map.of("type", "final", "args", List.of("Answer", Map.of())));
-      if (calls == 2) payload = Map.of("completion", Map.of("type", "final", "args", List.of("Answer", Map.of("answer", rawModelAnswer, "usedContext", true, "plan", List.of("Declare a signature", "Run an agent", "Optimize with examples")))));
-      return Map.of("results", List.of(Map.of("content", Json.stringify(payload), "function_calls", List.of())));
-    }
-
-    public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> options) { return Map.of("embeddings", List.of()); }
-    public Iterable<Map<String, Object>> stream(Map<String, Object> request, Map<String, Object> options) { return List.of(); }
-  }
+  // A raw, noisy incident report. It lives in `contextFields`, so the agent works
+  // it inside the runtime; `contextPolicy: lean` keeps the prompt compact by
+  // preferring live runtime state and summaries over replaying the raw text.
+  static final String REPORT = String.join("\n",
+      "[2026-03-02 14:01:22Z] INFO  gateway       deploy svc-checkout-edge v812 -> prod (channel: canary 10%)",
+      "[2026-03-02 14:03:10Z] WARN  checkout-api  p95 latency 1180ms (baseline 240ms) region=eu-west-1",
+      "[2026-03-02 14:04:55Z] ERROR checkout-api  502 from svc-payments-gw: upstream timeout (10s) tenant_tier=enterprise",
+      "[2026-03-02 14:05:01Z] ERROR checkout-api  502 from svc-payments-gw: upstream timeout (10s) tenant_tier=enterprise",
+      "[2026-03-02 14:05:40Z] WARN  payments-gw   circuit half-open, 3 retries exhausted for order=ord_99214",
+      "[2026-03-02 14:06:12Z] INFO  gateway       canary widened 10% -> 50% for svc-checkout-edge v812",
+      "[2026-03-02 14:07:33Z] ERROR checkout-api  502 from svc-payments-gw: upstream timeout (10s) tenant_tier=enterprise",
+      "[2026-03-02 14:08:02Z] ERROR checkout-api  user-visible: \"Payment could not be processed\" shown to 1,284 sessions",
+      "[2026-03-02 14:09:48Z] WARN  payments-gw   connection pool exhausted (max=64) waiting=210",
+      "[2026-03-02 14:11:20Z] INFO  on-call       paged: SEV-2 opened (eu-west-1 checkout error rate 38%)",
+      "[2026-03-02 14:14:05Z] INFO  gateway       rollback svc-checkout-edge v812 -> v811 (channel: prod 100%)",
+      "[2026-03-02 14:17:41Z] INFO  checkout-api  p95 latency 260ms, error rate 0.4% region=eu-west-1",
+      "[2026-03-02 14:19:10Z] INFO  on-call       SEV-2 mitigated, monitoring for 30m");
 
   public static void main(String[] args) throws Exception {
-    OpenAIBackedAgentClient stageClient = new OpenAIBackedAgentClient(client());
-    AxAgent assistant = Ax.agent("question:string -> answer:string, usedContext:boolean", Map.of("contextFields", List.of()));
-    Map<String, Object> output = assistant.forward(stageClient, Map.of("question", "Use local context to choose between generation, agents, and flows."));
-    System.out.println(Json.stringify(Map.of("agentOutput", output, "rawModelAnswer", stageClient.rawModelAnswer)));
+    AxAgent triage = Ax.agent(
+        "report:string, question:string -> severity:class \"low, medium, high, critical\", rootCause:string, nextSteps:string[], evidence:string[] \"Quoted log lines that support the assessment\"",
+        Map.of(
+            "contextFields", List.of("report"),
+            "contextPolicy", Map.of("preset", "lean", "budget", "balanced"),
+            "runtime", Map.of("language", "JavaScript")));
+
+    try (AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime()) {
+      Map<String, Object> result = triage.forward(
+          client(),
+          Map.of(
+              "report", REPORT,
+              "question", "What happened, how bad was it, and what should the on-call do next? Cite the lines you relied on."),
+          Map.of("runtime", runtime, "max_actor_steps", 12));
+
+      System.out.println(Json.pretty(result));
+    }
   }
 }
