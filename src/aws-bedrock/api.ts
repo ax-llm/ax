@@ -406,7 +406,7 @@ class AxAIBedrockImpl
 
     const embedRequest: BedrockTitanEmbedRequest = {
       inputText: req.texts[0], // Take first text
-      dimensions: 512,
+      dimensions: this.config.dimensions,
       normalize: true,
     };
 

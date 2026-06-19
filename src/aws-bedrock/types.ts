@@ -26,6 +26,7 @@ export enum AxAIBedrockEmbedModel {
 export interface AxAIBedrockConfig extends AxModelConfig {
   model: AxAIBedrockModel;
   embedModel?: AxAIBedrockEmbedModel;
+  dimensions?: number;
   region?: string;
   fallbackRegions?: string[];
   gptRegion?: string;
