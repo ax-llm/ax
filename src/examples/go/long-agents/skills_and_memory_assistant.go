@@ -72,6 +72,70 @@ func main() {
 		ax.Object("id", "runbook-status-comms", "name", "Status communications runbook", "content", "## Status comms\n- Sev-1: status-page update within 15m, every 30m thereafter.\n- Enterprise impact: notify named TAMs directly.\n- Keep updates factual; no ETAs you cannot keep."),
 	)
 
+	// Dynamic host-side search: the actor's recall()/discover() queries arrive here and
+	// we substring-match them against the stores (a BM25 / vector index in production).
+	// This is the native onMemoriesSearch / onSkillsSearch callback path -- it receives
+	// the actor's actual search terms, unlike static preloaded results.
+	// Token-based matching (a stand-in for BM25/vector): an entry matches if any word of
+	// any search query (len >= 3) appears in it -- robust to phrase queries from the actor.
+	tokenize := func(q ax.Value) []string {
+		var toks []string
+		for _, t := range strings.FieldsFunc(strings.ToLower(fmt.Sprint(q)), func(r rune) bool {
+			return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+		}) {
+			if len(t) >= 3 {
+				toks = append(toks, t)
+			}
+		}
+		return toks
+	}
+	memoriesSearch := ax.AxMemoriesSearchFn(func(searches []ax.Value, alreadyLoaded []ax.Value) []ax.Value {
+		loaded := map[string]bool{}
+		for _, m := range alreadyLoaded {
+			if mm, ok := m.(map[string]ax.Value); ok {
+				loaded[fmt.Sprint(mm["id"])] = true
+			}
+		}
+		seen := map[string]bool{}
+		out := []ax.Value{}
+		for _, q := range searches {
+			for _, tok := range tokenize(q) {
+				for _, m := range memories {
+					mm, _ := m.(map[string]ax.Value)
+					id := fmt.Sprint(mm["id"])
+					if loaded[id] || seen[id] {
+						continue
+					}
+					if strings.Contains(strings.ToLower(id+" "+fmt.Sprint(mm["content"])), tok) {
+						out = append(out, m)
+						seen[id] = true
+					}
+				}
+			}
+		}
+		return out
+	})
+	skillsSearch := ax.AxSkillsSearchFn(func(searches []ax.Value) []ax.Value {
+		seen := map[string]bool{}
+		out := []ax.Value{}
+		for _, q := range searches {
+			for _, tok := range tokenize(q) {
+				for _, s := range skills {
+					ss, _ := s.(map[string]ax.Value)
+					id := fmt.Sprint(ss["id"])
+					if seen[id] {
+						continue
+					}
+					if strings.Contains(strings.ToLower(fmt.Sprint(ss["id"])+" "+fmt.Sprint(ss["name"])+" "+fmt.Sprint(ss["content"])), tok) {
+						out = append(out, s)
+						seen[id] = true
+					}
+				}
+			}
+		}
+		return out
+	})
+
 	assistant := ax.NewAgent(
 		`situation:string -> guidance:string "What to do, grounded in our decisions and runbooks", steps:string[]`,
 		map[string]ax.Value{
@@ -80,16 +144,11 @@ func main() {
 			"skills": ax.Array(
 				ax.Object("name", "house-style", "content", "Be concise and operational. Prefer our remembered decisions over generic advice. Never invent flag names or steps -- cite the runbook."),
 			),
-			// Turn on the memory + skill subsystems so the actor gets the recall()
-			// and discover() primitives. (In TS/Python an onMemoriesSearch /
-			// onSkillsSearch callback auto-enables these; here we feed the host
-			// search results directly, so we enable the modes explicitly.)
-			"memoriesMode": true,
-			"skillsMode":   true,
-			// Host-side memory + skill search. Any recall/discover the actor issues
-			// surfaces the matching store entries (here keyed by "*" -> all entries).
-			"memorySearchResults": ax.Object("*", memories),
-			"skillSearchResults":  ax.Object("*", skills),
+			// Native host search callbacks -- the actor's recall()/discover() reach these.
+			// Their presence auto-enables the memory + skill subsystems (so the actor's
+			// prompt advertises recall()/discover()), mirroring the TS/Python API.
+			"onMemoriesSearch": memoriesSearch,
+			"onSkillsSearch":   skillsSearch,
 			"executorOptions": ax.Object("description", strings.Join([]string{
 				"You do NOT know our internal flag names, incident history, or runbook steps from your own training.",
 				"The only source of truth is our memory (past decisions/postmortems) and our runbook skills.",

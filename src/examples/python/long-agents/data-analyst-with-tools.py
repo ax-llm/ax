@@ -171,7 +171,7 @@ result = analyst.forward(
         "schema": schema,
         "question": "Which region+product had the strongest Jan->Dec revenue growth, and which products have an average return rate above the 5% review threshold?",
     },
-    {"runtime": runtime, "max_actor_steps": 16},
+    {"runtime": runtime, "max_actor_steps": 40},
 )
 
 print(json.dumps(result, indent=2, sort_keys=True))

@@ -211,7 +211,7 @@ const analyst = agent(
       preset: 'lean',
       budget: 'balanced',
     },
-    maxTurns: 16,
+    maxTurns: 40,
     executorOptions: {
       description: [
         'Consult the schema for column meaning and business rules.',

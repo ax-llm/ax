@@ -225,7 +225,7 @@ int main() {
           {"schema", schema},
           {"question", "Which region+product had the strongest Jan->Dec revenue growth, and which products have an average return rate above the 5% review threshold?"},
       }),
-      axllm::object({{"runtime", axllm::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 16}}));
+      axllm::object({{"runtime", axllm::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 40}}));
 
   std::cout << axllm::stringify(result) << "\n";
 }

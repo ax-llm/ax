@@ -8,7 +8,7 @@
 // order: 50
 // ax-example:end
 use axllm::runtime::quickjs::QuickJsCodeRuntime;
-use axllm::{agent_with_options, AxResult, OpenAICompatibleClient};
+use axllm::{agent_with_search_callbacks, AxResult, OpenAICompatibleClient};
 use serde_json::json;
 use std::env;
 
@@ -28,47 +28,78 @@ fn main() -> AxResult<()> {
     let mut client = openai_client()?;
 
     // -----------------------------------------------------------------------
-    // Memory store -- remembered decisions and postmortems. In production this
-    // is a vector DB / BM25 index; here a tiny set returned to every recall().
-    // The actor pulls these entries into scope via `await recall([...])`; the
-    // "*" key serves them for any search query.
+    // Memory + skill stores. In production these are a vector DB / BM25 index;
+    // here small in-memory sets. The native onMemoriesSearch / onSkillsSearch
+    // callbacks below receive the actor's recall()/discover() queries.
     // -----------------------------------------------------------------------
-    let memory_results = json!({
-        "*": [
-            {
-                "id": "decision/db-failover",
-                "content": "Decision (2026-02): during a primary DB failover, freeze writes via the feature flag `writes.enabled=false` BEFORE promoting the replica. Promoting first caused split-brain in inc-118.",
-            },
-            {
-                "id": "postmortem/inc-118",
-                "content": "inc-118 root cause: replica promoted while primary still accepted writes. Mitigation: write-freeze flag + 90s replication-lag gate.",
-            },
-            {
-                "id": "decision/customer-comms",
-                "content": "Decision: for Sev-1s affecting enterprise tenants, post a status-page update within 15 minutes and notify named TAMs directly.",
-            },
-        ]
-    });
+    let memories = vec![
+        json!({"id": "decision/db-failover", "content": "Decision (2026-02): during a primary DB failover, freeze writes via the feature flag `writes.enabled=false` BEFORE promoting the replica. Promoting first caused split-brain in inc-118."}),
+        json!({"id": "postmortem/inc-118", "content": "inc-118 root cause: replica promoted while primary still accepted writes. Mitigation: write-freeze flag + 90s replication-lag gate."}),
+        json!({"id": "decision/customer-comms", "content": "Decision: for Sev-1s affecting enterprise tenants, post a status-page update within 15 minutes and notify named TAMs directly."}),
+    ];
+    let skills = vec![
+        json!({"id": "runbook-db-failover", "name": "DB failover runbook", "content": "## DB failover\n1. Set `writes.enabled=false`.\n2. Wait for replication lag < 5s.\n3. Promote replica.\n4. Re-point app via service discovery.\n5. Re-enable writes. 6. File postmortem within 48h."}),
+        json!({"id": "runbook-status-comms", "name": "Status communications runbook", "content": "## Status comms\n- Sev-1: status-page update within 15m, every 30m thereafter.\n- Enterprise impact: notify named TAMs directly.\n- Keep updates factual; no ETAs you cannot keep."}),
+    ];
 
-    // -----------------------------------------------------------------------
-    // Skill store -- runbooks loaded into the executor prompt on demand via
-    // `await discover({ skills: [...] })`. Loaded skills persist across calls;
-    // the "*" key serves them for any discover query.
-    // -----------------------------------------------------------------------
-    let skill_results = json!({
-        "*": [
-            {
-                "id": "runbook-db-failover",
-                "name": "DB failover runbook",
-                "content": "## DB failover\n1. Set `writes.enabled=false`.\n2. Wait for replication lag < 5s.\n3. Promote replica.\n4. Re-point app via service discovery.\n5. Re-enable writes. 6. File postmortem within 48h.",
-            },
-            {
-                "id": "runbook-status-comms",
-                "name": "Status communications runbook",
-                "content": "## Status comms\n- Sev-1: status-page update within 15m, every 30m thereafter.\n- Enterprise impact: notify named TAMs directly.\n- Keep updates factual; no ETAs you cannot keep.",
-            },
-        ]
-    });
+    // Token-based matching (a stand-in for BM25/vector): an entry matches if any
+    // word (len >= 3) of any search query appears in it -- robust to phrase queries.
+    let memories_search = move |searches: serde_json::Value, already_loaded: serde_json::Value| -> serde_json::Value {
+        let loaded: std::collections::HashSet<String> = already_loaded
+            .as_array()
+            .map(|a| a.iter().filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from)).collect())
+            .unwrap_or_default();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut out: Vec<serde_json::Value> = vec![];
+        if let Some(qs) = searches.as_array() {
+            for q in qs {
+                let qstr = q.as_str().unwrap_or("").to_lowercase();
+                for tok in qstr.split(|c: char| !c.is_alphanumeric()).filter(|t| t.len() >= 3) {
+                    for m in &memories {
+                        let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        if loaded.contains(id) || seen.contains(id) {
+                            continue;
+                        }
+                        let hay = format!("{} {}", id, m.get("content").and_then(|v| v.as_str()).unwrap_or("")).to_lowercase();
+                        if hay.contains(tok) {
+                            out.push(m.clone());
+                            seen.insert(id.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(out)
+    };
+    let skills_search = move |searches: serde_json::Value| -> serde_json::Value {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut out: Vec<serde_json::Value> = vec![];
+        if let Some(qs) = searches.as_array() {
+            for q in qs {
+                let qstr = q.as_str().unwrap_or("").to_lowercase();
+                for tok in qstr.split(|c: char| !c.is_alphanumeric()).filter(|t| t.len() >= 3) {
+                    for sk in &skills {
+                        let id = sk.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        if seen.contains(id) {
+                            continue;
+                        }
+                        let hay = format!(
+                            "{} {} {}",
+                            id,
+                            sk.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+                            sk.get("content").and_then(|v| v.as_str()).unwrap_or("")
+                        )
+                        .to_lowercase();
+                        if hay.contains(tok) {
+                            out.push(sk.clone());
+                            seen.insert(id.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(out)
+    };
 
     let executor_description = [
         "You do NOT know our internal flag names, incident history, or runbook steps from your own training.",
@@ -80,8 +111,10 @@ fn main() -> AxResult<()> {
     ]
     .join("\n");
 
-    // `with_runtime` attaches the embedded JS engine so the agent loop can run.
-    let mut assistant = agent_with_options(
+    // Native host search callbacks -- the actor's recall()/discover() reach these,
+    // which also auto-enables the memory + skill subsystems. `with_runtime` attaches
+    // the embedded JS engine so the agent loop can run.
+    let mut assistant = agent_with_search_callbacks(
         "situation:string -> guidance:string \"What to do, grounded in our decisions and runbooks\", steps:string[]",
         json!({
             "contextFields": [],
@@ -92,17 +125,11 @@ fn main() -> AxResult<()> {
                     "content": "Be concise and operational. Prefer our remembered decisions over generic advice. Never invent flag names or steps -- cite the runbook.",
                 }
             ],
-            // Turn on the memories + skills subsystems so the actor's recall()
-            // and discover() builtins are live.
-            "memoriesMode": true,
-            "skillsMode": true,
-            // The host memory/skill backends: recall() and discover() resolve
-            // against these results (the "*" key answers any search).
-            "memorySearchResults": memory_results,
-            "skillSearchResults": skill_results,
             "executorOptions": {"description": executor_description},
             "runtime": {"language": "JavaScript"},
         }),
+        memories_search,
+        skills_search,
     )?
     .with_runtime(Box::new(QuickJsCodeRuntime::new()))?;
 

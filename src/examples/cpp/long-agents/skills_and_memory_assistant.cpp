@@ -67,6 +67,46 @@ int main() {
       }),
   });
 
+  // Token-based matching (a stand-in for BM25/vector): an entry matches if any word of any
+  // search query (len >= 3) appears in it -- robust to phrase queries from the actor. These
+  // native callbacks receive the actor's actual recall()/discover() queries.
+  auto memories_search = [memories](axllm::Value searches, axllm::Value already_loaded) -> axllm::Value {
+    axllm::Value out = axllm::array({});
+    for (const auto& q : axllm::Core::iter(searches)) {
+      for (const auto& w : axllm::Core::iter(axllm::Core::string_words(axllm::Core::string_lower(q)))) {
+        if (!axllm::Core::truthy(axllm::Core::gte(axllm::Core::len(w), axllm::Value(3)))) continue;
+        for (const auto& m : axllm::Core::iter(memories)) {
+          if (axllm::Core::truthy(axllm::Core::contains(already_loaded, m))) continue;
+          if (axllm::Core::truthy(axllm::Core::contains(out, m))) continue;
+          axllm::Value id = axllm::Core::string_lower(axllm::Core::get(m, "id", axllm::Value("")));
+          axllm::Value content = axllm::Core::string_lower(axllm::Core::get(m, "content", axllm::Value("")));
+          if (axllm::Core::truthy(axllm::Core::contains(id, w)) || axllm::Core::truthy(axllm::Core::contains(content, w))) {
+            axllm::Core::append(out, m);
+          }
+        }
+      }
+    }
+    return out;
+  };
+  auto skills_search = [skills](axllm::Value searches) -> axllm::Value {
+    axllm::Value out = axllm::array({});
+    for (const auto& q : axllm::Core::iter(searches)) {
+      for (const auto& w : axllm::Core::iter(axllm::Core::string_words(axllm::Core::string_lower(q)))) {
+        if (!axllm::Core::truthy(axllm::Core::gte(axllm::Core::len(w), axllm::Value(3)))) continue;
+        for (const auto& sk : axllm::Core::iter(skills)) {
+          if (axllm::Core::truthy(axllm::Core::contains(out, sk))) continue;
+          axllm::Value id = axllm::Core::string_lower(axllm::Core::get(sk, "id", axllm::Value("")));
+          axllm::Value name = axllm::Core::string_lower(axllm::Core::get(sk, "name", axllm::Value("")));
+          axllm::Value content = axllm::Core::string_lower(axllm::Core::get(sk, "content", axllm::Value("")));
+          if (axllm::Core::truthy(axllm::Core::contains(id, w)) || axllm::Core::truthy(axllm::Core::contains(name, w)) || axllm::Core::truthy(axllm::Core::contains(content, w))) {
+            axllm::Core::append(out, sk);
+          }
+        }
+      }
+    }
+    return out;
+  };
+
   auto assistant = axllm::agent(
       "situation:string -> guidance:string \"What to do, grounded in our decisions and runbooks\", steps:string[]",
       axllm::object({
@@ -78,13 +118,10 @@ int main() {
                   {"content", "Be concise and operational. Prefer our remembered decisions over generic advice. Never invent flag names or steps -- cite the runbook."},
               }),
           })},
-          // The memory + skill subsystems. The host serves search results; any
-          // recall/discover query returns the relevant store entries (the `*` key
-          // is the catch-all the actor's searches resolve against).
-          {"memoriesMode", true},
-          {"skillsMode", true},
-          {"memory_search_results", axllm::object({{"*", memories}})},
-          {"skill_search_results", axllm::object({{"*", skills}})},
+          // Native host search callbacks -- the actor's recall()/discover() reach these
+          // (their presence auto-enables the memory + skill subsystems).
+          {"onMemoriesSearch", axllm::register_memories_search(memories_search)},
+          {"onSkillsSearch", axllm::register_skills_search(skills_search)},
           {"executorOptions", axllm::object({
               {"description",
                std::string("You do NOT know our internal flag names, incident history, or runbook steps from your own training.\n") +

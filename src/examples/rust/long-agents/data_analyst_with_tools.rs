@@ -252,7 +252,7 @@ TOOLS AVAILABLE (call them, never invent figures)
             "schema": schema,
             "question": "Which region+product had the strongest Jan->Dec revenue growth, and which products have an average return rate above the 5% review threshold?",
         }),
-        json!({"max_actor_steps": 16}),
+        json!({"max_actor_steps": 40}),
     )?;
 
     println!("{}", serde_json::to_string_pretty(&result)?);

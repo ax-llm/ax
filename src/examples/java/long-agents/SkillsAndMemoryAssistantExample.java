@@ -49,9 +49,40 @@ public final class SkillsAndMemoryAssistantExample {
         Map.of("id", "runbook-status-comms", "name", "Status communications runbook",
             "content", "## Status comms\n- Sev-1: status-page update within 15m, every 30m thereafter.\n- Enterprise impact: notify named TAMs directly.\n- Keep updates factual; no ETAs you cannot keep."));
 
-    // The host memory/skill subsystems resolve recall()/discover() against these
-    // stores. A "*" wildcard returns every entry so any actor query surfaces the
-    // relevant decisions and runbooks (substring matching in a real index).
+    // Dynamic host-side search: the actor's recall()/discover() queries arrive in these
+    // callbacks and we substring-match them against the stores (a BM25 / vector index in
+    // production). Passing them at construction auto-enables the memory + skill subsystems
+    // (so the actor's prompt advertises recall()/discover()), mirroring the TS/Python API.
+    // Token-based matching (a stand-in for BM25/vector): a memory matches if any word of
+    // any search query (len >= 3) appears in its id or content -- robust to phrase queries.
+    java.util.function.BiFunction<List<Object>, List<Object>, List<Object>> memoriesSearch = (searches, alreadyLoaded) -> {
+      Set<Object> loaded = new HashSet<>();
+      for (Object m : alreadyLoaded) if (m instanceof Map<?, ?> mm) loaded.add(mm.get("id"));
+      LinkedHashSet<Object> out = new LinkedHashSet<>();
+      for (Object q : searches) {
+        for (String tok : String.valueOf(q).toLowerCase().split("[^a-z0-9]+")) {
+          if (tok.length() < 3) continue;
+          for (Map<String, Object> m : memoryStore) {
+            if (loaded.contains(m.get("id"))) continue;
+            if ((m.get("id") + " " + m.get("content")).toLowerCase().contains(tok)) out.add(m);
+          }
+        }
+      }
+      return new ArrayList<>(out);
+    };
+    java.util.function.Function<List<Object>, List<Object>> skillsSearch = (searches) -> {
+      LinkedHashSet<Object> out = new LinkedHashSet<>();
+      for (Object q : searches) {
+        for (String tok : String.valueOf(q).toLowerCase().split("[^a-z0-9]+")) {
+          if (tok.length() < 3) continue;
+          for (Map<String, Object> s : skillStore) {
+            if ((s.get("id") + " " + s.get("name") + " " + s.get("content")).toLowerCase().contains(tok)) out.add(s);
+          }
+        }
+      }
+      return new ArrayList<>(out);
+    };
+
     AxAgent assistant = Ax.agent(
         "situation:string -> guidance:string \"What to do, grounded in our decisions and runbooks\", steps:string[]",
         Map.of(
@@ -60,11 +91,9 @@ public final class SkillsAndMemoryAssistantExample {
             "skills", List.of(Map.of(
                 "name", "house-style",
                 "content", "Be concise and operational. Prefer our remembered decisions over generic advice. Never invent flag names or steps -- cite the runbook.")),
-            // Presence of these callbacks enables the memories/skills subsystems.
-            "onMemoriesSearch", true,
-            "onSkillsSearch", true,
-            "memory_search_results", Map.of("*", memoryStore),
-            "skill_search_results", Map.of("*", skillStore),
+            // Native host search callbacks -- the actor's recall()/discover() reach these.
+            "onMemoriesSearch", memoriesSearch,
+            "onSkillsSearch", skillsSearch,
             "executorOptions", Map.of(
                 "description", String.join("\n",
                     "You do NOT know our internal flag names, incident history, or runbook steps from your own training.",
