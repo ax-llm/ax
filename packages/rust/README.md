@@ -5,9 +5,13 @@ Write Ax programs in Rust with native Result-based errors, serde_json dynamic va
 ## Quick Start
 
 ```bash
-cd packages/rust
-cargo test --all-targets
-cargo run --example signature_schema
+cargo add --git https://github.com/ax-llm/ax axllm
+```
+
+Or add to your `Cargo.toml`:
+
+```toml
+axllm = { git = "https://github.com/ax-llm/ax" }
 ```
 
 ```rust

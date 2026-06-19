@@ -1817,7 +1817,7 @@ func packageNameForTarget(target string) string {
 	case "cpp":
 		return "axllm"
 	case "go":
-		return "github.com/ax-llm/ax/go"
+		return "github.com/ax-llm/ax/packages/go"
 	case "rust":
 		return "axllm"
 	default:
@@ -1917,9 +1917,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			Intro:    "Build Ax programs from Python without giving up the Ax model: typed signatures, structured generation, provider routing, RLM agents, flows, and optimizer artifacts all come from the same shared compiler contract. The package feels like Python, but the behavior stays aligned with the main Ax implementation.",
 			Install: readmeLines(
 				"```bash",
-				"cd packages/python",
-				"python -m pip install -e .",
-				"PYTHONPATH=. python examples/signature_schema.py",
+				"pip install \"axllm @ git+https://github.com/ax-llm/ax#subdirectory=packages/python\"",
 				"```",
 			),
 			QuickStart: readmeLines(
@@ -1970,11 +1968,15 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			Language: "Java",
 			Intro:    "Bring Ax into Java services and JVM applications with a small native API: signatures, structured generation, providers, RLM agents, flows, and optimizer artifacts are generated from the shared Ax compiler contract and exposed as ordinary Java classes.",
 			Install: readmeLines(
+				"Maven and Gradle cannot depend on a git repository directly, so build and",
+				"install the package to your local Maven repository until it is published to",
+				"Maven Central:",
+				"",
 				"```bash",
-				"cd packages/java",
-				"javac -cp . dev/axllm/ax/*.java examples/SignatureSchemaExample.java",
-				"java -cp .:examples SignatureSchemaExample",
+				"git clone https://github.com/ax-llm/ax && (cd ax/packages/java && mvn -q install)",
 				"```",
+				"",
+				"Then add the dependency `dev.axllm:ax:22.0.3` to your `pom.xml` or `build.gradle`.",
 			),
 			QuickStart: readmeLines(
 				"```java",
@@ -2026,11 +2028,13 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			Language: "C++",
 			Intro:    "Use Ax from C++ when you want structured LLM programs close to your runtime: signatures, typed dynamic values, provider transports, RLM agents, flows, and optimizer artifacts are generated into a compact C++17 library.",
 			Install: readmeLines(
-				"```bash",
-				"cd packages/cpp",
-				"cmake -S . -B build",
-				"cmake --build build",
-				"./build/signature_schema",
+				"Add Ax to your CMake project with `FetchContent`:",
+				"",
+				"```cmake",
+				"include(FetchContent)",
+				"FetchContent_Declare(axllm GIT_REPOSITORY https://github.com/ax-llm/ax GIT_TAG main SOURCE_SUBDIR packages/cpp)",
+				"FetchContent_MakeAvailable(axllm)",
+				"target_link_libraries(your_app PRIVATE axllm::axllm)",
 				"```",
 			),
 			QuickStart: readmeLines(
@@ -2082,16 +2086,14 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			Intro:    "Write Ax programs in Go with the same contract used by the main Ax library: signatures, structured generation, provider clients, RLM agents, flows, and optimizer artifacts compiled into a native Go module.",
 			Install: readmeLines(
 				"```bash",
-				"cd packages/go",
-				"go test ./...",
-				"go run ./examples/signature_schema",
+				"go get github.com/ax-llm/ax/packages/go",
 				"```",
 			),
 			QuickStart: readmeLines(
 				"```go",
 				"package main",
 				"",
-				"import ax \"github.com/ax-llm/ax/go\"",
+				"import ax \"github.com/ax-llm/ax/packages/go\"",
 				"",
 				"func main() {",
 				"    sig := ax.NewSignature(\"question:string -> answer:string\")",
@@ -2100,7 +2102,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"```",
 			),
 			PackageFacts: readmeLines(
-				"- Module: `github.com/ax-llm/ax/go`",
+				"- Module: `github.com/ax-llm/ax/packages/go`",
 				"- Import alias used in examples: `ax`",
 				"- Base package uses the Go standard library for HTTP/process boundaries",
 				"- Optional JavaScript actor execution lives in `runtime/goja` and is opt-in by import",
@@ -2139,9 +2141,13 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			Intro:    "Write Ax programs in Rust with native Result-based errors, serde_json dynamic values at Ax boundaries, blocking provider transport, protocol-first RLM runtime sessions, and shared Ax semantics generated from the compiler contract.",
 			Install: readmeLines(
 				"```bash",
-				"cd packages/rust",
-				"cargo test --all-targets",
-				"cargo run --example signature_schema",
+				"cargo add --git https://github.com/ax-llm/ax axllm",
+				"```",
+				"",
+				"Or add to your `Cargo.toml`:",
+				"",
+				"```toml",
+				"axllm = { git = \"https://github.com/ax-llm/ax\" }",
 				"```",
 			),
 			QuickStart: readmeLines(

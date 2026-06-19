@@ -36,7 +36,7 @@ compiled into verified generated Python, Java, C++, Go, and Rust libraries.
 | Python | `axllm`<br>`from axllm import ai, ax, agent, flow` | Generated and verified in repo; prepared for PyPI |
 | Java | `dev.axllm:ax`<br>`import dev.axllm.ax.*` | Generated and verified in repo; prepared for Maven Central |
 | C++ | `axllm::axllm`<br>`#include <axllm/axllm.hpp>` | Generated and verified in repo; prepared for CMake/GitHub Release |
-| Go | `github.com/ax-llm/ax/go`<br>`import ax "github.com/ax-llm/ax/go"` | Generated in repo with conformance checks and opt-in `runtime/goja` JavaScript actor runtime |
+| Go | `github.com/ax-llm/ax/packages/go`<br>`import ax "github.com/ax-llm/ax/packages/go"` | Generated in repo with conformance checks and opt-in `runtime/goja` JavaScript actor runtime |
 | Rust | `axllm`<br>`use axllm::{ai, ax, agent, flow};` | Generated in repo with conformance checks, blocking HTTP/TLS transport, and protocol-first code runtime |
 
 ```mermaid
@@ -477,8 +477,10 @@ npm install @ax-llm/ax
 Generated Python, Java, C++, Go, and Rust libraries are checked in under `packages/`
 and verified in this repo, all Apache-2.0 licensed.
 
-- **Python**: `pip install axllm` (published to PyPI on each release)
-- **Rust**: `cargo add axllm` (published to crates.io on each release)
+- **Python**: `pip install "axllm @ git+https://github.com/ax-llm/ax#subdirectory=packages/python"`
+  (the clean `pip install axllm` lights up once it's published to PyPI)
+- **Rust**: `cargo add --git https://github.com/ax-llm/ax axllm`
+  (the clean `cargo add axllm` lights up once it's published to crates.io)
 - **Go**: `go get github.com/ax-llm/ax/packages/go`
 - **Java**: consume `packages/java` from the repo (Maven coordinates
   `dev.axllm:ax`; build with the included `pom.xml`, or use JitPack against

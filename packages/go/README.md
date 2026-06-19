@@ -5,15 +5,13 @@ Write Ax programs in Go with the same contract used by the main Ax library: sign
 ## Quick Start
 
 ```bash
-cd packages/go
-go test ./...
-go run ./examples/signature_schema
+go get github.com/ax-llm/ax/packages/go
 ```
 
 ```go
 package main
 
-import ax "github.com/ax-llm/ax/go"
+import ax "github.com/ax-llm/ax/packages/go"
 
 func main() {
     sig := ax.NewSignature("question:string -> answer:string")
@@ -32,7 +30,7 @@ func main() {
 
 ## Package Shape
 
-- Module: `github.com/ax-llm/ax/go`
+- Module: `github.com/ax-llm/ax/packages/go`
 - Import alias used in examples: `ax`
 - Base package uses the Go standard library for HTTP/process boundaries
 - Optional JavaScript actor execution lives in `runtime/goja` and is opt-in by import
@@ -81,7 +79,7 @@ Optional runtime profiles are dependency-bearing and opt-in. Adapter policy owns
 ## Contract Snapshot
 
 - Compiler contract version: 0.1
-- Package: github.com/ax-llm/ax/go
+- Package: github.com/ax-llm/ax/packages/go
 - Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow, axmcp
 - Provider mode: provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic
 - Scripted transport support: true

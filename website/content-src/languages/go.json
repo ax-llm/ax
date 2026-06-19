@@ -3,11 +3,8 @@
   "label": "Go",
   "shortLabel": "Go",
   "fence": "go",
-  "packageName": "github.com/ax-llm/ax/go",
-  "install": [
-    "git clone https://github.com/ax-llm/ax && cd ax/packages/go",
-    "go run ./examples/signature_schema"
-  ],
+  "packageName": "github.com/ax-llm/ax/packages/go",
+  "install": ["go get github.com/ax-llm/ax/packages/go"],
   "exampleRoot": "packages/go/examples",
   "apiKind": "axir",
   "optimizeName": "AxGEPA",
@@ -22,7 +19,7 @@
   },
   "snippets": {
     "quickStart": [
-      "import axllm \"github.com/ax-llm/ax/go\"",
+      "import axllm \"github.com/ax-llm/ax/packages/go\"",
       "",
       "client := axllm.NewAI(\"openai\", map[string]axllm.Value{\"apiKey\": os.Getenv(\"OPENAI_API_KEY\")})",
       "classify := axllm.NewAx(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\", nil)"

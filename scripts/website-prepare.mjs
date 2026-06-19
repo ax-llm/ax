@@ -1802,7 +1802,7 @@ function generatedPackageSnippets(languageId) {
     },
     go: {
       default: [
-        'import ax "github.com/ax-llm/ax/go"',
+        'import ax "github.com/ax-llm/ax/packages/go"',
         '',
         'program := ax.NewAx("question:string -> answer:string", nil)',
       ],
