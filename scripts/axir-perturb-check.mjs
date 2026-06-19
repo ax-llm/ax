@@ -156,7 +156,13 @@ export function buildRunner(target, outDir) {
       if (build.status !== 0) {
         throw new Error(`cargo build failed:\n${build.stdout}${build.stderr}`);
       }
-      const bin = path.join(outDir, 'target', 'debug', 'axllm-conformance');
+      // cargo honors CARGO_TARGET_DIR (CI sets it for build caching); resolve the
+      // binary from the same dir cargo built into rather than assuming outDir/target.
+      const targetDir = path.resolve(
+        outDir,
+        process.env.CARGO_TARGET_DIR || 'target'
+      );
+      const bin = path.join(targetDir, 'debug', 'axllm-conformance');
       return (suiteDir) => run(bin, [suiteDir], { cwd: outDir });
     }
     case 'java': {

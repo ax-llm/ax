@@ -821,6 +821,14 @@ final class Core {
   }
   static Object agentMemorySearch(Object state, Object searches, Object alreadyLoaded) {
     Map<String, Object> options = asMap(get(state, "options", Map.of()));
+    // Native host callback: a BiFunction<List,List,List> passed under "onMemoriesSearch" at
+    // construction receives the actor's recall() searches + already-loaded ids and returns matches.
+    Object callback = options.getOrDefault("on_memories_search", options.get("onMemoriesSearch"));
+    if (callback instanceof java.util.function.BiFunction<?, ?, ?> fn) {
+      @SuppressWarnings("unchecked")
+      Object result = ((java.util.function.BiFunction<Object, Object, Object>) fn).apply(asList(searches), asList(alreadyLoaded));
+      return result == null ? List.of() : result;
+    }
     Object scripted = options.getOrDefault("memory_search_results", options.get("memorySearchResults"));
     if (scripted instanceof Map<?, ?> map) {
       String joined = String.join("|", asList(searches).stream().map(String::valueOf).toList());
@@ -844,6 +852,14 @@ final class Core {
 
   static Object agentSkillSearch(Object state, Object searches) {
     Map<String, Object> options = asMap(get(state, "options", Map.of()));
+    // Native host callback: a Function<List,List> passed under "onSkillsSearch" at construction
+    // receives the actor's discover() searches and returns matching skills.
+    Object callback = options.getOrDefault("on_skills_search", options.get("onSkillsSearch"));
+    if (callback instanceof java.util.function.Function<?, ?> fn) {
+      @SuppressWarnings("unchecked")
+      Object result = ((java.util.function.Function<Object, Object>) fn).apply(asList(searches));
+      return result == null ? List.of() : result;
+    }
     Object scripted = options.getOrDefault("skill_search_results", options.get("skillSearchResults"));
     if (scripted instanceof Map<?, ?> map) {
       String joined = String.join("|", asList(searches).stream().map(String::valueOf).toList());
@@ -3680,15 +3696,15 @@ final class Core {
       }
       if (!Core.truthy(is_gemini)) {
         if (Core.truthy(is_anthropic)) {
-          Core.set(descriptor, "baseUrl", "https://api.anthropic.com/v1");
+          Core.set(descriptor, "baseUrl", "https://api.anthropic.com");
           Core.set(descriptor, "auth", "anthropic_key");
           Core.set(descriptor, "id", "anthropic");
           Core.set(descriptor, "name", "anthropic");
           Core.set(descriptor, "defaultModel", "claude-3-7-sonnet-latest");
           Object extra_headers = Core.jsonParse("{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"}");
           Core.set(descriptor, "headers", extra_headers);
-          Object anthropic_chat = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":false}");
-          Object anthropic_stream = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":true}");
+          Object anthropic_chat = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":false}");
+          Object anthropic_stream = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":true}");
           Core.set(operations, "chat", anthropic_chat);
           Core.set(operations, "stream_chat", anthropic_stream);
           Object anthropic_images = Core.jsonParse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"]}");

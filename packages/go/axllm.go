@@ -6584,15 +6584,15 @@ func provider_descriptor(args ...Value) (Value, error) {
 			if err := coreSet(v_features, "thinking", true); err != nil { return nil, err }
 		} else {
 			if coreTruthy(v_is_anthropic) {
-				if err := coreSet(v_descriptor, "baseUrl", "https://api.anthropic.com/v1"); err != nil { return nil, err }
+				if err := coreSet(v_descriptor, "baseUrl", "https://api.anthropic.com"); err != nil { return nil, err }
 				if err := coreSet(v_descriptor, "auth", "anthropic_key"); err != nil { return nil, err }
 				if err := coreSet(v_descriptor, "id", "anthropic"); err != nil { return nil, err }
 				if err := coreSet(v_descriptor, "name", "anthropic"); err != nil { return nil, err }
 				if err := coreSet(v_descriptor, "defaultModel", "claude-3-7-sonnet-latest"); err != nil { return nil, err }
 				{ v, err := _core_json_parse("{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"}"); if err != nil { return nil, err }; v_extra_headers = v }
 				if err := coreSet(v_descriptor, "headers", v_extra_headers); err != nil { return nil, err }
-				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":false}"); if err != nil { return nil, err }; v_anthropic_chat = v }
-				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":true}"); if err != nil { return nil, err }; v_anthropic_stream = v }
+				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":false}"); if err != nil { return nil, err }; v_anthropic_chat = v }
+				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":true}"); if err != nil { return nil, err }; v_anthropic_stream = v }
 				if err := coreSet(v_operations, "chat", v_anthropic_chat); err != nil { return nil, err }
 				if err := coreSet(v_operations, "stream_chat", v_anthropic_stream); err != nil { return nil, err }
 				{ v, err := _core_json_parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"]}"); if err != nil { return nil, err }; v_anthropic_images = v }
@@ -30439,6 +30439,12 @@ func (g *AxGen) ApplyOptimizedComponents(m map[string]Value) {
 }
 
 type AxAgent struct { State map[string]Value; Signature AxSignature; Options map[string]Value; Executor *AxGen; Responder *AxGen; Distiller *AxGen; LlmQuery *AxGen }
+// AxMemoriesSearchFn / AxSkillsSearchFn are native host callbacks the agent invokes (from the agent
+// loop, not the JS runtime) when the actor calls recall()/discover(). Pass them in the agent options
+// under "onMemoriesSearch"/"onSkillsSearch" at construction (their presence auto-enables the memory /
+// skill subsystems, so the actor's prompt advertises recall()/discover()), mirroring the TS/Python API.
+type AxMemoriesSearchFn func(searches []Value, alreadyLoaded []Value) []Value
+type AxSkillsSearchFn func(searches []Value) []Value
 
 // runtimeCallableRegistrar is satisfied by any code runtime that can host a
 // callable (e.g. the goja *Runtime). Declared structurally so the agent wrapper
@@ -31464,7 +31470,12 @@ func _core_agent_memory_search(values ...Value) Value {
 	state := values[0]
 	searches := Value(nil)
 	if len(values) > 1 { searches = values[1] }
+	alreadyLoaded := Value(nil)
+	if len(values) > 2 { alreadyLoaded = values[2] }
 	options := asMap(coreGet(state, "options", Object()))
+	callback := coreGet(options, "on_memories_search", coreGet(options, "onMemoriesSearch", nil))
+	if cb, ok := callback.(AxMemoriesSearchFn); ok { return agentSearchResultOrEmpty(cb(asSlice(searches), asSlice(alreadyLoaded))) }
+	if cb, ok := callback.(func([]Value, []Value) []Value); ok { return agentSearchResultOrEmpty(cb(asSlice(searches), asSlice(alreadyLoaded))) }
 	scripted := coreGet(options, "memory_search_results", coreGet(options, "memorySearchResults", Object()))
 	return scriptedAgentSearchResults(scripted, searches, false)
 }
@@ -31474,9 +31485,13 @@ func _core_agent_skill_search(values ...Value) Value {
 	searches := Value(nil)
 	if len(values) > 1 { searches = values[1] }
 	options := asMap(coreGet(state, "options", Object()))
+	callback := coreGet(options, "on_skills_search", coreGet(options, "onSkillsSearch", nil))
+	if cb, ok := callback.(AxSkillsSearchFn); ok { return agentSearchResultOrEmpty(cb(asSlice(searches))) }
+	if cb, ok := callback.(func([]Value) []Value); ok { return agentSearchResultOrEmpty(cb(asSlice(searches))) }
 	scripted := coreGet(options, "skill_search_results", coreGet(options, "skillSearchResults", Object()))
 	return scriptedAgentSearchResults(scripted, searches, true)
 }
+func agentSearchResultOrEmpty(result []Value) Value { if result == nil { return MutableArray() }; return result }
 // _core_agent_transcribe backs intrinsic.agent.transcribe: it calls the AI client's transcribe
 // method (build->transport->normalize lives in the client) so audio inputs become text before the
 // agent loop. Any client with a Transcribe method satisfies it (real providers + the scripted

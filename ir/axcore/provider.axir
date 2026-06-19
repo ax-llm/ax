@@ -27,7 +27,7 @@ module @ax.provider version "0.1" {
 
   op ax.provider.class @AnthropicClient {
     attr core_kind = "record"
-    attr default_base_url = "https://api.anthropic.com/v1"
+    attr default_base_url = "https://api.anthropic.com"
     attr public = true
     ref interface = @AxAIService
     tag "anthropic"
@@ -1614,15 +1614,15 @@ module @ax.provider version "0.1" {
           core.set %features["thinking"] = true
         } else {
           core.if %is_anthropic {
-            core.set %descriptor["baseUrl"] = "https://api.anthropic.com/v1"
+            core.set %descriptor["baseUrl"] = "https://api.anthropic.com"
             core.set %descriptor["auth"] = "anthropic_key"
             core.set %descriptor["id"] = "anthropic"
             core.set %descriptor["name"] = "anthropic"
             core.set %descriptor["defaultModel"] = "claude-3-7-sonnet-latest"
             %extra_headers = core.call intrinsic.json.parse("{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"}")
             core.set %descriptor["headers"] = %extra_headers
-            %anthropic_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":false}")
-            %anthropic_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":true}")
+            %anthropic_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":false}")
+            %anthropic_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":true}")
             core.set %operations["chat"] = %anthropic_chat
             core.set %operations["stream_chat"] = %anthropic_stream
             %anthropic_images = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"]}")

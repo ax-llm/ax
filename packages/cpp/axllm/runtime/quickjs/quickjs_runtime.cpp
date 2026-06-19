@@ -84,6 +84,17 @@ function __ax_has_name(values, name) {
   }
   return false;
 }
+// Capture console output so the actor's debug logging surfaces as `logs` instead of
+// throwing ReferenceError (which would waste an actor step). Mirrors the TS/Python runtimes.
+globalThis.__ax_logs = [];
+function __ax_log() {
+  var parts = Array.prototype.slice.call(arguments).map(function (x) {
+    if (typeof x === "string") return x;
+    try { return JSON.stringify(x); } catch (e) { return String(x); }
+  });
+  globalThis.__ax_logs.push(parts.join(" "));
+}
+globalThis.console = { log: __ax_log, error: __ax_log, warn: __ax_log, info: __ax_log, debug: __ax_log };
 function __ax_complete(value) { globalThis.__ax_completion = value; return value; }
 function __ax_clone_json(value) {
   if (value === undefined) return null;
@@ -210,7 +221,7 @@ Value QuickJsCodeSession::execute(Value code, Value options) {
   int timeout_ms = int_option(options, "timeoutMs", int_option(runtime_policy_, "timeoutMs", 5000));
   auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
   JS_SetInterruptHandler(runtime_, quickjs_interrupt_handler, &deadline);
-  JS_FreeValue(context_, JS_Eval(context_, "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; __ax_install_host_callables();", std::strlen("globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; __ax_install_host_callables();"), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
+  JS_FreeValue(context_, JS_Eval(context_, "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_logs = []; __ax_install_host_callables();", std::strlen("globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_logs = []; __ax_install_host_callables();"), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
   // RLM actor code uses top-level await (`await final(...)`), illegal in a plain script eval.
   // Pass the code in via a global string (avoids host-side JS escaping) and run it through the
   // AsyncFunction constructor so await is legal; then drain the job queue so awaited
@@ -266,11 +277,18 @@ Value QuickJsCodeSession::execute(Value code, Value options) {
   if (json_text.empty() || json_text == "undefined") {
     return RuntimeEnvelope::error("QuickJS actor code did not return a JSON-compatible value", "runtime");
   }
+  Value payload;
   try {
-    return parse_json(json_text);
+    payload = parse_json(json_text);
   } catch (const std::exception& error) {
     return RuntimeEnvelope::error(std::string("malformed QuickJS actor output: ") + error.what(), "runtime");
   }
+  // Surface console output (captured into __ax_logs) as `logs`, mirroring the TS/Python runtimes.
+  if (payload.is_object()) {
+    Value logs = eval_json("JSON.stringify(globalThis.__ax_logs || [])");
+    if (logs.is_array() && Core::truthy(Core::len(logs))) Core::set(payload, "logs", logs);
+  }
+  return payload;
 }
 
 Value QuickJsCodeSession::inspect(Value) { return eval_json("__ax_snapshot_json()"); }

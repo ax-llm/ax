@@ -1123,16 +1123,21 @@ writeFixture('anthropic-provider-descriptor', {
     name: 'anthropic',
     defaultModel: anthropicDefaultModel,
     auth: 'anthropic_key',
-    baseUrl: 'https://api.anthropic.com/v1',
+    baseUrl: 'https://api.anthropic.com',
     headers: {
       'anthropic-version': '2023-06-01',
       'anthropic-beta': 'structured-outputs-2025-11-13, web-search-2025-03-05',
     },
     operations: {
-      chat: { method: 'POST', path: '/messages', body: 'json', stream: false },
+      chat: {
+        method: 'POST',
+        path: '/v1/messages',
+        body: 'json',
+        stream: false,
+      },
       stream_chat: {
         method: 'POST',
-        path: '/messages',
+        path: '/v1/messages',
         body: 'json',
         stream: true,
       },

@@ -544,7 +544,7 @@ class GoogleGeminiClient(ProviderOperationClient):
 class AnthropicClient(ProviderOperationClient):
     def __init__(self, **options):
         api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("ANTHROPIC_API_KEY")
-        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com/v1"
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
         super().__init__(
             "anthropic",
             "anthropic",

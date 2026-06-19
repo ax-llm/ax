@@ -988,7 +988,7 @@ impl OpenAICompatibleClient {
     fn chat_path(&self) -> &'static str {
         match self.profile.as_str() {
             "openai-responses" => "/responses",
-            "anthropic" => "/messages",
+            "anthropic" => "/v1/messages",
             _ => "/chat/completions",
         }
     }
@@ -1378,7 +1378,7 @@ fn provider_defaults(provider: &str) -> Option<ProviderDefaults> {
         }),
         "anthropic" => Some(ProviderDefaults {
             profile: "anthropic",
-            api_url: "https://api.anthropic.com/v1",
+            api_url: "https://api.anthropic.com",
             model: "claude-3-7-sonnet-latest",
             embed_model: "text-embedding-3-small",
         }),
@@ -2213,6 +2213,43 @@ pub fn agent(spec: &str) -> AxResult<AxAgent> {
 
 pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
     agent_with_core_options(spec, core_value_from_json(&options))
+}
+
+/// Construct an agent with native host search callbacks for memories and skills.
+/// The callbacks run host-side when the actor calls recall()/discover(); passing
+/// them at construction auto-enables the memory + skill subsystems (so the actor's
+/// prompt advertises recall()/discover()), mirroring the TS/Python API. Callbacks
+/// take and return JSON values: memories `(searches, alreadyLoaded) -> results`,
+/// skills `(searches) -> results`.
+pub fn agent_with_search_callbacks<M, S>(
+    spec: &str,
+    options: Value,
+    memories_search: M,
+    skills_search: S,
+) -> AxResult<AxAgent>
+where
+    M: Fn(Value, Value) -> Value + 'static,
+    S: Fn(Value) -> Value + 'static,
+{
+    let options = core_value_from_json(&options);
+    let memories_host = CoreValue::Host(Rc::new(SearchCallbackHost {
+        label: "AxMemoriesSearchFn",
+        f: Box::new(move |args| {
+            let searches = core_value_to_json(&core_arg(args, 0));
+            let already = core_value_to_json(&core_arg(args, 1));
+            Ok(core_value_from_json(&memories_search(searches, already)))
+        }),
+    }));
+    core_set(&options, CoreValue::from("onMemoriesSearch"), memories_host)?;
+    let skills_host = CoreValue::Host(Rc::new(SearchCallbackHost {
+        label: "AxSkillsSearchFn",
+        f: Box::new(move |args| {
+            let searches = core_value_to_json(&core_arg(args, 0));
+            Ok(core_value_from_json(&skills_search(searches)))
+        }),
+    }));
+    core_set(&options, CoreValue::from("onSkillsSearch"), skills_host)?;
+    agent_with_core_options(spec, options)
 }
 
 pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResult<AxAgent> {
@@ -4243,6 +4280,29 @@ impl CoreHost for ConformanceFlowCallable {
 
 fn conformance_flow_callable(mode: &'static str, spec: Value) -> CoreValue {
     CoreValue::Host(Rc::new(ConformanceFlowCallable { mode, spec }))
+}
+
+// Wraps a native host search closure (memories or skills) as a CoreValue::Host the
+// agent loop invokes via core_host_try(.., "call", ..) when the actor calls recall()/discover().
+struct SearchCallbackHost {
+    label: &'static str,
+    f: Box<dyn Fn(&[CoreValue]) -> Result<CoreValue, AxError>>,
+}
+
+impl CoreHost for SearchCallbackHost {
+    fn host_type(&self) -> &'static str {
+        self.label
+    }
+
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        if name != "call" {
+            return Err(AxError::runtime(format!(
+                "{} has no method '{}'",
+                self.label, name
+            )));
+        }
+        (self.f)(args)
+    }
 }
 
 fn conformance_flow_state_value(state: &Value, field: &str, fallback: Value) -> Value {
@@ -21299,7 +21359,7 @@ fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 core_set(
                     &v_descriptor,
                     CoreValue::from("baseUrl"),
-                    CoreValue::from("https://api.anthropic.com/v1"),
+                    CoreValue::from("https://api.anthropic.com"),
                 )?;
                 core_set(
                     &v_descriptor,
@@ -21327,8 +21387,8 @@ fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                     CoreValue::from("headers"),
                     v_extra_headers.clone(),
                 )?;
-                v_anthropic_chat = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":false}")])?;
-                v_anthropic_stream = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":true}")])?;
+                v_anthropic_chat = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":false}")])?;
+                v_anthropic_stream = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":true}")])?;
                 core_set(
                     &v_operations,
                     CoreValue::from("chat"),

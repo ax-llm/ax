@@ -13,6 +13,8 @@ yarn.lock
 audio
 !src/ax/ai/audio/
 !src/ax/ai/audio/*.ts
+!src/examples/*/audio/
+!src/examples/*/audio/*
 .env
 .env.*
 .data

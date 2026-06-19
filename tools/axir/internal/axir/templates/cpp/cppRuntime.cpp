@@ -61,6 +61,31 @@ static std::map<std::string, AxCodeSession*>& code_session_registry() {
   return sessions;
 }
 
+// Native host search callbacks: Value cannot hold a closure, so the closures live in
+// a process-lifetime registry keyed by id, and a small marker object ({"__*_search_id": id})
+// is placed in the agent options under "onMemoriesSearch"/"onSkillsSearch". The agent loop
+// (Core::agent_memory_search / agent_skill_search) reads the marker and dispatches here.
+static std::map<std::string, std::function<Value(Value, Value)>>& memories_search_registry() {
+  static std::map<std::string, std::function<Value(Value, Value)>> registry;
+  return registry;
+}
+static std::map<std::string, std::function<Value(Value)>>& skills_search_registry() {
+  static std::map<std::string, std::function<Value(Value)>> registry;
+  return registry;
+}
+Value register_memories_search(std::function<Value(Value, Value)> fn) {
+  static int counter = 0;
+  std::string id = "__mem_search_" + std::to_string(++counter);
+  memories_search_registry()[id] = std::move(fn);
+  return object({{"__memories_search_id", id}});
+}
+Value register_skills_search(std::function<Value(Value)> fn) {
+  static int counter = 0;
+  std::string id = "__skill_search_" + std::to_string(++counter);
+  skills_search_registry()[id] = std::move(fn);
+  return object({{"__skills_search_id", id}});
+}
+
 static std::map<std::string, std::function<Value(Value)>>& tool_registry() {
   static std::map<std::string, std::function<Value(Value)>> handlers;
   return handlers;
@@ -903,6 +928,20 @@ Value Core::agent_runtime_close(Value session) {
 }
 Value Core::agent_memory_search(Value state, Value searches, Value already_loaded) {
   Value options = get_key(state, "options", Value::object());
+  // Native host callback: a closure registered via register_memories_search, referenced by a
+  // marker under "onMemoriesSearch" -- receives the actor's recall() searches + already-loaded ids.
+  Value callback = get_key(options, "on_memories_search", get_key(options, "onMemoriesSearch", Value()));
+  if (callback.is_object()) {
+    std::string mid = str(get_key(callback, "__memories_search_id", Value("")));
+    if (!mid.empty()) {
+      auto& reg = memories_search_registry();
+      auto it = reg.find(mid);
+      if (it != reg.end() && it->second) {
+        Value r = it->second(searches, already_loaded);
+        return r.is_null() ? Value::array() : r;
+      }
+    }
+  }
   Value scripted = get_key(options, "memory_search_results", get_key(options, "memorySearchResults", Value::object()));
   if (scripted.is_object()) {
     std::vector<std::string> parts;
@@ -925,6 +964,20 @@ Value Core::agent_memory_search(Value state, Value searches, Value already_loade
 }
 Value Core::agent_skill_search(Value state, Value searches) {
   Value options = get_key(state, "options", Value::object());
+  // Native host callback: a closure registered via register_skills_search, referenced by a
+  // marker under "onSkillsSearch" -- receives the actor's discover() searches.
+  Value callback = get_key(options, "on_skills_search", get_key(options, "onSkillsSearch", Value()));
+  if (callback.is_object()) {
+    std::string mid = str(get_key(callback, "__skills_search_id", Value("")));
+    if (!mid.empty()) {
+      auto& reg = skills_search_registry();
+      auto it = reg.find(mid);
+      if (it != reg.end() && it->second) {
+        Value r = it->second(searches);
+        return r.is_null() ? Value::array() : r;
+      }
+    }
+  }
   Value scripted = get_key(options, "skill_search_results", get_key(options, "skillSearchResults", Value::object()));
   if (scripted.is_object()) {
     std::vector<std::string> parts;
@@ -1723,6 +1776,34 @@ Value parse_json(const std::string& source) {
         expect(',');
       }
     }
+    static unsigned read_hex4(const std::string& s, size_t& pos) {
+      unsigned value = 0;
+      for (int i = 0; i < 4 && pos < s.size(); ++i) {
+        char h = s[pos++];
+        value <<= 4;
+        if (h >= '0' && h <= '9') value |= static_cast<unsigned>(h - '0');
+        else if (h >= 'a' && h <= 'f') value |= static_cast<unsigned>(h - 'a' + 10);
+        else if (h >= 'A' && h <= 'F') value |= static_cast<unsigned>(h - 'A' + 10);
+      }
+      return value;
+    }
+    static void append_utf8(std::string& out, unsigned cp) {
+      if (cp <= 0x7F) {
+        out.push_back(static_cast<char>(cp));
+      } else if (cp <= 0x7FF) {
+        out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+      } else if (cp <= 0xFFFF) {
+        out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+      } else {
+        out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+      }
+    }
     Value string() {
       expect('"');
       std::string out;
@@ -1731,10 +1812,26 @@ Value parse_json(const std::string& source) {
         if (c == '"') break;
         if (c == '\\' && pos < s.size()) {
           char e = s[pos++];
-          if (e == 'n') c = '\n';
-          else if (e == 't') c = '\t';
-          else if (e == 'r') c = '\r';
-          else c = e;
+          if (e == 'n') { out.push_back('\n'); continue; }
+          if (e == 't') { out.push_back('\t'); continue; }
+          if (e == 'r') { out.push_back('\r'); continue; }
+          if (e == 'b') { out.push_back('\b'); continue; }
+          if (e == 'f') { out.push_back('\f'); continue; }
+          if (e == 'u') {
+            unsigned cp = read_hex4(s, pos);
+            // Combine UTF-16 surrogate pairs into a single code point.
+            if (cp >= 0xD800 && cp <= 0xDBFF && pos + 1 < s.size() && s[pos] == '\\' && s[pos + 1] == 'u') {
+              pos += 2;
+              unsigned low = read_hex4(s, pos);
+              if (low >= 0xDC00 && low <= 0xDFFF) {
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+              }
+            }
+            append_utf8(out, cp);
+            continue;
+          }
+          out.push_back(e);
+          continue;
         }
         out.push_back(c);
       }
@@ -1746,7 +1843,15 @@ Value parse_json(const std::string& source) {
       while (pos < s.size() && std::isdigit(static_cast<unsigned char>(s[pos]))) ++pos;
       if (pos < s.size() && s[pos] == '.') { ++pos; while (pos < s.size() && std::isdigit(static_cast<unsigned char>(s[pos]))) ++pos; }
       if (pos < s.size() && (s[pos] == 'e' || s[pos] == 'E')) { ++pos; if (pos < s.size() && (s[pos] == '+' || s[pos] == '-')) ++pos; while (pos < s.size() && std::isdigit(static_cast<unsigned char>(s[pos]))) ++pos; }
-      return Value(std::stod(s.substr(start, pos - start)));
+      std::string token = s.substr(start, pos - start);
+      // Tolerate malformed/empty numeric tokens (e.g. a model emitting a bare `-` or an
+      // empty value for a number field) instead of throwing std::stod's "no conversion".
+      try {
+        return Value(std::stod(token));
+      } catch (const std::exception&) {
+        if (pos == start && pos < s.size()) ++pos;  // ensure forward progress
+        return Value();
+      }
     }
   };
   Parser p(source);
@@ -1980,7 +2085,7 @@ AnthropicClient::AnthropicClient(Value options, Transport* transport)
     : OpenAICompatibleClient("anthropic", "anthropic", [&]() {
         Value out = std::move(options);
         if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("ANTHROPIC_API_KEY", ""));
-        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1"));
+        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com"));
         return out;
       }(), transport, "claude-3-7-sonnet-latest", "") {}
 
