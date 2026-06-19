@@ -1817,7 +1817,7 @@ func packageNameForTarget(target string) string {
 	case "cpp":
 		return "axllm"
 	case "go":
-		return "github.com/ax-llm/ax/go"
+		return "github.com/ax-llm/ax/packages/go"
 	case "rust":
 		return "axllm"
 	default:
@@ -2091,7 +2091,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"```go",
 				"package main",
 				"",
-				"import ax \"github.com/ax-llm/ax/go\"",
+				"import ax \"github.com/ax-llm/ax/packages/go\"",
 				"",
 				"func main() {",
 				"    sig := ax.NewSignature(\"question:string -> answer:string\")",
@@ -2100,7 +2100,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"```",
 			),
 			PackageFacts: readmeLines(
-				"- Module: `github.com/ax-llm/ax/go`",
+				"- Module: `github.com/ax-llm/ax/packages/go`",
 				"- Import alias used in examples: `ax`",
 				"- Base package uses the Go standard library for HTTP/process boundaries",
 				"- Optional JavaScript actor execution lives in `runtime/goja` and is opt-in by import",

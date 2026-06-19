@@ -16,7 +16,7 @@ import (
 	"os"
 	"time"
 
-	ax "github.com/ax-llm/ax/go"
+	ax "github.com/ax-llm/ax/packages/go"
 )
 
 func printJSON(value ax.Value) {

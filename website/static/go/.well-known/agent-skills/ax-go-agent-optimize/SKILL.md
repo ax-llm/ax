@@ -1,11 +1,11 @@
 ---
 name: "ax-go-agent-optimize"
-description: "Use when writing Go code with `github.com/ax-llm/ax/go` for agent optimization, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA."
+description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent optimization, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA."
 version: "22.0.3"
 ---
 # AxAgent Optimize For Go
 
-This skill helps an agent write Go code with the generated Ax package `github.com/ax-llm/ax/go`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
+This skill helps an agent write Go code with the generated Ax package `github.com/ax-llm/ax/packages/go`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
 
 ## When To Use
 
@@ -16,7 +16,7 @@ This skill helps an agent write Go code with the generated Ax package `github.co
 ## Package Facts
 
 - Language: Go.
-- Package: `github.com/ax-llm/ax/go`.
+- Package: `github.com/ax-llm/ax/packages/go`.
 - Package API docs: `API.md` and `axir-api.json`.
 - Capability manifest: `axir-capabilities.json`.
 - Runnable examples: `examples/`.

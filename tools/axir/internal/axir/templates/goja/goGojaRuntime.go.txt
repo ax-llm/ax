@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	ax "github.com/ax-llm/ax/go"
+	ax "github.com/ax-llm/ax/packages/go"
 	gojavm "github.com/dop251/goja"
 )
 

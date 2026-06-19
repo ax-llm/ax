@@ -1,4 +1,4 @@
-module github.com/ax-llm/ax/go
+module github.com/ax-llm/ax/packages/go
 
 go 1.22
 

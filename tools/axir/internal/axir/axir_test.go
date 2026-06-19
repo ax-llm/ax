@@ -959,7 +959,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("%s manifest should not claim runtime profile %q: %#v", tc.target, profileID, manifest.RuntimeProfiles)
 				}
 			}
-			wantPackage := map[string]string{"python": "axllm", "java": "dev.axllm:ax", "cpp": "axllm", "go": "github.com/ax-llm/ax/go", "rust": "axllm"}[tc.target]
+			wantPackage := map[string]string{"python": "axllm", "java": "dev.axllm:ax", "cpp": "axllm", "go": "github.com/ax-llm/ax/packages/go", "rust": "axllm"}[tc.target]
 			if manifest.PackageName != wantPackage {
 				t.Fatalf("bad package name for %s: got %q want %q", tc.target, manifest.PackageName, wantPackage)
 			}
@@ -1071,7 +1071,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "axllm/axllm.cpp", "HttpTransport::call", "curl_easy_perform")
 				checkGeneratedFileContains(t, dir, "cmake/axllmConfig.cmake.in", "find_dependency(OpenSSL)", "axllmTargets.cmake")
 			case "go":
-				checkGeneratedFileContains(t, dir, "go.mod", "module github.com/ax-llm/ax/go", "go 1.22", "github.com/dop251/goja")
+				checkGeneratedFileContains(t, dir, "go.mod", "module github.com/ax-llm/ax/packages/go", "go 1.22", "github.com/dop251/goja")
 				checkGeneratedFileContains(t, dir, "axllm.go", "package axllm", "type Value = any", "func NewSignature", "type HTTPTransport struct")
 				checkGeneratedFileContains(t, dir, "runtime/goja/goja.go", "package goja", "func NewRuntime(options ...Option) *Runtime", "func (r *Runtime) RegisterCallable", "gojavm.New")
 				checkGeneratedFileContains(t, dir, "examples/runtime_profiles/javascript_goja/main.go", "go-javascript-goja-profile-ok", "ax.NewAgent", "agent.Test(runtime", "while (true) {}")
@@ -1240,7 +1240,7 @@ func TestDocsCoverCompilerAndArchitecture(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := readRepoFile(t, root, "docs", "RELEASE.md")
-	for _, want := range []string{"@ax-llm/ax", "axllm", "dev.axllm:ax", "axllm::axllm", "github.com/ax-llm/ax/go", "javascript-goja", "runtime/goja", "crates.io"} {
+	for _, want := range []string{"@ax-llm/ax", "axllm", "dev.axllm:ax", "axllm::axllm", "github.com/ax-llm/ax/packages/go", "javascript-goja", "runtime/goja", "crates.io"} {
 		if !strings.Contains(release, want) {
 			t.Fatalf("docs/RELEASE.md missing %q", want)
 		}

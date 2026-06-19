@@ -36,7 +36,7 @@ compiled into verified generated Python, Java, C++, Go, and Rust libraries.
 | Python | `axllm`<br>`from axllm import ai, ax, agent, flow` | Generated and verified in repo; prepared for PyPI |
 | Java | `dev.axllm:ax`<br>`import dev.axllm.ax.*` | Generated and verified in repo; prepared for Maven Central |
 | C++ | `axllm::axllm`<br>`#include <axllm/axllm.hpp>` | Generated and verified in repo; prepared for CMake/GitHub Release |
-| Go | `github.com/ax-llm/ax/go`<br>`import ax "github.com/ax-llm/ax/go"` | Generated in repo with conformance checks and opt-in `runtime/goja` JavaScript actor runtime |
+| Go | `github.com/ax-llm/ax/packages/go`<br>`import ax "github.com/ax-llm/ax/packages/go"` | Generated in repo with conformance checks and opt-in `runtime/goja` JavaScript actor runtime |
 | Rust | `axllm`<br>`use axllm::{ai, ax, agent, flow};` | Generated in repo with conformance checks, blocking HTTP/TLS transport, and protocol-first code runtime |
 
 ```mermaid

@@ -489,9 +489,9 @@ func verifyGoPackageSmoke(report *VerifyTargetReport, goTool string) error {
 
 go 1.22
 
-require github.com/ax-llm/ax/go v0.0.0
+require github.com/ax-llm/ax/packages/go v0.0.0
 
-replace github.com/ax-llm/ax/go => ..
+replace github.com/ax-llm/ax/packages/go => ..
 `), 0o644); err != nil {
 		return err
 	}
@@ -500,7 +500,7 @@ replace github.com/ax-llm/ax/go => ..
 import (
 	"fmt"
 
-	ax "github.com/ax-llm/ax/go"
+	ax "github.com/ax-llm/ax/packages/go"
 )
 
 func main() {

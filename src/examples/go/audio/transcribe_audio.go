@@ -18,7 +18,7 @@ import (
 	"time"
 	"io/ioutil"
 
-	ax "github.com/ax-llm/ax/go"
+	ax "github.com/ax-llm/ax/packages/go"
 )
 
 

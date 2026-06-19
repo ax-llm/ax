@@ -387,9 +387,9 @@ async function runGo(examplePath, rest) {
 
 go 1.22
 
-require github.com/ax-llm/ax/go v0.0.0
+require github.com/ax-llm/ax/packages/go v0.0.0
 
-replace github.com/ax-llm/ax/go => ${escapeGoModPath(outDir)}
+replace github.com/ax-llm/ax/packages/go => ${escapeGoModPath(outDir)}
 `
   );
   await writeFile(
