@@ -1190,6 +1190,12 @@ AxGen ax(Value signature, Value options = Value::object());
 AxAgent agent(const std::string& signature, Value options = Value::object());
 AxAgent agent(const char* signature, Value options = Value::object());
 AxAgent agent(Value signature, Value options = Value::object());
+// Register a native host search callback and return a marker to place in the agent options
+// under "onMemoriesSearch"/"onSkillsSearch". The callbacks run host-side when the actor calls
+// recall()/discover(); their presence auto-enables the memory/skill subsystems. Callbacks take
+// and return Value: memories (searches, alreadyLoaded) -> results, skills (searches) -> results.
+Value register_memories_search(std::function<Value(Value, Value)> fn);
+Value register_skills_search(std::function<Value(Value)> fn);
 AxFlow flow(Value options = Value::object());
 Value optimize(AxGen& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxFlow& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);

@@ -61,6 +61,31 @@ static std::map<std::string, AxCodeSession*>& code_session_registry() {
   return sessions;
 }
 
+// Native host search callbacks: Value cannot hold a closure, so the closures live in
+// a process-lifetime registry keyed by id, and a small marker object ({"__*_search_id": id})
+// is placed in the agent options under "onMemoriesSearch"/"onSkillsSearch". The agent loop
+// (Core::agent_memory_search / agent_skill_search) reads the marker and dispatches here.
+static std::map<std::string, std::function<Value(Value, Value)>>& memories_search_registry() {
+  static std::map<std::string, std::function<Value(Value, Value)>> registry;
+  return registry;
+}
+static std::map<std::string, std::function<Value(Value)>>& skills_search_registry() {
+  static std::map<std::string, std::function<Value(Value)>> registry;
+  return registry;
+}
+Value register_memories_search(std::function<Value(Value, Value)> fn) {
+  static int counter = 0;
+  std::string id = "__mem_search_" + std::to_string(++counter);
+  memories_search_registry()[id] = std::move(fn);
+  return object({{"__memories_search_id", id}});
+}
+Value register_skills_search(std::function<Value(Value)> fn) {
+  static int counter = 0;
+  std::string id = "__skill_search_" + std::to_string(++counter);
+  skills_search_registry()[id] = std::move(fn);
+  return object({{"__skills_search_id", id}});
+}
+
 static std::map<std::string, std::function<Value(Value)>>& tool_registry() {
   static std::map<std::string, std::function<Value(Value)>> handlers;
   return handlers;
@@ -903,6 +928,20 @@ Value Core::agent_runtime_close(Value session) {
 }
 Value Core::agent_memory_search(Value state, Value searches, Value already_loaded) {
   Value options = get_key(state, "options", Value::object());
+  // Native host callback: a closure registered via register_memories_search, referenced by a
+  // marker under "onMemoriesSearch" -- receives the actor's recall() searches + already-loaded ids.
+  Value callback = get_key(options, "on_memories_search", get_key(options, "onMemoriesSearch", Value()));
+  if (callback.is_object()) {
+    std::string mid = str(get_key(callback, "__memories_search_id", Value("")));
+    if (!mid.empty()) {
+      auto& reg = memories_search_registry();
+      auto it = reg.find(mid);
+      if (it != reg.end() && it->second) {
+        Value r = it->second(searches, already_loaded);
+        return r.is_null() ? Value::array() : r;
+      }
+    }
+  }
   Value scripted = get_key(options, "memory_search_results", get_key(options, "memorySearchResults", Value::object()));
   if (scripted.is_object()) {
     std::vector<std::string> parts;
@@ -925,6 +964,20 @@ Value Core::agent_memory_search(Value state, Value searches, Value already_loade
 }
 Value Core::agent_skill_search(Value state, Value searches) {
   Value options = get_key(state, "options", Value::object());
+  // Native host callback: a closure registered via register_skills_search, referenced by a
+  // marker under "onSkillsSearch" -- receives the actor's discover() searches.
+  Value callback = get_key(options, "on_skills_search", get_key(options, "onSkillsSearch", Value()));
+  if (callback.is_object()) {
+    std::string mid = str(get_key(callback, "__skills_search_id", Value("")));
+    if (!mid.empty()) {
+      auto& reg = skills_search_registry();
+      auto it = reg.find(mid);
+      if (it != reg.end() && it->second) {
+        Value r = it->second(searches);
+        return r.is_null() ? Value::array() : r;
+      }
+    }
+  }
   Value scripted = get_key(options, "skill_search_results", get_key(options, "skillSearchResults", Value::object()));
   if (scripted.is_object()) {
     std::vector<std::string> parts;
