@@ -1,7 +1,7 @@
 ---
 name: "ax-java-signature"
 description: "Use when writing Java code with `dev.axllm:ax` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes."
-version: "22.0.3"
+version: "22.0.4"
 ---
 # Ax Signatures For Java
 

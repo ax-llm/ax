@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-agent"
 description: "Use when writing Rust code with `axllm` for agents, child delegation, tools, MCP, clarification, runtime state, and final typed responses."
-version: "22.0.3"
+version: "22.0.4"
 ---
 # AxAgent For Rust
 

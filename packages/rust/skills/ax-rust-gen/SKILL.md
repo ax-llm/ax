@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-gen"
 description: "Use when writing Rust code with `axllm` for AxGen programs, forward calls, streaming, tools, assertions, traces, usage, and output parsing."
-version: "22.0.3"
+version: "22.0.4"
 ---
 # AxGen Structured Generation For Rust
 

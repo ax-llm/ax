@@ -33797,4 +33797,4 @@ func extractQuotedSuffix(s string) (Value, error) { escaped:=false; for i:=0;i<l
 
 func _core_type_is_json(value Value) Value { return true }
 
-func Version() string { return "22.0.3" }
+func Version() string { return "22.0.4" }

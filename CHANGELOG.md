@@ -1,5 +1,9 @@
 # Changelog
 
+## [22.0.4](https://github.com/ax-llm/ax/compare/22.0.2...22.0.3) (2026-06-20)
+
+## [22.0.3](https://github.com/ax-llm/ax/compare/22.0.2...22.0.3) (2026-06-08)
+
 ## [22.0.3](https://github.com/ax-llm/ax/compare/22.0.1...22.0.2) (2026-06-08)
 
 ## [22.0.2](https://github.com/ax-llm/ax/compare/22.0.1...22.0.2) (2026-06-05)
