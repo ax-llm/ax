@@ -30,6 +30,11 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
 </div>
 </section>
 
+<div class="home-maintainer-cta">
+  <p>Built by <strong>@dosco</strong> — follow on X for new releases and to chat about Ax.</p>
+  <a href="https://x.com/dosco">Follow @dosco on X</a>
+</div>
+
 <section class="home-section home-quick-install" aria-labelledby="quick-install">
 <div class="home-section-heading">
   <p class="home-section-label">Get started</p>
@@ -430,7 +435,9 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
   <a href="/typescript/quick-start/">Get started</a>
   <a class="home-button-secondary" href="/typescript/examples/">Examples</a>
   <a class="home-button-secondary" href="https://github.com/ax-llm/ax">GitHub</a>
+  <a class="home-button-secondary" href="https://x.com/dosco">Follow @dosco on X</a>
 </div>
+<p class="home-inline-note">Built by <a href="https://x.com/dosco">@dosco</a> — follow on X for new releases and to chat about Ax.</p>
 <p class="home-inline-note">Building with an AI coding agent? <a href="/typescript/skills/">Install the Ax skills</a> and let it write Ax for you.</p>
 </section>
 </div>

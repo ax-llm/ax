@@ -4101,6 +4101,44 @@ pre.mermaid {
   white-space: nowrap;
 }
 
+.home-maintainer-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 1rem;
+  margin: 0 0 2rem;
+}
+
+.home-maintainer-cta p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.home-maintainer-cta p strong {
+  color: var(--heading);
+}
+
+.home-maintainer-cta a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.3rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--heading);
+  font-size: 0.88rem;
+  font-weight: 620;
+  padding: 0.46rem 0.8rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.home-maintainer-cta a:hover {
+  border-color: var(--accent-2);
+  color: var(--accent-2);
+}
+
 .home-hero-panel .home-output-panel {
   margin-top: 0.95rem;
 }

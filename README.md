@@ -8,8 +8,13 @@ provider mappings, agents, flows, runtime contracts, and optimizers are also
 compiled into verified generated Python, Java, C++, Go, and Rust libraries.
 
 [![NPM](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=222&label=npm)](https://www.npmjs.com/package/@ax-llm/ax)
+[![PyPI](https://img.shields.io/pypi/v/axllm?style=for-the-badge&color=3775A9&label=pypi)](https://pypi.org/project/axllm/)
+[![crates.io](https://img.shields.io/crates/v/axllm?style=for-the-badge&color=E43717&label=crates.io)](https://crates.io/crates/axllm)
+[![Maven Central](https://img.shields.io/maven-central/v/dev.axllm/ax?style=for-the-badge&color=C71A36&label=maven)](https://central.sonatype.com/artifact/dev.axllm/ax)
 [![Discord](https://img.shields.io/discord/1078454354849304667?style=for-the-badge&color=5865F2&label=discord)](https://discord.gg/DSHg3dU7dW)
-[![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=1da1f2&label=%40dosco)](https://twitter.com/dosco)
+[![Follow @dosco on X](https://img.shields.io/badge/Follow_%40dosco-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/dosco)
+
+> 💬 **Follow [@dosco](https://x.com/dosco) on X** for new releases and to chat about the project.
 
 ## What Ax is
 
@@ -560,9 +565,11 @@ That keeps normal TypeScript PRs small while giving AxIR maintainers and coding
 agents a precise queue for migrating the behavior into Python, Java, C++, Go,
 and future generated backends later.
 
-## I need help?
+## Questions or feedback?
 
-Reach out to [@dosco](https://x.com/dosco)
+**Follow [@dosco](https://x.com/dosco) on X** to keep up with new releases and chat with
+me about the project — or [open an issue](https://github.com/ax-llm/ax/issues) or join the
+[Discord](https://discord.gg/DSHg3dU7dW).
 
 ## License
 
