@@ -1,5 +1,13 @@
 # Changelog
 
+## [22.0.5](https://github.com/ax-llm/ax/compare/22.0.3...22.0.4) (2026-06-20)
+
+### Bug Fixes
+
+* **maven:** bump central-publishing-maven-plugin 0.7.0 -> 0.11.0 ([#554](https://github.com/ax-llm/ax/issues/554)) ([2e0b667](https://github.com/ax-llm/ax/commit/2e0b667832554d3f299244d421c41ccfd1f945f8))
+
+## [22.0.4](https://github.com/ax-llm/ax/compare/22.0.3...22.0.4) (2026-06-20)
+
 ## [22.0.4](https://github.com/ax-llm/ax/compare/22.0.2...22.0.3) (2026-06-20)
 
 ## [22.0.3](https://github.com/ax-llm/ax/compare/22.0.2...22.0.3) (2026-06-08)

@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-agent-observability"
 description: "Use when writing Rust code with `axllm` for agent tracing, usage accounting, action logs, runtime diagnostics, replay, and production debugging."
-version: "22.0.4"
+version: "22.0.5"
 ---
 # AxAgent Observability For Rust
 
