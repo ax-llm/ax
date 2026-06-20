@@ -4,7 +4,7 @@
   "shortLabel": "Rust",
   "fence": "rust",
   "packageName": "axllm",
-  "install": ["cargo add --git https://github.com/ax-llm/ax axllm"],
+  "install": ["cargo add axllm"],
   "exampleRoot": "packages/rust/examples",
   "apiKind": "axir",
   "optimizeName": "AxGEPA",

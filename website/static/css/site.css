@@ -4092,6 +4092,37 @@ pre.mermaid {
   white-space: nowrap;
 }
 
+.home-install-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin: 0 0 2.2rem;
+}
+
+.home-install-block {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 0.82rem 1rem;
+}
+
+.home-install-block .home-install {
+  margin: 0;
+}
+
+.home-install-heading {
+  margin: 0 0 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.home-install-section .home-agent-strip {
+  margin: 0;
+}
+
 .home-hero-panel .home-output-panel {
   margin-top: 0.95rem;
 }
