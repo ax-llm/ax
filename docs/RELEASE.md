@@ -14,7 +14,7 @@ it is not a package name. The generated package sources are checked in under
 - Python: PyPI distribution and import package `axllm`
 - Java: Maven coordinate `dev.axllm:ax`, Java package `dev.axllm.ax`
 - C++: CMake package `axllm`, target `axllm::axllm`, namespace `axllm`
-- Go: module `github.com/ax-llm/ax/go`, package `axllm`
+- Go: module `github.com/ax-llm/ax/packages/go`, package `axllm`
 - Rust: crate `axllm`
 
 Do not publish generated packages as `axir`, `ax-go`, or other compiler/backend

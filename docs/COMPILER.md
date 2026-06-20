@@ -113,7 +113,7 @@ AxIR emits libraries, not one-off programs:
 - C++: namespace `axllm`, C++17, `axllm/axllm.hpp` plus
   `axllm/axllm.cpp`, CMake target `axllm::axllm`, and optional QuickJS
   sources outside the default build.
-- Go: module `github.com/ax-llm/ax/go`, package `axllm`, Go 1.22+,
+- Go: module `github.com/ax-llm/ax/packages/go`, package `axllm`, Go 1.22+,
   `context.Context` on execution/client boundaries, standard `net/http`
   transport, and an opt-in generated `runtime/goja` package for built-in
   JavaScript actor execution.
@@ -184,7 +184,7 @@ AxAgent. Generated runtime profiles are portability proofs behind the same
   process/protocol boundary.
 - `javascript-goja`: Go-native JavaScript actor code runs through the generated
   `runtime/goja` package. The root Go package stays vendor-neutral; users opt
-  in by importing `github.com/ax-llm/ax/go/runtime/goja`.
+  in by importing `github.com/ax-llm/ax/packages/go/runtime/goja`.
 - Rust keeps the process JSONL runtime protocol through `ProcessCodeRuntime`.
   The embedded JavaScript profile is additive and feature-gated, so the base
   crate stays dependency-light while the public `AxCodeRuntime` /

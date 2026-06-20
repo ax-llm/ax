@@ -5,9 +5,10 @@
   "fence": "cpp",
   "packageName": "axllm",
   "install": [
-    "git clone https://github.com/ax-llm/ax && cmake -S ax/packages/cpp -B build",
-    "cmake --build build",
-    "./build/signature_schema"
+    "include(FetchContent)",
+    "FetchContent_Declare(axllm GIT_REPOSITORY https://github.com/ax-llm/ax GIT_TAG main SOURCE_SUBDIR packages/cpp)",
+    "FetchContent_MakeAvailable(axllm)",
+    "target_link_libraries(your_app PRIVATE axllm::axllm)"
   ],
   "exampleRoot": "packages/cpp/examples",
   "apiKind": "axir",

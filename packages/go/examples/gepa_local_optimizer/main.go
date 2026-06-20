@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	ax "github.com/ax-llm/ax/go"
+	ax "github.com/ax-llm/ax/packages/go"
 )
 
 type localEvaluator struct{}

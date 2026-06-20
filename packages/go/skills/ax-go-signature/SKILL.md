@@ -1,11 +1,11 @@
 ---
 name: "ax-go-signature"
-description: "Use when writing Go code with `github.com/ax-llm/ax/go` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes."
+description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes."
 version: "22.0.3"
 ---
 # Ax Signatures For Go
 
-This skill helps an agent write Go code with the generated Ax package `github.com/ax-llm/ax/go`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
+This skill helps an agent write Go code with the generated Ax package `github.com/ax-llm/ax/packages/go`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
 
 ## When To Use
 
@@ -16,7 +16,7 @@ This skill helps an agent write Go code with the generated Ax package `github.co
 ## Package Facts
 
 - Language: Go.
-- Package: `github.com/ax-llm/ax/go`.
+- Package: `github.com/ax-llm/ax/packages/go`.
 - Package API docs: `API.md` and `axir-api.json`.
 - Capability manifest: `axir-capabilities.json`.
 - Runnable examples: `examples/`.
@@ -27,7 +27,7 @@ This skill helps an agent write Go code with the generated Ax package `github.co
 ## Core Pattern
 
 ```go
-import ax "github.com/ax-llm/ax/go"
+import ax "github.com/ax-llm/ax/packages/go"
 
 sig := ax.NewSignature("question:string -> answer:string")
 schema := sig.ToJSONSchema(nil)

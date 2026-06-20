@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	ax "github.com/ax-llm/ax/go"
-	axgoja "github.com/ax-llm/ax/go/runtime/goja"
+	ax "github.com/ax-llm/ax/packages/go"
+	axgoja "github.com/ax-llm/ax/packages/go/runtime/goja"
 )
 
 func main() {

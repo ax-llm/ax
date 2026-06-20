@@ -4,11 +4,13 @@ Use Ax from C++ when you want structured LLM programs close to your runtime: sig
 
 ## Quick Start
 
-```bash
-cd packages/cpp
-cmake -S . -B build
-cmake --build build
-./build/signature_schema
+Add Ax to your CMake project with `FetchContent`:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(axllm GIT_REPOSITORY https://github.com/ax-llm/ax GIT_TAG main SOURCE_SUBDIR packages/cpp)
+FetchContent_MakeAvailable(axllm)
+target_link_libraries(your_app PRIVATE axllm::axllm)
 ```
 
 ```cpp

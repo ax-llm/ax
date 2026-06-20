@@ -5,9 +5,7 @@ Build Ax programs from Python without giving up the Ax model: typed signatures, 
 ## Quick Start
 
 ```bash
-cd packages/python
-python -m pip install -e .
-PYTHONPATH=. python examples/signature_schema.py
+pip install "axllm @ git+https://github.com/ax-llm/ax#subdirectory=packages/python"
 ```
 
 ```python

@@ -19,6 +19,8 @@ audio
 .env.*
 .data
 demos.json
+# Scratch consumer demos used to verify package-manager install flows (holds a local .env)
+/demo/
 site/dist
 website/.generated/
 website/public/
