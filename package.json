@@ -47,7 +47,7 @@
     "website:dev": "npm run website:prepare && hugo server --source website",
     "website:check": "node scripts/check-website-links.mjs",
     "prepare": "lefthook install",
-    "release": "npm run release --workspaces --if-present && release-it --no-increment",
+    "release": "npm run release --workspaces --if-present && npm run axir:generate-packages && release-it --no-increment",
     "publish": "npm run publish --workspaces  --if-present -- --provenance --access public",
     "dependencies:rebuild": "rm -rf package-lock.json && rm -rf node_modules && rm -rf */*/node_modules && npm i --no-audit --no-fund",
     "tsx": "node --env-file=.env --import=tsx",
