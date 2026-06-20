@@ -4045,33 +4045,42 @@ pre.mermaid {
   font-variant-numeric: tabular-nums;
 }
 
-.home-install-strip,
-.home-agent-strip {
+.home-quick-install-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.7rem 1.15rem;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  margin: 0 0 2.2rem;
-  padding: 0.82rem 1rem;
+  gap: 0.6rem 1.5rem;
+  margin: 0 0 0.95rem;
 }
 
-.home-install-strip {
-  margin-bottom: 0.85rem;
-}
-
-.home-install-strip .home-install,
-.home-install-strip .home-language-pills,
-.home-install-strip .home-hero-stats {
+.home-quick-install-bar .home-language-pills,
+.home-quick-install-bar .home-hero-stats {
   margin: 0;
+}
+
+.home-quick-install > .home-install {
+  margin: 0;
+}
+
+.home-agent-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 1.9rem 0 0;
+}
+
+.home-agent-strip h3 {
+  margin: 0;
+  font-size: 1.08rem;
 }
 
 .home-agent-strip p {
   margin: 0;
+  max-width: 62ch;
   color: var(--muted);
-  font-size: 0.95rem;
+  font-size: 0.96rem;
+  line-height: 1.55;
 }
 
 .home-agent-strip p strong {
