@@ -124,8 +124,8 @@ languages:
     label: Python
     shortLabel: Python
     codeLang: python
-    command: pip install "axllm @ git+https://github.com/ax-llm/ax#subdirectory=packages/python"
-    statusLabel: in repo · PyPI soon
+    command: pip install axllm
+    statusLabel: on PyPI
     skillsCommand: npx skills add https://ax-llm.github.io/ax/python/ --skill '*'
     classifier:
       filename: classify.py
@@ -237,8 +237,8 @@ languages:
     label: Java
     shortLabel: Java
     codeLang: java
-    command: git clone https://github.com/ax-llm/ax && cd ax/packages/java
-    statusLabel: in repo · Maven Central soon
+    command: dev.axllm:ax
+    statusLabel: on Maven Central
     skillsCommand: npx skills add https://ax-llm.github.io/ax/java/ --skill '*'
     classifier:
       filename: Classify.java
@@ -351,8 +351,8 @@ languages:
     label: C++
     shortLabel: C++
     codeLang: cpp
-    command: git clone https://github.com/ax-llm/ax && cmake -S ax/packages/cpp -B build
-    statusLabel: in repo · source build
+    command: FetchContent_Declare(axllm GIT_REPOSITORY https://github.com/ax-llm/ax SOURCE_SUBDIR packages/cpp)
+    statusLabel: CMake FetchContent
     skillsCommand: npx skills add https://ax-llm.github.io/ax/cpp/ --skill '*'
     classifier:
       filename: classify.cpp
@@ -460,8 +460,8 @@ languages:
     label: Go
     shortLabel: Go
     codeLang: go
-    command: git clone https://github.com/ax-llm/ax && cd ax/packages/go
-    statusLabel: in repo · go get soon
+    command: go get github.com/ax-llm/ax/packages/go
+    statusLabel: go get
     skillsCommand: npx skills add https://ax-llm.github.io/ax/go/ --skill '*'
     classifier:
       filename: classify.go
@@ -577,8 +577,8 @@ languages:
     label: Rust
     shortLabel: Rust
     codeLang: rust
-    command: git clone https://github.com/ax-llm/ax && cd ax/packages/rust
-    statusLabel: in repo · crates.io soon
+    command: cargo add axllm
+    statusLabel: on crates.io
     skillsCommand: npx skills add https://ax-llm.github.io/ax/rust/ --skill '*'
     classifier:
       filename: classify.rs

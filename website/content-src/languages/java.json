@@ -5,9 +5,14 @@
   "fence": "java",
   "packageName": "dev.axllm:ax",
   "install": [
-    "# build + install to your local Maven repo (until published):",
-    "git clone https://github.com/ax-llm/ax && (cd ax/packages/java && mvn -q install)",
-    "# then add dev.axllm:ax:22.0.3 to your pom.xml dependencies"
+    "// Gradle (build.gradle):",
+    "implementation 'dev.axllm:ax:22.0.4'",
+    "// Maven (pom.xml):",
+    "<dependency>",
+    "  <groupId>dev.axllm</groupId>",
+    "  <artifactId>ax</artifactId>",
+    "  <version>22.0.4</version>",
+    "</dependency>"
   ],
   "exampleRoot": "packages/java/examples",
   "apiKind": "axir",

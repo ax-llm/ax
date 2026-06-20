@@ -4,15 +4,21 @@ Bring Ax into Java services and JVM applications with a small native API: signat
 
 ## Quick Start
 
-Maven and Gradle cannot depend on a git repository directly, so build and
-install the package to your local Maven repository until it is published to
-Maven Central:
+Add the dependency from Maven Central:
 
-```bash
-git clone https://github.com/ax-llm/ax && (cd ax/packages/java && mvn -q install)
+```xml
+<dependency>
+  <groupId>dev.axllm</groupId>
+  <artifactId>ax</artifactId>
+  <version>22.0.4</version>
+</dependency>
 ```
 
-Then add the dependency `dev.axllm:ax:22.0.3` to your `pom.xml` or `build.gradle`.
+Or with Gradle:
+
+```groovy
+implementation 'dev.axllm:ax:22.0.4'
+```
 
 ```java
 import dev.axllm.ax.*;
