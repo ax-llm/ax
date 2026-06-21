@@ -13,7 +13,12 @@ The RLM-prompt port is complete: `agent()` now renders the executor/responder/di
 prompts from AxIR (byte-identical to the TypeScript reference) and injects them so they reach the
 model's chat request, in **all five languages**. The gates have flipped accordingly:
 - **G3 prompt-parity**: GREEN in all five (was RED before the port). Enforced in CI via the
-  `runtime-forward-javascript-final` regression fixture's `expected_request_contains` check.
+  `runtime-forward-javascript-final` regression fixture's `expected_request_contains` check. A
+  companion **source-sync** gate (`npm run axir:gate:prompt-sync`,
+  `scripts/axir-prompt-sync-check.mjs`) additionally asserts the two prompt copies are
+  byte-identical — `src/ax/agent/templates/rlm/{executor,distiller,responder}.md` (the TS source of
+  truth) vs the `*_template` fields of `ir/axcore/data/rlm-prompts.json` — catching silent drift at
+  edit time, before any regen or conformance run. (G3 only substring-checks the rendered IR side.)
 - **G1 real-engine antidote**: GREEN in **all five** -- Go (goja), Rust/C++/Python (quickjs),
   Java (quickjs4j/Chicory) -- each runs the full `forward()` loop through a real engine that
   executes the model's `final()` code. Engines are optional deps, so these run in engine-enabled

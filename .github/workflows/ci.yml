@@ -59,6 +59,8 @@ jobs:
         run: npm run axir:gate:ledger
       - name: Check AxIR anti-facade examples
         run: npm run axir:gate:anti-facade
+      - name: Check AxIR RLM prompt sync (TS .md vs IR json)
+        run: npm run axir:gate:prompt-sync
       - name: Check formatting
         run: npm run test:format
       - name: Lint
