@@ -19,7 +19,7 @@ const llm = ai({
   name: 'openai',
   apiKey,
   config: {
-    model: AxAIOpenAIModel.GPT4OMini,
+    model: AxAIOpenAIModel.GPT54Mini,
     temperature: 0,
   },
 });
