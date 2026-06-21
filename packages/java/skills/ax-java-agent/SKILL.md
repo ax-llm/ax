@@ -1,7 +1,7 @@
 ---
 name: "ax-java-agent"
 description: "Use when writing Java code with `dev.axllm:ax` for agents, child delegation, tools, MCP, clarification, runtime state, and final typed responses."
-version: "22.0.5"
+version: "22.0.6"
 ---
 # AxAgent For Java
 

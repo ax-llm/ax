@@ -1,7 +1,7 @@
 ---
 name: "ax-python-signature"
 description: "Use when writing Python code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes."
-version: "22.0.5"
+version: "22.0.6"
 ---
 # Ax Signatures For Python
 

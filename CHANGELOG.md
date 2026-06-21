@@ -1,5 +1,20 @@
 # Changelog
 
+## [22.0.6](https://github.com/ax-llm/ax/compare/22.0.4...22.0.5) (2026-06-21)
+
+### Bug Fixes
+
+* **axir:** handle binary speak()/TTS responses across the non-TS ports ([5068c65](https://github.com/ax-llm/ax/commit/5068c65efda7558590fc42f188c3fa63648f44d2))
+* **axir:** implement multipart/form-data in the non-TS port HTTP layers ([57009ce](https://github.com/ax-llm/ax/commit/57009ceeeabfa4a2e9bc83e955c4cf85042d45d6))
+* **axir:** populate freeform json[] output fields in the language ports ([bd3a4eb](https://github.com/ax-llm/ax/commit/bd3a4ebacb3e5471cddabe013b72460882905a3d))
+* **axir:** recurse into nested object/object[] flexible-json output leaves ([aa1e64a](https://github.com/ax-llm/ax/commit/aa1e64a51f1d0cc89969971a3cc41bffb3982c32))
+
+## [22.0.5](https://github.com/ax-llm/ax/compare/22.0.4...22.0.5) (2026-06-20)
+
+### Bug Fixes
+
+* **maven:** bump central-publishing-maven-plugin 0.7.0 -> 0.11.0 ([#554](https://github.com/ax-llm/ax/issues/554)) ([2e0b667](https://github.com/ax-llm/ax/commit/2e0b667832554d3f299244d421c41ccfd1f945f8))
+
 ## [22.0.5](https://github.com/ax-llm/ax/compare/22.0.3...22.0.4) (2026-06-20)
 
 ### Bug Fixes

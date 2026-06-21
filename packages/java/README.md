@@ -10,14 +10,14 @@ Add the dependency from Maven Central:
 <dependency>
   <groupId>dev.axllm</groupId>
   <artifactId>ax</artifactId>
-  <version>22.0.5</version>
+  <version>22.0.6</version>
 </dependency>
 ```
 
 Or with Gradle:
 
 ```groovy
-implementation 'dev.axllm:ax:22.0.5'
+implementation 'dev.axllm:ax:22.0.6'
 ```
 
 ```java

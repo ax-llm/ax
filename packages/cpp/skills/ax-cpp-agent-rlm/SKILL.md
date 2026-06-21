@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-agent-rlm"
 description: "Use when writing C++ code with `axllm` for RLM executor loops, AxCodeRuntime sessions, runtime envelopes, process runtimes, and optional runtime profiles."
-version: "22.0.5"
+version: "22.0.6"
 ---
 # AxAgent RLM Runtime For C++
 

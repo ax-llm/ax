@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-agent-observability"
 description: "Use when writing C++ code with `axllm` for agent tracing, usage accounting, action logs, runtime diagnostics, replay, and production debugging."
-version: "22.0.5"
+version: "22.0.6"
 ---
 # AxAgent Observability For C++
 

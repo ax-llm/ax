@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-gen"
 description: "Use when writing C++ code with `axllm` for AxGen programs, forward calls, streaming, tools, assertions, traces, usage, and output parsing."
-version: "22.0.5"
+version: "22.0.6"
 ---
 # AxGen Structured Generation For C++
 
