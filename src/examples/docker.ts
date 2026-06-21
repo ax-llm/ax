@@ -1,4 +1,4 @@
-import { ai, ax, AxAIGoogleGeminiModel, AxDockerSession, f } from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, AxDockerSession, ai, ax, f } from '@ax-llm/ax';
 
 // Initialize Docker session
 const dockerSession = new AxDockerSession();
@@ -28,7 +28,7 @@ const prompt = ax(sig, { functions: [dockerSession] });
 const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY,
-  config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
+  config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
   options: { debug: true },
 });
 

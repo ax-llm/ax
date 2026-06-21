@@ -4,7 +4,7 @@ import { AxAIGoogleGeminiModel, ai, flow } from '@ax-llm/ax';
 const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },
+  config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
 });
 
 // Full method example - Document analysis pipeline with production configuration

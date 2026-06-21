@@ -10,7 +10,7 @@ const llm = ai({
   name: 'anthropic',
   apiKey: process.env.ANTHROPIC_APIKEY!,
   config: {
-    model: AxAIAnthropicModel.Claude37Sonnet,
+    model: AxAIAnthropicModel.Claude46Sonnet,
     tools: [
       {
         type: 'web_search_20250305',

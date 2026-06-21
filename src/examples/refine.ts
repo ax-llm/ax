@@ -3,7 +3,7 @@ import { AxAIGoogleGeminiModel, ax, ai as createAI, refine } from '@ax-llm/ax';
 const llm = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },
+  config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
 });
 
 const writer = ax(

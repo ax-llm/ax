@@ -38,7 +38,7 @@ const studentAI = ai({
   name: 'google-gemini',
   apiKey: googleApiKey,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini25FlashLite,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
     temperature: 0.2,
     maxTokens: 320,
   },
@@ -48,7 +48,7 @@ const teacherAI = ai({
   name: 'google-gemini',
   apiKey: googleApiKey,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini25Pro,
+    model: AxAIGoogleGeminiModel.Gemini3Pro,
     temperature: 0.2,
     maxTokens: 640,
   },

@@ -13,7 +13,7 @@ const currentDate = new Date();
 //   models: [
 //     {
 //       key: 'model-a',
-//       model: AxAIOpenAIModel.GPT4OMini,
+//       model: AxAIOpenAIModel.GPT54Mini,
 //       description: 'A model that is good for general purpose',
 //     },
 //   ],
@@ -23,19 +23,19 @@ const llm = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini25FlashLite,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
     thinking: { thinkingTokenBudget: 0 },
   },
   options: { timeout: 5000 },
   models: [
     {
       key: 'model-a',
-      model: AxAIGoogleGeminiModel.Gemini25FlashLite,
+      model: AxAIGoogleGeminiModel.Gemini35Flash,
       description: 'A model that is good for general purpose',
     },
     {
       key: 'model-b',
-      model: AxAIGoogleGeminiModel.Gemini25Flash,
+      model: AxAIGoogleGeminiModel.Gemini35Flash,
       description: 'A model that is good for complex stuff',
     },
   ],

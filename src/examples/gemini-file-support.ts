@@ -7,7 +7,7 @@
  * to process files using both inline base64 data and Google Cloud Storage gs:// URLs.
  */
 
-import { ax, ai, AxAIGoogleGeminiModel } from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, ai, ax } from '@ax-llm/ax';
 
 // Export reusable generators for both file formats
 export const documentAnalyzer = ax(`
@@ -30,7 +30,7 @@ console.log('=== File Support Demo: Base64 Data ===');
 const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+  config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
 });
 
 // Single file with base64 data

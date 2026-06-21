@@ -1,4 +1,4 @@
-import { ai, ax, AxAIGoogleGeminiModel } from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, ai, ax } from '@ax-llm/ax';
 
 export const mapsDemo = ax(
   'userQuestion:string "User location-aware question" -> responseText:string "AI response"'
@@ -9,7 +9,7 @@ console.log('=== Google Maps Grounding Demo ===');
 const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  model: AxAIGoogleGeminiModel.Gemini25FlashLite,
+  model: AxAIGoogleGeminiModel.Gemini35Flash,
   options: {
     googleMaps: { enableWidget: true },
     retrievalConfig: {

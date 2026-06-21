@@ -21,14 +21,14 @@ const openaiService = ai({
   apiKey: apiKeys.openai,
   models: [
     {
-      key: 'gpt-4o',
-      model: AxAIOpenAIModel.GPT4O,
-      description: 'GPT-4 Optimized',
+      key: 'gpt-5.4',
+      model: AxAIOpenAIModel.GPT54,
+      description: 'GPT-5.4',
     },
     {
-      key: 'gpt-4o-mini',
-      model: AxAIOpenAIModel.GPT4OMini,
-      description: 'GPT-4 Mini',
+      key: 'gpt-5.4-mini',
+      model: AxAIOpenAIModel.GPT54Mini,
+      description: 'GPT-5.4 Mini',
     },
   ] as const,
 });
@@ -38,14 +38,14 @@ const anthropicService = ai({
   apiKey: apiKeys.anthropic,
   models: [
     {
-      key: 'claude-3-5-sonnet',
-      model: AxAIAnthropicModel.Claude35Sonnet,
-      description: 'Claude 3.5 Sonnet',
+      key: 'claude-sonnet-4-6',
+      model: AxAIAnthropicModel.Claude46Sonnet,
+      description: 'Claude Sonnet 4.6',
     },
     {
-      key: 'claude-3-5-haiku',
-      model: AxAIAnthropicModel.Claude35Haiku,
-      description: 'Claude 3.5 Haiku',
+      key: 'claude-haiku-4-5',
+      model: AxAIAnthropicModel.Claude45Haiku,
+      description: 'Claude Haiku 4.5',
     },
   ] as const,
 });
@@ -55,20 +55,20 @@ const googleService = ai({
   apiKey: apiKeys.google,
   models: [
     {
-      key: 'gemini-2-flash',
-      model: AxAIGoogleGeminiModel.Gemini20Flash,
-      description: 'Gemini 2.0 Flash',
+      key: 'gemini-3.5-flash',
+      model: AxAIGoogleGeminiModel.Gemini35Flash,
+      description: 'Gemini 3.5 Flash',
     },
     {
-      key: 'gemini-1-5-pro',
-      model: AxAIGoogleGeminiModel.Gemini15Pro,
-      description: 'Gemini 1.5 Pro',
+      key: 'gemini-3-pro',
+      model: AxAIGoogleGeminiModel.Gemini3Pro,
+      description: 'Gemini 3 Pro',
     },
   ] as const,
 });
 
 // Create type-safe multi-service router
-// TModelKey is automatically inferred as: 'gpt-4o' | 'gpt-4o-mini' | 'claude-3-5-sonnet' | 'claude-3-5-haiku' | 'gemini-2-flash' | 'gemini-1-5-pro'
+// TModelKey is automatically inferred as: 'gpt-5.4' | 'gpt-5.4-mini' | 'claude-sonnet-4-6' | 'claude-haiku-4-5' | 'gemini-3.5-flash' | 'gemini-3-pro'
 const router = AxMultiServiceRouter.create([
   openaiService,
   anthropicService,
@@ -83,12 +83,12 @@ const openaiBalanceService = ai({
   models: [
     {
       key: 'smart-model',
-      model: AxAIOpenAIModel.GPT4O,
+      model: AxAIOpenAIModel.GPT54,
       description: 'Smart Model via OpenAI',
     },
     {
       key: 'fast-model',
-      model: AxAIOpenAIModel.GPT4OMini,
+      model: AxAIOpenAIModel.GPT54Mini,
       description: 'Fast Model via OpenAI',
     },
   ] as const,
@@ -100,12 +100,12 @@ const anthropicBalanceService = ai({
   models: [
     {
       key: 'smart-model',
-      model: AxAIAnthropicModel.Claude35Sonnet,
+      model: AxAIAnthropicModel.Claude46Sonnet,
       description: 'Smart Model via Anthropic',
     },
     {
       key: 'fast-model',
-      model: AxAIAnthropicModel.Claude35Haiku,
+      model: AxAIAnthropicModel.Claude45Haiku,
       description: 'Fast Model via Anthropic',
     },
   ] as const,
@@ -118,7 +118,7 @@ anthropicBalanceService.chat({
 
 // These would now cause TypeScript compile errors:
 // anthropicBalanceService.chat({ chatPrompt: [...], model: 'invalid-model' }); // ❌ Type error
-// anthropicBalanceService.chat({ chatPrompt: [...], model: 'gpt-4o' }); // ❌ Type error (not in this service's models)
+// anthropicBalanceService.chat({ chatPrompt: [...], model: 'gpt-5.4' }); // ❌ Type error (not in this service's models)
 
 // Create type-safe balancer
 // TModelKey is automatically inferred as: 'smart-model' | 'fast-model'
@@ -136,7 +136,7 @@ console.log(
 
 const routerResponse = await router.chat({
   chatPrompt: [{ role: 'user', content: 'Say hello in a creative way!' }],
-  model: 'gpt-4o',
+  model: 'gpt-5.4',
 });
 
 // These would now cause TypeScript compile errors:
@@ -161,7 +161,7 @@ const balancerResponse = await balancer.chat({
 
 // These would now cause TypeScript compile errors:
 // await balancer.chat({ chatPrompt: [...], model: 'invalid-model' }); // ❌ Type error
-// await balancer.chat({ chatPrompt: [...], model: 'gpt-4o' }); // ❌ Type error (not in balancer's models)
+// await balancer.chat({ chatPrompt: [...], model: 'gpt-5.4' }); // ❌ Type error (not in balancer's models)
 
 if (typeof balancerResponse === 'object' && 'results' in balancerResponse) {
   console.log('Balancer response:', balancerResponse.results[0]?.content);

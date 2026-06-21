@@ -9,7 +9,7 @@ import {
 const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },
+  config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
 });
 
 // Enable debug mode to see logging

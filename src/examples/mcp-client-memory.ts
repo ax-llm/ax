@@ -36,7 +36,7 @@ const memoryAgent = agent(
 const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
-  config: { model: AxAIOpenAIModel.GPT4OMini },
+  config: { model: AxAIOpenAIModel.GPT54Mini },
 });
 ai.setOptions({ debug: true });
 

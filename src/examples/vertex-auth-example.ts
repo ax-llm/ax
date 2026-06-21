@@ -35,7 +35,7 @@ const auth = new GoogleAuth({
     projectId: process.env.GOOGLE_PROJECT_ID!, // Your Google Cloud Project ID
     region: process.env.GOOGLE_REGION || 'us-central1', // Your preferred region
     config: {
-      model: AxAIGoogleGeminiModel.Gemini15Flash,
+      model: AxAIGoogleGeminiModel.Gemini35Flash,
       stream: false,
     },
     options: {

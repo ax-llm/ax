@@ -144,7 +144,7 @@ const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
-    model: AxAIGoogleGeminiModel.GeminiFlashLiteLatest,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
   },
 });
 

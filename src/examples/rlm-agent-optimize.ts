@@ -77,7 +77,7 @@ const studentAI = ai({
   name: 'google-gemini',
   apiKey: googleApiKey!,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini25FlashLite,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
     temperature: 0.2,
   },
 });
@@ -556,13 +556,13 @@ function buildCoordinator(env: OfficeEnvironment) {
     executorOptions: {
       description:
         'You are the operations coordinator for Big Basin Labs. Use tools instead of guessing. Respect relative dates using the provided today field. Prefer direct tool calls and simple runtime JavaScript for scheduling, project status, and email tasks. When the task says draft only, save a draft and do not send. When the task forbids emailing someone, do not include them as recipients. Do not ask for clarification if the needed information can be gathered from tools.',
-      model: AxAIGoogleGeminiModel.Gemini25FlashLite,
+      model: AxAIGoogleGeminiModel.Gemini35Flash,
       modelConfig: { temperature: 0.2, maxTokens: 420 },
     },
     responderOptions: {
       description:
         'Reply in crisp operational language. Mention exact scheduled times, recipients, and whether you sent an email or saved only a draft. Never claim an action that a tool did not complete.',
-      model: AxAIGoogleGeminiModel.Gemini25FlashLite,
+      model: AxAIGoogleGeminiModel.Gemini35Flash,
       modelConfig: { temperature: 0.2, maxTokens: 220 },
     },
     judgeOptions: {

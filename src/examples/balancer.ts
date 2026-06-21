@@ -17,12 +17,12 @@ const ai1 = createAI({
   models: [
     {
       key: 'chill',
-      model: AxAIOpenAIModel.GPT4OMini,
+      model: AxAIOpenAIModel.GPT54Mini,
       description: 'A model that is good for simple tasks',
     },
     {
       key: 'genius',
-      model: AxAIOpenAIModel.GPT4Turbo,
+      model: AxAIOpenAIModel.GPT54,
       description: 'A model that is good for more complex tasks',
     },
   ],
@@ -34,12 +34,12 @@ const ai2 = createAI({
   models: [
     {
       key: 'chill',
-      model: AxAIAnthropicModel.Claude3Haiku,
+      model: AxAIAnthropicModel.Claude45Haiku,
       description: 'A model that is good for simple tasks',
     },
     {
       key: 'genius',
-      model: AxAIAnthropicModel.Claude35Sonnet,
+      model: AxAIAnthropicModel.Claude46Sonnet,
       description: 'A model that is good for more complex tasks',
     },
   ],

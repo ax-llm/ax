@@ -10,7 +10,7 @@ console.log('=== Sample Count Demo ===');
 const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: AxAIOpenAIModel.GPT4OMini, stream: true },
+  config: { model: AxAIOpenAIModel.GPT54Mini, stream: true },
   options: { debug: false },
 });
 

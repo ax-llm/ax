@@ -38,7 +38,7 @@ gen.setExamples([
 //   models: [
 //     {
 //       key: 'model-a',
-//       model: AxAIOpenAIModel.GPT4OMini,
+//       model: AxAIOpenAIModel.GPT54Mini,
 //       description: 'A model that is good for general purpose',
 //     },
 //   ],
@@ -53,7 +53,7 @@ gen.setExamples([
 const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
+  config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
 });
 
 const updates = [
