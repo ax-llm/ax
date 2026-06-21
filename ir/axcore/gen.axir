@@ -444,6 +444,8 @@ module @ax.gen version "0.1" {
       }
       %flexible = core.call @is_flexible_json_field(%typ)
       %is_array = core.get %typ["is_array"] default false
+      %typ_fields = core.get %typ["fields"]
+      %has_typ_fields = core.call intrinsic.truthy(%typ_fields)
       core.if %is_array {
         %value_is_list = core.type_is %value type "list"
         %not_list = core.call intrinsic.not(%value_is_list)
@@ -458,11 +460,35 @@ module @ax.gen version "0.1" {
           }
           core.return %out
         }
+        // object[] with declared sub-fields: recurse into each item's nested
+        // flexible-json leaves (mirrors TS parseJsonStringValuesForField array branch).
+        core.if %has_typ_fields {
+          %rebuilt = core.list
+          core.for %item in %value {
+            %item_is_map = core.type_is %item type "object"
+            core.if %item_is_map {
+              %parsed_obj = core.call @parse_json_string_for_fields(%typ_fields, %item)
+              core.append %rebuilt, %parsed_obj
+            } else {
+              core.append %rebuilt, %item
+            }
+          }
+          core.return %rebuilt
+        }
         core.return %value
       }
       core.if %flexible {
         %parsed_scalar = core.call @parse_json_string_value(%value)
         core.return %parsed_scalar
+      }
+      // shaped object: recurse into its nested flexible-json leaves.
+      %type_name = core.get %typ["name"]
+      %is_object = core.call intrinsic.eq(%type_name, "object")
+      core.if %is_object {
+        core.if %has_typ_fields {
+          %parsed_obj2 = core.call @parse_json_string_for_fields(%typ_fields, %value)
+          core.return %parsed_obj2
+        }
       }
       core.return %value
     }
@@ -481,6 +507,35 @@ module @ax.gen version "0.1" {
         core.return %values
       }
       core.for %field in %output_fields {
+        %name = core.get %field["name"]
+        %has_key = core.call intrinsic.map.contains(%values, %name)
+        core.if %has_key {
+          %value = core.get %values[%name]
+          %parsed = core.call @parse_json_string_for_field(%field, %value)
+          core.set %values[%name] = %parsed
+        }
+      }
+      core.return %values
+    }
+  }
+
+  // Recurse into a shaped object's / object[] item's nested sub-fields and parse any
+  // flexible-json leaves back. Mirrors TS parseJsonStringValuesForFields: convert the
+  // FieldType `fields` map to a Field list, then parse each present value.
+  op ax.gen.semantic @parse_json_string_for_fields {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "parse-json-string-nested-fields-core-helper"
+    type signature = "(json, json) -> json"
+    body @entry(%fields_map: json, %values: json) {
+      %values_is_map = core.type_is %values type "object"
+      %not_map = core.call intrinsic.not(%values_is_map)
+      core.if %not_map {
+        core.return %values
+      }
+      %nested_fields = core.call intrinsic.fields.from_map(%fields_map)
+      core.for %field in %nested_fields {
         %name = core.get %field["name"]
         %has_key = core.call intrinsic.map.contains(%values, %name)
         core.if %has_key {

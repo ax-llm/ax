@@ -513,6 +513,43 @@ def _core_json_stringify(value):
     return json.dumps(value)
 
 
+def _core_fields_from_map(fields):
+    if not fields:
+        return []
+    return [_nested_field(name, item) for name, item in fields.items()]
+
+
+def _nested_field(name, item):
+    from .signature import Field, FieldType
+    if isinstance(item, Field):
+        return item
+    if isinstance(item, FieldType):
+        return Field(name=name, type=item)
+    if isinstance(item, dict):
+        typ = FieldType(
+            item.get("type", item.get("name", "string")),
+            is_array=bool(item.get("isArray", item.get("is_array", False))),
+            options=item.get("options"),
+            fields=item.get("fields"),
+            min_length=item.get("minLength", item.get("min_length")),
+            max_length=item.get("maxLength", item.get("max_length")),
+            minimum=item.get("minimum"),
+            maximum=item.get("maximum"),
+            pattern=item.get("pattern"),
+            pattern_description=item.get("patternDescription", item.get("pattern_description")),
+            format=item.get("format"),
+            description=item.get("description"),
+        )
+        return Field(
+            name=name,
+            type=typ,
+            description=item.get("description"),
+            is_optional=bool(item.get("isOptional", item.get("is_optional", False))),
+            is_internal=bool(item.get("isInternal", item.get("is_internal", False))),
+        )
+    return Field(name=name, type=item)
+
+
 def _core_string_format(template, *args):
     return str(template).format(*args)
 
@@ -1612,6 +1649,8 @@ def _parse_json_string_for_field(field: Field, value: Any) -> Any:
         pass
     flexible = _is_flexible_json_field(typ)
     is_array = _core_get(typ, "is_array", False)
+    typ_fields = _core_get(typ, "fields", None)
+    has_typ_fields = _core_truthy(typ_fields)
     if is_array:
         value_is_list = _core_type_is(value, "list")
         not_list = _core_not(value_is_list)
@@ -1627,12 +1666,34 @@ def _parse_json_string_for_field(field: Field, value: Any) -> Any:
             return out
         else:
             pass
+        if has_typ_fields:
+            rebuilt = []
+            for item in value:
+                item_is_map = _core_type_is(item, "object")
+                if item_is_map:
+                    parsed_obj = _parse_json_string_for_fields(typ_fields, item)
+                    rebuilt.append(parsed_obj)
+                else:
+                    rebuilt.append(item)
+            return rebuilt
+        else:
+            pass
         return value
     else:
         pass
     if flexible:
         parsed_scalar = _parse_json_string_value(value)
         return parsed_scalar
+    else:
+        pass
+    type_name = _core_get(typ, "name", None)
+    is_object = _core_eq(type_name, "object")
+    if is_object:
+        if has_typ_fields:
+            parsed_obj2 = _parse_json_string_for_fields(typ_fields, value)
+            return parsed_obj2
+        else:
+            pass
     else:
         pass
     return value
@@ -1658,45 +1719,25 @@ def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
     return values
 
 
-def _tool_spec_impl(fn: Tool) -> Any:
-    _core_coverage_mark("_tool_spec_impl")
-    spec = {}
-    name = _core_get(fn, "name", None)
-    description = _core_get(fn, "description", None)
-    parameters = _core_get(fn, "parameters", None)
-    spec["name"] = name
-    spec["description"] = description
-    spec["parameters"] = parameters
-    return spec
-
-
-def _function_call_mode_impl(mode: Any) -> str:
-    _core_coverage_mark("_function_call_mode_impl")
-    missing = _core_is_none(mode)
-    if missing:
-        return "auto"
+def _parse_json_string_for_fields(fields_map: Any, values: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_for_fields")
+    values_is_map = _core_type_is(values, "object")
+    not_map = _core_not(values_is_map)
+    if not_map:
+        return values
     else:
         pass
-    is_native = _core_eq(mode, "native")
-    is_auto = _core_eq(mode, "auto")
-    native_or_auto = _core_or(is_native, is_auto)
-    if native_or_auto:
-        return "auto"
-    else:
-        pass
-    is_prompt = _core_eq(mode, "prompt")
-    if is_prompt:
-        return "none"
-    else:
-        pass
-    return mode
-
-
-def _response_function_calls_impl(response: Any) -> list[Any]:
-    _core_coverage_mark("_response_function_calls_impl")
-    empty = []
-    calls = _core_get(response, "function_calls", empty)
-    return calls
+    nested_fields = _core_fields_from_map(fields_map)
+    for field in nested_fields:
+        name = _core_get(field, "name", None)
+        has_key = _core_map_contains(values, name)
+        if has_key:
+            value = _core_get(values, name, None)
+            parsed = _parse_json_string_for_field(field, value)
+            values[name] = parsed
+        else:
+            pass
+    return values
 
 
 def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
@@ -1715,19 +1756,16 @@ def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar
     return out
 
 
-def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> None:
-    _core_coverage_mark("_append_tool_call_messages_impl")
-    chat_calls = []
-    for call in calls:
-        chat_call = _completion_call_to_chat_impl(call)
-        chat_calls.append(chat_call)
-    content = _core_get(response, "content", "")
-    message = {}
-    message["role"] = "assistant"
-    message["content"] = content
-    message["function_calls"] = chat_calls
-    messages.append(message)
-    return None
+def _tool_spec_impl(fn: Tool) -> Any:
+    _core_coverage_mark("_tool_spec_impl")
+    spec = {}
+    name = _core_get(fn, "name", None)
+    description = _core_get(fn, "description", None)
+    parameters = _core_get(fn, "parameters", None)
+    spec["name"] = name
+    spec["description"] = description
+    spec["parameters"] = parameters
+    return spec
 
 
 def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -> Any:
@@ -1757,30 +1795,33 @@ def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -
     return out
 
 
-def _completion_call_to_chat_impl(call: Any) -> Any:
-    _core_coverage_mark("_completion_call_to_chat_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    params = _core_get(call, "params", None)
-    function = {}
-    function["name"] = name
-    function["params"] = params
-    out = {}
-    out["id"] = id
-    out["type"] = "function"
-    out["function"] = function
-    return out
+def _function_call_mode_impl(mode: Any) -> str:
+    _core_coverage_mark("_function_call_mode_impl")
+    missing = _core_is_none(mode)
+    if missing:
+        return "auto"
+    else:
+        pass
+    is_native = _core_eq(mode, "native")
+    is_auto = _core_eq(mode, "auto")
+    native_or_auto = _core_or(is_native, is_auto)
+    if native_or_auto:
+        return "auto"
+    else:
+        pass
+    is_prompt = _core_eq(mode, "prompt")
+    if is_prompt:
+        return "none"
+    else:
+        pass
+    return mode
 
 
-def _tool_result_message_impl(call: Any, result: Any) -> Any:
-    _core_coverage_mark("_tool_result_message_impl")
-    id = _core_get(call, "id", None)
-    result_json = _core_json_stringify(result)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["result"] = result_json
-    return message
+def _response_function_calls_impl(response: Any) -> list[Any]:
+    _core_coverage_mark("_response_function_calls_impl")
+    empty = []
+    calls = _core_get(response, "function_calls", empty)
+    return calls
 
 
 def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
@@ -1855,6 +1896,67 @@ def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
     return out
 
 
+def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> None:
+    _core_coverage_mark("_append_tool_call_messages_impl")
+    chat_calls = []
+    for call in calls:
+        chat_call = _completion_call_to_chat_impl(call)
+        chat_calls.append(chat_call)
+    content = _core_get(response, "content", "")
+    message = {}
+    message["role"] = "assistant"
+    message["content"] = content
+    message["function_calls"] = chat_calls
+    messages.append(message)
+    return None
+
+
+def _completion_call_to_chat_impl(call: Any) -> Any:
+    _core_coverage_mark("_completion_call_to_chat_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    params = _core_get(call, "params", None)
+    function = {}
+    function["name"] = name
+    function["params"] = params
+    out = {}
+    out["id"] = id
+    out["type"] = "function"
+    out["function"] = function
+    return out
+
+
+def _tool_result_message_impl(call: Any, result: Any) -> Any:
+    _core_coverage_mark("_tool_result_message_impl")
+    id = _core_get(call, "id", None)
+    result_json = _core_json_stringify(result)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["result"] = result_json
+    return message
+
+
+def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any) -> Any:
+    _core_coverage_mark("_build_optimizer_request")
+    out = {}
+    out["contractVersion"] = "axir-optimize-contract-v1"
+    out["programKind"] = program_kind
+    out["components"] = components
+    out["dataset"] = dataset
+    out["options"] = options
+    out["trace"] = trace
+    evaluator = {}
+    methods = []
+    methods.append("evaluate")
+    evaluator["available"] = True
+    evaluator["contractVersion"] = "axir-optimizer-evaluator-v1"
+    evaluator["evidenceContractVersion"] = "axir-optimizer-evidence-v1"
+    evaluator["methods"] = methods
+    out["evaluator"] = evaluator
+    return out
+
+
 def _tool_error_message_impl(call: Any, error: error) -> Any:
     _core_coverage_mark("_tool_error_message_impl")
     id = _core_get(call, "id", None)
@@ -1885,26 +1987,6 @@ def _append_validation_retry_messages_impl(messages: list[Any], response: Any, e
     retry_message["content"] = retry_content
     messages.append(retry_message)
     return None
-
-
-def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any) -> Any:
-    _core_coverage_mark("_build_optimizer_request")
-    out = {}
-    out["contractVersion"] = "axir-optimize-contract-v1"
-    out["programKind"] = program_kind
-    out["components"] = components
-    out["dataset"] = dataset
-    out["options"] = options
-    out["trace"] = trace
-    evaluator = {}
-    methods = []
-    methods.append("evaluate")
-    evaluator["available"] = True
-    evaluator["contractVersion"] = "axir-optimizer-evaluator-v1"
-    evaluator["evidenceContractVersion"] = "axir-optimizer-evidence-v1"
-    evaluator["methods"] = methods
-    out["evaluator"] = evaluator
-    return out
 
 
 def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any, evaluator_available: bool) -> Any:
