@@ -12,12 +12,10 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"time"
-	"io/ioutil"
 
 	ax "github.com/ax-llm/ax/packages/go"
 )
@@ -44,5 +42,7 @@ func main() {
 	client := openAIClient()
 	speech, err := client.Speak(ctx, map[string]ax.Value{"text": "Ax turns LLM prompts into typed programs.", "voice": "alloy", "format": "mp3"}, nil)
 	if err != nil { panic(err) }
-	printJSON(speech)
+	sp := speech.(map[string]ax.Value)
+	audio, _ := sp["audio"].(string)
+	printJSON(ax.Object("format", sp["format"], "audioBytesBase64", len(audio)))
 }

@@ -6479,7 +6479,7 @@ func provider_descriptor(args ...Value) (Value, error) {
 	if coreTruthy(v_is_openai_family) {
 		v_family_operations = coreGet(v_openai_family_descriptor, "operations", nil)
 		{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}"); if err != nil { return nil, err }; v_family_transcribe = v }
-		{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}"); if err != nil { return nil, err }; v_family_speak = v }
+		{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}"); if err != nil { return nil, err }; v_family_speak = v }
 		if err := coreSet(v_family_operations, "transcribe", v_family_transcribe); err != nil { return nil, err }
 		if err := coreSet(v_family_operations, "speak", v_family_speak); err != nil { return nil, err }
 		v_is_grok_family = _core_eq(v_provider_id, "grok")
@@ -6530,7 +6530,7 @@ func provider_descriptor(args ...Value) (Value, error) {
 		{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":true}"); if err != nil { return nil, err }; v_responses_stream = v }
 		{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}"); if err != nil { return nil, err }; v_responses_embed = v }
 		{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}"); if err != nil { return nil, err }; v_responses_transcribe = v }
-		{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}"); if err != nil { return nil, err }; v_responses_speak = v }
+		{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}"); if err != nil { return nil, err }; v_responses_speak = v }
 		{ v, err := _core_json_parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}"); if err != nil { return nil, err }; v_responses_realtime = v }
 		{ v, err := _core_json_parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}"); if err != nil { return nil, err }; v_responses_realtime_audio = v }
 		if err := coreSet(v_operations, "chat", v_responses_chat); err != nil { return nil, err }
@@ -6617,7 +6617,7 @@ func provider_descriptor(args ...Value) (Value, error) {
 				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}"); if err != nil { return nil, err }; v_compatible_stream = v }
 				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}"); if err != nil { return nil, err }; v_compatible_embed = v }
 				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}"); if err != nil { return nil, err }; v_compatible_transcribe = v }
-				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}"); if err != nil { return nil, err }; v_compatible_speak = v }
+				{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}"); if err != nil { return nil, err }; v_compatible_speak = v }
 				if err := coreSet(v_operations, "chat", v_compatible_chat); err != nil { return nil, err }
 				if err := coreSet(v_operations, "stream_chat", v_compatible_stream); err != nil { return nil, err }
 				if err := coreSet(v_operations, "embed", v_compatible_embed); err != nil { return nil, err }
@@ -30002,7 +30002,12 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	out := Object("status", float64(resp.StatusCode))
-	if coreTruthy(coreGet(req,"stream",false)) { coreSet(out,"body",string(data)) } else if len(data)>0 { coreSet(out,"json",parseJSON(string(data))) }
+	if coreTruthy(coreGet(req,"binaryResponse",false)) {
+		// Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
+		// be UTF-8 decoded / JSON-parsed; return the bytes as a base64 string so
+		// the speak normalizer's `raw["audio"] default raw` picks it up.
+		coreSet(out,"json",base64.StdEncoding.EncodeToString(data))
+	} else if coreTruthy(coreGet(req,"stream",false)) { coreSet(out,"body",string(data)) } else if len(data)>0 { coreSet(out,"json",parseJSON(string(data))) }
 	return out, nil
 }
 
@@ -30142,6 +30147,10 @@ func (c *OpenAICompatibleClient) requestJSON(operation string, request map[strin
 	bodyKey := "json"
 	if display(coreGet(operationDescriptor, "body", "json")) == "multipart" { bodyKey = "data" }
 	coreSet(out, bodyKey, payload)
+	// Operations whose descriptor declares response == "binary" (e.g. OpenAI
+	// /audio/speech returns raw mp3 bytes) must not be JSON-parsed by the
+	// transport; flag the request so HTTPTransport.Call base64-encodes the body.
+	if display(coreGet(operationDescriptor, "response", "")) == "binary" { coreSet(out, "binaryResponse", true) }
 	return out
 }
 

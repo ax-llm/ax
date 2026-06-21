@@ -453,7 +453,8 @@ class ProviderOperationClient(AxBaseAI):
         model = request.get("model") or self.model
         descriptor = provider_operation_descriptor(self.profile, "speak")
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
-        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key)
+        binary_response = descriptor.get("response") == "binary"
+        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response)
         return provider_normalize_speak_response(self.profile, raw, request)
 
     def realtime(self, events: Iterable[dict[str, Any]], model: str | None = None):
@@ -481,7 +482,7 @@ class ProviderOperationClient(AxBaseAI):
             path += separator + "api-version=" + urllib.parse.quote(str(self.api_version), safe="")
         return path
 
-    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json"):
+    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False):
         call = {
             "method": "POST",
             "url": self.base_url + endpoint,
@@ -515,6 +516,10 @@ class ProviderOperationClient(AxBaseAI):
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as res:
+                if binary_response:
+                    # Binary operations (e.g. OpenAI /audio/speech returns raw mp3)
+                    # must not be UTF-8 decoded; return the bytes as base64.
+                    return base64.b64encode(res.read()).decode()
                 body = res.read().decode()
                 return body if stream else json.loads(body)
         except TimeoutError as exc:

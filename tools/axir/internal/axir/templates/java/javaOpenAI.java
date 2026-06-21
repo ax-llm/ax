@@ -113,7 +113,8 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Object modelName = request.getOrDefault("model", model);
     Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "speak"));
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
-    Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey);
+    boolean binary = "binary".equals(String.valueOf(descriptor.get("response")));
+    Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey, binary);
     return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request));
   }
 
@@ -137,10 +138,14 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream) throws Exception {
-    return requestJson(endpoint, payload, stream, "json");
+    return requestJson(endpoint, payload, stream, "json", false);
   }
 
   private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey) throws Exception {
+    return requestJson(endpoint, payload, stream, bodyKey, false);
+  }
+
+  private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey, boolean binaryResponse) throws Exception {
     Map<String, Object> call = new LinkedHashMap<>();
     call.put("method", "POST");
     call.put("url", baseUrl + endpoint);
@@ -164,6 +169,18 @@ public class OpenAICompatibleClient extends AxBaseAI {
     }
     for (Map.Entry<String, Object> header : requestHeaders.entrySet()) builder.header(header.getKey(), String.valueOf(header.getValue()));
     HttpRequest req = builder.POST(bodyPublisher).build();
+    if (binaryResponse) {
+      // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not be UTF-8
+      // decoded; read the response as bytes and return them as a base64 String.
+      HttpResponse<byte[]> res = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
+      if (res.statusCode() >= 400) {
+        String errorBody = new String(res.body(), StandardCharsets.UTF_8);
+        Object parsed;
+        try { parsed = Json.parse(errorBody); } catch (RuntimeException ex) { parsed = errorBody; }
+        throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, call));
+      }
+      return Base64.getEncoder().encodeToString(res.body());
+    }
     HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
     Object body;
     try { body = Json.parse(res.body()); } catch (RuntimeException ex) { body = res.body(); }

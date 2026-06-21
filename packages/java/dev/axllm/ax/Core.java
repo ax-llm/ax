@@ -3592,7 +3592,7 @@ final class Core {
     if (Core.truthy(is_openai_family)) {
       Object family_operations = Core.get(openai_family_descriptor, "operations", null);
       Object family_transcribe = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}");
-      Object family_speak = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}");
+      Object family_speak = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}");
       Core.set(family_operations, "transcribe", family_transcribe);
       Core.set(family_operations, "speak", family_speak);
       Object is_grok_family = Core.eq(provider_id, "grok");
@@ -3639,7 +3639,7 @@ final class Core {
       Object responses_stream = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":true}");
       Object responses_embed = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}");
       Object responses_transcribe = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}");
-      Object responses_speak = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}");
+      Object responses_speak = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}");
       Object responses_realtime = Core.jsonParse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}");
       Object responses_realtime_audio = Core.jsonParse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}");
       Core.set(operations, "chat", responses_chat);
@@ -3729,7 +3729,7 @@ final class Core {
           Object compatible_stream = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}");
           Object compatible_embed = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}");
           Object compatible_transcribe = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}");
-          Object compatible_speak = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}");
+          Object compatible_speak = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}");
           Core.set(operations, "chat", compatible_chat);
           Core.set(operations, "stream_chat", compatible_stream);
           Core.set(operations, "embed", compatible_embed);

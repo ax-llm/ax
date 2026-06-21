@@ -1512,7 +1512,7 @@ module @ax.provider version "0.1" {
       core.if %is_openai_family {
         %family_operations = core.get %openai_family_descriptor["operations"]
         %family_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
-        %family_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}")
+        %family_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")
         core.set %family_operations["transcribe"] = %family_transcribe
         core.set %family_operations["speak"] = %family_speak
         %is_grok_family = core.call intrinsic.eq(%provider_id, "grok")
@@ -1559,7 +1559,7 @@ module @ax.provider version "0.1" {
         %responses_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":true}")
         %responses_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")
         %responses_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
-        %responses_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}")
+        %responses_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")
         %responses_realtime = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}")
         %responses_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")
         core.set %operations["chat"] = %responses_chat
@@ -1646,7 +1646,7 @@ module @ax.provider version "0.1" {
             %compatible_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}")
             %compatible_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")
             %compatible_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
-            %compatible_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}")
+            %compatible_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")
             core.set %operations["chat"] = %compatible_chat
             core.set %operations["stream_chat"] = %compatible_stream
             core.set %operations["embed"] = %compatible_embed

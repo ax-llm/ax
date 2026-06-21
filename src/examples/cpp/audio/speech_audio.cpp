@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <variant>
 
 
 int main() {
@@ -29,5 +30,7 @@ int main() {
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
   axllm::Value speech = client.speak(axllm::object({{"text", "Ax turns LLM prompts into typed programs."}, {"voice", "alloy"}, {"format", "mp3"}}));
-  std::cout << axllm::stringify(speech) << "\n";
+  axllm::Value audio_value = axllm::Core::get(speech, "audio");
+  double audio_len = audio_value.is_string() ? static_cast<double>(std::get<std::string>(audio_value.data).size()) : 0.0;
+  std::cout << axllm::stringify(axllm::object({{"format", axllm::Core::get(speech, "format")}, {"audioBytesBase64", audio_len}})) << "\n";
 }

@@ -256,6 +256,45 @@ static std::string axir_base64_decode(const std::string& input) {
   return out;
 }
 
+// Encode raw bytes as a standard (RFC 4648) base64 string. Used to return the
+// raw body of a binary response (e.g. OpenAI /audio/speech mp3 bytes) as a
+// string without UTF-8 / JSON handling. The input is a std::string whose length
+// comes from .size() so embedded NUL bytes are preserved.
+static std::string axir_base64_encode(const std::string& input) {
+  static const char alphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string out;
+  out.reserve((input.size() + 2) / 3 * 4);
+  size_t i = 0;
+  const size_t n = input.size();
+  while (i + 3 <= n) {
+    uint32_t triple = (static_cast<uint8_t>(input[i]) << 16) |
+                      (static_cast<uint8_t>(input[i + 1]) << 8) |
+                      static_cast<uint8_t>(input[i + 2]);
+    out.push_back(alphabet[(triple >> 18) & 0x3F]);
+    out.push_back(alphabet[(triple >> 12) & 0x3F]);
+    out.push_back(alphabet[(triple >> 6) & 0x3F]);
+    out.push_back(alphabet[triple & 0x3F]);
+    i += 3;
+  }
+  const size_t remaining = n - i;
+  if (remaining == 1) {
+    uint32_t triple = static_cast<uint8_t>(input[i]) << 16;
+    out.push_back(alphabet[(triple >> 18) & 0x3F]);
+    out.push_back(alphabet[(triple >> 12) & 0x3F]);
+    out.push_back('=');
+    out.push_back('=');
+  } else if (remaining == 2) {
+    uint32_t triple = (static_cast<uint8_t>(input[i]) << 16) |
+                      (static_cast<uint8_t>(input[i + 1]) << 8);
+    out.push_back(alphabet[(triple >> 18) & 0x3F]);
+    out.push_back(alphabet[(triple >> 12) & 0x3F]);
+    out.push_back(alphabet[(triple >> 6) & 0x3F]);
+    out.push_back('=');
+  }
+  return out;
+}
+
 // Encode a request payload as multipart/form-data. Multipart operations (e.g.
 // OpenAI /audio/transcriptions) carry the audio as a binary `file` part; every
 // other field is a plain form field. The `file` value is a base64 string
@@ -354,6 +393,9 @@ Value HttpTransport::call(Value request) {
   std::string method = str(Core::get(request, "method", "POST"));
   std::string url = str(Core::get(request, "url"));
   bool stream = Core::truthy(Core::get(request, "stream", false));
+  // Binary operations (e.g. OpenAI /audio/speech) return raw bytes (mp3) that
+  // must not be JSON-parsed or UTF-8 handled; they are returned as base64.
+  bool binary_response = Core::truthy(Core::get(request, "binary", false));
   double timeout = num(Core::get(request, "timeout", 0));
 
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -393,7 +435,11 @@ Value HttpTransport::call(Value request) {
 
   Value out = Value::object();
   Core::set(out, "status", static_cast<double>(status));
-  if (stream) {
+  if (binary_response) {
+    // Base64-encode the full (binary-safe) body; response may contain NULs, so
+    // axir_base64_encode reads its whole .size() rather than a c_str().
+    Core::set(out, "body", Value(axir_base64_encode(response)));
+  } else if (stream) {
     Core::set(out, "body", response);
   } else {
     Core::set(out, "json", Core::json_parse(response));
@@ -2316,8 +2362,12 @@ Value OpenAICompatibleClient::transcribe(Value request) {
 Value OpenAICompatibleClient::speak(Value request) {
   Value payload = Core::provider_build_speak_request(profile_, request);
   Value model = Core::get(request, "model", model_);
-  std::string body_key = str(Core::get(Core::provider_operation_descriptor(profile_, "speak"), "body", "json")) == "multipart" ? "data" : "json";
-  Value raw = request_json(operation_path("speak", model), payload, false, body_key);
+  Value descriptor = Core::provider_operation_descriptor(profile_, "speak");
+  std::string body_key = str(Core::get(descriptor, "body", "json")) == "multipart" ? "data" : "json";
+  // OpenAI /audio/speech returns raw binary audio (mp3); the transport returns
+  // it as base64 instead of JSON-parsing, and the normalizer reads raw["audio"].
+  bool binary = str(Core::get(descriptor, "response", Value(""))) == "binary";
+  Value raw = request_json(operation_path("speak", model), payload, false, body_key, binary);
   return Core::provider_normalize_speak_response(profile_, raw, request);
 }
 
@@ -2349,16 +2399,22 @@ Value OpenAICompatibleClient::headers() const {
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream) {
-  return request_json(endpoint, std::move(payload), stream, "json");
+  return request_json(endpoint, std::move(payload), stream, "json", false);
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key) {
+  return request_json(endpoint, std::move(payload), stream, body_key, false);
+}
+
+Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response) {
   Value call = Value::object();
   Core::set(call, "method", "POST");
   Core::set(call, "url", base_url_ + endpoint);
   Core::set(call, "headers", headers());
   Core::set(call, body_key.empty() ? "json" : body_key, payload);
   Core::set(call, "stream", stream);
+  // Signals the transport to return the raw body as base64 instead of JSON.
+  if (binary_response) Core::set(call, "binary", Value(true));
   Core::set(call, "timeout", timeout_seconds_);
   if (api_key_.empty() || api_key_ == "null") throw Core::as_error(Core::ai_error_auth("OPENAI_API_KEY is required", Value(), Value(), Value(), call));
   if (transport_ != nullptr) return transport_result(transport_->call(call), call);

@@ -666,6 +666,34 @@ fn decode_base64(input: &str) -> Vec<u8> {
     out
 }
 
+// Encode raw bytes as a standard-alphabet base64 string (with `=` padding).
+// Inverse of `decode_base64`; used for binary responses (e.g. OpenAI
+// /audio/speech returns raw mp3) which must not be UTF-8 decoded. Mirrors the
+// verified Python `base64.b64encode(...).decode()`.
+fn encode_base64(input: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[((triple >> 18) & 0x3f) as usize] as char);
+        out.push(ALPHABET[((triple >> 12) & 0x3f) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[((triple >> 6) & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[(triple & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
 // Encode a request payload as multipart/form-data and return the raw body
 // bytes plus the matching Content-Type header value. Multipart operations
 // (e.g. OpenAI /audio/transcriptions) carry the audio as a binary `file` part;
@@ -1144,7 +1172,7 @@ impl OpenAICompatibleClient {
         }
     }
 
-    fn post_json(&mut self, path: &str, body: Value) -> AxResult<Value> {
+    fn post_json(&mut self, path: &str, body: Value, binary: bool) -> AxResult<Value> {
         let url = self.endpoint_url(path);
         if let Some(transport) = self.transport.as_mut() {
             return transport.send(json!({
@@ -1154,15 +1182,22 @@ impl OpenAICompatibleClient {
                 "json": body
             }));
         }
-        let response: Value = HttpClient::builder()
+        let raw = HttpClient::builder()
             .timeout(Duration::from_secs(60))
             .build()?
             .post(url)
             .bearer_auth(&self.api_key)
             .json(&body)
             .send()?
-            .error_for_status()?
-            .json()?;
+            .error_for_status()?;
+        // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
+        // be UTF-8 decoded or parsed as JSON; return the bytes as a base64 string
+        // so the speak normalizer can pass it through to the `audio` field.
+        let response: Value = if binary {
+            Value::String(encode_base64(&raw.bytes()?))
+        } else {
+            raw.json()?
+        };
         Ok(json!({"status": 200, "json": response}))
     }
 
@@ -1300,7 +1335,7 @@ impl OpenAICompatibleClient {
                     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
                     self.api_key
                 );
-                self.post_json(&path, body)?
+                self.post_json(&path, body, false)?
             }
             "grok" => self.post_data("/stt", body)?,
             _ => self.post_data("/audio/transcriptions", body)?,
@@ -1320,6 +1355,14 @@ impl OpenAICompatibleClient {
             CoreValue::from(profile.as_str()),
             core_value_from_json(&request),
         ])?);
+        // Some speak endpoints (e.g. OpenAI /audio/speech) return RAW binary audio
+        // rather than JSON. The operation descriptor flags this with `response:
+        // "binary"`; when set, the HTTP layer base64-encodes the response bytes.
+        let speak_descriptor = core_value_to_json(&provider_operation_descriptor(&[
+            CoreValue::from(profile.as_str()),
+            CoreValue::from("speak"),
+        ])?);
+        let binary = speak_descriptor.get("response").and_then(Value::as_str) == Some("binary");
         let raw = match profile.as_str() {
             "google-gemini" => {
                 let model = string_at(&request, "model")
@@ -1328,11 +1371,11 @@ impl OpenAICompatibleClient {
                     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
                     self.api_key
                 );
-                self.post_json(&path, body)?
+                self.post_json(&path, body, binary)?
             }
-            "grok" => self.post_json("/tts", body)?,
-            "mistral" => self.post_json("/audio/speech", body)?,
-            _ => self.post_json("/audio/speech", body)?,
+            "grok" => self.post_json("/tts", body, binary)?,
+            "mistral" => self.post_json("/audio/speech", body, binary)?,
+            _ => self.post_json("/audio/speech", body, binary)?,
         };
         let payload = normalize_passthrough_response(raw)?;
         let normalized = provider_normalize_speak_response(&[
@@ -21165,9 +21208,7 @@ fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             CoreValue::Null,
         );
         v_family_transcribe = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")])?;
-        v_family_speak = core_json_parse(&[CoreValue::from(
-            "{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}",
-        )])?;
+        v_family_speak = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")])?;
         core_set(
             &v_family_operations,
             CoreValue::from("transcribe"),
@@ -21310,9 +21351,7 @@ fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             "{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}",
         )])?;
         v_responses_transcribe = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")])?;
-        v_responses_speak = core_json_parse(&[CoreValue::from(
-            "{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}",
-        )])?;
+        v_responses_speak = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")])?;
         v_responses_realtime = core_json_parse(&[CoreValue::from(
             "{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}",
         )])?;
@@ -21619,7 +21658,7 @@ fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 v_compatible_stream = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}")])?;
                 v_compatible_embed = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")])?;
                 v_compatible_transcribe = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")])?;
-                v_compatible_speak = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}")])?;
+                v_compatible_speak = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")])?;
                 core_set(
                     &v_operations,
                     CoreValue::from("chat"),

@@ -828,6 +828,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   Transport* transport_;
   Value request_json(const std::string& endpoint, Value payload, bool stream);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key);
+  Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response);
   std::string operation_path(const std::string& operation) const;
   std::string operation_path(const std::string& operation, Value model) const;
   Value headers() const;

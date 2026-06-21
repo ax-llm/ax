@@ -1095,7 +1095,12 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	out := Object("status", float64(resp.StatusCode))
-	if coreTruthy(coreGet(req,"stream",false)) { coreSet(out,"body",string(data)) } else if len(data)>0 { coreSet(out,"json",parseJSON(string(data))) }
+	if coreTruthy(coreGet(req,"binaryResponse",false)) {
+		// Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
+		// be UTF-8 decoded / JSON-parsed; return the bytes as a base64 string so
+		// the speak normalizer's `raw["audio"] default raw` picks it up.
+		coreSet(out,"json",base64.StdEncoding.EncodeToString(data))
+	} else if coreTruthy(coreGet(req,"stream",false)) { coreSet(out,"body",string(data)) } else if len(data)>0 { coreSet(out,"json",parseJSON(string(data))) }
 	return out, nil
 }
 
@@ -1235,6 +1240,10 @@ func (c *OpenAICompatibleClient) requestJSON(operation string, request map[strin
 	bodyKey := "json"
 	if display(coreGet(operationDescriptor, "body", "json")) == "multipart" { bodyKey = "data" }
 	coreSet(out, bodyKey, payload)
+	// Operations whose descriptor declares response == "binary" (e.g. OpenAI
+	// /audio/speech returns raw mp3 bytes) must not be JSON-parsed by the
+	// transport; flag the request so HTTPTransport.Call base64-encodes the body.
+	if display(coreGet(operationDescriptor, "response", "")) == "binary" { coreSet(out, "binaryResponse", true) }
 	return out
 }
 

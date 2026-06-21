@@ -22,6 +22,7 @@ fn openai_client() -> AxResult<OpenAICompatibleClient> {
 fn main() -> AxResult<()> {
     let mut client = openai_client()?;
     let speech = client.speak(json!({"text": "Ax turns LLM prompts into typed programs.", "voice": "alloy", "format": "mp3"}))?;
-    println!("{}", serde_json::to_string_pretty(&speech)?);
+    let audio_len = speech["audio"].as_str().unwrap_or("").len();
+    println!("{}", serde_json::to_string_pretty(&json!({"format": speech["format"].clone(), "audioBytesBase64": audio_len}))?);
     Ok(())
 }

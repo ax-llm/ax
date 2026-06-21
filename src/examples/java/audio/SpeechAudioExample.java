@@ -31,6 +31,6 @@ public final class SpeechAudioExample {
   public static void main(String[] args) throws Exception {
     OpenAIResponsesClient audio = client();
     Map<String, Object> speech = audio.speak(Map.of("text", "Ax turns LLM prompts into typed programs.", "voice", "alloy", "format", "mp3"));
-    System.out.println(Json.stringify(speech));
+    System.out.println(Json.stringify(Map.of("format", speech.get("format"), "audioBytesBase64", String.valueOf(speech.get("audio")).length())));
   }
 }
