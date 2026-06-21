@@ -399,13 +399,17 @@ replace github.com/ax-llm/ax/packages/go => ${escapeGoModPath(outDir)}
   // -mod=mod lets `go run` resolve the goja transitive dep (used by agent
   // examples) that the generated scratch go.mod does not pin; it is already in
   // the package's go.sum / module cache.
-  run('go', ['run', '.', ...rest], {
+  // Build in the scratch module, then run the binary from the repo root so that
+  // examples reading repo-relative asset paths (e.g. the audio wav) resolve.
+  const goBin = path.join(scratchDir, `${stem}.bin`);
+  run('go', ['build', '-o', goBin, '.'], {
     cwd: scratchDir,
     env: {
       ...env,
       GOFLAGS: [env.GOFLAGS, '-mod=mod'].filter(Boolean).join(' '),
     },
   });
+  run(goBin, [...rest], { cwd: repoRoot, env });
 }
 
 function escapeGoModPath(value) {
@@ -437,7 +441,7 @@ serde_json = "1"
   const manifestPath = path.join(scratchDir, 'Cargo.toml');
   const args = ['run', '--quiet', '--manifest-path', manifestPath, ...rest];
   const result = spawnSync('cargo', args, {
-    cwd: scratchDir,
+    cwd: repoRoot,
     env,
     shell: false,
     stdio: 'pipe',
@@ -453,7 +457,7 @@ serde_json = "1"
     'cargo',
     ['run', '--offline', '--quiet', '--manifest-path', manifestPath, ...rest],
     {
-      cwd: scratchDir,
+      cwd: repoRoot,
       env,
     }
   );

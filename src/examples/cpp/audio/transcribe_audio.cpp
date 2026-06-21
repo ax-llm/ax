@@ -12,6 +12,28 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <string>
+
+
+// transcribe() expects the audio as a base64 string (same contract as the
+// TypeScript/Python/Go/Java examples). C++ has no standard base64, so encode here.
+static std::string b64encode(const std::string& in) {
+  static const char t[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string out;
+  int val = 0, bits = -6;
+  for (unsigned char c : in) {
+    val = (val << 8) + c;
+    bits += 8;
+    while (bits >= 0) {
+      out.push_back(t[(val >> bits) & 0x3F]);
+      bits -= 6;
+    }
+  }
+  if (bits > -6) out.push_back(t[((val << 8) >> (bits + 8)) & 0x3F]);
+  while (out.size() % 4) out.push_back('=');
+  return out;
+}
 
 
 int main() {
@@ -30,6 +52,6 @@ int main() {
   std::ifstream file("src/examples/assets/presentation.wav", std::ios::binary);
   std::ostringstream buffer;
   buffer << file.rdbuf();
-  axllm::Value transcript = client.transcribe(axllm::object({{"audio", buffer.str()}, {"language", "en"}, {"model", "gpt-4o-mini-transcribe"}, {"format", "json"}}));
+  axllm::Value transcript = client.transcribe(axllm::object({{"audio", b64encode(buffer.str())}, {"language", "en"}, {"model", "gpt-4o-mini-transcribe"}, {"format", "json"}}));
   std::cout << axllm::stringify(transcript) << "\n";
 }
