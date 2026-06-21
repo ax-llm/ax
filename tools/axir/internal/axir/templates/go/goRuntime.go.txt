@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1026,13 +1027,67 @@ func (t *ScriptedTransport) Call(ctx context.Context, request Value) (Value, err
 	out := t.Responses[0]; t.Responses = t.Responses[1:]; return out, nil
 }
 
+// encodeMultipart builds a multipart/form-data body for operations whose
+// transport payload lives under "data" (currently OpenAI /audio/transcriptions).
+// It mirrors the verified Python encoder: the "file" field is base64-decoded to
+// raw bytes and emitted with a filename + Content-Type, every other field is
+// emitted as a plain text part. A fixed boundary is used (collision with the
+// binary audio is negligible). Returns the body and the Content-Type header.
+func encodeMultipart(payload map[string]Value) ([]byte, string) {
+	const boundary = "----axllmFormBoundaryAx7LlmMultipartBoundary"
+	const crlf = "\r\n"
+	var buf bytes.Buffer
+	for _, key := range orderedKeys(payload) {
+		value := coreGet(payload, key, nil)
+		if value == nil { continue }
+		if key == "file" {
+			data := ""
+			filename := "audio.wav"
+			contentType := "audio/wav"
+			if m, ok := value.(map[string]Value); ok {
+				data = display(coreGet(m, "data", ""))
+				if fn := display(coreGet(m, "filename", "")); fn != "" { filename = fn }
+				if mt := display(coreGet(m, "mimeType", "")); mt != "" { contentType = mt }
+			} else {
+				data = display(value)
+			}
+			if strings.HasPrefix(data, "data:") {
+				if idx := strings.Index(data, ","); idx >= 0 { data = data[idx+1:] }
+			}
+			fileBytes, decodeErr := base64.StdEncoding.DecodeString(data)
+			if decodeErr != nil { fileBytes = []byte(data) }
+			buf.WriteString("--" + boundary + crlf)
+			buf.WriteString("Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"" + crlf)
+			buf.WriteString("Content-Type: " + contentType + crlf + crlf)
+			buf.Write(fileBytes)
+			buf.WriteString(crlf)
+		} else {
+			buf.WriteString("--" + boundary + crlf)
+			buf.WriteString("Content-Disposition: form-data; name=\"" + key + "\"" + crlf + crlf)
+			buf.WriteString(display(value))
+			buf.WriteString(crlf)
+		}
+	}
+	buf.WriteString("--" + boundary + "--" + crlf)
+	return buf.Bytes(), "multipart/form-data; boundary=" + boundary
+}
+
 type HTTPTransport struct{ Client *http.Client }
 func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	req := asMap(request)
-	body := []byte(stableStringify(coreGet(req,"json",coreGet(req,"data",Object()))))
+	var body []byte
+	multipartContentType := ""
+	if _, ok := req["json"]; ok {
+		body = []byte(stableStringify(coreGet(req,"json",Object())))
+	} else if _, ok := req["data"]; ok {
+		body, multipartContentType = encodeMultipart(asMap(coreGet(req,"data",Object())))
+	} else {
+		body = []byte(stableStringify(Object()))
+	}
 	httpReq, err := http.NewRequestWithContext(ctx, display(coreGet(req,"method","POST")), display(req["url"]), bytes.NewReader(body))
 	if err != nil { return nil, err }
 	for _, key := range orderedKeys(asMap(coreGet(req,"headers",Object()))) { httpReq.Header.Set(key, display(coreGet(coreGet(req,"headers",Object()), key, nil))) }
+	if multipartContentType != "" { httpReq.Header.Set("Content-Type", multipartContentType) }
 	client := t.Client
 	if client == nil { client = http.DefaultClient }
 	resp, err := client.Do(httpReq)

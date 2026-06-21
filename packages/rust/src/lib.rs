@@ -627,6 +627,138 @@ fn trim_num(value: f64) -> String {
     }
 }
 
+// Decode a standard-alphabet base64 string into raw bytes. Mirrors Python's
+// base64.b64decode tolerance: whitespace is ignored and the input may omit
+// trailing padding. Invalid characters terminate decoding (the caller falls
+// back to the raw UTF-8 bytes when this yields nothing usable).
+fn decode_base64(input: &str) -> Vec<u8> {
+    fn sextet(byte: u8) -> Option<u8> {
+        match byte {
+            b'A'..=b'Z' => Some(byte - b'A'),
+            b'a'..=b'z' => Some(byte - b'a' + 26),
+            b'0'..=b'9' => Some(byte - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let mut out = Vec::new();
+    let mut buffer: u32 = 0;
+    let mut bits = 0u32;
+    for &byte in input.as_bytes() {
+        if byte == b'=' {
+            break;
+        }
+        if byte.is_ascii_whitespace() {
+            continue;
+        }
+        let value = match sextet(byte) {
+            Some(value) => value,
+            None => break,
+        };
+        buffer = (buffer << 6) | u32::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buffer >> bits) as u8);
+        }
+    }
+    out
+}
+
+// Encode a request payload as multipart/form-data and return the raw body
+// bytes plus the matching Content-Type header value. Multipart operations
+// (e.g. OpenAI /audio/transcriptions) carry the audio as a binary `file` part;
+// every other field is a plain form field. The `file` value is a base64 string
+// (optionally a `data:` URL) or a map {data, mimeType?, filename?}. Mirrors the
+// verified Python `_encode_multipart`; the fixed boundary avoids needing a
+// random/uuid dependency.
+fn encode_multipart(payload: &Value) -> (Vec<u8>, String) {
+    const BOUNDARY: &str = "----axllmFormBoundaryAx7LlmMultipartBoundary";
+    const CRLF: &[u8] = b"\r\n";
+    let mut body: Vec<u8> = Vec::new();
+    if let Some(entries) = payload.as_object() {
+        for (key, value) in entries {
+            if value.is_null() {
+                continue;
+            }
+            if key == "file" {
+                let (raw_data, filename, content_type) = match value {
+                    Value::Object(map) => {
+                        let data = map
+                            .get("data")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let filename = map
+                            .get("filename")
+                            .and_then(Value::as_str)
+                            .filter(|name| !name.is_empty())
+                            .unwrap_or("audio.wav")
+                            .to_string();
+                        let content_type = map
+                            .get("mimeType")
+                            .or_else(|| map.get("mime_type"))
+                            .and_then(Value::as_str)
+                            .filter(|mime| !mime.is_empty())
+                            .unwrap_or("audio/wav")
+                            .to_string();
+                        (data, filename, content_type)
+                    }
+                    _ => (
+                        value_as_display_string(value),
+                        "audio.wav".to_string(),
+                        "audio/wav".to_string(),
+                    ),
+                };
+                let stripped = if raw_data.starts_with("data:") {
+                    match raw_data.split_once(',') {
+                        Some((_, rest)) => rest.to_string(),
+                        None => raw_data.clone(),
+                    }
+                } else {
+                    raw_data.clone()
+                };
+                let mut file_bytes = decode_base64(&stripped);
+                if file_bytes.is_empty() && !stripped.is_empty() {
+                    file_bytes = stripped.into_bytes();
+                }
+                body.extend_from_slice(b"--");
+                body.extend_from_slice(BOUNDARY.as_bytes());
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(
+                    format!(
+                        "Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\""
+                    )
+                    .as_bytes(),
+                );
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(format!("Content-Type: {content_type}").as_bytes());
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(&file_bytes);
+                body.extend_from_slice(CRLF);
+            } else {
+                body.extend_from_slice(b"--");
+                body.extend_from_slice(BOUNDARY.as_bytes());
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(
+                    format!("Content-Disposition: form-data; name=\"{key}\"").as_bytes(),
+                );
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(value_as_display_string(value).as_bytes());
+                body.extend_from_slice(CRLF);
+            }
+        }
+    }
+    body.extend_from_slice(b"--");
+    body.extend_from_slice(BOUNDARY.as_bytes());
+    body.extend_from_slice(b"--");
+    body.extend_from_slice(CRLF);
+    (body, format!("multipart/form-data; boundary={BOUNDARY}"))
+}
+
 fn json_number(value: f64) -> Value {
     if value.fract() == 0.0 {
         json!(value as i64)
@@ -908,12 +1040,21 @@ impl OpenAICompatibleClient {
                 builder = builder.header(key.as_str(), value.as_str().unwrap_or_default());
             }
         }
-        let body = call
-            .get("json")
-            .or_else(|| call.get("data"))
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        let response: Value = builder.json(&body).send()?.error_for_status()?.json()?;
+        // A `data` body marks a multipart/form-data operation (e.g. /audio/transcriptions):
+        // encode it as a binary multipart body and override Content-Type. A `json` body is
+        // serialized as JSON as usual.
+        let response: Value = if let Some(data) = call.get("data") {
+            let (body, content_type) = encode_multipart(data);
+            builder
+                .header("Content-Type", content_type)
+                .body(body)
+                .send()?
+                .error_for_status()?
+                .json()?
+        } else {
+            let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
+            builder.json(&body).send()?.error_for_status()?.json()?
+        };
         Ok(json!({"status": 200, "json": response}))
     }
 
@@ -1035,12 +1176,16 @@ impl OpenAICompatibleClient {
                 "data": data
             }));
         }
+        // `data` operations (e.g. OpenAI /audio/transcriptions) are multipart/form-data,
+        // not JSON. Encode the payload as a binary multipart body and override Content-Type.
+        let (body, content_type) = encode_multipart(&data);
         let response: Value = HttpClient::builder()
             .timeout(Duration::from_secs(60))
             .build()?
             .post(url)
             .bearer_auth(&self.api_key)
-            .json(&data)
+            .header("Content-Type", content_type)
+            .body(body)
             .send()?
             .error_for_status()?
             .json()?;

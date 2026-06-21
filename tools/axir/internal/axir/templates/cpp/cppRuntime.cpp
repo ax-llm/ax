@@ -1,5 +1,6 @@
 #include "axllm.hpp"
 
+#include <array>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -221,6 +222,87 @@ static bool has_key(const Value& object, const std::string& key) {
   return alias != aliases.end() && obj.count(alias->second) > 0;
 }
 
+// Decode a standard / URL-safe base64 string into raw bytes. Whitespace and
+// padding are tolerated; invalid characters terminate decoding. Used to turn
+// the base64 audio payload of a multipart `file` field back into raw bytes.
+static std::string axir_base64_decode(const std::string& input) {
+  // Build the reverse lookup table once (standard + URL-safe alphabet).
+  static const std::array<int8_t, 256> lookup = []() {
+    std::array<int8_t, 256> t{};
+    t.fill(-1);
+    const std::string alphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for (size_t i = 0; i < alphabet.size(); ++i) t[static_cast<unsigned char>(alphabet[i])] = static_cast<int8_t>(i);
+    // Accept URL-safe variants.
+    t[static_cast<unsigned char>('-')] = t[static_cast<unsigned char>('+')];
+    t[static_cast<unsigned char>('_')] = t[static_cast<unsigned char>('/')];
+    return t;
+  }();
+  std::string out;
+  out.reserve(input.size() / 4 * 3 + 3);
+  uint32_t buffer = 0;
+  int bits = 0;
+  for (unsigned char ch : input) {
+    if (ch == '=' || ch == '\r' || ch == '\n' || ch == ' ' || ch == '\t') continue;
+    int8_t value = lookup[ch];
+    if (value < 0) continue;
+    buffer = (buffer << 6) | static_cast<uint32_t>(value);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push_back(static_cast<char>((buffer >> bits) & 0xFF));
+    }
+  }
+  return out;
+}
+
+// Encode a request payload as multipart/form-data. Multipart operations (e.g.
+// OpenAI /audio/transcriptions) carry the audio as a binary `file` part; every
+// other field is a plain form field. The `file` value is a base64 string
+// (optionally a data: URL) or an object {data, mimeType?, filename?}. Returns
+// the raw (binary-safe) body and the matching Content-Type header value.
+static std::pair<std::string, std::string> axir_encode_multipart(const Value& payload) {
+  const std::string boundary = "----axllmFormBoundaryAx7LlmMultipartBoundary";
+  const std::string crlf = "\r\n";
+  std::string body;
+  for (const auto& field : entries(payload)) {
+    const std::string& key = field.first;
+    const Value& value = field.second;
+    if (value.is_null()) continue;
+    if (key == "file") {
+      std::string data;
+      std::string filename = "audio.wav";
+      std::string content_type = "audio/wav";
+      if (value.is_object()) {
+        data = str(Core::get(value, "data", Value("")));
+        std::string fn = str(Core::get(value, "filename", Value("")));
+        if (!fn.empty()) filename = fn;
+        std::string mt = str(Core::get(value, "mimeType", Core::get(value, "mime_type", Value(""))));
+        if (!mt.empty()) content_type = mt;
+      } else {
+        data = str(value);
+      }
+      // Strip an optional `data:<mime>;base64,` URL prefix.
+      if (data.rfind("data:", 0) == 0) {
+        auto comma = data.find(',');
+        if (comma != std::string::npos) data = data.substr(comma + 1);
+      }
+      std::string file_bytes = axir_base64_decode(data);
+      if (file_bytes.empty() && !data.empty()) file_bytes = data;  // not base64 -> send raw
+      body += "--" + boundary + crlf;
+      body += "Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"" + crlf;
+      body += "Content-Type: " + content_type + crlf + crlf;
+      body += file_bytes + crlf;
+    } else {
+      body += "--" + boundary + crlf;
+      body += "Content-Disposition: form-data; name=\"" + key + "\"" + crlf + crlf;
+      body += str(value) + crlf;
+    }
+  }
+  body += "--" + boundary + "--" + crlf;
+  return {body, "multipart/form-data; boundary=" + boundary};
+}
+
 Value HttpTransport::call(Value request) {
 #if !defined(AXLLM_ENABLE_CURL)
   (void)request;
@@ -239,15 +321,36 @@ Value HttpTransport::call(Value request) {
 
   std::string response;
   char error_buffer[CURL_ERROR_SIZE] = {0};
+
+  // Build the request body. Normal operations carry a JSON payload under "json";
+  // multipart operations (e.g. OpenAI /audio/transcriptions) carry the payload
+  // under "data" and must be encoded as multipart/form-data with the audio sent
+  // as raw bytes. The body string is binary-safe (length comes from .size()).
+  bool multipart = !has_key(request, "json") && has_key(request, "data");
+  std::string payload;
+  std::string multipart_content_type;
+  if (multipart) {
+    auto encoded = axir_encode_multipart(Core::get(request, "data", Value::object()));
+    payload = std::move(encoded.first);
+    multipart_content_type = std::move(encoded.second);
+  } else {
+    Value body = Core::get(request, "json", Core::get(request, "data", Value::object()));
+    payload = stringify(body);
+  }
+
   struct curl_slist* headers = nullptr;
   for (const auto& entry : object_ref(Core::get(request, "headers", Value::object()))) {
     if (entry.first == "__order") continue;
+    // Override the JSON Content-Type for multipart requests.
+    if (multipart && (entry.first == "Content-Type" || entry.first == "content-type")) continue;
     std::string header = entry.first + ": " + str(entry.second);
     headers = curl_slist_append(headers, header.c_str());
   }
+  if (multipart) {
+    std::string ct_header = "Content-Type: " + multipart_content_type;
+    headers = curl_slist_append(headers, ct_header.c_str());
+  }
 
-  Value body = Core::get(request, "json", Core::get(request, "data", Value::object()));
-  std::string payload = stringify(body);
   std::string method = str(Core::get(request, "method", "POST"));
   std::string url = str(Core::get(request, "url"));
   bool stream = Core::truthy(Core::get(request, "stream", false));
@@ -265,7 +368,10 @@ Value HttpTransport::call(Value request) {
   if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
   if (method == "POST") {
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
+    // POSTFIELDSIZE makes the body binary-safe: curl sends exactly this many
+    // bytes from the buffer rather than scanning for a NUL terminator, which is
+    // required for the raw audio bytes embedded in a multipart body.
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
   } else {
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());

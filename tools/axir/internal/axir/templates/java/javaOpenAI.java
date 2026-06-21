@@ -1,5 +1,6 @@
 package dev.axllm.ax;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -9,14 +10,18 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class OpenAICompatibleClient extends AxBaseAI {
   public interface Transport {
     Object call(Map<String, Object> request) throws Exception;
   }
+
+  private static final String MULTIPART_BOUNDARY = "----axllmFormBoundary" + UUID.randomUUID().toString().replace("-", "");
 
   protected final String profile;
   private final Map<String, Object> descriptor;
@@ -140,20 +145,94 @@ public class OpenAICompatibleClient extends AxBaseAI {
     call.put("method", "POST");
     call.put("url", baseUrl + endpoint);
     call.put("headers", headers());
-    call.put(bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey, payload);
+    String resolvedBodyKey = bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey;
+    call.put(resolvedBodyKey, payload);
     call.put("stream", stream);
     if (transport != null) return transportResult(transport.call(call), call);
     if (apiKey == null || apiKey.isBlank() || "null".equals(apiKey)) throw new AxAIServiceAuthenticationError("OPENAI_API_KEY is required", null, null, null, call);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(baseUrl + endpoint))
       .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)));
-    for (Map.Entry<String, Object> header : headers().entrySet()) builder.header(header.getKey(), String.valueOf(header.getValue()));
-    HttpRequest req = builder.POST(HttpRequest.BodyPublishers.ofString(Json.stringify(payload))).build();
+    Map<String, Object> requestHeaders = headers();
+    HttpRequest.BodyPublisher bodyPublisher;
+    if ("data".equals(resolvedBodyKey)) {
+      byte[] multipartBody = encodeMultipart(payload, MULTIPART_BOUNDARY);
+      requestHeaders.put("Content-Type", "multipart/form-data; boundary=" + MULTIPART_BOUNDARY);
+      bodyPublisher = HttpRequest.BodyPublishers.ofByteArray(multipartBody);
+    } else {
+      bodyPublisher = HttpRequest.BodyPublishers.ofString(Json.stringify(payload));
+    }
+    for (Map.Entry<String, Object> header : requestHeaders.entrySet()) builder.header(header.getKey(), String.valueOf(header.getValue()));
+    HttpRequest req = builder.POST(bodyPublisher).build();
     HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
     Object body;
     try { body = Json.parse(res.body()); } catch (RuntimeException ex) { body = res.body(); }
     if (res.statusCode() >= 400) throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), body, call));
     return body;
+  }
+
+  // Encode a request payload as multipart/form-data. Multipart operations (e.g. OpenAI
+  // /audio/transcriptions) carry the audio as a binary `file` part; every other field is a
+  // plain form field. The `file` value is a base64 String (optionally a data: URL) or a
+  // Map {data, mimeType?, filename?}. The body is binary: text parts are UTF-8 bytes and the
+  // file part is the raw decoded bytes.
+  private static byte[] encodeMultipart(Map<String, Object> payload, String boundary) throws IOException {
+    byte[] crlf = "\r\n".getBytes(StandardCharsets.UTF_8);
+    byte[] dashes = ("--" + boundary).getBytes(StandardCharsets.UTF_8);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    for (Map.Entry<String, Object> entry : payload.entrySet()) {
+      String key = entry.getKey();
+      Object value = entry.getValue();
+      if (value == null) continue;
+      if ("file".equals(key)) {
+        String data;
+        String filename;
+        String contentType;
+        if (value instanceof Map<?, ?> map) {
+          Map<String, Object> fileMap = Core.asMap(map);
+          data = String.valueOf(fileMap.getOrDefault("data", ""));
+          Object rawFilename = fileMap.get("filename");
+          filename = rawFilename == null || String.valueOf(rawFilename).isBlank() ? "audio.wav" : String.valueOf(rawFilename);
+          Object rawMime = fileMap.get("mimeType");
+          if (rawMime == null) rawMime = fileMap.get("mime_type");
+          contentType = rawMime == null || String.valueOf(rawMime).isBlank() ? "audio/wav" : String.valueOf(rawMime);
+        } else {
+          data = String.valueOf(value);
+          filename = "audio.wav";
+          contentType = "audio/wav";
+        }
+        if (data.startsWith("data:") && data.contains(",")) {
+          data = data.substring(data.indexOf(',') + 1);
+        }
+        byte[] fileBytes;
+        try {
+          fileBytes = Base64.getDecoder().decode(data);
+        } catch (IllegalArgumentException ex) {
+          fileBytes = data.getBytes(StandardCharsets.UTF_8);
+        }
+        out.write(dashes);
+        out.write(crlf);
+        out.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"").getBytes(StandardCharsets.UTF_8));
+        out.write(crlf);
+        out.write(("Content-Type: " + contentType).getBytes(StandardCharsets.UTF_8));
+        out.write(crlf);
+        out.write(crlf);
+        out.write(fileBytes);
+        out.write(crlf);
+      } else {
+        out.write(dashes);
+        out.write(crlf);
+        out.write(("Content-Disposition: form-data; name=\"" + key + "\"").getBytes(StandardCharsets.UTF_8));
+        out.write(crlf);
+        out.write(crlf);
+        out.write(String.valueOf(value).getBytes(StandardCharsets.UTF_8));
+        out.write(crlf);
+      }
+    }
+    out.write(dashes);
+    out.write("--".getBytes(StandardCharsets.UTF_8));
+    out.write(crlf);
+    return out.toByteArray();
   }
 
   private String operationPath(String operation) {

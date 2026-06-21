@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import base64
 import copy
 import json
 import os
@@ -120,6 +121,48 @@ def default_metrics() -> dict[str, Any]:
             "embed": {"count": 0, "rate": 0.0, "total": 0},
         },
     }
+
+
+def _encode_multipart(payload: dict[str, Any]) -> tuple[bytes, str]:
+    """Encode a request payload as multipart/form-data.
+
+    Multipart operations (e.g. OpenAI /audio/transcriptions) carry the audio as a
+    binary `file` part; every other field is a plain form field. The `file` value is
+    a base64 string (optionally a data: URL) or a dict {data, mimeType?, filename?}.
+    """
+    boundary = "----axllmFormBoundary" + uuid.uuid4().hex
+    crlf = b"\r\n"
+    parts: list[bytes] = []
+    for key, value in payload.items():
+        if value is None:
+            continue
+        if key == "file":
+            if isinstance(value, dict):
+                data = str(value.get("data", ""))
+                filename = str(value.get("filename") or "audio.wav")
+                content_type = str(value.get("mimeType") or value.get("mime_type") or "audio/wav")
+            else:
+                data = str(value)
+                filename = "audio.wav"
+                content_type = "audio/wav"
+            if data.startswith("data:") and "," in data:
+                data = data.split(",", 1)[1]
+            try:
+                file_bytes = base64.b64decode(data)
+            except Exception:
+                file_bytes = data.encode()
+            parts.append(b"--" + boundary.encode() + crlf)
+            parts.append(
+                ('Content-Disposition: form-data; name="file"; filename="' + filename + '"').encode() + crlf
+            )
+            parts.append(("Content-Type: " + content_type).encode() + crlf + crlf)
+            parts.append(file_bytes + crlf)
+        else:
+            parts.append(b"--" + boundary.encode() + crlf)
+            parts.append(('Content-Disposition: form-data; name="' + str(key) + '"').encode() + crlf + crlf)
+            parts.append(str(value).encode() + crlf)
+    parts.append(b"--" + boundary.encode() + b"--" + crlf)
+    return b"".join(parts), "multipart/form-data; boundary=" + boundary
 
 
 class AxAIService(ABC):
@@ -457,10 +500,17 @@ class ProviderOperationClient(AxBaseAI):
                 raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
         if not self.api_key:
             raise AxAIServiceAuthenticationError("OPENAI_API_KEY is required")
+        request_headers = call["headers"]
+        if body_key == "data":
+            request_body, multipart_content_type = _encode_multipart(payload)
+            request_headers = dict(request_headers)
+            request_headers["Content-Type"] = multipart_content_type
+        else:
+            request_body = json.dumps(payload).encode()
         req = urllib.request.Request(
             call["url"],
-            data=json.dumps(payload).encode(),
-            headers=call["headers"],
+            data=request_body,
+            headers=request_headers,
             method="POST",
         )
         try:
