@@ -72,7 +72,7 @@ int main() {
   const char* model = std::getenv("AX_GEMINI_MODEL");
   axllm::GoogleGeminiClient client(axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gemini-3-flash-preview" : model},
+      {"model", model == nullptr || std::string(model).empty() ? "gemini-3.5-flash" : model},
   }));
 
   std::vector<axllm::Value> log_events = build_log_dump();

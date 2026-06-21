@@ -29,7 +29,7 @@ func geminiClient() *ax.GoogleGeminiClient {
 	}
 	model := os.Getenv("AX_GEMINI_MODEL")
 	if model == "" {
-		model = "gemini-3-flash-preview"
+		model = "gemini-3.5-flash"
 	}
 	return ax.NewGoogleGeminiClient(map[string]ax.Value{"api_key": apiKey, "model": model})
 }

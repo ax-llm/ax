@@ -30,19 +30,19 @@ if (!openaiKey || !googleKey || !anthropicKey) {
 // to the panel, judge the candidates, then synthesize one grounded answer.
 const panel = [
   {
-    model: 'openai/gpt-4o-mini',
+    model: 'openai/gpt-5.4-mini',
     llm: ai({
       name: 'openai',
       apiKey: openaiKey,
-      config: { model: AxAIOpenAIModel.GPT4OMini, temperature: 0 },
+      config: { model: AxAIOpenAIModel.GPT54Mini, temperature: 0 },
     }),
   },
   {
-    model: 'google/gemini-3-flash',
+    model: 'google/gemini-3.5-flash',
     llm: ai({
       name: 'google-gemini',
       apiKey: googleKey,
-      config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
+      config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
     }),
   },
   {

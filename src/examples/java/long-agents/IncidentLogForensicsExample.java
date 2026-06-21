@@ -21,7 +21,7 @@ public final class IncidentLogForensicsExample {
     }
     return new GoogleGeminiClient(Map.of(
         "api_key", apiKey,
-        "model", System.getenv().getOrDefault("AX_GEMINI_MODEL", "gemini-3-flash-preview")));
+        "model", System.getenv().getOrDefault("AX_GEMINI_MODEL", "gemini-3.5-flash")));
   }
 
   // ---------------------------------------------------------------------------

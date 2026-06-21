@@ -16,7 +16,7 @@ use std::sync::Arc;
 fn gemini_client() -> AxResult<GoogleGeminiClient> {
     let api_key = env::var("GOOGLE_APIKEY")
         .map_err(|_| axllm::AxError::runtime("Set GOOGLE_APIKEY to run this example."))?;
-    let model = env::var("AX_GEMINI_MODEL").unwrap_or_else(|_| "gemini-3-flash-preview".to_string());
+    let model = env::var("AX_GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.5-flash".to_string());
     Ok(GoogleGeminiClient::new(api_key, model).with_profile("google-gemini"))
 }
 

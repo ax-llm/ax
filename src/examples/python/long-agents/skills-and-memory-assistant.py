@@ -19,9 +19,9 @@ if not api_key:
 
 client = OpenAICompatibleClient(
     api_key=api_key,
-    # gpt-4o (not -mini): the recall/discover loop needs reasoning to proactively
+    # gpt-5.4 (not -mini): the recall/discover loop needs reasoning to proactively
     # pull memories + runbooks instead of stopping to ask for clarification.
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-4o"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4"),
     model_config={"temperature": 0},
 )
 

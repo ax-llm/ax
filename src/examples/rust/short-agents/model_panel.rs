@@ -32,10 +32,10 @@ fn main() -> AxResult<()> {
     // A panel of three different providers, each answering the same question
     // independently. Plain ax() composition (no agent runtime): fan out to the
     // panel, judge the candidates, then synthesize one grounded answer.
-    let mut openai = OpenAICompatibleClient::new(openai_key, "gpt-4o-mini")
+    let mut openai = OpenAICompatibleClient::new(openai_key, "gpt-5.4-mini")
         .with_model_config(json!({"temperature": 0}));
     let mut gemini =
-        GoogleGeminiClient::new(google_key, "gemini-3-flash-preview").with_profile("google-gemini");
+        GoogleGeminiClient::new(google_key, "gemini-3.5-flash").with_profile("google-gemini");
     let mut anthropic =
         AnthropicClient::new(anthropic_key, "claude-haiku-4-5").with_profile("anthropic");
 
@@ -66,8 +66,8 @@ fn main() -> AxResult<()> {
     // the model that produced it.
     let mut candidates: Vec<Value> = Vec::new();
     let panel: [(&str, &mut OpenAICompatibleClient); 3] = [
-        ("openai/gpt-4o-mini", &mut openai),
-        ("google/gemini-3-flash", &mut gemini),
+        ("openai/gpt-5.4-mini", &mut openai),
+        ("google/gemini-3.5-flash", &mut gemini),
         ("anthropic/claude-haiku-4.5", &mut anthropic),
     ];
     for (model, client) in panel {

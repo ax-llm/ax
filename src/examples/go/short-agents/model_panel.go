@@ -56,8 +56,8 @@ func main() {
 	// independently. Plain ax() composition (no agent runtime): fan out to the
 	// panel, judge the candidates, then synthesize one grounded answer.
 	panel := []panelist{
-		{"openai/gpt-4o-mini", ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": openaiKey, "model": "gpt-4o-mini", "model_config": ax.Object("temperature", 0)})},
-		{"google/gemini-3-flash", ax.NewGoogleGeminiClient(map[string]ax.Value{"api_key": googleKey, "model": "gemini-3-flash-preview"})},
+		{"openai/gpt-5.4-mini", ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": openaiKey, "model": "gpt-5.4-mini", "model_config": ax.Object("temperature", 0)})},
+		{"google/gemini-3.5-flash", ax.NewGoogleGeminiClient(map[string]ax.Value{"api_key": googleKey, "model": "gemini-3.5-flash"})},
 		{"anthropic/claude-haiku-4.5", ax.NewAnthropicClient(map[string]ax.Value{"api_key": anthropicKey, "model": "claude-haiku-4-5"})},
 	}
 

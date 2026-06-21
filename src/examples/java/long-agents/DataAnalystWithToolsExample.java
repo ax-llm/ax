@@ -89,7 +89,7 @@ public final class DataAnalystWithToolsExample {
     }
 
     GoogleGeminiClient client = new GoogleGeminiClient(Map.of(
-        "api_key", apiKey, "model", "gemini-3-flash-preview"));
+        "api_key", apiKey, "model", "gemini-3.5-flash"));
 
     List<Map<String, Object>> warehouse = buildWarehouse();
     System.out.println("Warehouse: " + warehouse.size() + " rows (kept out of the prompt).");

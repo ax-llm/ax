@@ -17,7 +17,7 @@ api_key = os.getenv("GOOGLE_APIKEY")
 if not api_key:
     raise SystemExit("Set GOOGLE_APIKEY to run this example.")
 
-client = GoogleGeminiClient(api_key=api_key, model="gemini-3-flash-preview")
+client = GoogleGeminiClient(api_key=api_key, model="gemini-3.5-flash")
 
 # ---------------------------------------------------------------------------
 # The "warehouse": a few hundred rows that live in the host process and are

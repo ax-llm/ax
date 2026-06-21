@@ -36,6 +36,16 @@ Avoid deprecated patterns in new code:
 - `new AxAI(...)`
 - template literal forms like ``ax`...` `` and ``s`...` ``
 
+### Use current models
+
+When adding or updating any example, default, or test that names a model, pick a **current**
+generation — newer beats biggest. The provider model enums are the source of truth for what's
+current: `src/ax/ai/openai/chat_types.ts`, `src/ax/ai/google-gemini/types.ts`,
+`src/ax/ai/anthropic/types.ts`. Choose a recent member; a newer small/cheap model
+(e.g. `gpt-5.4-mini`, `gemini-3.5-flash`) is preferred over an old flagship (`gpt-4o`,
+`gemini-2.x`), and never pin a dated `-preview` when a stable newer one exists. Don't leave
+examples sitting on an old generation once a newer one lands in the enums.
+
 ## Skills As Subsystem Docs
 
 Use the skill files in `src/ax/skills/` as the primary subsystem documentation:

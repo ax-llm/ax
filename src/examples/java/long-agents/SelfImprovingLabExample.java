@@ -81,7 +81,7 @@ public final class SelfImprovingLabExample {
 
     OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
         "api_key", apiKey,
-        "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4o-mini"),
+        "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"),
         "model_config", Map.of("temperature", 0.0)));
 
     // An independent verifier -- a separate ax() program, not the agent grading itself.

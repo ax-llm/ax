@@ -25,7 +25,7 @@ const llm = ai({
   name: 'google-gemini',
   apiKey,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini3Flash,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
   },
 });
 

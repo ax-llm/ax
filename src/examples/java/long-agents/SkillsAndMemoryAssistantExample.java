@@ -21,9 +21,9 @@ public final class SkillsAndMemoryAssistantExample {
 
     OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
         "api_key", apiKey,
-        // gpt-4o (not -mini): the recall/discover loop needs reasoning to proactively
+        // gpt-5.4 (not -mini): the recall/discover loop needs reasoning to proactively
         // pull memories + runbooks instead of stopping to ask for clarification.
-        "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4o"),
+        "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4"),
         "model_config", Map.of("temperature", 0.0)));
 
     // ---------------------------------------------------------------------------

@@ -31,9 +31,9 @@ func openAIClient() *ax.OpenAICompatibleClient {
 	}
 	model := os.Getenv("AX_OPENAI_MODEL")
 	if model == "" {
-		// gpt-4o (not -mini): the recall/discover loop needs reasoning to proactively
+		// gpt-5.4 (not -mini): the recall/discover loop needs reasoning to proactively
 		// pull memories + runbooks instead of stopping to ask for clarification.
-		model = "gpt-4o"
+		model = "gpt-5.4"
 	}
 	return ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
 }

@@ -21,11 +21,11 @@ int main() {
     return 2;
   }
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  // gpt-4o (not -mini): the recall/discover loop needs reasoning to proactively
+  // gpt-5.4 (not -mini): the recall/discover loop needs reasoning to proactively
   // pull memories + runbooks instead of stopping to ask for clarification.
   axllm::OpenAICompatibleClient client(axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-4o" : model},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
 

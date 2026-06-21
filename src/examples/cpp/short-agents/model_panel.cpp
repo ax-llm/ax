@@ -36,12 +36,12 @@ int main() {
   // panel, judge the candidates, then synthesize one grounded answer.
   axllm::OpenAICompatibleClient openai(axllm::object({
       {"api_key", openai_key},
-      {"model", "gpt-4o-mini"},
+      {"model", "gpt-5.4-mini"},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
   axllm::GoogleGeminiClient gemini(axllm::object({
       {"api_key", google_key},
-      {"model", "gemini-3-flash-preview"},
+      {"model", "gemini-3.5-flash"},
   }));
   axllm::AnthropicClient anthropic(axllm::object({
       {"api_key", anthropic_key},
@@ -49,8 +49,8 @@ int main() {
   }));
 
   std::vector<std::pair<std::string, axllm::AIClient*>> panel = {
-      {"openai/gpt-4o-mini", &openai},
-      {"google/gemini-3-flash", &gemini},
+      {"openai/gpt-5.4-mini", &openai},
+      {"google/gemini-3.5-flash", &gemini},
       {"anthropic/claude-haiku-4.5", &anthropic},
   };
 

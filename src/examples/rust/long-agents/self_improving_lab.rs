@@ -20,7 +20,7 @@ fn openai_config() -> AxResult<(String, String)> {
         .map_err(|_| {
             axllm::AxError::runtime("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.")
         })?;
-    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
+    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
     Ok((api_key, model))
 }
 

@@ -31,14 +31,14 @@ public final class ModelPanelExample {
     // independently. Plain ax() composition (no agent runtime): fan out to the
     // panel, judge the candidates, then synthesize one grounded answer.
     List<String> panelModels = List.of(
-        "openai/gpt-4o-mini",
-        "google/gemini-3-flash",
+        "openai/gpt-5.4-mini",
+        "google/gemini-3.5-flash",
         "anthropic/claude-haiku-4.5");
     List<AiClient> panelClients = List.of(
         new OpenAICompatibleClient(Map.of(
-            "api_key", openaiKey, "model", "gpt-4o-mini", "model_config", Map.of("temperature", 0.0))),
+            "api_key", openaiKey, "model", "gpt-5.4-mini", "model_config", Map.of("temperature", 0.0))),
         new GoogleGeminiClient(Map.of(
-            "api_key", googleKey, "model", "gemini-3-flash-preview")),
+            "api_key", googleKey, "model", "gemini-3.5-flash")),
         new AnthropicClient(Map.of(
             "api_key", anthropicKey, "model", "claude-haiku-4-5")));
 
