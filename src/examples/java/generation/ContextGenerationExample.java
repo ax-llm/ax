@@ -23,7 +23,7 @@ public final class ContextGenerationExample {
 
   static OpenAICompatibleClient client() {
     return new OpenAICompatibleClient(
-        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini"), "model_config", Map.of("temperature", 0.0)));
+        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"), "model_config", Map.of("temperature", 0.0)));
   }
 
   public static void main(String[] args) throws Exception {

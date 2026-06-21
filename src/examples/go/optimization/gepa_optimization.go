@@ -27,7 +27,7 @@ func openAIClient() *ax.OpenAICompatibleClient {
 	if apiKey == "" { apiKey = os.Getenv("OPENAI_APIKEY") }
 	if apiKey == "" { panic("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.") }
 	model := os.Getenv("AX_OPENAI_MODEL")
-	if model == "" { model = "gpt-4.1-mini" }
+	if model == "" { model = "gpt-5.4-mini" }
 	return ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
 }
 

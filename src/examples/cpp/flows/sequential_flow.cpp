@@ -25,7 +25,7 @@ int main() {
   const char* model = std::getenv("AX_OPENAI_MODEL");
   axllm::OpenAICompatibleClient client(axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-4.1-mini" : model},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
   axllm::AxGen step = axllm::ax("documentText:string -> summaryText:string");
