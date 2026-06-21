@@ -6913,6 +6913,7 @@ final class Core {
     if (Core.truthy(use_json_schema)) {
       Object schema_options = new java.util.LinkedHashMap<String, Object>();
       Core.set(schema_options, "strictStructuredOutputs", Boolean.TRUE);
+      Core.set(schema_options, "flexibleJsonFieldsAsString", Boolean.TRUE);
       Object code_schema = Core._schema_to_json_schema_impl(output_fields, "output", schema_options);
       Object code_schema_wrap = new java.util.LinkedHashMap<String, Object>();
       Core.set(code_schema_wrap, "name", "output");
@@ -7130,7 +7131,8 @@ final class Core {
         try {
           Object content = Core.get(response, "content", "");
           Object output = Core._parse_output_impl(content);
-          Object validated = Core.validate_output(output_fields, output);
+          Object recovered = Core._parse_json_string_fields(output_fields, output);
+          Object validated = Core.validate_output(output_fields, recovered);
           Object processed = Core._apply_field_processors(gen, validated);
           Core._run_assertions(gen, processed);
           Object public_output = Core.strip_internal(output_fields, processed);
@@ -7298,16 +7300,16 @@ final class Core {
     return messages;
   }
 
-  static Object _apply_field_processors(Object gen, Object output) {
-    axirCoverageMark("_apply_field_processors");
-    Object processed = Core.axgenApplyFieldProcessors(gen, output);
-    return processed;
-  }
-
   static Object _serialize_optimized_artifact(Object artifact) {
     axirCoverageMark("_serialize_optimized_artifact");
     Object text = Core.jsonStringify(artifact);
     return text;
+  }
+
+  static Object _apply_field_processors(Object gen, Object output) {
+    axirCoverageMark("_apply_field_processors");
+    Object processed = Core.axgenApplyFieldProcessors(gen, output);
+    return processed;
   }
 
   static Object _deserialize_optimized_artifact(Object text, Object components) {
@@ -7462,35 +7464,21 @@ final class Core {
     return avg;
   }
 
-  static Object _tool_spec_impl(Object fn) {
-    axirCoverageMark("_tool_spec_impl");
-    Object spec = new java.util.LinkedHashMap<String, Object>();
-    Object name = Core.get(fn, "name", null);
-    Object description = Core.get(fn, "description", null);
-    Object parameters = Core.get(fn, "parameters", null);
-    Core.set(spec, "name", name);
-    Core.set(spec, "description", description);
-    Core.set(spec, "parameters", parameters);
-    return spec;
-  }
-
-  static Object _function_call_mode_impl(Object mode) {
-    axirCoverageMark("_function_call_mode_impl");
-    Object missing = Core.isNone(mode);
-    if (Core.truthy(missing)) {
-      return "auto";
+  static Object _is_flexible_json_field(Object typ) {
+    axirCoverageMark("_is_flexible_json_field");
+    Object type_name = Core.get(typ, "name", null);
+    Object is_json = Core.eq(type_name, "json");
+    Object is_object = Core.eq(type_name, "object");
+    Object fields = Core.get(typ, "fields", null);
+    Object has_fields = Core.truthyValue(fields);
+    Object no_fields = Core.not(has_fields);
+    Object flexible = is_json;
+    if (Core.truthy(is_object)) {
+      if (Core.truthy(no_fields)) {
+        flexible = Boolean.TRUE;
+      }
     }
-    Object is_native = Core.eq(mode, "native");
-    Object is_auto = Core.eq(mode, "auto");
-    Object native_or_auto = Core.or(is_native, is_auto);
-    if (Core.truthy(native_or_auto)) {
-      return "auto";
-    }
-    Object is_prompt = Core.eq(mode, "prompt");
-    if (Core.truthy(is_prompt)) {
-      return "none";
-    }
-    return mode;
+    return flexible;
   }
 
   static Object _optimization_action_name_matches(Object expected, Object call) {
@@ -7506,11 +7494,21 @@ final class Core {
     return any_match;
   }
 
-  static Object _response_function_calls_impl(Object response) {
-    axirCoverageMark("_response_function_calls_impl");
-    Object empty = new java.util.ArrayList<Object>();
-    Object calls = Core.get(response, "function_calls", empty);
-    return calls;
+  static Object _parse_json_string_value(Object value) {
+    axirCoverageMark("_parse_json_string_value");
+    Object is_string = Core.typeIs(value, "string");
+    Object not_string = Core.not(is_string);
+    if (Core.truthy(not_string)) {
+      return value;
+    }
+    Object result = value;
+    try {
+      Object parsed = Core.jsonParse(value);
+      result = parsed;
+    } catch (RuntimeException parse_error) {
+      result = value;
+    }
+    return result;
   }
 
   static Object _adjust_optimization_score_for_actions(Object score, Object task, Object prediction) {
@@ -7559,78 +7557,93 @@ final class Core {
     return adjusted;
   }
 
-  static Object _append_tool_call_messages_impl(Object messages, Object response, Object calls) {
-    axirCoverageMark("_append_tool_call_messages_impl");
-    Object chat_calls = new java.util.ArrayList<Object>();
-    for (Object call : Core.iter(calls)) {
-      Object chat_call = Core._completion_call_to_chat_impl(call);
-      Core.append(chat_calls, chat_call);
+  static Object _parse_json_string_for_field(Object field, Object value) {
+    axirCoverageMark("_parse_json_string_for_field");
+    Object typ = Core.get(field, "type", null);
+    Object value_is_none = Core.isNone(value);
+    if (Core.truthy(value_is_none)) {
+      return value;
     }
-    Object content = Core.get(response, "content", "");
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "assistant");
-    Core.set(message, "content", content);
-    Core.set(message, "function_calls", chat_calls);
-    Core.append(messages, message);
-    return null;
+    Object flexible = Core._is_flexible_json_field(typ);
+    Object is_array = Core.get(typ, "is_array", Boolean.FALSE);
+    if (Core.truthy(is_array)) {
+      Object value_is_list = Core.typeIs(value, "list");
+      Object not_list = Core.not(value_is_list);
+      if (Core.truthy(not_list)) {
+        return value;
+      }
+      if (Core.truthy(flexible)) {
+        Object out = new java.util.ArrayList<Object>();
+        for (Object item : Core.iter(value)) {
+          Object parsed_item = Core._parse_json_string_value(item);
+          Core.append(out, parsed_item);
+        }
+        return out;
+      }
+      return value;
+    }
+    if (Core.truthy(flexible)) {
+      Object parsed_scalar = Core._parse_json_string_value(value);
+      return parsed_scalar;
+    }
+    return value;
   }
 
-  static Object _completion_call_to_chat_impl(Object call) {
-    axirCoverageMark("_completion_call_to_chat_impl");
-    Object id = Core.get(call, "id", null);
-    Object name = Core.get(call, "name", null);
-    Object params = Core.get(call, "params", null);
-    Object function = new java.util.LinkedHashMap<String, Object>();
-    Core.set(function, "name", name);
-    Core.set(function, "params", params);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "id", id);
-    Core.set(out, "type", "function");
-    Core.set(out, "function", function);
-    return out;
+  static Object _parse_json_string_fields(Object output_fields, Object values) {
+    axirCoverageMark("_parse_json_string_fields");
+    Object values_is_map = Core.typeIs(values, "object");
+    Object not_map = Core.not(values_is_map);
+    if (Core.truthy(not_map)) {
+      return values;
+    }
+    for (Object field : Core.iter(output_fields)) {
+      Object name = Core.get(field, "name", null);
+      Object has_key = Core.mapContains(values, name);
+      if (Core.truthy(has_key)) {
+        Object value = Core.get(values, name, null);
+        Object parsed = Core._parse_json_string_for_field(field, value);
+        Core.set(values, name, parsed);
+      }
+    }
+    return values;
   }
 
-  static Object _tool_result_message_impl(Object call, Object result) {
-    axirCoverageMark("_tool_result_message_impl");
-    Object id = Core.get(call, "id", null);
-    Object result_json = Core.jsonStringify(result);
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "function");
-    Core.set(message, "function_id", id);
-    Core.set(message, "result", result_json);
-    return message;
+  static Object _tool_spec_impl(Object fn) {
+    axirCoverageMark("_tool_spec_impl");
+    Object spec = new java.util.LinkedHashMap<String, Object>();
+    Object name = Core.get(fn, "name", null);
+    Object description = Core.get(fn, "description", null);
+    Object parameters = Core.get(fn, "parameters", null);
+    Core.set(spec, "name", name);
+    Core.set(spec, "description", description);
+    Core.set(spec, "parameters", parameters);
+    return spec;
   }
 
-  static Object _tool_error_message_impl(Object call, Object error) {
-    axirCoverageMark("_tool_error_message_impl");
-    Object id = Core.get(call, "id", null);
-    Object error_text = Core.exceptionMessage(error);
-    Object payload = new java.util.LinkedHashMap<String, Object>();
-    Core.set(payload, "error", error_text);
-    Object payload_json = Core.jsonStringify(payload);
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "function");
-    Core.set(message, "function_id", id);
-    Core.set(message, "result", payload_json);
-    Core.set(message, "is_error", Boolean.TRUE);
-    return message;
+  static Object _function_call_mode_impl(Object mode) {
+    axirCoverageMark("_function_call_mode_impl");
+    Object missing = Core.isNone(mode);
+    if (Core.truthy(missing)) {
+      return "auto";
+    }
+    Object is_native = Core.eq(mode, "native");
+    Object is_auto = Core.eq(mode, "auto");
+    Object native_or_auto = Core.or(is_native, is_auto);
+    if (Core.truthy(native_or_auto)) {
+      return "auto";
+    }
+    Object is_prompt = Core.eq(mode, "prompt");
+    if (Core.truthy(is_prompt)) {
+      return "none";
+    }
+    return mode;
   }
 
-  static Object _append_validation_retry_messages_impl(Object messages, Object response, Object error) {
-    axirCoverageMark("_append_validation_retry_messages_impl");
-    Object content = Core.get(response, "content", "");
-    Object assistant_message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(assistant_message, "role", "assistant");
-    Core.set(assistant_message, "content", content);
-    Core.append(messages, assistant_message);
-    Object error_text = Core.exceptionMessage(error);
-    Object prefix_message = Core.add("The previous response failed validation: ", error_text);
-    Object retry_content = Core.add(prefix_message, ". Return only corrected JSON.");
-    Object retry_message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(retry_message, "role", "user");
-    Core.set(retry_message, "content", retry_content);
-    Core.append(messages, retry_message);
-    return null;
+  static Object _response_function_calls_impl(Object response) {
+    axirCoverageMark("_response_function_calls_impl");
+    Object empty = new java.util.ArrayList<Object>();
+    Object calls = Core.get(response, "function_calls", empty);
+    return calls;
   }
 
   static Object _build_optimization_eval_row(Object task, Object prediction, Object scores, Object scalar, Object trace, Object error) {
@@ -7646,6 +7659,22 @@ final class Core {
       Core.set(out, "error", error);
     }
     return out;
+  }
+
+  static Object _append_tool_call_messages_impl(Object messages, Object response, Object calls) {
+    axirCoverageMark("_append_tool_call_messages_impl");
+    Object chat_calls = new java.util.ArrayList<Object>();
+    for (Object call : Core.iter(calls)) {
+      Object chat_call = Core._completion_call_to_chat_impl(call);
+      Core.append(chat_calls, chat_call);
+    }
+    Object content = Core.get(response, "content", "");
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "assistant");
+    Core.set(message, "content", content);
+    Core.set(message, "function_calls", chat_calls);
+    Core.append(messages, message);
+    return null;
   }
 
   static Object _build_optimization_eval_result(Object rows, Object candidate_map, Object phase) {
@@ -7673,6 +7702,32 @@ final class Core {
     Core.set(out, "avg", avg);
     Core.set(out, "count", count);
     return out;
+  }
+
+  static Object _completion_call_to_chat_impl(Object call) {
+    axirCoverageMark("_completion_call_to_chat_impl");
+    Object id = Core.get(call, "id", null);
+    Object name = Core.get(call, "name", null);
+    Object params = Core.get(call, "params", null);
+    Object function = new java.util.LinkedHashMap<String, Object>();
+    Core.set(function, "name", name);
+    Core.set(function, "params", params);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "id", id);
+    Core.set(out, "type", "function");
+    Core.set(out, "function", function);
+    return out;
+  }
+
+  static Object _tool_result_message_impl(Object call, Object result) {
+    axirCoverageMark("_tool_result_message_impl");
+    Object id = Core.get(call, "id", null);
+    Object result_json = Core.jsonStringify(result);
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "function");
+    Core.set(message, "function_id", id);
+    Core.set(message, "result", result_json);
+    return message;
   }
 
   static Object _filter_optimization_components(Object components, Object target) {
@@ -7734,6 +7789,38 @@ final class Core {
       throw Core.asRuntime(error);
     }
     return out;
+  }
+
+  static Object _tool_error_message_impl(Object call, Object error) {
+    axirCoverageMark("_tool_error_message_impl");
+    Object id = Core.get(call, "id", null);
+    Object error_text = Core.exceptionMessage(error);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Core.set(payload, "error", error_text);
+    Object payload_json = Core.jsonStringify(payload);
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "function");
+    Core.set(message, "function_id", id);
+    Core.set(message, "result", payload_json);
+    Core.set(message, "is_error", Boolean.TRUE);
+    return message;
+  }
+
+  static Object _append_validation_retry_messages_impl(Object messages, Object response, Object error) {
+    axirCoverageMark("_append_validation_retry_messages_impl");
+    Object content = Core.get(response, "content", "");
+    Object assistant_message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(assistant_message, "role", "assistant");
+    Core.set(assistant_message, "content", content);
+    Core.append(messages, assistant_message);
+    Object error_text = Core.exceptionMessage(error);
+    Object prefix_message = Core.add("The previous response failed validation: ", error_text);
+    Object retry_content = Core.add(prefix_message, ". Return only corrected JSON.");
+    Object retry_message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(retry_message, "role", "user");
+    Core.set(retry_message, "content", retry_content);
+    Core.append(messages, retry_message);
+    return null;
   }
 
   static Object _build_optimizer_request(Object program_kind, Object components, Object dataset, Object options, Object trace) {

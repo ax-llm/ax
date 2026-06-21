@@ -88,6 +88,12 @@ module @ax.gen version "0.1" {
       core.if %use_json_schema {
         %schema_options = core.map
         core.set %schema_options["strictStructuredOutputs"] = true
+        // A freeform `json`/`json[]` output field has no declared properties, and a
+        // strict schema forces additionalProperties:false, which pins every such
+        // object to `{}` (a forensics `findings:json[]` came back as `[{}]`). Mirror
+        // TS AxGen: encode flexible-json fields as JSON strings the model CAN fill,
+        // then parse them back after the response (see @parse_json_string_fields).
+        core.set %schema_options["flexibleJsonFieldsAsString"] = true
         %code_schema = core.call @schema_to_json_schema_impl(%output_fields, "output", %schema_options)
         %code_schema_wrap = core.map
         core.set %code_schema_wrap["name"] = "output"
@@ -187,7 +193,8 @@ module @ax.gen version "0.1" {
           core.try {
             %content = core.get %response["content"] default ""
             %output = core.call @parse_output_impl(%content)
-            %validated = core.call @validate_output(%output_fields, %output)
+            %recovered = core.call @parse_json_string_fields(%output_fields, %output)
+            %validated = core.call @validate_output(%output_fields, %recovered)
             %processed = core.call @apply_field_processors(%gen, %validated)
             core.call @run_assertions(%gen, %processed)
             %public_output = core.call @strip_internal_fields(%output_fields, %processed)
@@ -367,6 +374,122 @@ module @ax.gen version "0.1" {
       %text = core.string_trim %content
       %output = core.call intrinsic.json.parse(%text)
       core.return %output
+    }
+  }
+
+  // A freeform `json`/`json[]` output field is encoded as a JSON-encoded string in
+  // the strict schema (see flexibleJsonFieldsAsString in @build_gen_chat_request),
+  // so the model can actually fill it instead of being pinned to `{}`. After the
+  // response is parsed we walk the output fields and parse those string values back
+  // into real json. Mirrors TS AxGen parseStructuredJsonFieldValues / isFlexibleJsonField.
+  op ax.gen.semantic @is_flexible_json_field {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "is-flexible-json-field-core-helper"
+    type signature = "(FieldType) -> bool"
+    body @entry(%typ: FieldType) {
+      %type_name = core.get %typ["name"]
+      %is_json = core.call intrinsic.eq(%type_name, "json")
+      %is_object = core.call intrinsic.eq(%type_name, "object")
+      %fields = core.get %typ["fields"]
+      %has_fields = core.call intrinsic.truthy(%fields)
+      %no_fields = core.call intrinsic.not(%has_fields)
+      // %flexible = is_json OR (is_object AND no_fields); nested if avoids
+      // intrinsic.and, which the gen module does not emit a helper for.
+      %flexible = core.let %is_json
+      core.if %is_object {
+        core.if %no_fields {
+          %flexible = core.let true
+        }
+      }
+      core.return %flexible
+    }
+  }
+
+  op ax.gen.semantic @parse_json_string_value {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "parse-json-string-value-core-helper"
+    type signature = "(json) -> json"
+    body @entry(%value: json) {
+      %is_string = core.type_is %value type "string"
+      %not_string = core.call intrinsic.not(%is_string)
+      core.if %not_string {
+        core.return %value
+      }
+      %result = core.let %value
+      core.try {
+        %parsed = core.call intrinsic.json.parse(%value)
+        %result = core.let %parsed
+      } catch %parse_error {
+        %result = core.let %value
+      }
+      core.return %result
+    }
+  }
+
+  op ax.gen.semantic @parse_json_string_for_field {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "parse-json-string-for-field-core-helper"
+    type signature = "(Field, json) -> json"
+    body @entry(%field: Field, %value: json) {
+      %typ = core.get %field["type"]
+      %value_is_none = core.call intrinsic.is_none(%value)
+      core.if %value_is_none {
+        core.return %value
+      }
+      %flexible = core.call @is_flexible_json_field(%typ)
+      %is_array = core.get %typ["is_array"] default false
+      core.if %is_array {
+        %value_is_list = core.type_is %value type "list"
+        %not_list = core.call intrinsic.not(%value_is_list)
+        core.if %not_list {
+          core.return %value
+        }
+        core.if %flexible {
+          %out = core.list
+          core.for %item in %value {
+            %parsed_item = core.call @parse_json_string_value(%item)
+            core.append %out, %parsed_item
+          }
+          core.return %out
+        }
+        core.return %value
+      }
+      core.if %flexible {
+        %parsed_scalar = core.call @parse_json_string_value(%value)
+        core.return %parsed_scalar
+      }
+      core.return %value
+    }
+  }
+
+  op ax.gen.semantic @parse_json_string_fields {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "parse-structured-json-field-values-core-helper"
+    type signature = "(list<Field>, json) -> json"
+    body @entry(%output_fields: list<Field>, %values: json) {
+      %values_is_map = core.type_is %values type "object"
+      %not_map = core.call intrinsic.not(%values_is_map)
+      core.if %not_map {
+        core.return %values
+      }
+      core.for %field in %output_fields {
+        %name = core.get %field["name"]
+        %has_key = core.call intrinsic.map.contains(%values, %name)
+        core.if %has_key {
+          %value = core.get %values[%name]
+          %parsed = core.call @parse_json_string_for_field(%field, %value)
+          core.set %values[%name] = %parsed
+        }
+      }
+      core.return %values
     }
   }
 
