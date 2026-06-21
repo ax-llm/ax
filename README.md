@@ -12,9 +12,9 @@ compiled into verified generated Python, Java, C++, Go, and Rust libraries.
 [![crates.io](https://img.shields.io/crates/v/axllm?style=for-the-badge&color=E43717&label=crates.io)](https://crates.io/crates/axllm)
 [![Maven Central](https://img.shields.io/maven-central/v/dev.axllm/ax?style=for-the-badge&color=C71A36&label=maven)](https://central.sonatype.com/artifact/dev.axllm/ax)
 [![Discord](https://img.shields.io/discord/1078454354849304667?style=for-the-badge&color=5865F2&label=discord)](https://discord.gg/DSHg3dU7dW)
-[![Follow @dosco on X](https://img.shields.io/badge/Follow_%40dosco-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/dosco)
+[![Follow @dosco on X](https://img.shields.io/badge/Follow_%40dosco-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/intent/follow?screen_name=dosco)
 
-> 💬 **Follow [@dosco](https://x.com/dosco) on X** for new releases and to chat about the project.
+> 💬 **Follow [@dosco](https://x.com/intent/follow?screen_name=dosco) on X** for new releases and to chat about the project.
 
 ## What Ax is
 
@@ -567,7 +567,7 @@ and future generated backends later.
 
 ## Questions or feedback?
 
-**Follow [@dosco](https://x.com/dosco) on X** to keep up with new releases and chat with
+**Follow [@dosco](https://x.com/intent/follow?screen_name=dosco) on X** to keep up with new releases and chat with
 me about the project — or [open an issue](https://github.com/ax-llm/ax/issues) or join the
 [Discord](https://discord.gg/DSHg3dU7dW).
 
