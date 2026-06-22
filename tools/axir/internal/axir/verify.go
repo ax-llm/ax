@@ -1118,6 +1118,22 @@ func envFlag(value string) bool {
 	}
 }
 
+// cppLibcurlAvailable probe-compiles a tiny libcurl program so the
+// audio_http_roundtrip example (which needs a curl-enabled build) can be
+// skipped cleanly on machines without libcurl development headers.
+func cppLibcurlAvailable(cpp string) bool {
+	dir, err := os.MkdirTemp("", "axir-curl-probe")
+	if err != nil {
+		return false
+	}
+	defer os.RemoveAll(dir)
+	src := filepath.Join(dir, "probe.cpp")
+	if err := os.WriteFile(src, []byte("#include <curl/curl.h>\nint main(){curl_easy_init();return 0;}\n"), 0o644); err != nil {
+		return false
+	}
+	return exec.Command(cpp, "-std=c++17", src, "-lcurl", "-o", filepath.Join(dir, "probe")).Run() == nil
+}
+
 func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
 	cpp, err := findCppCompiler()
 	if err != nil {
@@ -1166,6 +1182,25 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		if err := runVerifyCommand(&report, "example "+example, "", nil, bin); err != nil {
 			return report, err
 		}
+	}
+	// audio_http_roundtrip drives the real libcurl transport against a loopback
+	// server, so it needs a curl-enabled axllm.o + libcurl. Skip it when libcurl
+	// is unavailable rather than failing the whole target.
+	if cppLibcurlAvailable(cpp) {
+		curlObj := filepath.Join(buildDir, "axllm_curl.o")
+		if err := runVerifyCommand(&report, "compile axllm.cpp (curl)", "", nil, cpp, "-std=c++17", "-DAXLLM_ENABLE_CURL=1", "-I", report.OutDir, "-c", axSource, "-o", curlObj); err != nil {
+			return report, err
+		}
+		source := filepath.Join(report.OutDir, "examples", "audio_http_roundtrip.cpp")
+		bin := filepath.Join(report.OutDir, "audio_http_roundtrip")
+		if err := runVerifyCommand(&report, "compile example audio_http_roundtrip", "", nil, cpp, "-std=c++17", "-I", report.OutDir, source, curlObj, "-lcurl", "-o", bin); err != nil {
+			return report, err
+		}
+		if err := runVerifyCommand(&report, "example audio_http_roundtrip", "", nil, bin); err != nil {
+			return report, err
+		}
+	} else {
+		report.Steps = append(report.Steps, VerifyStep{Name: "example audio_http_roundtrip", Status: "skip", Message: "libcurl unavailable"})
 	}
 	conformanceBin := filepath.Join(report.OutDir, "conformance")
 	if err := runVerifyCommand(&report, "compile conformance", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "conformance.cpp"), axObj, mcpObj, "-o", conformanceBin); err != nil {

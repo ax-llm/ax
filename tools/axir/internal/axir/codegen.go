@@ -296,6 +296,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/axflow_program_graph.cpp":                     cppAxFlowProgramGraphExample,
 		"examples/flow_openai_api.cpp":                          cppFlowOpenAIExample,
 		"examples/audio_responses_mapping.cpp":                  cppAudioResponsesMappingExample,
+		"examples/audio_http_roundtrip.cpp":                     cppAudioHTTPRoundtripExample,
 		"examples/realtime_audio_events.cpp":                    cppRealtimeAudioEventsExample,
 		"examples/optimizer_artifact.cpp":                       cppOptimizerArtifactExample,
 		"examples/gepa_local_optimizer.cpp":                     cppGEPALocalOptimizerExample,
