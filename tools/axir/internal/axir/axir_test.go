@@ -860,6 +860,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axflow_program_graph/main.go",
 				"examples/flow_openai_api/main.go",
 				"examples/audio_responses_mapping/main.go",
+				"examples/audio_http_roundtrip/main.go",
 				"examples/realtime_audio_events/main.go",
 				"examples/optimizer_artifact/main.go",
 				"examples/gepa_local_optimizer/main.go",

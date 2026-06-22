@@ -21,6 +21,9 @@ var cppRuntime string
 //go:embed templates/go/goAudioResponsesMappingExample.go.txt
 var goAudioResponsesMappingExample string
 
+//go:embed templates/go/goAudioHTTPRoundtripExample.go.txt
+var goAudioHTTPRoundtripExample string
+
 //go:embed templates/go/goAxFlowOpenAIExample.go.txt
 var goAxFlowOpenAIExample string
 

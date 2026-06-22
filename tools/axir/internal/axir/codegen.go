@@ -333,6 +333,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"examples/axflow_program_graph/main.go":             goAxFlowProgramGraphExample,
 		"examples/flow_openai_api/main.go":                  goAxFlowOpenAIExample,
 		"examples/audio_responses_mapping/main.go":          goAudioResponsesMappingExample,
+		"examples/audio_http_roundtrip/main.go":             goAudioHTTPRoundtripExample,
 		"examples/realtime_audio_events/main.go":            goRealtimeAudioEventsExample,
 		"examples/optimizer_artifact/main.go":               goOptimizerArtifactExample,
 		"examples/gepa_local_optimizer/main.go":             goGEPALocalOptimizerExample,

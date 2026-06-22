@@ -451,6 +451,7 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 		"provider_mapping_no_key",
 		"provider_stream_no_key",
 		"audio_responses_mapping",
+		"audio_http_roundtrip",
 		"realtime_audio_events",
 		"runtime_adapter",
 		"runtime_protocol",
