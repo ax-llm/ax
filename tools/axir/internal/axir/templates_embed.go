@@ -405,6 +405,9 @@ var pyRuntimeQuickjs string
 //go:embed templates/rust/rustAudioResponsesMappingExample.rs
 var rustAudioResponsesMappingExample string
 
+//go:embed templates/rust/rustAudioHTTPRoundtripExample.rs
+var rustAudioHTTPRoundtripExample string
+
 //go:embed templates/rust/rustAxFlowOpenAIExample.rs
 var rustAxFlowOpenAIExample string
 
