@@ -18669,15 +18669,25 @@ fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_content_part_impl");
     let mut v_part = core_arg(args, 0);
+    let mut v_audio_alt = CoreValue::Null;
+    let mut v_audio_error = CoreValue::Null;
+    let mut v_audio_message = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
     let mut v_details = CoreValue::Null;
     let mut v_error = CoreValue::Null;
+    let mut v_format = CoreValue::Null;
+    let mut v_format_ok = CoreValue::Null;
     let mut v_image = CoreValue::Null;
     let mut v_image_raw = CoreValue::Null;
     let mut v_image_url = CoreValue::Null;
     let mut v_image_value = CoreValue::Null;
+    let mut v_input_audio = CoreValue::Null;
+    let mut v_is_audio = CoreValue::Null;
     let mut v_is_data_url = CoreValue::Null;
     let mut v_is_image = CoreValue::Null;
+    let mut v_is_mp3 = CoreValue::Null;
     let mut v_is_text = CoreValue::Null;
+    let mut v_is_wav = CoreValue::Null;
     let mut v_message = CoreValue::Null;
     let mut v_mime = CoreValue::Null;
     let mut v_mime_raw = CoreValue::Null;
@@ -18730,6 +18740,38 @@ fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         )?;
         core_set(&v_out, CoreValue::from("image_url"), v_image_url.clone())?;
         return Ok(v_out.clone());
+    }
+    v_is_audio = core_eq(&[v_type.clone(), CoreValue::from("audio")])?;
+    if core_truthy(&v_is_audio) {
+        v_audio_alt = core_get(&v_part, &CoreValue::from("audio"), CoreValue::Null);
+        v_data = core_get(&v_part, &CoreValue::from("data"), v_audio_alt.clone());
+        v_format = core_get(&v_part, &CoreValue::from("format"), CoreValue::Null);
+        v_is_wav = core_eq(&[v_format.clone(), CoreValue::from("wav")])?;
+        v_is_mp3 = core_eq(&[v_format.clone(), CoreValue::from("mp3")])?;
+        v_format_ok = core_or(&[v_is_wav.clone(), v_is_mp3.clone()])?;
+        if core_truthy(&v_format_ok) {
+            v_out = CoreValue::new_map();
+            core_set(
+                &v_out,
+                CoreValue::from("type"),
+                CoreValue::from("input_audio"),
+            )?;
+            v_input_audio = CoreValue::new_map();
+            core_set(&v_input_audio, CoreValue::from("data"), v_data.clone())?;
+            core_set(&v_input_audio, CoreValue::from("format"), v_format.clone())?;
+            core_set(
+                &v_out,
+                CoreValue::from("input_audio"),
+                v_input_audio.clone(),
+            )?;
+            return Ok(v_out.clone());
+        }
+        v_audio_message = core_string_format(&[
+            CoreValue::from("OpenAI audio chat input supports only wav and mp3 audio, received {}"),
+            v_format.clone(),
+        ])?;
+        v_audio_error = core_ai_error_unsupported(&[v_audio_message.clone()])?;
+        return Err(core_as_error(&v_audio_error));
     }
     v_message = core_string_format(&[
         CoreValue::from("OpenAI-compatible beta does not support content part type: {}"),

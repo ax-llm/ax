@@ -1768,6 +1768,29 @@ def _openai_content_part_impl(part: Any) -> Any:
         return out
     else:
         pass
+    is_audio = _core_eq(type, "audio")
+    if is_audio:
+        audio_alt = _core_get(part, "audio", None)
+        data = _core_get(part, "data", audio_alt)
+        format = _core_get(part, "format", None)
+        is_wav = _core_eq(format, "wav")
+        is_mp3 = _core_eq(format, "mp3")
+        format_ok = _core_or(is_wav, is_mp3)
+        if format_ok:
+            out = {}
+            out["type"] = "input_audio"
+            input_audio = {}
+            input_audio["data"] = data
+            input_audio["format"] = format
+            out["input_audio"] = input_audio
+            return out
+        else:
+            pass
+        audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", format)
+        audio_error = _core_ai_error_unsupported(audio_message)
+        raise audio_error
+    else:
+        pass
     message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", type)
     error = _core_ai_error_unsupported(message)
     raise error

@@ -3994,15 +3994,25 @@ func _ai_model_usage_impl(args ...Value) (Value, error) {
 func _openai_content_part_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_content_part_impl")
 	var v_part Value
+	var v_audio_alt Value
+	var v_audio_error Value
+	var v_audio_message Value
+	var v_data Value
 	var v_details Value
 	var v_error Value
+	var v_format Value
+	var v_format_ok Value
 	var v_image Value
 	var v_image_raw Value
 	var v_image_url Value
 	var v_image_value Value
+	var v_input_audio Value
+	var v_is_audio Value
 	var v_is_data_url Value
 	var v_is_image Value
+	var v_is_mp3 Value
 	var v_is_text Value
+	var v_is_wav Value
 	var v_message Value
 	var v_mime Value
 	var v_mime_raw Value
@@ -4013,15 +4023,25 @@ func _openai_content_part_impl(args ...Value) (Value, error) {
 	var v_url Value
 	if len(args) > 0 { v_part = args[0] }
 	_ = v_part
+	_ = v_audio_alt
+	_ = v_audio_error
+	_ = v_audio_message
+	_ = v_data
 	_ = v_details
 	_ = v_error
+	_ = v_format
+	_ = v_format_ok
 	_ = v_image
 	_ = v_image_raw
 	_ = v_image_url
 	_ = v_image_value
+	_ = v_input_audio
+	_ = v_is_audio
 	_ = v_is_data_url
 	_ = v_is_image
+	_ = v_is_mp3
 	_ = v_is_text
+	_ = v_is_wav
 	_ = v_message
 	_ = v_mime
 	_ = v_mime_raw
@@ -4064,6 +4084,31 @@ func _openai_content_part_impl(args ...Value) (Value, error) {
 		if err := coreSet(v_out, "type", "image_url"); err != nil { return nil, err }
 		if err := coreSet(v_out, "image_url", v_image_url); err != nil { return nil, err }
 		return v_out, nil
+	} else {
+	// empty
+	}
+	v_is_audio = _core_eq(v_type, "audio")
+	if coreTruthy(v_is_audio) {
+		v_audio_alt = coreGet(v_part, "audio", nil)
+		v_data = coreGet(v_part, "data", v_audio_alt)
+		v_format = coreGet(v_part, "format", nil)
+		v_is_wav = _core_eq(v_format, "wav")
+		v_is_mp3 = _core_eq(v_format, "mp3")
+		v_format_ok = _core_or(v_is_wav, v_is_mp3)
+		if coreTruthy(v_format_ok) {
+			v_out = Object()
+			if err := coreSet(v_out, "type", "input_audio"); err != nil { return nil, err }
+			v_input_audio = Object()
+			if err := coreSet(v_input_audio, "data", v_data); err != nil { return nil, err }
+			if err := coreSet(v_input_audio, "format", v_format); err != nil { return nil, err }
+			if err := coreSet(v_out, "input_audio", v_input_audio); err != nil { return nil, err }
+			return v_out, nil
+		} else {
+		// empty
+		}
+		v_audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", v_format)
+		v_audio_error = _core_ai_error_unsupported(v_audio_message)
+		return nil, asAxError(v_audio_error)
 	} else {
 	// empty
 	}

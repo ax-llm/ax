@@ -2492,6 +2492,27 @@ final class Core {
       Core.set(out, "image_url", image_url);
       return out;
     }
+    Object is_audio = Core.eq(type, "audio");
+    if (Core.truthy(is_audio)) {
+      Object audio_alt = Core.get(part, "audio", null);
+      Object data = Core.get(part, "data", audio_alt);
+      Object format = Core.get(part, "format", null);
+      Object is_wav = Core.eq(format, "wav");
+      Object is_mp3 = Core.eq(format, "mp3");
+      Object format_ok = Core.or(is_wav, is_mp3);
+      if (Core.truthy(format_ok)) {
+        Object out = new java.util.LinkedHashMap<String, Object>();
+        Core.set(out, "type", "input_audio");
+        Object input_audio = new java.util.LinkedHashMap<String, Object>();
+        Core.set(input_audio, "data", data);
+        Core.set(input_audio, "format", format);
+        Core.set(out, "input_audio", input_audio);
+        return out;
+      }
+      Object audio_message = Core.stringFormat("OpenAI audio chat input supports only wav and mp3 audio, received {}", format);
+      Object audio_error = Core.aiErrorUnsupported(audio_message);
+      throw Core.asRuntime(audio_error);
+    }
     Object message = Core.stringFormat("OpenAI-compatible beta does not support content part type: {}", type);
     Object error = Core.aiErrorUnsupported(message);
     throw Core.asRuntime(error);

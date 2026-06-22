@@ -3451,6 +3451,27 @@ Value Core::_openai_content_part_impl(Value part) {
     Core::set(out, Value("image_url"), image_url);
     return out;
   }
+  Value is_audio = Core::eq(type, Value("audio"));
+  if (Core::truthy(is_audio)) {
+    Value audio_alt = Core::get(part, Value("audio"), Value());
+    Value data = Core::get(part, Value("data"), audio_alt);
+    Value format = Core::get(part, Value("format"), Value());
+    Value is_wav = Core::eq(format, Value("wav"));
+    Value is_mp3 = Core::eq(format, Value("mp3"));
+    Value format_ok = Core::or_(is_wav, is_mp3);
+    if (Core::truthy(format_ok)) {
+      Value out = Value::object();
+      Core::set(out, Value("type"), Value("input_audio"));
+      Value input_audio = Value::object();
+      Core::set(input_audio, Value("data"), data);
+      Core::set(input_audio, Value("format"), format);
+      Core::set(out, Value("input_audio"), input_audio);
+      return out;
+    }
+    Value audio_message = Core::string_format(Value("OpenAI audio chat input supports only wav and mp3 audio, received {}"), format);
+    Value audio_error = Core::ai_error_unsupported(audio_message);
+    throw Core::as_error(audio_error);
+  }
   Value message = Core::string_format(Value("OpenAI-compatible beta does not support content part type: {}"), type);
   Value error = Core::ai_error_unsupported(message);
   throw Core::as_error(error);

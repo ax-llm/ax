@@ -311,6 +311,27 @@ module @ax.provider version "0.1" {
         core.set %out["image_url"] = %image_url
         core.return %out
       }
+      %is_audio = core.call intrinsic.eq(%type, "audio")
+      core.if %is_audio {
+        %audio_alt = core.get %part["audio"]
+        %data = core.get %part["data"] default %audio_alt
+        %format = core.get %part["format"]
+        %is_wav = core.call intrinsic.eq(%format, "wav")
+        %is_mp3 = core.call intrinsic.eq(%format, "mp3")
+        %format_ok = core.call intrinsic.or(%is_wav, %is_mp3)
+        core.if %format_ok {
+          %out = core.map
+          core.set %out["type"] = "input_audio"
+          %input_audio = core.map
+          core.set %input_audio["data"] = %data
+          core.set %input_audio["format"] = %format
+          core.set %out["input_audio"] = %input_audio
+          core.return %out
+        }
+        %audio_message = core.call intrinsic.string.format("OpenAI audio chat input supports only wav and mp3 audio, received {}", %format)
+        %audio_error = core.call intrinsic.ai.error.unsupported(%audio_message)
+        core.raise %audio_error
+      }
       %message = core.call intrinsic.string.format("OpenAI-compatible beta does not support content part type: {}", %type)
       %error = core.call intrinsic.ai.error.unsupported(%message)
       core.raise %error
