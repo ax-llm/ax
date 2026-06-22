@@ -3766,13 +3766,10 @@ func TestPythonModulesSelfContained(t *testing.T) {
 	// bound at module scope, or imported from a sibling. Guards against
 	// emit-list drift (missing gemini/grok audio functions) and callee naming
 	// mismatches (pythonCallee underscore-prefixing public core functions).
-	defRe := regexp.MustCompile(`(?m)^\s*def (_[a-z0-9_]+)\(`)
-	bindRe := regexp.MustCompile(`(?m)^\s*(_[a-z0-9_]+) = `)
-	callRe := regexp.MustCompile(`[^.\w](_[a-z0-9_]+)\(`)
-	multiImportRe := regexp.MustCompile(`(?s)from \.[a-z_]+ import \(([^)]*)\)`)
-	singleImportRe := regexp.MustCompile(`(?m)^from \.[a-z_]+ import ([^(\n]+)$`)
-	nameRe := regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
-	totalCalls := 0
+	// buildPythonCoreModule applies the same audit (pythonModuleMissingHelpers)
+	// at codegen time so a missing helper fails generation rather than surfacing
+	// as a runtime NameError; this test extends the sweep to every module.
+	sawCalls := false
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".py") {
 			continue
@@ -3782,28 +3779,14 @@ func TestPythonModulesSelfContained(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(raw)
-		allowed := map[string]bool{}
-		for _, match := range defRe.FindAllStringSubmatch(text, -1) {
-			allowed[match[1]] = true
+		if pythonHelperCallRe.MatchString(text) {
+			sawCalls = true
 		}
-		for _, match := range bindRe.FindAllStringSubmatch(text, -1) {
-			allowed[match[1]] = true
-		}
-		for _, re := range []*regexp.Regexp{multiImportRe, singleImportRe} {
-			for _, match := range re.FindAllStringSubmatch(text, -1) {
-				for _, name := range nameRe.FindAllString(match[1], -1) {
-					allowed[name] = true
-				}
-			}
-		}
-		for _, match := range callRe.FindAllStringSubmatch(text, -1) {
-			totalCalls++
-			if !allowed[match[1]] {
-				t.Errorf("%s calls %s but never defines or imports it", entry.Name(), match[1])
-			}
+		for _, missing := range pythonModuleMissingHelpers(text) {
+			t.Errorf("%s calls %s but never defines or imports it", entry.Name(), missing)
 		}
 	}
-	if totalCalls == 0 {
+	if !sawCalls {
 		t.Fatal("no underscore helper references found in generated Python; audit regexes are stale")
 	}
 	aiFile, err := os.ReadFile(filepath.Join(moduleDir, "ai.py"))
