@@ -721,6 +721,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axflow_program_graph.py",
 				"examples/flow_openai_api.py",
 				"examples/audio_responses_mapping.py",
+				"examples/audio_http_roundtrip.py",
 				"examples/realtime_audio_events.py",
 				"examples/optimizer_artifact.py",
 				"examples/gepa_local_optimizer.py",

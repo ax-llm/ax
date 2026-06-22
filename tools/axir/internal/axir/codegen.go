@@ -146,6 +146,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/axflow_program_graph.py":                            pyAxFlowProgramGraphExample,
 		"examples/flow_openai_api.py":                                 pyAxFlowOpenAIExample,
 		"examples/audio_responses_mapping.py":                         pyAudioResponsesMappingExample,
+		"examples/audio_http_roundtrip.py":                            pyAudioHTTPRoundtripExample,
 		"examples/realtime_audio_events.py":                           pyRealtimeAudioEventsExample,
 		"examples/optimizer_artifact.py":                              pyOptimizerArtifactExample,
 		"examples/gepa_local_optimizer.py":                            pyGEPALocalOptimizerExample,

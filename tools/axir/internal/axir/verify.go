@@ -671,6 +671,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"provider_mapping_no_key.py",
 		"provider_stream_no_key.py",
 		"audio_responses_mapping.py",
+		"audio_http_roundtrip.py",
 		"realtime_audio_events.py",
 		"runtime_adapter.py",
 		"runtime_protocol.py",
