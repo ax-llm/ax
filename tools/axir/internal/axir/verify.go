@@ -674,6 +674,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"audio_responses_mapping.py",
 		"audio_http_roundtrip.py",
 		"realtime_audio_events.py",
+		"realtime_audio_turn.py",
 		"runtime_adapter.py",
 		"runtime_protocol.py",
 		"axflow_program_graph.py",

@@ -165,6 +165,96 @@ def _encode_multipart(payload: dict[str, Any]) -> tuple[bytes, str]:
     return b"".join(parts), "multipart/form-data; boundary=" + boundary
 
 
+def _realtime_ws_scheme(url: str) -> str:
+    if url.startswith("https://"):
+        return "wss://" + url[len("https://"):]
+    if url.startswith("http://"):
+        return "ws://" + url[len("http://"):]
+    return url
+
+
+def _realtime_ws_origin(url: str) -> str:
+    scheme = _realtime_ws_scheme(url)
+    prefix = "wss://" if scheme.startswith("wss://") else "ws://"
+    host = scheme[len(prefix):].split("/", 1)[0]
+    return prefix + host
+
+
+def _realtime_event_is_ready(event: dict[str, Any]) -> bool:
+    if event.get("type") in (
+        "session.created",
+        "session.updated",
+        "transcription_session.created",
+        "transcription_session.updated",
+    ):
+        return True
+    return "setupComplete" in event
+
+
+def _realtime_event_is_done(event: dict[str, Any]) -> bool:
+    if event.get("type") in ("response.done", "response.completed"):
+        return True
+    server_content = event.get("serverContent")
+    return bool(server_content and server_content.get("turnComplete"))
+
+
+class ScriptedRealtimeTransport:
+    """Deterministic realtime transport for offline tests: returns canned inbound
+    frames in order and records every event the driver sends. No network, so the
+    realtime turn loop runs without credentials or a live socket."""
+
+    def __init__(self, inbound: Iterable[dict[str, Any]]):
+        self._inbound = list(inbound)
+        self.sent: list[dict[str, Any]] = []
+
+    def send(self, event: dict[str, Any]) -> None:
+        self.sent.append(event)
+
+    def recv(self) -> dict[str, Any] | None:
+        return self._inbound.pop(0) if self._inbound else None
+
+    def close(self) -> None:
+        pass
+
+
+class _WebSocketRealtimeTransport:
+    """Real realtime transport over the optional `websocket-client` dependency."""
+
+    def __init__(self, url: str, headers: list[str], timeout: float | None):
+        try:
+            import websocket  # websocket-client
+        except ImportError as exc:
+            raise RuntimeError(
+                "realtime audio requires the optional dependency 'websocket-client' "
+                "(install axllm[realtime]) or pass a custom transport"
+            ) from exc
+        self._websocket = websocket
+        self._ws = websocket.create_connection(url, header=headers, timeout=timeout or 30)
+        self._ws.settimeout(timeout or 30)
+        self.sent: list[dict[str, Any]] = []
+
+    def send(self, event: dict[str, Any]) -> None:
+        self.sent.append(event)
+        self._ws.send(json.dumps(event))
+
+    def recv(self) -> dict[str, Any] | None:
+        try:
+            raw = self._ws.recv()
+        except self._websocket.WebSocketTimeoutException:
+            return None
+        if not raw:
+            return None
+        if isinstance(raw, (bytes, bytearray)):
+            raw = raw.decode("utf-8")
+        return json.loads(raw)
+
+    def close(self) -> None:
+        try:
+            self._ws.close()
+        except Exception:
+            pass
+
+
 class AxAIService(ABC):
     @abstractmethod
     def get_id(self) -> str:
@@ -467,6 +557,94 @@ class ProviderOperationClient(AxBaseAI):
 
     def realtime_audio_input(self, request: dict[str, Any]):
         return provider_build_realtime_audio_input(self.profile, request)
+
+    def realtime_chat(self, request: dict[str, Any], options: dict[str, Any] | None = None, *, transport: Any = None):
+        """Drive a realtime audio turn over a WebSocket transport: send the
+        Core-built session setup + input events, fold the inbound event stream
+        through the shared realtime codec, and return the final response. Pass a
+        ScriptedRealtimeTransport to exercise the loop offline without a socket."""
+        model = request.get("model") or self.model
+        setup = provider_build_realtime_audio_setup(self.profile, request)
+        inputs = provider_build_realtime_audio_input(self.profile, request)
+        own_transport = transport is None
+        if transport is None:
+            url, headers = self._realtime_ws_target(model)
+            transport = _WebSocketRealtimeTransport(url, headers, self.timeout)
+        events: list[dict[str, Any]] = []
+        try:
+            transport.send(setup)
+            input_sent = False
+            while True:
+                event = transport.recv()
+                if event is None:
+                    break
+                if event.get("type") == "error":
+                    detail = event.get("error") or {}
+                    raise AxAIServiceError(detail.get("message") or "realtime error", code=detail.get("code"))
+                if _realtime_event_is_ready(event):
+                    if not input_sent:
+                        input_sent = True
+                        for item in inputs:
+                            transport.send(item)
+                    continue
+                events.append(event)
+                if _realtime_event_is_done(event):
+                    break
+        finally:
+            if own_transport:
+                transport.close()
+        # Fold the per-delta normalize results into one turn response: concat the
+        # transcript/text content and base64-concat the audio chunks (mirrors the
+        # TS makeChatResponse; base64 join can't live in Core, so it stays here).
+        state: dict[str, Any] = {}
+        contents: list[str] = []
+        audio_chunks: list[str] = []
+        function_calls: list[Any] = []
+        response_id = None
+        finish_reason = None
+        model_usage = None
+        for event in events:
+            out = provider_normalize_realtime_event(self.profile, event, state, self.name, model)
+            result = out["results"][0]
+            if result.get("content"):
+                contents.append(result["content"])
+            audio = result.get("audio")
+            if audio and audio.get("data"):
+                audio_chunks.append(audio["data"])
+            if result.get("function_calls"):
+                function_calls.extend(result["function_calls"])
+            if result.get("finish_reason"):
+                finish_reason = result["finish_reason"]
+            remote_id = out.get("remote_id") or result.get("id")
+            if remote_id and remote_id != "0":
+                response_id = remote_id
+            if out.get("model_usage"):
+                model_usage = out["model_usage"]
+        text = "".join(contents)
+        merged: dict[str, Any] = {
+            "index": 0,
+            "id": response_id or "realtime",
+            "content": text,
+            "function_calls": function_calls,
+            "finish_reason": finish_reason or "stop",
+        }
+        if audio_chunks:
+            combined = base64.b64encode(b"".join(base64.b64decode(chunk) for chunk in audio_chunks)).decode()
+            merged["audio"] = {"data": combined, "format": "pcm16", "transcript": text}
+        return {"results": [merged], "remote_id": response_id, "model_usage": model_usage}
+
+    def _realtime_ws_target(self, model: str | None):
+        descriptor = provider_operation_descriptor(self.profile, "realtime_audio")
+        grammar = descriptor.get("grammar", "openai_realtime_compatible")
+        explicit_url = descriptor.get("url")
+        path = descriptor.get("path", "/realtime")
+        if grammar == "gemini_live_bidi":
+            origin = _realtime_ws_origin(explicit_url or self.base_url)
+            key = urllib.parse.quote(self.api_key or "", safe="")
+            return origin + path + "?key=" + key, []
+        base = explicit_url if explicit_url else _realtime_ws_scheme(self.base_url) + path
+        url = base + "?model=" + urllib.parse.quote(str(model or ""), safe="")
+        return url, ["Authorization: Bearer " + str(self.api_key or "")]
 
     def _operation_path(self, operation: str, model: str | None = None):
         descriptor = provider_operation_descriptor(self.profile, operation)

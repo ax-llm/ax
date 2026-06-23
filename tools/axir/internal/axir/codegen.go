@@ -148,6 +148,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/audio_responses_mapping.py":                         pyAudioResponsesMappingExample,
 		"examples/audio_http_roundtrip.py":                            pyAudioHTTPRoundtripExample,
 		"examples/realtime_audio_events.py":                           pyRealtimeAudioEventsExample,
+		"examples/realtime_audio_turn.py":                             pyRealtimeAudioTurnExample,
 		"examples/optimizer_artifact.py":                              pyOptimizerArtifactExample,
 		"examples/gepa_local_optimizer.py":                            pyGEPALocalOptimizerExample,
 		"examples/mcp_scripted_tools.py":                              pyMCPScriptedToolsExample,
