@@ -899,6 +899,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/audio_responses_mapping.rs",
 				"examples/audio_http_roundtrip.rs",
 				"examples/realtime_audio_events.rs",
+				"examples/realtime_audio_turn.rs",
 				"examples/optimizer_artifact.rs",
 				"examples/gepa_local_optimizer.rs",
 				"examples/mcp_scripted_tools.rs",

@@ -1431,6 +1431,357 @@ impl OpenAICompatibleClient {
         ])?;
         Ok(core_value_to_json(&built))
     }
+
+    /// Drive a realtime audio turn over a WebSocket transport: send the
+    /// Core-built session setup + input events, fold the inbound stream through
+    /// the shared realtime codec, and merge the per-delta results into one turn
+    /// response (transcript concatenated, audio chunks base64-joined). Pass a
+    /// ScriptedRealtimeTransport to exercise the loop offline without a socket.
+    pub fn realtime_chat(
+        &self,
+        request: Value,
+        transport: Option<RealtimeTransport>,
+    ) -> AxResult<Value> {
+        let model = request
+            .get("model")
+            .and_then(|m| m.as_str())
+            .unwrap_or(self.model.as_str())
+            .to_string();
+        let setup = self.realtime_audio_setup(request.clone())?;
+        let inputs = self.realtime_audio_input(request.clone())?;
+        let mut transport = match transport {
+            Some(transport) => transport,
+            None => self.open_realtime_transport(&model)?,
+        };
+        transport.send(&setup)?;
+        let mut input_sent = false;
+        let mut events: Vec<Value> = Vec::new();
+        loop {
+            let event = match transport.recv()? {
+                Some(event) => event,
+                None => break,
+            };
+            if event.get("type").and_then(|t| t.as_str()) == Some("error") {
+                let message = event
+                    .get("error")
+                    .and_then(|err| err.get("message"))
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("realtime error");
+                return Err(AxError::runtime(message));
+            }
+            if realtime_event_is_ready(&event) {
+                if !input_sent {
+                    input_sent = true;
+                    if let Some(items) = inputs.as_array() {
+                        for item in items {
+                            transport.send(item)?;
+                        }
+                    }
+                }
+                continue;
+            }
+            let done = realtime_event_is_done(&event);
+            events.push(event);
+            if done {
+                break;
+            }
+        }
+        let state = CoreValue::new_map();
+        let ai_name = provider_ai_display_name(&self.profile);
+        let mut content = String::new();
+        let mut audio_bytes: Vec<u8> = Vec::new();
+        let mut has_audio = false;
+        let mut function_calls: Vec<Value> = Vec::new();
+        let mut response_id = String::new();
+        let mut finish_reason = String::new();
+        let mut model_usage = Value::Null;
+        for event in &events {
+            let normalized = provider_normalize_realtime_event(&[
+                CoreValue::from(self.profile.as_str()),
+                core_value_from_json(event),
+                state.clone(),
+                ai_name.clone(),
+                CoreValue::from(model.as_str()),
+            ])?;
+            let out = core_value_to_json(&normalized);
+            let result = match out
+                .get("results")
+                .and_then(|r| r.as_array())
+                .and_then(|a| a.first())
+            {
+                Some(result) => result.clone(),
+                None => continue,
+            };
+            if let Some(text) = result.get("content").and_then(|c| c.as_str()) {
+                content.push_str(text);
+            }
+            if let Some(data) = result
+                .get("audio")
+                .and_then(|a| a.get("data"))
+                .and_then(|d| d.as_str())
+            {
+                if !data.is_empty() {
+                    audio_bytes.extend(decode_base64(data));
+                    has_audio = true;
+                }
+            }
+            if let Some(calls) = result.get("function_calls").and_then(|f| f.as_array()) {
+                function_calls.extend(calls.iter().cloned());
+            }
+            if let Some(reason) = result.get("finish_reason").and_then(|f| f.as_str()) {
+                finish_reason = reason.to_string();
+            }
+            let remote_id = out
+                .get("remote_id")
+                .and_then(|r| r.as_str())
+                .or_else(|| result.get("id").and_then(|i| i.as_str()))
+                .unwrap_or("");
+            if !remote_id.is_empty() && remote_id != "0" {
+                response_id = remote_id.to_string();
+            }
+            if let Some(usage) = out.get("model_usage") {
+                if !usage.is_null() {
+                    model_usage = usage.clone();
+                }
+            }
+        }
+        if response_id.is_empty() {
+            response_id = "realtime".to_string();
+        }
+        if finish_reason.is_empty() {
+            finish_reason = "stop".to_string();
+        }
+        let mut result = json!({
+            "index": 0,
+            "id": response_id.clone(),
+            "content": content.clone(),
+            "function_calls": function_calls,
+            "finish_reason": finish_reason,
+        });
+        if has_audio {
+            result["audio"] = json!({
+                "data": encode_base64(&audio_bytes),
+                "format": "pcm16",
+                "transcript": content,
+            });
+        }
+        Ok(json!({
+            "results": [result],
+            "remote_id": response_id,
+            "model_usage": model_usage,
+        }))
+    }
+
+    fn open_realtime_transport(&self, model: &str) -> AxResult<RealtimeTransport> {
+        #[cfg(feature = "realtime")]
+        {
+            let (url, headers) = self.realtime_ws_target(model);
+            Ok(RealtimeTransport::Live(WsRealtimeTransport::connect(
+                &url, headers,
+            )?))
+        }
+        #[cfg(not(feature = "realtime"))]
+        {
+            let _ = model;
+            Err(AxError::runtime(
+                "realtime audio requires building with --features realtime, or pass a transport",
+            ))
+        }
+    }
+
+    #[allow(dead_code)]
+    fn realtime_ws_target(&self, model: &str) -> (String, Vec<(String, String)>) {
+        let descriptor = core_value_to_json(
+            &provider_operation_descriptor(&[
+                CoreValue::from(self.profile.as_str()),
+                CoreValue::from("realtime_audio"),
+            ])
+            .unwrap_or_else(|_| CoreValue::new_map()),
+        );
+        let grammar = descriptor
+            .get("grammar")
+            .and_then(|g| g.as_str())
+            .unwrap_or("openai_realtime_compatible");
+        let explicit = descriptor.get("url").and_then(|u| u.as_str()).unwrap_or("");
+        let path = descriptor
+            .get("path")
+            .and_then(|p| p.as_str())
+            .unwrap_or("/realtime");
+        let base = self
+            .base_url_override
+            .clone()
+            .unwrap_or_else(|| self.api_url.clone());
+        if grammar == "gemini_live_bidi" {
+            let origin = realtime_ws_origin(if explicit.is_empty() { &base } else { explicit });
+            return (
+                format!(
+                    "{}{}?key={}",
+                    origin,
+                    path,
+                    url_component_escape(&self.api_key)
+                ),
+                Vec::new(),
+            );
+        }
+        let ws_base = if explicit.is_empty() {
+            format!("{}{}", realtime_ws_scheme(&base), path)
+        } else {
+            explicit.to_string()
+        };
+        (
+            format!("{}?model={}", ws_base, url_component_escape(model)),
+            vec![(
+                "Authorization".to_string(),
+                format!("Bearer {}", self.api_key),
+            )],
+        )
+    }
+}
+
+/// Transport seam for the realtime turn driver: ScriptedRealtimeTransport for
+/// deterministic offline tests, the websocket-backed variant (behind the
+/// `realtime` feature) for live turns.
+pub enum RealtimeTransport {
+    Scripted(ScriptedRealtimeTransport),
+    #[cfg(feature = "realtime")]
+    Live(WsRealtimeTransport),
+}
+
+impl RealtimeTransport {
+    fn send(&mut self, event: &Value) -> AxResult<()> {
+        match self {
+            RealtimeTransport::Scripted(transport) => {
+                transport.sent.push(event.clone());
+                Ok(())
+            }
+            #[cfg(feature = "realtime")]
+            RealtimeTransport::Live(transport) => transport.send(event),
+        }
+    }
+
+    fn recv(&mut self) -> AxResult<Option<Value>> {
+        match self {
+            RealtimeTransport::Scripted(transport) => Ok(transport.inbound.pop_front()),
+            #[cfg(feature = "realtime")]
+            RealtimeTransport::Live(transport) => transport.recv(),
+        }
+    }
+}
+
+pub struct ScriptedRealtimeTransport {
+    inbound: VecDeque<Value>,
+    pub sent: Vec<Value>,
+}
+
+impl ScriptedRealtimeTransport {
+    pub fn new(inbound: Vec<Value>) -> Self {
+        Self {
+            inbound: inbound.into(),
+            sent: Vec::new(),
+        }
+    }
+}
+
+fn realtime_ws_scheme(url: &str) -> String {
+    if let Some(rest) = url.strip_prefix("https://") {
+        format!("wss://{}", rest)
+    } else if let Some(rest) = url.strip_prefix("http://") {
+        format!("ws://{}", rest)
+    } else {
+        url.to_string()
+    }
+}
+
+fn realtime_ws_origin(url: &str) -> String {
+    let scheme = realtime_ws_scheme(url);
+    let prefix = if scheme.starts_with("wss://") {
+        "wss://"
+    } else {
+        "ws://"
+    };
+    let host = scheme[prefix.len()..].split('/').next().unwrap_or("");
+    format!("{}{}", prefix, host)
+}
+
+fn realtime_event_is_ready(event: &Value) -> bool {
+    if matches!(
+        event.get("type").and_then(|t| t.as_str()),
+        Some("session.created")
+            | Some("session.updated")
+            | Some("transcription_session.created")
+            | Some("transcription_session.updated")
+    ) {
+        return true;
+    }
+    event.get("setupComplete").is_some()
+}
+
+fn realtime_event_is_done(event: &Value) -> bool {
+    if matches!(
+        event.get("type").and_then(|t| t.as_str()),
+        Some("response.done") | Some("response.completed")
+    ) {
+        return true;
+    }
+    event
+        .get("serverContent")
+        .and_then(|s| s.get("turnComplete"))
+        .and_then(|t| t.as_bool())
+        .unwrap_or(false)
+}
+
+#[cfg(feature = "realtime")]
+pub struct WsRealtimeTransport {
+    socket: tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>,
+}
+
+#[cfg(feature = "realtime")]
+impl WsRealtimeTransport {
+    fn connect(url: &str, headers: Vec<(String, String)>) -> AxResult<Self> {
+        use tungstenite::client::IntoClientRequest;
+        let mut request = url
+            .into_client_request()
+            .map_err(|e| AxError::runtime(e.to_string()))?;
+        for (key, value) in headers {
+            let name = tungstenite::http::header::HeaderName::from_bytes(key.as_bytes())
+                .map_err(|e| AxError::runtime(e.to_string()))?;
+            let val = tungstenite::http::header::HeaderValue::from_str(&value)
+                .map_err(|e| AxError::runtime(e.to_string()))?;
+            request.headers_mut().insert(name, val);
+        }
+        let (socket, _) =
+            tungstenite::connect(request).map_err(|e| AxError::runtime(e.to_string()))?;
+        Ok(Self { socket })
+    }
+
+    fn send(&mut self, event: &Value) -> AxResult<()> {
+        let text = serde_json::to_string(event).map_err(|e| AxError::runtime(e.to_string()))?;
+        self.socket
+            .send(tungstenite::Message::Text(text.into()))
+            .map_err(|e| AxError::runtime(e.to_string()))
+    }
+
+    fn recv(&mut self) -> AxResult<Option<Value>> {
+        loop {
+            match self.socket.read() {
+                Ok(tungstenite::Message::Text(text)) => {
+                    return Ok(Some(
+                        serde_json::from_str(text.as_str())
+                            .map_err(|e| AxError::runtime(e.to_string()))?,
+                    ));
+                }
+                Ok(tungstenite::Message::Binary(data)) => {
+                    return Ok(Some(
+                        serde_json::from_slice(&data)
+                            .map_err(|e| AxError::runtime(e.to_string()))?,
+                    ));
+                }
+                Ok(tungstenite::Message::Close(_)) => return Ok(None),
+                Ok(_) => continue,
+                Err(_) => return Ok(None),
+            }
+        }
+    }
 }
 
 impl AxAIClient for OpenAICompatibleClient {

@@ -376,6 +376,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"examples/audio_responses_mapping.rs":             rustAudioResponsesMappingExample,
 		"examples/audio_http_roundtrip.rs":                rustAudioHTTPRoundtripExample,
 		"examples/realtime_audio_events.rs":               rustRealtimeAudioEventsExample,
+		"examples/realtime_audio_turn.rs":                 rustRealtimeAudioTurnExample,
 		"examples/runtime_adapter.rs":                     rustRuntimeAdapterExample,
 		"examples/runtime_protocol.rs":                    rustRuntimeProtocolExample,
 		"examples/runtime_profiles/javascript_quickjs.rs": rustJavaScriptQuickJSProfileExample,

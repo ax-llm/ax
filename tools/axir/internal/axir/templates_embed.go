@@ -447,6 +447,9 @@ var rustProviderStreamNoKeyExample string
 //go:embed templates/rust/rustRealtimeAudioEventsExample.rs
 var rustRealtimeAudioEventsExample string
 
+//go:embed templates/rust/rustRealtimeAudioTurnExample.rs
+var rustRealtimeAudioTurnExample string
+
 //go:embed templates/rust/rustRuntimeAdapterExample.rs
 var rustRuntimeAdapterExample string
 
