@@ -80,6 +80,12 @@ export class AxBalancer<
     { retries: number; lastFailureTime: number }
   > = new Map();
 
+  // Status codes worth retrying on a different service: 408 Request Timeout,
+  // 429 Too Many Requests, 5xx server errors, and 529 (Anthropic overloaded).
+  private static readonly RETRYABLE_STATUS_CODES = [
+    408, 429, 500, 502, 503, 504, 529,
+  ];
+
   constructor(services: TServices, options?: AxBalancerOptions<TModelKey>) {
     if (services.length === 0) {
       throw new Error('No AI services provided.');
@@ -390,6 +396,84 @@ export class AxBalancer<
     this.serviceFailures.delete(service.getId());
   }
 
+  /**
+   * Whether an error should route to another service rather than fail the request.
+   * Mirrors the decisions made in chat()'s catch block so the streaming peek path and
+   * the synchronous path agree on what "retryable" means.
+   */
+  private isRetryableServiceError(e: unknown): e is AxAIServiceError {
+    if (!(e instanceof AxAIServiceError)) return false;
+    switch (e.constructor) {
+      case AxAIServiceAuthenticationError:
+        return false;
+      case AxAIServiceStatusError:
+        return AxBalancer.RETRYABLE_STATUS_CODES.includes(
+          (e as AxAIServiceStatusError).status
+        );
+      case AxAIServiceNetworkError:
+      case AxAIServiceResponseError:
+      case AxAIServiceStreamTerminatedError:
+      case AxAIServiceTimeoutError:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Wraps a streaming response to make it participate in failover. Two responsibilities:
+   *
+   * 1. Pre-content errors: eagerly reads the first chunk so a provider error thrown while
+   *    reading (e.g. Anthropic's HTTP-200 `overloaded_error` SSE) rejects here, where
+   *    {@link chat}'s try/catch can route it through the normal failover path. On success it
+   *    returns a new stream that re-emits the buffered first chunk then pumps the rest.
+   * 2. Mid-stream errors: a retryable error *after* the first chunk can't fail over
+   *    transparently (partial output is already committed), so it is surfaced via
+   *    `controller.error`. But we record the failure first (see {@link handleFailure}) —
+   *    otherwise the failed service stays out of backoff and an app-level retry via chat()
+   *    (which restarts at index 0 and doesn't reset()) would route straight back to it.
+   */
+  private async peekStreamForFailover(
+    stream: ReadableStream<AxChatResponse>,
+    service: AxAIService<unknown, unknown, TModelKey>
+  ): Promise<ReadableStream<AxChatResponse>> {
+    const reader = stream.getReader();
+    // May reject (provider error event) — propagated to chat()'s catch for failover.
+    const first = await reader.read();
+    let emittedFirst = false;
+    // Arrow captures `this`/`service`; the ReadableStream source's `this` is not the balancer.
+    const recordMidStreamFailure = (err: unknown): void => {
+      if (this.isRetryableServiceError(err)) this.handleFailure(service, err);
+    };
+    return new ReadableStream<AxChatResponse>({
+      async pull(controller) {
+        if (!emittedFirst) {
+          emittedFirst = true;
+          if (first.done) {
+            controller.close();
+            return;
+          }
+          controller.enqueue(first.value);
+          return;
+        }
+        try {
+          const { done, value } = await reader.read();
+          if (done) {
+            controller.close();
+            return;
+          }
+          controller.enqueue(value);
+        } catch (err) {
+          recordMidStreamFailure(err);
+          controller.error(err);
+        }
+      },
+      cancel(reason) {
+        return reader.cancel(reason);
+      },
+    });
+  }
+
   async chat(
     req: Readonly<AxChatRequest<TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
@@ -458,6 +542,19 @@ export class AxBalancer<
 
       try {
         const response = await currentService.chat(req, options);
+        // For streaming responses the provider resolves with the stream as soon as the
+        // HTTP headers arrive; an error event (e.g. Anthropic's HTTP-200 `overloaded_error`
+        // SSE) is only thrown when the stream is read — which happens in the caller, after
+        // this try/catch has returned. Peek the first chunk here so a pre-content error
+        // surfaces inside this try/catch and can drive failover.
+        if (response instanceof ReadableStream) {
+          const peeked = await this.peekStreamForFailover(
+            response,
+            currentService
+          );
+          this.handleSuccess(currentService);
+          return peeked;
+        }
         this.handleSuccess(currentService);
         return response;
       } catch (e) {
@@ -471,11 +568,11 @@ export class AxBalancer<
             throw e;
 
           case AxAIServiceStatusError: {
-            // Only retry specific status codes that are retryable
-            // 408 = Request Timeout, 429 = Too Many Requests, 5xx = Server errors
-            const retryableStatuses = [408, 429, 500, 502, 503, 504, 529];
+            // Only retry specific status codes that are retryable.
             if (
-              !retryableStatuses.includes((e as AxAIServiceStatusError).status)
+              !AxBalancer.RETRYABLE_STATUS_CODES.includes(
+                (e as AxAIServiceStatusError).status
+              )
             ) {
               throw e;
             }
@@ -561,8 +658,7 @@ export class AxBalancer<
 
         // Don't retry non-retryable status codes (4xx except 408 and 429)
         if (e instanceof AxAIServiceStatusError) {
-          const retryableStatuses = [408, 429, 500, 502, 503, 504, 529];
-          if (!retryableStatuses.includes(e.status)) {
+          if (!AxBalancer.RETRYABLE_STATUS_CODES.includes(e.status)) {
             throw e;
           }
         }
