@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { AxAIServiceNetworkError } from '../util/apicall.js';
+import {
+  AxAIServiceNetworkError,
+  AxAIServiceStatusError,
+} from '../util/apicall.js';
 
 import { AxBalancer } from './balance.js';
 import { AxMockAIService, type AxMockAIServiceConfig } from './mock/api.js';
@@ -348,5 +351,61 @@ describe('AxBalancer', () => {
     });
 
     expect(calledService).toBe(1);
+  });
+
+  test('fails over to next service on a 529 overloaded status', async () => {
+    let calledService: number | undefined;
+    const services: AxAIService[] = [
+      createMockService({
+        name: 'service-0',
+        latencyMs: 200,
+        chatResponse: async () => {
+          throw new AxAIServiceStatusError(
+            529,
+            'overloaded_error',
+            'test-url',
+            {},
+            {}
+          );
+        },
+      }),
+      createMockService({
+        name: 'service-1',
+        chatResponse: async () => {
+          calledService = 1;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'test response',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: {
+              ai: 'test-ai',
+              model: 'test-model',
+              tokens: {
+                promptTokens: 20,
+                completionTokens: 10,
+                totalTokens: 30,
+              },
+            },
+          };
+        },
+      }),
+    ];
+
+    const balancer = new AxBalancer(services, {
+      comparator: AxBalancer.inputOrderComparator,
+      debug: false,
+    });
+
+    const res = await balancer.chat({
+      chatPrompt: [{ role: 'user', content: 'test' }],
+      model: 'mock',
+    });
+
+    expect(calledService).toBe(1);
+    expect('results' in res && res.results[0]?.content).toBe('test response');
   });
 });

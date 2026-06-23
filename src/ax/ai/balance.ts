@@ -473,7 +473,7 @@ export class AxBalancer<
           case AxAIServiceStatusError: {
             // Only retry specific status codes that are retryable
             // 408 = Request Timeout, 429 = Too Many Requests, 5xx = Server errors
-            const retryableStatuses = [408, 429, 500, 502, 503, 504];
+            const retryableStatuses = [408, 429, 500, 502, 503, 504, 529];
             if (
               !retryableStatuses.includes((e as AxAIServiceStatusError).status)
             ) {
@@ -561,7 +561,7 @@ export class AxBalancer<
 
         // Don't retry non-retryable status codes (4xx except 408 and 429)
         if (e instanceof AxAIServiceStatusError) {
-          const retryableStatuses = [408, 429, 500, 502, 503, 504];
+          const retryableStatuses = [408, 429, 500, 502, 503, 504, 529];
           if (!retryableStatuses.includes(e.status)) {
             throw e;
           }

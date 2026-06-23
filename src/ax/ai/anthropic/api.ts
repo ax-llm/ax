@@ -1,6 +1,10 @@
 import { getModelInfo } from '../../dsp/modelinfo.js';
 import type { AxAPI } from '../../util/apicall.js';
-import { AxAIRefusalError } from '../../util/apicall.js';
+import {
+  AxAIRefusalError,
+  AxAIServiceAuthenticationError,
+  AxAIServiceStatusError,
+} from '../../util/apicall.js';
 import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js';
 import type {
   AxAIInputModelList,
@@ -43,6 +47,38 @@ const ANTHROPIC_TASK_BUDGET_BETA = 'task-budgets-2026-03-13';
 
 const buildAnthropicBetaHeader = (extraBetas: readonly string[] = []): string =>
   [...new Set([...ANTHROPIC_BASE_BETAS, ...extraBetas])].join(', ');
+
+/**
+ * Maps an Anthropic `type: 'error'` event to the right Ax error class so the balancer can fail
+ * over on transient errors instead of hard-failing. These callbacks only run on HTTP-200 error
+ * envelopes (e.g. the streaming `overloaded_error` SSE event), so the status is derived from
+ * `error.type`; url/body aren't in scope, and the balancer only reads `.status`.
+ */
+function mapAnthropicErrorEvent(error: {
+  type: string;
+  message: string;
+}): AxAIServiceStatusError | AxAIServiceAuthenticationError | AxAIRefusalError {
+  switch (error.type) {
+    case 'overloaded_error':
+      return new AxAIServiceStatusError(529, error.type, '', undefined, error);
+    case 'api_error':
+      return new AxAIServiceStatusError(500, error.type, '', undefined, error);
+    case 'rate_limit_error':
+      return new AxAIServiceStatusError(429, error.type, '', undefined, error);
+    case 'invalid_request_error':
+      return new AxAIServiceStatusError(400, error.type, '', undefined, error);
+    case 'permission_error':
+      return new AxAIServiceStatusError(403, error.type, '', undefined, error);
+    case 'not_found_error':
+      return new AxAIServiceStatusError(404, error.type, '', undefined, error);
+    case 'request_too_large':
+      return new AxAIServiceStatusError(413, error.type, '', undefined, error);
+    case 'authentication_error':
+      return new AxAIServiceAuthenticationError('', undefined, error);
+    default:
+      return new AxAIRefusalError(error.message);
+  }
+}
 
 const isClaudeOpus47OrLater = (model: string): boolean =>
   model.includes('claude-opus-4-7') || model.includes('claude-opus-4-8');
@@ -629,12 +665,7 @@ class AxAIAnthropicImpl
     resp: Readonly<AxAIAnthropicChatResponse | AxAIAnthropicChatError>
   ): AxChatResponse => {
     if (resp.type === 'error') {
-      // Use AxAIRefusalError for authentication and API errors that could be refusal-related
-      throw new AxAIRefusalError(
-        resp.error.message,
-        undefined, // model not specified in error response
-        undefined // requestId not specified in error response
-      );
+      throw mapAnthropicErrorEvent(resp.error);
     }
 
     if (resp.stop_reason === 'refusal') {
@@ -791,11 +822,7 @@ class AxAIAnthropicImpl
 
     if (resp.type === 'error') {
       const { error } = resp as unknown as AxAIAnthropicErrorEvent;
-      throw new AxAIRefusalError(
-        error.message,
-        undefined, // model not specified in error event
-        undefined // requestId not specified in error event
-      );
+      throw mapAnthropicErrorEvent(error);
     }
 
     const index = 0;

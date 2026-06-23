@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AxAIRefusalError } from '../../util/apicall.js';
+import {
+  AxAIServiceAuthenticationError,
+  AxAIServiceStatusError,
+} from '../../util/apicall.js';
 import { AxAIAnthropic } from './api.js';
 import { AxAIAnthropicModel } from './types.js';
 
@@ -897,6 +901,118 @@ describe('AxAIAnthropic thinking configuration', () => {
       refusalMessage: 'Cyber safety policy refusal.',
     } satisfies Partial<AxAIRefusalError>);
   });
+});
+
+describe('AxAIAnthropic error-event classification', () => {
+  it('maps a non-streaming overloaded_error event to a 529 status error', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+    const fetch = createMockFetch({
+      type: 'error',
+      error: { type: 'overloaded_error', message: 'Overloaded' },
+    });
+    ai.setOptions({ fetch });
+
+    const err = await ai
+      .chat(
+        { chatPrompt: [{ role: 'user', content: 'hello' }] },
+        { stream: false }
+      )
+      .then(
+        () => undefined,
+        (e) => e
+      );
+
+    expect(err).toBeInstanceOf(AxAIServiceStatusError);
+    expect((err as AxAIServiceStatusError).status).toBe(529);
+  });
+
+  it('maps a streaming overloaded_error event to a 529 status error', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+    const fetch = createMockStreamFetch([
+      {
+        type: 'error',
+        error: { type: 'overloaded_error', message: 'Overloaded' },
+      },
+    ]);
+    ai.setOptions({ fetch });
+
+    const stream = (await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hello' }] },
+      { stream: true }
+    )) as ReadableStream<any>;
+    const reader = stream.getReader();
+
+    const err = await reader.read().then(
+      () => undefined,
+      (e) => e
+    );
+
+    expect(err).toBeInstanceOf(AxAIServiceStatusError);
+    expect((err as AxAIServiceStatusError).status).toBe(529);
+  });
+
+  it('maps an authentication_error event to an authentication error', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+    const fetch = createMockFetch({
+      type: 'error',
+      error: { type: 'authentication_error', message: 'invalid x-api-key' },
+    });
+    ai.setOptions({ fetch });
+
+    const err = await ai
+      .chat(
+        { chatPrompt: [{ role: 'user', content: 'hello' }] },
+        { stream: false }
+      )
+      .then(
+        () => undefined,
+        (e) => e
+      );
+
+    expect(err).toBeInstanceOf(AxAIServiceAuthenticationError);
+  });
+
+  it.each([
+    ['invalid_request_error', 400],
+    ['permission_error', 403],
+    ['not_found_error', 404],
+    ['request_too_large', 413],
+  ])(
+    'maps a %s event to a non-refusal %i status error',
+    async (type, status) => {
+      const ai = new AxAIAnthropic({
+        apiKey: 'key',
+        config: { model: AxAIAnthropicModel.Claude48Opus },
+      });
+      const fetch = createMockFetch({
+        type: 'error',
+        error: { type, message: type },
+      });
+      ai.setOptions({ fetch });
+
+      const err = await ai
+        .chat(
+          { chatPrompt: [{ role: 'user', content: 'hello' }] },
+          { stream: false }
+        )
+        .then(
+          () => undefined,
+          (e) => e
+        );
+
+      expect(err).toBeInstanceOf(AxAIServiceStatusError);
+      expect((err as AxAIServiceStatusError).status).toBe(status);
+    }
+  );
 });
 
 describe('AxAIAnthropic user message caching', () => {
