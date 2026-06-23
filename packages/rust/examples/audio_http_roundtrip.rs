@@ -119,12 +119,12 @@ fn main() -> AxResult<()> {
         let _ = tx.send((saw_multipart, file_present));
     });
 
-    // The Rust audio transport (post_data/post_json) reads `api_url`; `base_url`
-    // only redirects chat/embed in this port, so set api_url to the loopback.
+    // Set only base_url (the documented proxy/gateway knob) to prove the audio
+    // transport honors it for transcribe()/speak(), not just chat/embed.
     let base = format!("http://127.0.0.1:{port}");
     let mut client = ai(
         "openai-responses",
-        json!({"api_key": "test-key", "api_url": base.clone(), "base_url": base}),
+        json!({"api_key": "test-key", "base_url": base}),
     )?;
     let transcript = client.transcribe(json!({
         "audio": audio_b64,

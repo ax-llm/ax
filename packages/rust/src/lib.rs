@@ -1150,7 +1150,11 @@ impl OpenAICompatibleClient {
         if path.starts_with("http://") || path.starts_with("https://") {
             path.to_string()
         } else {
-            format!("{}{}", self.api_url.trim_end_matches('/'), path)
+            // Honor a base_url override (e.g. a proxy/gateway) for the audio paths
+            // too, matching how chat/embed dispatch already resolve the base URL;
+            // fall back to api_url when no override was supplied.
+            let base = self.base_url_override.as_deref().unwrap_or(&self.api_url);
+            format!("{}{}", base.trim_end_matches('/'), path)
         }
     }
 
