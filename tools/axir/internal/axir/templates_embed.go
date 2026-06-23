@@ -54,6 +54,9 @@ var goProviderStreamNoKeyExample string
 //go:embed templates/go/goRealtimeAudioEventsExample.go.txt
 var goRealtimeAudioEventsExample string
 
+//go:embed templates/go/goRealtimeAudioTurnExample.go.txt
+var goRealtimeAudioTurnExample string
+
 //go:embed templates/go/goRuntime.go.txt
 var goRuntime string
 

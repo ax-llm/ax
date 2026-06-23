@@ -339,6 +339,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"examples/audio_responses_mapping/main.go":          goAudioResponsesMappingExample,
 		"examples/audio_http_roundtrip/main.go":             goAudioHTTPRoundtripExample,
 		"examples/realtime_audio_events/main.go":            goRealtimeAudioEventsExample,
+		"examples/realtime_audio_turn/main.go":              goRealtimeAudioTurnExample,
 		"examples/optimizer_artifact/main.go":               goOptimizerArtifactExample,
 		"examples/gepa_local_optimizer/main.go":             goGEPALocalOptimizerExample,
 		"examples/mcp_scripted_tools/main.go":               goMCPScriptedToolsExample,

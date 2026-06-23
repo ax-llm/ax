@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 type Value = any
@@ -30233,6 +30235,224 @@ func (c *OpenAICompatibleClient) Realtime(events []Value) []Value {
 		out = append(out, mustCore(provider_normalize_realtime_event(c.Profile, event, state, c.Name, model)))
 	}
 	return out
+}
+
+// RealtimeTransport is the seam the realtime turn driver sends/receives events
+// over: ScriptedRealtimeTransport for deterministic offline tests, the
+// websocket-backed transport for live turns (mirrors Transport/HTTPTransport).
+type RealtimeTransport interface {
+	Send(event Value)
+	Recv() (Value, bool)
+	Close()
+}
+
+type ScriptedRealtimeTransport struct {
+	Inbound []Value
+	Sent    []Value
+	idx     int
+}
+
+func NewScriptedRealtimeTransport(inbound []Value) *ScriptedRealtimeTransport {
+	return &ScriptedRealtimeTransport{Inbound: append([]Value(nil), inbound...)}
+}
+func (t *ScriptedRealtimeTransport) Send(event Value) { t.Sent = append(t.Sent, event) }
+func (t *ScriptedRealtimeTransport) Recv() (Value, bool) {
+	if t.idx >= len(t.Inbound) {
+		return nil, false
+	}
+	event := t.Inbound[t.idx]
+	t.idx++
+	return event, true
+}
+func (t *ScriptedRealtimeTransport) Close() {}
+
+type wsRealtimeTransport struct {
+	conn *websocket.Conn
+	ctx  context.Context
+}
+
+func (t *wsRealtimeTransport) Send(event Value) {
+	data, err := json.Marshal(runtimeJSONValue(event))
+	if err != nil {
+		panic(AxError{Category: "protocol", Message: err.Error()})
+	}
+	if err := t.conn.Write(t.ctx, websocket.MessageText, data); err != nil {
+		panic(AxError{Category: "network", Message: err.Error()})
+	}
+}
+func (t *wsRealtimeTransport) Recv() (Value, bool) {
+	_, data, err := t.conn.Read(t.ctx)
+	if err != nil {
+		return nil, false
+	}
+	return parseJSON(string(data)), true
+}
+func (t *wsRealtimeTransport) Close() { _ = t.conn.Close(websocket.StatusNormalClosure, "") }
+
+func realtimeWSScheme(rawURL string) string {
+	if strings.HasPrefix(rawURL, "https://") {
+		return "wss://" + strings.TrimPrefix(rawURL, "https://")
+	}
+	if strings.HasPrefix(rawURL, "http://") {
+		return "ws://" + strings.TrimPrefix(rawURL, "http://")
+	}
+	return rawURL
+}
+func realtimeWSOrigin(rawURL string) string {
+	scheme := realtimeWSScheme(rawURL)
+	prefix := "ws://"
+	if strings.HasPrefix(scheme, "wss://") {
+		prefix = "wss://"
+	}
+	host := strings.SplitN(strings.TrimPrefix(scheme, prefix), "/", 2)[0]
+	return prefix + host
+}
+func realtimeEventIsReady(event Value) bool {
+	switch display(coreGet(event, "type", "")) {
+	case "session.created", "session.updated", "transcription_session.created", "transcription_session.updated":
+		return true
+	}
+	return coreGet(event, "setupComplete", nil) != nil
+}
+func realtimeEventIsDone(event Value) bool {
+	switch display(coreGet(event, "type", "")) {
+	case "response.done", "response.completed":
+		return true
+	}
+	if sc := coreGet(event, "serverContent", nil); sc != nil {
+		if done, ok := coreGet(sc, "turnComplete", false).(bool); ok {
+			return done
+		}
+	}
+	return false
+}
+
+func (c *OpenAICompatibleClient) realtimeWSTarget(model Value, opts map[string]Value) (string, map[string]Value) {
+	rt := mustCore(provider_operation_descriptor(c.Profile, "realtime_audio"))
+	descriptor := mustCore(provider_descriptor(c.Profile))
+	grammar := display(coreGet(rt, "grammar", "openai_realtime_compatible"))
+	explicit := display(coreGet(rt, "url", ""))
+	path := display(coreGet(rt, "path", "/realtime"))
+	base := display(coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://api.openai.com/v1"))))
+	apiKey := display(coreGet(opts, "api_key", coreGet(opts, "apiKey", os.Getenv("OPENAI_API_KEY"))))
+	if grammar == "gemini_live_bidi" {
+		origin := explicit
+		if origin == "" {
+			origin = base
+		}
+		return realtimeWSOrigin(origin) + path + "?key=" + url.QueryEscape(apiKey), Object()
+	}
+	wsBase := explicit
+	if wsBase == "" {
+		wsBase = realtimeWSScheme(base) + path
+	}
+	return wsBase + "?model=" + url.QueryEscape(display(model)), Object("Authorization", "Bearer "+apiKey)
+}
+
+// RealtimeChat drives a realtime audio turn over a WebSocket transport: it sends
+// the Core-built session setup + input events, folds the inbound event stream
+// through the shared realtime codec, and merges the per-delta results into one
+// turn response (transcript concatenated, audio chunks base64-joined). Pass a
+// ScriptedRealtimeTransport to exercise the loop offline without a socket.
+func (c *OpenAICompatibleClient) RealtimeChat(ctx context.Context, request map[string]Value, options map[string]Value, transport RealtimeTransport) (Value, error) {
+	return safeValue(func() Value {
+		opts := c.optionsSnapshot()
+		model := coreGet(request, "model", coreGet(opts, "model", nil))
+		setup := mustCore(provider_build_realtime_audio_setup(c.Profile, request, options))
+		inputs := asSlice(mustCore(provider_build_realtime_audio_input(c.Profile, request, options)))
+		ownTransport := transport == nil
+		if ownTransport {
+			wsURL, headers := c.realtimeWSTarget(model, opts)
+			header := http.Header{}
+			for _, key := range orderedKeys(headers) {
+				header.Set(key, display(coreGet(headers, key, "")))
+			}
+			conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: header})
+			if err != nil {
+				panic(AxError{Category: "network", Message: err.Error()})
+			}
+			conn.SetReadLimit(-1)
+			transport = &wsRealtimeTransport{conn: conn, ctx: ctx}
+			defer transport.Close()
+		}
+		transport.Send(setup)
+		inputSent := false
+		events := []Value{}
+		for {
+			event, ok := transport.Recv()
+			if !ok {
+				break
+			}
+			if display(coreGet(event, "type", "")) == "error" {
+				detail := coreGet(event, "error", Object())
+				panic(AxError{Category: "provider", Message: display(coreGet(detail, "message", "realtime error"))})
+			}
+			if realtimeEventIsReady(event) {
+				if !inputSent {
+					inputSent = true
+					for _, item := range inputs {
+						transport.Send(item)
+					}
+				}
+				continue
+			}
+			events = append(events, event)
+			if realtimeEventIsDone(event) {
+				break
+			}
+		}
+		state := Object()
+		var contents []string
+		var audioChunks []string
+		functionCalls := []Value{}
+		responseID := ""
+		finishReason := ""
+		var modelUsage Value
+		for _, event := range events {
+			out := mustCore(provider_normalize_realtime_event(c.Profile, event, state, c.Name, model))
+			results := asSlice(coreGet(out, "results", Array()))
+			if len(results) == 0 {
+				continue
+			}
+			result := results[0]
+			if content := display(coreGet(result, "content", "")); content != "" {
+				contents = append(contents, content)
+			}
+			if audio := coreGet(result, "audio", nil); audio != nil {
+				if data := display(coreGet(audio, "data", "")); data != "" {
+					audioChunks = append(audioChunks, data)
+				}
+			}
+			functionCalls = append(functionCalls, asSlice(coreGet(result, "function_calls", Array()))...)
+			if fr := display(coreGet(result, "finish_reason", "")); fr != "" {
+				finishReason = fr
+			}
+			if rid := display(coreGet(out, "remote_id", coreGet(result, "id", ""))); rid != "" && rid != "0" {
+				responseID = rid
+			}
+			if usage := coreGet(out, "model_usage", nil); usage != nil {
+				modelUsage = usage
+			}
+		}
+		text := strings.Join(contents, "")
+		if responseID == "" {
+			responseID = "realtime"
+		}
+		if finishReason == "" {
+			finishReason = "stop"
+		}
+		merged := Object("index", float64(0), "id", responseID, "content", text, "function_calls", functionCalls, "finish_reason", finishReason)
+		if len(audioChunks) > 0 {
+			var combined []byte
+			for _, chunk := range audioChunks {
+				if decoded, err := base64.StdEncoding.DecodeString(chunk); err == nil {
+					combined = append(combined, decoded...)
+				}
+			}
+			coreSet(merged, "audio", Object("data", base64.StdEncoding.EncodeToString(combined), "format", "pcm16", "transcript", text))
+		}
+		return Object("results", Array(merged), "remote_id", responseID, "model_usage", modelUsage)
+	})
 }
 func (c *OpenAICompatibleClient) GetID() string { if c.ID != "" { return c.ID }; return c.Name+"-id" }
 func (c *OpenAICompatibleClient) GetName() string { return c.Name }

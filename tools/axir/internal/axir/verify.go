@@ -453,6 +453,7 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 		"audio_responses_mapping",
 		"audio_http_roundtrip",
 		"realtime_audio_events",
+		"realtime_audio_turn",
 		"runtime_adapter",
 		"runtime_protocol",
 		"axflow_program_graph",

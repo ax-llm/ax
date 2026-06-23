@@ -1,8 +1,11 @@
 module github.com/ax-llm/ax/packages/go
 
-go 1.22
+go 1.23
 
-require github.com/dop251/goja v0.0.0-20250630131328-58d95d85e994
+require (
+	github.com/coder/websocket v1.8.15
+	github.com/dop251/goja v0.0.0-20250630131328-58d95d85e994
+)
 
 require (
 	github.com/dlclark/regexp2 v1.11.4 // indirect
