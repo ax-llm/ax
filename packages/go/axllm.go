@@ -6822,6 +6822,7 @@ func _openai_realtime_compatible_build_setup(args ...Value) (Value, error) {
 	var v_audio Value
 	var v_audio_descriptor Value
 	var v_default_input_rate Value
+	var v_default_model Value
 	var v_default_output_rate Value
 	var v_default_voice Value
 	var v_has_input_sample_rate Value
@@ -6834,11 +6835,12 @@ func _openai_realtime_compatible_build_setup(args ...Value) (Value, error) {
 	var v_input_rate_snake Value
 	var v_input_sample_rate Value
 	var v_instructions Value
-	var v_modalities Value
+	var v_model Value
 	var v_out Value
 	var v_output Value
 	var v_output_audio_descriptor Value
 	var v_output_format Value
+	var v_output_modalities Value
 	var v_output_rate Value
 	var v_output_rate_snake Value
 	var v_output_sample_rate Value
@@ -6847,7 +6849,6 @@ func _openai_realtime_compatible_build_setup(args ...Value) (Value, error) {
 	var v_request_output_audio Value
 	var v_request_voice Value
 	var v_session Value
-	var v_turn_detection_none Value
 	var v_voice_id Value
 	if len(args) > 0 { v_descriptor = args[0] }
 	_ = v_descriptor
@@ -6856,6 +6857,7 @@ func _openai_realtime_compatible_build_setup(args ...Value) (Value, error) {
 	_ = v_audio
 	_ = v_audio_descriptor
 	_ = v_default_input_rate
+	_ = v_default_model
 	_ = v_default_output_rate
 	_ = v_default_voice
 	_ = v_has_input_sample_rate
@@ -6868,11 +6870,12 @@ func _openai_realtime_compatible_build_setup(args ...Value) (Value, error) {
 	_ = v_input_rate_snake
 	_ = v_input_sample_rate
 	_ = v_instructions
-	_ = v_modalities
+	_ = v_model
 	_ = v_out
 	_ = v_output
 	_ = v_output_audio_descriptor
 	_ = v_output_format
+	_ = v_output_modalities
 	_ = v_output_rate
 	_ = v_output_rate_snake
 	_ = v_output_sample_rate
@@ -6881,7 +6884,6 @@ func _openai_realtime_compatible_build_setup(args ...Value) (Value, error) {
 	_ = v_request_output_audio
 	_ = v_request_voice
 	_ = v_session
-	_ = v_turn_detection_none
 	_ = v_voice_id
 	v_audio_descriptor = coreGet(v_descriptor, "audio", nil)
 	v_output_audio_descriptor = coreGet(v_audio_descriptor, "output", nil)
@@ -6913,9 +6915,12 @@ func _openai_realtime_compatible_build_setup(args ...Value) (Value, error) {
 		v_input_sample_rate = v_default_input_rate
 	}
 	v_session = Object()
-	if err := coreSet(v_session, "voice", v_voice_id); err != nil { return nil, err }
-	v_turn_detection_none = _core_none()
-	if err := coreSet(v_session, "turn_detection", v_turn_detection_none); err != nil { return nil, err }
+	if err := coreSet(v_session, "type", "realtime"); err != nil { return nil, err }
+	v_default_model = coreGet(v_descriptor, "defaultModel", nil)
+	v_model = coreGet(v_request, "model", v_default_model)
+	if err := coreSet(v_session, "model", v_model); err != nil { return nil, err }
+	{ v, err := _core_json_parse("[\"audio\"]"); if err != nil { return nil, err }; v_output_modalities = v }
+	if err := coreSet(v_session, "output_modalities", v_output_modalities); err != nil { return nil, err }
 	v_audio = Object()
 	v_input = Object()
 	v_input_format = Object()
@@ -6928,10 +6933,9 @@ func _openai_realtime_compatible_build_setup(args ...Value) (Value, error) {
 	if err := coreSet(v_output_format, "type", "audio/pcm"); err != nil { return nil, err }
 	if err := coreSet(v_output_format, "rate", v_output_sample_rate); err != nil { return nil, err }
 	if err := coreSet(v_output, "format", v_output_format); err != nil { return nil, err }
+	if err := coreSet(v_output, "voice", v_voice_id); err != nil { return nil, err }
 	if err := coreSet(v_audio, "output", v_output); err != nil { return nil, err }
 	if err := coreSet(v_session, "audio", v_audio); err != nil { return nil, err }
-	{ v, err := _core_json_parse("[\"audio\"]"); if err != nil { return nil, err }; v_modalities = v }
-	if err := coreSet(v_session, "modalities", v_modalities); err != nil { return nil, err }
 	{ v, err := _realtime_request_system_instruction_impl(v_request); if err != nil { return nil, err }; v_instructions = v }
 	v_has_instructions = _core_truthy(v_instructions)
 	if coreTruthy(v_has_instructions) {
@@ -6989,7 +6993,7 @@ func _openai_realtime_compatible_build_input(args ...Value) (Value, error) {
 	}
 	v_response = Object()
 	{ v, err := _core_json_parse("[\"audio\"]"); if err != nil { return nil, err }; v_response_modalities = v }
-	if err := coreSet(v_response, "modalities", v_response_modalities); err != nil { return nil, err }
+	if err := coreSet(v_response, "output_modalities", v_response_modalities); err != nil { return nil, err }
 	v_response_event = Object()
 	if err := coreSet(v_response_event, "type", "response.create"); err != nil { return nil, err }
 	if err := coreSet(v_response_event, "response", v_response); err != nil { return nil, err }

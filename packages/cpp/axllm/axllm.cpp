@@ -4825,9 +4825,12 @@ Value Core::_openai_realtime_compatible_build_setup(Value descriptor, Value requ
     input_sample_rate = default_input_rate;
   }
   Value session = Value::object();
-  Core::set(session, Value("voice"), voice_id);
-  Value turn_detection_none = Core::none();
-  Core::set(session, Value("turn_detection"), turn_detection_none);
+  Core::set(session, Value("type"), Value("realtime"));
+  Value default_model = Core::get(descriptor, Value("defaultModel"), Value());
+  Value model = Core::get(request, Value("model"), default_model);
+  Core::set(session, Value("model"), model);
+  Value output_modalities = Core::json_parse(Value("[\"audio\"]"));
+  Core::set(session, Value("output_modalities"), output_modalities);
   Value audio = Value::object();
   Value input = Value::object();
   Value input_format = Value::object();
@@ -4840,10 +4843,9 @@ Value Core::_openai_realtime_compatible_build_setup(Value descriptor, Value requ
   Core::set(output_format, Value("type"), Value("audio/pcm"));
   Core::set(output_format, Value("rate"), output_sample_rate);
   Core::set(output, Value("format"), output_format);
+  Core::set(output, Value("voice"), voice_id);
   Core::set(audio, Value("output"), output);
   Core::set(session, Value("audio"), audio);
-  Value modalities = Core::json_parse(Value("[\"audio\"]"));
-  Core::set(session, Value("modalities"), modalities);
   Value instructions = Core::_realtime_request_system_instruction_impl(request);
   Value has_instructions = Core::truthy_value(instructions);
   if (Core::truthy(has_instructions)) {
@@ -4873,7 +4875,7 @@ Value Core::_openai_realtime_compatible_build_input(Value descriptor, Value requ
   }
   Value response = Value::object();
   Value response_modalities = Core::json_parse(Value("[\"audio\"]"));
-  Core::set(response, Value("modalities"), response_modalities);
+  Core::set(response, Value("output_modalities"), response_modalities);
   Value response_event = Value::object();
   Core::set(response_event, Value("type"), Value("response.create"));
   Core::set(response_event, Value("response"), response);

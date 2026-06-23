@@ -3879,9 +3879,12 @@ final class Core {
       input_sample_rate = default_input_rate;
     }
     Object session = new java.util.LinkedHashMap<String, Object>();
-    Core.set(session, "voice", voice_id);
-    Object turn_detection_none = Core.none();
-    Core.set(session, "turn_detection", turn_detection_none);
+    Core.set(session, "type", "realtime");
+    Object default_model = Core.get(descriptor, "defaultModel", null);
+    Object model = Core.get(request, "model", default_model);
+    Core.set(session, "model", model);
+    Object output_modalities = Core.jsonParse("[\"audio\"]");
+    Core.set(session, "output_modalities", output_modalities);
     Object audio = new java.util.LinkedHashMap<String, Object>();
     Object input = new java.util.LinkedHashMap<String, Object>();
     Object input_format = new java.util.LinkedHashMap<String, Object>();
@@ -3894,10 +3897,9 @@ final class Core {
     Core.set(output_format, "type", "audio/pcm");
     Core.set(output_format, "rate", output_sample_rate);
     Core.set(output, "format", output_format);
+    Core.set(output, "voice", voice_id);
     Core.set(audio, "output", output);
     Core.set(session, "audio", audio);
-    Object modalities = Core.jsonParse("[\"audio\"]");
-    Core.set(session, "modalities", modalities);
     Object instructions = Core._realtime_request_system_instruction_impl(request);
     Object has_instructions = Core.truthyValue(instructions);
     if (Core.truthy(has_instructions)) {
@@ -3927,7 +3929,7 @@ final class Core {
     }
     Object response = new java.util.LinkedHashMap<String, Object>();
     Object response_modalities = Core.jsonParse("[\"audio\"]");
-    Core.set(response, "modalities", response_modalities);
+    Core.set(response, "output_modalities", response_modalities);
     Object response_event = new java.util.LinkedHashMap<String, Object>();
     Core.set(response_event, "type", "response.create");
     Core.set(response_event, "response", response);

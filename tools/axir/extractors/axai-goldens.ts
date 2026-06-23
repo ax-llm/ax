@@ -2012,13 +2012,13 @@ writeFixture('responses-realtime-audio-grammar-reuse', {
   expected_setup: {
     type: 'session.update',
     session: {
-      voice: 'alloy',
-      turn_detection: null,
+      type: 'realtime',
+      model: responsesDefaultModel,
+      output_modalities: ['audio'],
       audio: {
         input: { format: { type: 'audio/pcm', rate: 24000 } },
-        output: { format: { type: 'audio/pcm', rate: 24000 } },
+        output: { format: { type: 'audio/pcm', rate: 24000 }, voice: 'alloy' },
       },
-      modalities: ['audio'],
       instructions: 'Speak briefly.',
     },
   },
@@ -2031,7 +2031,7 @@ writeFixture('responses-realtime-audio-grammar-reuse', {
         content: [{ type: 'input_text', text: 'Say hi.' }],
       },
     },
-    { type: 'response.create', response: { modalities: ['audio'] } },
+    { type: 'response.create', response: { output_modalities: ['audio'] } },
   ],
   events: [],
   expected_output: [],
@@ -2055,13 +2055,13 @@ writeFixture('grok-realtime-audio-session-and-events', {
   expected_setup: {
     type: 'session.update',
     session: {
-      voice: 'eve',
-      turn_detection: null,
+      type: 'realtime',
+      model: grokVoiceDefaultModel,
+      output_modalities: ['audio'],
       audio: {
         input: { format: { type: 'audio/pcm', rate: 24000 } },
-        output: { format: { type: 'audio/pcm', rate: 24000 } },
+        output: { format: { type: 'audio/pcm', rate: 24000 }, voice: 'eve' },
       },
-      modalities: ['audio'],
       instructions: 'You are a concise voice agent.',
     },
   },
@@ -2074,7 +2074,7 @@ writeFixture('grok-realtime-audio-session-and-events', {
         content: [{ type: 'input_text', text: 'Say hello.' }],
       },
     },
-    { type: 'response.create', response: { modalities: ['audio'] } },
+    { type: 'response.create', response: { output_modalities: ['audio'] } },
   ],
   events: [
     {

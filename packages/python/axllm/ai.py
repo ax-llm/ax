@@ -3206,9 +3206,12 @@ def _openai_realtime_compatible_build_setup(descriptor: Any, request: Any) -> An
     else:
         input_sample_rate = default_input_rate
     session = {}
-    session["voice"] = voice_id
-    turn_detection_none = _core_none()
-    session["turn_detection"] = turn_detection_none
+    session["type"] = "realtime"
+    default_model = _core_get(descriptor, "defaultModel", None)
+    model = _core_get(request, "model", default_model)
+    session["model"] = model
+    output_modalities = _core_json_parse("[\"audio\"]")
+    session["output_modalities"] = output_modalities
     audio = {}
     input = {}
     input_format = {}
@@ -3221,10 +3224,9 @@ def _openai_realtime_compatible_build_setup(descriptor: Any, request: Any) -> An
     output_format["type"] = "audio/pcm"
     output_format["rate"] = output_sample_rate
     output["format"] = output_format
+    output["voice"] = voice_id
     audio["output"] = output
     session["audio"] = audio
-    modalities = _core_json_parse("[\"audio\"]")
-    session["modalities"] = modalities
     instructions = _realtime_request_system_instruction_impl(request)
     has_instructions = _core_truthy(instructions)
     if has_instructions:
@@ -3254,7 +3256,7 @@ def _openai_realtime_compatible_build_input(descriptor: Any, request: Any) -> li
         events.append(event)
     response = {}
     response_modalities = _core_json_parse("[\"audio\"]")
-    response["modalities"] = response_modalities
+    response["output_modalities"] = response_modalities
     response_event = {}
     response_event["type"] = "response.create"
     response_event["response"] = response

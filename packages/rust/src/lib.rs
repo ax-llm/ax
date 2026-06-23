@@ -21921,6 +21921,7 @@ fn _openai_realtime_compatible_build_setup(args: &[CoreValue]) -> Result<CoreVal
     let mut v_audio = CoreValue::Null;
     let mut v_audio_descriptor = CoreValue::Null;
     let mut v_default_input_rate = CoreValue::Null;
+    let mut v_default_model = CoreValue::Null;
     let mut v_default_output_rate = CoreValue::Null;
     let mut v_default_voice = CoreValue::Null;
     let mut v_has_input_sample_rate = CoreValue::Null;
@@ -21933,11 +21934,12 @@ fn _openai_realtime_compatible_build_setup(args: &[CoreValue]) -> Result<CoreVal
     let mut v_input_rate_snake = CoreValue::Null;
     let mut v_input_sample_rate = CoreValue::Null;
     let mut v_instructions = CoreValue::Null;
-    let mut v_modalities = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_output = CoreValue::Null;
     let mut v_output_audio_descriptor = CoreValue::Null;
     let mut v_output_format = CoreValue::Null;
+    let mut v_output_modalities = CoreValue::Null;
     let mut v_output_rate = CoreValue::Null;
     let mut v_output_rate_snake = CoreValue::Null;
     let mut v_output_sample_rate = CoreValue::Null;
@@ -21946,7 +21948,6 @@ fn _openai_realtime_compatible_build_setup(args: &[CoreValue]) -> Result<CoreVal
     let mut v_request_output_audio = CoreValue::Null;
     let mut v_request_voice = CoreValue::Null;
     let mut v_session = CoreValue::Null;
-    let mut v_turn_detection_none = CoreValue::Null;
     let mut v_voice_id = CoreValue::Null;
     v_audio_descriptor = core_get(&v_descriptor, &CoreValue::from("audio"), CoreValue::Null);
     v_output_audio_descriptor = core_get(
@@ -22032,12 +22033,27 @@ fn _openai_realtime_compatible_build_setup(args: &[CoreValue]) -> Result<CoreVal
         v_input_sample_rate = v_default_input_rate.clone();
     }
     v_session = CoreValue::new_map();
-    core_set(&v_session, CoreValue::from("voice"), v_voice_id.clone())?;
-    v_turn_detection_none = core_none(&[])?;
     core_set(
         &v_session,
-        CoreValue::from("turn_detection"),
-        v_turn_detection_none.clone(),
+        CoreValue::from("type"),
+        CoreValue::from("realtime"),
+    )?;
+    v_default_model = core_get(
+        &v_descriptor,
+        &CoreValue::from("defaultModel"),
+        CoreValue::Null,
+    );
+    v_model = core_get(
+        &v_request,
+        &CoreValue::from("model"),
+        v_default_model.clone(),
+    );
+    core_set(&v_session, CoreValue::from("model"), v_model.clone())?;
+    v_output_modalities = core_json_parse(&[CoreValue::from("[\"audio\"]")])?;
+    core_set(
+        &v_session,
+        CoreValue::from("output_modalities"),
+        v_output_modalities.clone(),
     )?;
     v_audio = CoreValue::new_map();
     v_input = CoreValue::new_map();
@@ -22071,14 +22087,9 @@ fn _openai_realtime_compatible_build_setup(args: &[CoreValue]) -> Result<CoreVal
         CoreValue::from("format"),
         v_output_format.clone(),
     )?;
+    core_set(&v_output, CoreValue::from("voice"), v_voice_id.clone())?;
     core_set(&v_audio, CoreValue::from("output"), v_output.clone())?;
     core_set(&v_session, CoreValue::from("audio"), v_audio.clone())?;
-    v_modalities = core_json_parse(&[CoreValue::from("[\"audio\"]")])?;
-    core_set(
-        &v_session,
-        CoreValue::from("modalities"),
-        v_modalities.clone(),
-    )?;
     v_instructions = _realtime_request_system_instruction_impl(&[v_request.clone()])?;
     v_has_instructions = core_truthy_value(&[v_instructions.clone()])?;
     if core_truthy(&v_has_instructions) {
@@ -22142,7 +22153,7 @@ fn _openai_realtime_compatible_build_input(args: &[CoreValue]) -> Result<CoreVal
     v_response_modalities = core_json_parse(&[CoreValue::from("[\"audio\"]")])?;
     core_set(
         &v_response,
-        CoreValue::from("modalities"),
+        CoreValue::from("output_modalities"),
         v_response_modalities.clone(),
     )?;
     v_response_event = CoreValue::new_map();
