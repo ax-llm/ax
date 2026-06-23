@@ -133,6 +133,192 @@ public class OpenAICompatibleClient extends AxBaseAI {
     return Core.asList(Core.provider_build_realtime_audio_input(profile, request));
   }
 
+  /** Transport seam for the realtime turn driver: a ScriptedRealtimeTransport for
+   * deterministic offline turns, the JDK-WebSocket-backed transport for live ones. */
+  public interface RealtimeTransport {
+    void send(Map<String, Object> event);
+    Map<String, Object> recv();
+    void close();
+  }
+
+  public static final class ScriptedRealtimeTransport implements RealtimeTransport {
+    private final java.util.Deque<Map<String, Object>> inbound = new java.util.ArrayDeque<>();
+    public final List<Map<String, Object>> sent = new ArrayList<>();
+    public ScriptedRealtimeTransport(List<?> inbound) {
+      for (Object event : inbound) this.inbound.add(Core.asMap(event));
+    }
+    public void send(Map<String, Object> event) { sent.add(event); }
+    public Map<String, Object> recv() { return inbound.poll(); }
+    public void close() {}
+  }
+
+  // Bridges the JDK WebSocket's async, fragment-delivering listener to a blocking
+  // recv(): onText reassembles fragments and enqueues whole messages; recv() polls
+  // the queue. request(1) drives the one-at-a-time backpressure the JDK API needs.
+  static final class WebSocketRealtimeTransport implements RealtimeTransport {
+    private static final Object CLOSED = new Object();
+    private final java.net.http.WebSocket ws;
+    private final java.util.concurrent.BlockingQueue<Object> queue = new java.util.concurrent.LinkedBlockingQueue<>();
+    private final StringBuilder buffer = new StringBuilder();
+
+    WebSocketRealtimeTransport(String url, Map<String, String> headers) {
+      java.net.http.WebSocket.Builder builder = HttpClient.newHttpClient().newWebSocketBuilder();
+      for (Map.Entry<String, String> header : headers.entrySet()) builder.header(header.getKey(), header.getValue());
+      this.ws = builder.buildAsync(URI.create(url), new java.net.http.WebSocket.Listener() {
+        @Override public java.util.concurrent.CompletionStage<?> onText(java.net.http.WebSocket socket, CharSequence data, boolean last) {
+          buffer.append(data);
+          if (last) { queue.offer(buffer.toString()); buffer.setLength(0); }
+          socket.request(1);
+          return null;
+        }
+        @Override public void onError(java.net.http.WebSocket socket, Throwable error) { queue.offer(CLOSED); }
+        @Override public java.util.concurrent.CompletionStage<?> onClose(java.net.http.WebSocket socket, int statusCode, String reason) { queue.offer(CLOSED); return null; }
+      }).join();
+      this.ws.request(1);
+    }
+    public void send(Map<String, Object> event) { ws.sendText(Json.stringify(event), true).join(); }
+    public Map<String, Object> recv() {
+      try {
+        Object item = queue.poll(30, java.util.concurrent.TimeUnit.SECONDS);
+        if (item == null || item == CLOSED) return null;
+        return Core.asMap(Json.parse((String) item));
+      } catch (InterruptedException e) { Thread.currentThread().interrupt(); return null; }
+    }
+    public void close() { try { ws.sendClose(java.net.http.WebSocket.NORMAL_CLOSURE, ""); } catch (Exception ignored) {} }
+  }
+
+  /** Drive a realtime audio turn over a WebSocket transport: send the Core-built
+   * setup + input events, fold the inbound stream through the shared realtime
+   * codec, and merge the per-delta results into one turn response (transcript
+   * concatenated, audio chunks base64-joined). Pass a ScriptedRealtimeTransport
+   * to exercise the loop offline without a socket. */
+  public Map<String, Object> realtimeChat(Map<String, Object> request, RealtimeTransport transport) {
+    Object model = request.getOrDefault("model", this.model);
+    Map<String, Object> setup = realtimeAudioSetup(request);
+    List<Object> inputs = realtimeAudioInput(request);
+    boolean ownTransport = transport == null;
+    if (ownTransport) {
+      Object[] target = realtimeWsTarget(String.valueOf(model));
+      @SuppressWarnings("unchecked")
+      Map<String, String> wsHeaders = (Map<String, String>) target[1];
+      transport = new WebSocketRealtimeTransport((String) target[0], wsHeaders);
+    }
+    try {
+      transport.send(setup);
+      boolean inputSent = false;
+      List<Object> events = new ArrayList<>();
+      while (true) {
+        Map<String, Object> event = transport.recv();
+        if (event == null) break;
+        if ("error".equals(String.valueOf(event.get("type")))) {
+          Map<String, Object> err = Core.asMap(event.get("error"));
+          throw new AxAIServiceError(String.valueOf(err.getOrDefault("message", "realtime error")));
+        }
+        if (realtimeEventIsReady(event)) {
+          if (!inputSent) { inputSent = true; for (Object item : inputs) transport.send(Core.asMap(item)); }
+          continue;
+        }
+        boolean done = realtimeEventIsDone(event);
+        events.add(event);
+        if (done) break;
+      }
+      Map<String, Object> state = new LinkedHashMap<>();
+      StringBuilder content = new StringBuilder();
+      ByteArrayOutputStream audio = new ByteArrayOutputStream();
+      boolean hasAudio = false;
+      List<Object> functionCalls = new ArrayList<>();
+      String responseId = "";
+      String finishReason = "";
+      Object modelUsage = null;
+      for (Object eventObj : events) {
+        Map<String, Object> out = Core.asMap(Core.provider_normalize_realtime_event(profile, eventObj, state, name, model));
+        List<Object> results = Core.asList(out.get("results"));
+        if (results.isEmpty()) continue;
+        Map<String, Object> result = Core.asMap(results.get(0));
+        Object contentObj = result.get("content");
+        if (contentObj != null) content.append(contentObj);
+        Object audioObj = result.get("audio");
+        if (audioObj instanceof Map) {
+          Object data = ((Map<?, ?>) audioObj).get("data");
+          if (data != null && !String.valueOf(data).isEmpty()) { audio.writeBytes(Base64.getDecoder().decode(String.valueOf(data))); hasAudio = true; }
+        }
+        Object fcObj = result.get("function_calls");
+        if (fcObj instanceof List) functionCalls.addAll((List<Object>) fcObj);
+        Object fr = result.get("finish_reason");
+        if (fr != null && !String.valueOf(fr).isEmpty()) finishReason = String.valueOf(fr);
+        Object rid = out.getOrDefault("remote_id", result.get("id"));
+        if (rid != null && !String.valueOf(rid).isEmpty() && !"0".equals(String.valueOf(rid))) responseId = String.valueOf(rid);
+        Object usage = out.get("model_usage");
+        if (usage != null) modelUsage = usage;
+      }
+      if (responseId.isEmpty()) responseId = "realtime";
+      if (finishReason.isEmpty()) finishReason = "stop";
+      Map<String, Object> result = new LinkedHashMap<>();
+      result.put("index", 0);
+      result.put("id", responseId);
+      result.put("content", content.toString());
+      result.put("function_calls", functionCalls);
+      result.put("finish_reason", finishReason);
+      if (hasAudio) {
+        Map<String, Object> audioMap = new LinkedHashMap<>();
+        audioMap.put("data", Base64.getEncoder().encodeToString(audio.toByteArray()));
+        audioMap.put("format", "pcm16");
+        audioMap.put("transcript", content.toString());
+        result.put("audio", audioMap);
+      }
+      Map<String, Object> response = new LinkedHashMap<>();
+      response.put("results", List.of(result));
+      response.put("remote_id", responseId);
+      response.put("model_usage", modelUsage);
+      return response;
+    } finally {
+      if (ownTransport) transport.close();
+    }
+  }
+
+  private static boolean realtimeEventIsReady(Map<String, Object> event) {
+    String type = String.valueOf(event.get("type"));
+    if (type.equals("session.created") || type.equals("session.updated") || type.equals("transcription_session.created") || type.equals("transcription_session.updated")) return true;
+    return event.containsKey("setupComplete");
+  }
+
+  private static boolean realtimeEventIsDone(Map<String, Object> event) {
+    String type = String.valueOf(event.get("type"));
+    if (type.equals("response.done") || type.equals("response.completed")) return true;
+    Object sc = event.get("serverContent");
+    return sc instanceof Map && Boolean.TRUE.equals(((Map<?, ?>) sc).get("turnComplete"));
+  }
+
+  private Object[] realtimeWsTarget(String model) {
+    Map<String, Object> desc = Core.asMap(Core.provider_operation_descriptor(profile, "realtime_audio"));
+    String grammar = String.valueOf(desc.getOrDefault("grammar", "openai_realtime_compatible"));
+    String explicit = String.valueOf(desc.getOrDefault("url", ""));
+    String path = String.valueOf(desc.getOrDefault("path", "/realtime"));
+    String key = apiKey == null || "null".equals(apiKey) ? "" : apiKey;
+    if (grammar.equals("gemini_live_bidi")) {
+      String origin = realtimeWsOrigin(explicit.isEmpty() ? baseUrl : explicit);
+      return new Object[] { origin + path + "?key=" + URLEncoder.encode(key, StandardCharsets.UTF_8), new LinkedHashMap<String, String>() };
+    }
+    String wsBase = explicit.isEmpty() ? realtimeWsScheme(baseUrl) + path : explicit;
+    Map<String, String> wsHeaders = new LinkedHashMap<>();
+    wsHeaders.put("Authorization", "Bearer " + key);
+    return new Object[] { wsBase + "?model=" + URLEncoder.encode(model, StandardCharsets.UTF_8), wsHeaders };
+  }
+
+  private static String realtimeWsScheme(String url) {
+    if (url.startsWith("https://")) return "wss://" + url.substring("https://".length());
+    if (url.startsWith("http://")) return "ws://" + url.substring("http://".length());
+    return url;
+  }
+
+  private static String realtimeWsOrigin(String url) {
+    String scheme = realtimeWsScheme(url);
+    String prefix = scheme.startsWith("wss://") ? "wss://" : "ws://";
+    String rest = scheme.substring(prefix.length());
+    int slash = rest.indexOf('/');
+    return prefix + (slash >= 0 ? rest.substring(0, slash) : rest);
+  }
+
   private Map<String, Object> modelConfig() {
     return new LinkedHashMap<>(this.modelConfig);
   }

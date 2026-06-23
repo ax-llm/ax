@@ -796,6 +796,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/AudioResponsesMappingExample.java",
 				"examples/AudioHTTPRoundtripExample.java",
 				"examples/RealtimeAudioEventsExample.java",
+				"examples/RealtimeAudioTurnExample.java",
 				"examples/OptimizerArtifactExample.java",
 				"examples/GEPALocalOptimizerExample.java",
 				"examples/AxMCPScriptedToolsExample.java",

@@ -807,6 +807,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"AudioResponsesMappingExample",
 		"AudioHTTPRoundtripExample",
 		"RealtimeAudioEventsExample",
+		"RealtimeAudioTurnExample",
 		"RuntimeAdapterExample",
 		"RuntimeProtocolExample",
 		"AxFlowProgramGraphExample",

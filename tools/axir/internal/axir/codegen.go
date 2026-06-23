@@ -248,6 +248,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/AudioResponsesMappingExample.java":                  javaAudioResponsesMappingExample,
 		"examples/AudioHTTPRoundtripExample.java":                     javaAudioHTTPRoundtripExample,
 		"examples/RealtimeAudioEventsExample.java":                    javaRealtimeAudioEventsExample,
+		"examples/RealtimeAudioTurnExample.java":                      javaRealtimeAudioTurnExample,
 		"examples/OptimizerArtifactExample.java":                      javaOptimizerArtifactExample,
 		"examples/GEPALocalOptimizerExample.java":                     javaGEPALocalOptimizerExample,
 		"examples/AxMCPScriptedToolsExample.java":                     javaMCPScriptedToolsExample,
