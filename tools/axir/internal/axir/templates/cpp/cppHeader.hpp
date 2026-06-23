@@ -412,6 +412,29 @@ class HttpTransport : public Transport {
   Value call(Value request) override;
 };
 
+// Transport seam for the realtime turn driver: ScriptedRealtimeTransport for
+// deterministic offline turns, plus a WebSocket-backed transport (compiled only
+// when AXLLM_ENABLE_REALTIME is defined) for live turns.
+class RealtimeTransport {
+ public:
+  virtual ~RealtimeTransport() = default;
+  virtual void send(const Value& event) = 0;
+  virtual bool recv(Value& out) = 0;
+  virtual void close() {}
+};
+
+class ScriptedRealtimeTransport : public RealtimeTransport {
+ public:
+  explicit ScriptedRealtimeTransport(std::vector<Value> inbound);
+  void send(const Value& event) override;
+  bool recv(Value& out) override;
+  std::vector<Value> sent;
+
+ private:
+  std::vector<Value> inbound_;
+  std::size_t index_ = 0;
+};
+
 class OpenAICompatibleClient : public AxBaseAI {
  public:
   explicit OpenAICompatibleClient(Value options = Value::object(), Transport* transport = nullptr);
@@ -421,6 +444,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   std::vector<Value> realtime(Value events);
   Value realtime_audio_setup(Value request);
   Value realtime_audio_input(Value request);
+  Value realtime_chat(Value request, RealtimeTransport* transport = nullptr);
 
  protected:
   OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model);

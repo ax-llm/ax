@@ -300,6 +300,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/audio_responses_mapping.cpp":                  cppAudioResponsesMappingExample,
 		"examples/audio_http_roundtrip.cpp":                     cppAudioHTTPRoundtripExample,
 		"examples/realtime_audio_events.cpp":                    cppRealtimeAudioEventsExample,
+		"examples/realtime_audio_turn.cpp":                      cppRealtimeAudioTurnExample,
 		"examples/optimizer_artifact.cpp":                       cppOptimizerArtifactExample,
 		"examples/gepa_local_optimizer.cpp":                     cppGEPALocalOptimizerExample,
 		"examples/mcp_scripted_tools.cpp":                       cppMCPScriptedToolsExample,

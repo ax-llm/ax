@@ -1165,6 +1165,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		"provider_stream_no_key",
 		"audio_responses_mapping",
 		"realtime_audio_events",
+		"realtime_audio_turn",
 		"runtime_adapter",
 		"runtime_protocol",
 		"axflow_program_graph",

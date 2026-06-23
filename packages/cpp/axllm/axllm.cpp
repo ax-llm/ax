@@ -11,6 +11,12 @@
 #include <curl/curl.h>
 #endif
 
+#if defined(AXLLM_ENABLE_REALTIME)
+#include <condition_variable>
+#include <deque>
+#include <ixwebsocket/IXWebSocket.h>
+#endif
+
 namespace axllm {
 
 Value::Value() : data(nullptr) {}
@@ -16353,6 +16359,206 @@ Value OpenAICompatibleClient::realtime_audio_setup(Value request) {
 
 Value OpenAICompatibleClient::realtime_audio_input(Value request) {
   return Core::provider_build_realtime_audio_input(profile_, request);
+}
+
+namespace {
+
+bool realtime_event_is_ready(const Value& event) {
+  std::string type = str(Core::get(event, "type", Value("")));
+  if (type == "session.created" || type == "session.updated" || type == "transcription_session.created" || type == "transcription_session.updated") return true;
+  return !Core::get(event, "setupComplete").is_null();
+}
+
+bool realtime_event_is_done(const Value& event) {
+  std::string type = str(Core::get(event, "type", Value("")));
+  if (type == "response.done" || type == "response.completed") return true;
+  Value server_content = Core::get(event, "serverContent");
+  return !server_content.is_null() && Core::truthy(Core::get(server_content, "turnComplete", Value(false)));
+}
+
+std::string realtime_ws_scheme(const std::string& url) {
+  if (url.rfind("https://", 0) == 0) return "wss://" + url.substr(8);
+  if (url.rfind("http://", 0) == 0) return "ws://" + url.substr(7);
+  return url;
+}
+
+std::string realtime_ws_origin(const std::string& url) {
+  std::string scheme = realtime_ws_scheme(url);
+  std::string prefix = scheme.rfind("wss://", 0) == 0 ? "wss://" : "ws://";
+  std::string rest = scheme.substr(prefix.size());
+  std::size_t slash = rest.find('/');
+  return prefix + (slash == std::string::npos ? rest : rest.substr(0, slash));
+}
+
+struct RealtimeWsTarget {
+  std::string url;
+  std::vector<std::pair<std::string, std::string>> headers;
+};
+
+RealtimeWsTarget realtime_ws_target(const std::string& profile, const std::string& base_url, const std::string& api_key, const std::string& model) {
+  Value descriptor = Core::provider_operation_descriptor(profile, "realtime_audio");
+  std::string grammar = str(Core::get(descriptor, "grammar", Value("openai_realtime_compatible")));
+  std::string explicit_url = str(Core::get(descriptor, "url", Value("")));
+  std::string path = str(Core::get(descriptor, "path", Value("/realtime")));
+  RealtimeWsTarget target;
+  if (grammar == "gemini_live_bidi") {
+    std::string origin = realtime_ws_origin(explicit_url.empty() ? base_url : explicit_url);
+    target.url = origin + path + "?key=" + url_component(api_key);
+    return target;
+  }
+  std::string ws_base = explicit_url.empty() ? realtime_ws_scheme(base_url) + path : explicit_url;
+  target.url = ws_base + "?model=" + url_component(model);
+  target.headers.push_back({"Authorization", "Bearer " + api_key});
+  return target;
+}
+
+#if defined(AXLLM_ENABLE_REALTIME)
+// Live transport over IXWebSocket: the on-message callback fires on a background
+// thread and enqueues whole text frames; recv() drains the queue on the calling
+// thread (mirrors the Transport/HTTP split, gated by AXLLM_ENABLE_REALTIME).
+class WsRealtimeTransport : public RealtimeTransport {
+ public:
+  WsRealtimeTransport(const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers) {
+    socket_.setUrl(url);
+    ix::WebSocketHttpHeaders ws_headers;
+    for (const auto& header : headers) ws_headers[header.first] = header.second;
+    socket_.setExtraHeaders(ws_headers);
+    socket_.disableAutomaticReconnection();
+    socket_.setOnMessageCallback([this](const ix::WebSocketMessagePtr& message) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (message->type == ix::WebSocketMessageType::Message) queue_.push_back(message->str);
+      else if (message->type == ix::WebSocketMessageType::Close || message->type == ix::WebSocketMessageType::Error) closed_ = true;
+      cv_.notify_one();
+    });
+    socket_.start();
+  }
+  void send(const Value& event) override { socket_.send(str(Core::json_stringify(event))); }
+  bool recv(Value& out) override {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (!cv_.wait_for(lock, std::chrono::seconds(30), [this] { return !queue_.empty() || closed_; })) return false;
+    if (queue_.empty()) return false;
+    std::string raw = queue_.front();
+    queue_.pop_front();
+    lock.unlock();
+    out = parse_json(raw);
+    return true;
+  }
+  void close() override { socket_.stop(); }
+
+ private:
+  ix::WebSocket socket_;
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  std::deque<std::string> queue_;
+  bool closed_ = false;
+};
+#endif
+
+}  // namespace
+
+ScriptedRealtimeTransport::ScriptedRealtimeTransport(std::vector<Value> inbound) : inbound_(std::move(inbound)) {}
+void ScriptedRealtimeTransport::send(const Value& event) { sent.push_back(event); }
+bool ScriptedRealtimeTransport::recv(Value& out) {
+  if (index_ >= inbound_.size()) return false;
+  out = inbound_[index_++];
+  return true;
+}
+
+Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* transport) {
+  std::string model = str(Core::get(request, "model", Value(model_)));
+  Value setup = Core::provider_build_realtime_audio_setup(profile_, request);
+  Value inputs = Core::provider_build_realtime_audio_input(profile_, request);
+  std::unique_ptr<RealtimeTransport> owned;
+  if (transport == nullptr) {
+#if defined(AXLLM_ENABLE_REALTIME)
+    RealtimeWsTarget target = realtime_ws_target(profile_, base_url_, api_key_, model);
+    owned = std::make_unique<WsRealtimeTransport>(target.url, target.headers);
+    transport = owned.get();
+#else
+    throw Core::as_error(Core::ai_error_unsupported("C++ realtime audio requires the built-in IXWebSocket transport. Build with CMake and AXLLM_ENABLE_REALTIME=ON, or pass a custom RealtimeTransport."));
+#endif
+  }
+  std::vector<Value> events;
+  Value event;
+  bool input_sent = false;
+  try {
+    transport->send(setup);
+    while (transport->recv(event)) {
+      if (str(Core::get(event, "type", Value(""))) == "error") {
+        Value error = Core::get(event, "error");
+        std::string message = error.is_null() ? "realtime error" : str(Core::get(error, "message", Value("realtime error")));
+        throw Core::as_error(Core::ai_error_response(message));
+      }
+      if (realtime_event_is_ready(event)) {
+        if (!input_sent) {
+          input_sent = true;
+          for (const auto& item : array_ref(inputs)) transport->send(item);
+        }
+        continue;
+      }
+      bool done = realtime_event_is_done(event);
+      events.push_back(event);
+      if (done) break;
+    }
+  } catch (...) {
+    if (owned) transport->close();
+    throw;
+  }
+  if (owned) transport->close();
+
+  Value state = Value::object();
+  std::string content;
+  std::string audio_bytes;
+  bool has_audio = false;
+  Value function_calls = Value::array();
+  std::string response_id;
+  std::string finish_reason;
+  Value model_usage;
+  for (const auto& folded_event : events) {
+    Value normalized = Core::provider_normalize_realtime_event(profile_, folded_event, state, name_, model);
+    Array results = array_ref(Core::get(normalized, "results", Value::array()));
+    if (results.empty()) continue;
+    Value result_value = results[0];
+    Value content_value = Core::get(result_value, "content");
+    if (!content_value.is_null()) content += str(content_value);
+    Value audio = Core::get(result_value, "audio");
+    if (!audio.is_null()) {
+      std::string data = str(Core::get(audio, "data", Value("")));
+      if (!data.empty()) {
+        audio_bytes += axir_base64_decode(data);
+        has_audio = true;
+      }
+    }
+    for (const auto& call : array_ref(Core::get(result_value, "function_calls", Value::array()))) Core::append(function_calls, call);
+    Value finish_value = Core::get(result_value, "finish_reason");
+    if (!finish_value.is_null() && !str(finish_value).empty()) finish_reason = str(finish_value);
+    Value remote_id = Core::get(normalized, "remote_id", Core::get(result_value, "id"));
+    if (!remote_id.is_null() && !str(remote_id).empty() && str(remote_id) != "0") response_id = str(remote_id);
+    Value usage = Core::get(normalized, "model_usage");
+    if (!usage.is_null()) model_usage = usage;
+  }
+  if (response_id.empty()) response_id = "realtime";
+  if (finish_reason.empty()) finish_reason = "stop";
+  Value result = Value::object();
+  Core::set(result, "index", Value(0));
+  Core::set(result, "id", Value(response_id));
+  Core::set(result, "content", Value(content));
+  Core::set(result, "function_calls", function_calls);
+  Core::set(result, "finish_reason", Value(finish_reason));
+  if (has_audio) {
+    Value audio_map = Value::object();
+    Core::set(audio_map, "data", Value(axir_base64_encode(audio_bytes)));
+    Core::set(audio_map, "format", Value("pcm16"));
+    Core::set(audio_map, "transcript", Value(content));
+    Core::set(result, "audio", audio_map);
+  }
+  Value response = Value::object();
+  Value results_array = Value::array();
+  Core::append(results_array, result);
+  Core::set(response, "results", results_array);
+  Core::set(response, "remote_id", Value(response_id));
+  Core::set(response, "model_usage", model_usage);
+  return response;
 }
 
 Value OpenAICompatibleClient::headers() const {
