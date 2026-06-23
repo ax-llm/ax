@@ -1461,33 +1461,26 @@ impl OpenAICompatibleClient {
 
     #[allow(dead_code)]
     fn realtime_ws_target(&self, model: &str) -> (String, Vec<(String, String)>) {
-        let descriptor = core_value_to_json(
-            &provider_operation_descriptor(&[
+        // Grammar-specific URL + auth construction lives in Core so the client
+        // stays provider-agnostic.
+        let target = core_value_to_json(
+            &provider_realtime_ws_url(&[
                 CoreValue::from(self.profile.as_str()),
-                CoreValue::from("realtime_audio"),
+                CoreValue::from(model),
+                CoreValue::from(self.api_key.as_str()),
             ])
             .unwrap_or_else(|_| CoreValue::new_map()),
         );
-        let grammar = descriptor.get("grammar").and_then(|g| g.as_str()).unwrap_or("openai_realtime_compatible");
-        let explicit = descriptor.get("url").and_then(|u| u.as_str()).unwrap_or("");
-        let path = descriptor.get("path").and_then(|p| p.as_str()).unwrap_or("/realtime");
-        let base = self.base_url_override.clone().unwrap_or_else(|| self.api_url.clone());
-        if grammar == "gemini_live_bidi" {
-            let origin = realtime_ws_origin(if explicit.is_empty() { &base } else { explicit });
-            return (
-                format!("{}{}?key={}", origin, path, url_component_escape(&self.api_key)),
-                Vec::new(),
-            );
+        let url = target.get("url").and_then(|u| u.as_str()).unwrap_or("").to_string();
+        let mut headers = Vec::new();
+        if let Some(map) = target.get("headers").and_then(|h| h.as_object()) {
+            for (key, value) in map {
+                if let Some(value) = value.as_str() {
+                    headers.push((key.clone(), value.to_string()));
+                }
+            }
         }
-        let ws_base = if explicit.is_empty() {
-            format!("{}{}", realtime_ws_scheme(&base), path)
-        } else {
-            explicit.to_string()
-        };
-        (
-            format!("{}?model={}", ws_base, url_component_escape(model)),
-            vec![("Authorization".to_string(), format!("Bearer {}", self.api_key))],
-        )
+        (url, headers)
     }
 }
 
@@ -1533,23 +1526,6 @@ impl ScriptedRealtimeTransport {
             sent: Vec::new(),
         }
     }
-}
-
-fn realtime_ws_scheme(url: &str) -> String {
-    if let Some(rest) = url.strip_prefix("https://") {
-        format!("wss://{}", rest)
-    } else if let Some(rest) = url.strip_prefix("http://") {
-        format!("ws://{}", rest)
-    } else {
-        url.to_string()
-    }
-}
-
-fn realtime_ws_origin(url: &str) -> String {
-    let scheme = realtime_ws_scheme(url);
-    let prefix = if scheme.starts_with("wss://") { "wss://" } else { "ws://" };
-    let host = scheme[prefix.len()..].split('/').next().unwrap_or("");
-    format!("{}{}", prefix, host)
 }
 
 fn realtime_event_is_ready(event: &Value) -> bool {

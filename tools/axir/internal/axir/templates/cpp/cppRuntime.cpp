@@ -2407,39 +2407,21 @@ bool realtime_event_is_done(const Value& event) {
   return !server_content.is_null() && Core::truthy(Core::get(server_content, "turnComplete", Value(false)));
 }
 
-std::string realtime_ws_scheme(const std::string& url) {
-  if (url.rfind("https://", 0) == 0) return "wss://" + url.substr(8);
-  if (url.rfind("http://", 0) == 0) return "ws://" + url.substr(7);
-  return url;
-}
-
-std::string realtime_ws_origin(const std::string& url) {
-  std::string scheme = realtime_ws_scheme(url);
-  std::string prefix = scheme.rfind("wss://", 0) == 0 ? "wss://" : "ws://";
-  std::string rest = scheme.substr(prefix.size());
-  std::size_t slash = rest.find('/');
-  return prefix + (slash == std::string::npos ? rest : rest.substr(0, slash));
-}
-
 struct RealtimeWsTarget {
   std::string url;
   std::vector<std::pair<std::string, std::string>> headers;
 };
 
-RealtimeWsTarget realtime_ws_target(const std::string& profile, const std::string& base_url, const std::string& api_key, const std::string& model) {
-  Value descriptor = Core::provider_operation_descriptor(profile, "realtime_audio");
-  std::string grammar = str(Core::get(descriptor, "grammar", Value("openai_realtime_compatible")));
-  std::string explicit_url = str(Core::get(descriptor, "url", Value("")));
-  std::string path = str(Core::get(descriptor, "path", Value("/realtime")));
+RealtimeWsTarget realtime_ws_target(const std::string& profile, const std::string& api_key, const std::string& model) {
+  // Grammar-specific URL + auth construction lives in Core so the client stays
+  // provider-agnostic.
+  Value result = Core::provider_realtime_ws_url(Value(profile), Value(model), Value(api_key));
   RealtimeWsTarget target;
-  if (grammar == "gemini_live_bidi") {
-    std::string origin = realtime_ws_origin(explicit_url.empty() ? base_url : explicit_url);
-    target.url = origin + path + "?key=" + url_component(api_key);
-    return target;
+  target.url = str(Core::get(result, "url", Value("")));
+  Value headers = Core::get(result, "headers");
+  for (const auto& key : array_ref(Core::map_keys(headers))) {
+    target.headers.push_back({str(key), str(Core::get(headers, key, Value("")))});
   }
-  std::string ws_base = explicit_url.empty() ? realtime_ws_scheme(base_url) + path : explicit_url;
-  target.url = ws_base + "?model=" + url_component(model);
-  target.headers.push_back({"Authorization", "Bearer " + api_key});
   return target;
 }
 
@@ -2502,7 +2484,7 @@ Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* tr
   std::unique_ptr<RealtimeTransport> owned;
   if (transport == nullptr) {
 #if defined(AXLLM_ENABLE_REALTIME)
-    RealtimeWsTarget target = realtime_ws_target(profile_, base_url_, api_key_, model);
+    RealtimeWsTarget target = realtime_ws_target(profile_, api_key_, model);
     owned = std::make_unique<WsRealtimeTransport>(target.url, target.headers);
     transport = owned.get();
 #else

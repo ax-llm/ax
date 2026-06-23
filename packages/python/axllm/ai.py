@@ -164,21 +164,6 @@ def _encode_multipart(payload: dict[str, Any]) -> tuple[bytes, str]:
     return b"".join(parts), "multipart/form-data; boundary=" + boundary
 
 
-def _realtime_ws_scheme(url: str) -> str:
-    if url.startswith("https://"):
-        return "wss://" + url[len("https://"):]
-    if url.startswith("http://"):
-        return "ws://" + url[len("http://"):]
-    return url
-
-
-def _realtime_ws_origin(url: str) -> str:
-    scheme = _realtime_ws_scheme(url)
-    prefix = "wss://" if scheme.startswith("wss://") else "ws://"
-    host = scheme[len(prefix):].split("/", 1)[0]
-    return prefix + host
-
-
 def _realtime_event_is_ready(event: dict[str, Any]) -> bool:
     if event.get("type") in (
         "session.created",
@@ -633,17 +618,11 @@ class ProviderOperationClient(AxBaseAI):
         return {"results": [merged], "remote_id": response_id, "model_usage": model_usage}
 
     def _realtime_ws_target(self, model: str | None):
-        descriptor = provider_operation_descriptor(self.profile, "realtime_audio")
-        grammar = descriptor.get("grammar", "openai_realtime_compatible")
-        explicit_url = descriptor.get("url")
-        path = descriptor.get("path", "/realtime")
-        if grammar == "gemini_live_bidi":
-            origin = _realtime_ws_origin(explicit_url or self.base_url)
-            key = urllib.parse.quote(self.api_key or "", safe="")
-            return origin + path + "?key=" + key, []
-        base = explicit_url if explicit_url else _realtime_ws_scheme(self.base_url) + path
-        url = base + "?model=" + urllib.parse.quote(str(model or ""), safe="")
-        return url, ["Authorization: Bearer " + str(self.api_key or "")]
+        # Grammar-specific URL + auth construction lives in Core so the client
+        # stays provider-agnostic.
+        target = provider_realtime_ws_url(self.profile, str(model or ""), self.api_key or "")
+        headers = [f"{key}: {value}" for key, value in (target.get("headers") or {}).items()]
+        return target.get("url", ""), headers
 
     def _operation_path(self, operation: str, model: str | None = None):
         descriptor = provider_operation_descriptor(self.profile, operation)
@@ -3180,7 +3159,7 @@ def provider_descriptor(profile: str) -> Any:
         responses_transcribe = _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
         responses_speak = _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")
         responses_realtime = _core_json_parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}")
-        responses_realtime_audio = _core_json_parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")
+        responses_realtime_audio = _core_json_parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"url\":\"wss://api.openai.com/v1/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")
         operations["chat"] = responses_chat
         operations["stream_chat"] = responses_stream
         operations["embed"] = responses_embed
@@ -3207,7 +3186,7 @@ def provider_descriptor(profile: str) -> Any:
             gemini_embed = _core_json_parse("{\"method\":\"POST\",\"path\":\"/models/{model}:batchEmbedContents\",\"body\":\"json\",\"stream\":false}")
             gemini_transcribe = _core_json_parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")
             gemini_speak = _core_json_parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")
-            gemini_realtime_audio = _core_json_parse("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}")
+            gemini_realtime_audio = _core_json_parse("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}")
             operations["chat"] = gemini_chat
             operations["stream_chat"] = gemini_stream
             operations["embed"] = gemini_embed
@@ -3324,6 +3303,29 @@ def _provider_realtime_audio_descriptor(profile: str) -> Any:
     _core_coverage_mark("_provider_realtime_audio_descriptor")
     descriptor = provider_operation_descriptor(profile, "realtime_audio")
     return descriptor
+
+
+def provider_realtime_ws_url(profile: str, model: str, api_key: str) -> Any:
+    _core_coverage_mark("provider_realtime_ws_url")
+    descriptor = _provider_realtime_audio_descriptor(profile)
+    grammar = _core_get(descriptor, "grammar", "openai_realtime_compatible")
+    base = _core_get(descriptor, "url", "")
+    out = {}
+    headers = {}
+    is_gemini = _core_eq(grammar, "gemini_live_bidi")
+    if is_gemini:
+        gemini_url = _core_string_format("{}?key={}", base, api_key)
+        out["url"] = gemini_url
+        out["headers"] = headers
+        return out
+    else:
+        pass
+    openai_url = _core_string_format("{}?model={}", base, model)
+    auth = _core_string_format("Bearer {}", api_key)
+    headers["Authorization"] = auth
+    out["url"] = openai_url
+    out["headers"] = headers
+    return out
 
 
 def provider_build_realtime_audio_setup(profile: str, request: Any) -> Any:
@@ -3558,6 +3560,8 @@ def _gemini_live_bidi_build_input(descriptor: Any, request: Any) -> list[Any]:
             text_part = {}
             text_part["text"] = content
             text_parts.append(text_part)
+        audio_count = _core_len(audio_events)
+        msg_has_audio = _core_gt(audio_count, 0)
         text_count = _core_len(text_parts)
         has_text = _core_gt(text_count, 0)
         if has_text:
@@ -3568,7 +3572,8 @@ def _gemini_live_bidi_build_input(descriptor: Any, request: Any) -> list[Any]:
             turns.append(turn)
             client_content = {}
             client_content["turns"] = turns
-            client_content["turnComplete"] = False
+            turn_complete = _core_not(msg_has_audio)
+            client_content["turnComplete"] = turn_complete
             content_event = {}
             content_event["clientContent"] = client_content
             events.append(content_event)
@@ -3576,11 +3581,14 @@ def _gemini_live_bidi_build_input(descriptor: Any, request: Any) -> list[Any]:
             pass
         for audio_event in audio_events:
             events.append(audio_event)
-    stream_end = {}
-    stream_end["audioStreamEnd"] = True
-    end_event = {}
-    end_event["realtimeInput"] = stream_end
-    events.append(end_event)
+        if msg_has_audio:
+            stream_end = {}
+            stream_end["audioStreamEnd"] = True
+            end_event = {}
+            end_event["realtimeInput"] = stream_end
+            events.append(end_event)
+        else:
+            pass
     return events
 
 

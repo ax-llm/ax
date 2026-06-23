@@ -1582,7 +1582,7 @@ module @ax.provider version "0.1" {
         %responses_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
         %responses_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")
         %responses_realtime = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}")
-        %responses_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")
+        %responses_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"url\":\"wss://api.openai.com/v1/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")
         core.set %operations["chat"] = %responses_chat
         core.set %operations["stream_chat"] = %responses_stream
         core.set %operations["embed"] = %responses_embed
@@ -1609,7 +1609,7 @@ module @ax.provider version "0.1" {
           %gemini_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:batchEmbedContents\",\"body\":\"json\",\"stream\":false}")
           %gemini_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")
           %gemini_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")
-          %gemini_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}")
+          %gemini_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}")
           core.set %operations["chat"] = %gemini_chat
           core.set %operations["stream_chat"] = %gemini_stream
           core.set %operations["embed"] = %gemini_embed
@@ -1740,6 +1740,38 @@ module @ax.provider version "0.1" {
     body @entry(%profile: string) {
       %descriptor = core.call @provider_operation_descriptor(%profile, "realtime_audio")
       core.return %descriptor
+    }
+  }
+
+  // Build the realtime WebSocket URL + auth headers for the provider's grammar so
+  // the per-language drivers stay grammar-agnostic: gemini_live_bidi authenticates
+  // with ?key= in the URL, the openai-compatible grammars use a Bearer header and
+  // a ?model= query.
+  op ax.provider.semantic @provider_realtime_ws_url {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "provider-realtime-audio-operation"
+    type signature = "(profile:string, model:string, api_key:string) -> json throws"
+    body @entry(%profile: string, %model: string, %api_key: string) {
+      %descriptor = core.call @provider_realtime_audio_descriptor(%profile)
+      %grammar = core.get %descriptor["grammar"] default "openai_realtime_compatible"
+      %base = core.get %descriptor["url"] default ""
+      %out = core.map
+      %headers = core.map
+      %is_gemini = core.call intrinsic.eq(%grammar, "gemini_live_bidi")
+      core.if %is_gemini {
+        %gemini_url = core.call intrinsic.string.format("{}?key={}", %base, %api_key)
+        core.set %out["url"] = %gemini_url
+        core.set %out["headers"] = %headers
+        core.return %out
+      }
+      %openai_url = core.call intrinsic.string.format("{}?model={}", %base, %model)
+      %auth = core.call intrinsic.string.format("Bearer {}", %api_key)
+      core.set %headers["Authorization"] = %auth
+      core.set %out["url"] = %openai_url
+      core.set %out["headers"] = %headers
+      core.return %out
     }
   }
 
@@ -2007,6 +2039,8 @@ module @ax.provider version "0.1" {
           core.set %text_part["text"] = %content
           core.append %text_parts, %text_part
         }
+        %audio_count = core.call intrinsic.len(%audio_events)
+        %msg_has_audio = core.call intrinsic.gt(%audio_count, 0)
         %text_count = core.call intrinsic.len(%text_parts)
         %has_text = core.call intrinsic.gt(%text_count, 0)
         core.if %has_text {
@@ -2017,7 +2051,10 @@ module @ax.provider version "0.1" {
           core.append %turns, %turn
           %client_content = core.map
           core.set %client_content["turns"] = %turns
-          core.set %client_content["turnComplete"] = false
+          // turnComplete is true for a text-only turn (tells Gemini to respond now);
+          // an audio turn stays open and is closed by the audioStreamEnd below.
+          %turn_complete = core.call intrinsic.not(%msg_has_audio)
+          core.set %client_content["turnComplete"] = %turn_complete
           %content_event = core.map
           core.set %content_event["clientContent"] = %client_content
           core.append %events, %content_event
@@ -2025,12 +2062,14 @@ module @ax.provider version "0.1" {
         core.for %audio_event in %audio_events {
           core.append %events, %audio_event
         }
+        core.if %msg_has_audio {
+          %stream_end = core.map
+          core.set %stream_end["audioStreamEnd"] = true
+          %end_event = core.map
+          core.set %end_event["realtimeInput"] = %stream_end
+          core.append %events, %end_event
+        }
       }
-      %stream_end = core.map
-      core.set %stream_end["audioStreamEnd"] = true
-      %end_event = core.map
-      core.set %end_event["realtimeInput"] = %stream_end
-      core.append %events, %end_event
       core.return %events
     }
   }

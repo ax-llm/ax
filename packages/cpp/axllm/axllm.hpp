@@ -300,6 +300,7 @@ struct Core {
   static Value provider_descriptor(Value profile);
   static Value provider_operation_descriptor(Value profile, Value operation);
   static Value _provider_realtime_audio_descriptor(Value profile);
+  static Value provider_realtime_ws_url(Value profile, Value model, Value api_key);
   static Value provider_build_realtime_audio_setup(Value profile, Value request);
   static Value provider_build_realtime_audio_input(Value profile, Value request);
   static Value _openai_realtime_compatible_build_setup(Value descriptor, Value request);

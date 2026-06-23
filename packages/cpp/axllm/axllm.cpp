@@ -4614,7 +4614,7 @@ Value Core::provider_descriptor(Value profile) {
     Value responses_transcribe = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}"));
     Value responses_speak = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}"));
     Value responses_realtime = Core::json_parse(Value("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}"));
-    Value responses_realtime_audio = Core::json_parse(Value("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}"));
+    Value responses_realtime_audio = Core::json_parse(Value("{\"method\":\"WS\",\"path\":\"/realtime\",\"url\":\"wss://api.openai.com/v1/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}"));
     Core::set(operations, Value("chat"), responses_chat);
     Core::set(operations, Value("stream_chat"), responses_stream);
     Core::set(operations, Value("embed"), responses_embed);
@@ -4642,7 +4642,7 @@ Value Core::provider_descriptor(Value profile) {
       Value gemini_embed = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/models/{model}:batchEmbedContents\",\"body\":\"json\",\"stream\":false}"));
       Value gemini_transcribe = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}"));
       Value gemini_speak = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}"));
-      Value gemini_realtime_audio = Core::json_parse(Value("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}"));
+      Value gemini_realtime_audio = Core::json_parse(Value("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}"));
       Core::set(operations, Value("chat"), gemini_chat);
       Core::set(operations, Value("stream_chat"), gemini_stream);
       Core::set(operations, Value("embed"), gemini_embed);
@@ -4769,6 +4769,28 @@ Value Core::_provider_realtime_audio_descriptor(Value profile) {
   axir_coverage_mark("_provider_realtime_audio_descriptor");
   Value descriptor = Core::provider_operation_descriptor(profile, Value("realtime_audio"));
   return descriptor;
+}
+
+Value Core::provider_realtime_ws_url(Value profile, Value model, Value api_key) {
+  axir_coverage_mark("provider_realtime_ws_url");
+  Value descriptor = Core::_provider_realtime_audio_descriptor(profile);
+  Value grammar = Core::get(descriptor, Value("grammar"), Value("openai_realtime_compatible"));
+  Value base = Core::get(descriptor, Value("url"), Value(""));
+  Value out = Value::object();
+  Value headers = Value::object();
+  Value is_gemini = Core::eq(grammar, Value("gemini_live_bidi"));
+  if (Core::truthy(is_gemini)) {
+    Value gemini_url = Core::string_format(Value("{}?key={}"), base, api_key);
+    Core::set(out, Value("url"), gemini_url);
+    Core::set(out, Value("headers"), headers);
+    return out;
+  }
+  Value openai_url = Core::string_format(Value("{}?model={}"), base, model);
+  Value auth = Core::string_format(Value("Bearer {}"), api_key);
+  Core::set(headers, Value("Authorization"), auth);
+  Core::set(out, Value("url"), openai_url);
+  Core::set(out, Value("headers"), headers);
+  return out;
 }
 
 Value Core::provider_build_realtime_audio_setup(Value profile, Value request) {
@@ -5009,6 +5031,8 @@ Value Core::_gemini_live_bidi_build_input(Value descriptor, Value request) {
       Core::set(text_part, Value("text"), content);
       Core::append(text_parts, text_part);
     }
+    Value audio_count = Core::len(audio_events);
+    Value msg_has_audio = Core::gt(audio_count, Value(0));
     Value text_count = Core::len(text_parts);
     Value has_text = Core::gt(text_count, Value(0));
     if (Core::truthy(has_text)) {
@@ -5019,7 +5043,8 @@ Value Core::_gemini_live_bidi_build_input(Value descriptor, Value request) {
       Core::append(turns, turn);
       Value client_content = Value::object();
       Core::set(client_content, Value("turns"), turns);
-      Core::set(client_content, Value("turnComplete"), Value(false));
+      Value turn_complete = Core::not_(msg_has_audio);
+      Core::set(client_content, Value("turnComplete"), turn_complete);
       Value content_event = Value::object();
       Core::set(content_event, Value("clientContent"), client_content);
       Core::append(events, content_event);
@@ -5027,12 +5052,14 @@ Value Core::_gemini_live_bidi_build_input(Value descriptor, Value request) {
     for (auto audio_event : Core::iter(audio_events)) {
       Core::append(events, audio_event);
     }
+    if (Core::truthy(msg_has_audio)) {
+      Value stream_end = Value::object();
+      Core::set(stream_end, Value("audioStreamEnd"), Value(true));
+      Value end_event = Value::object();
+      Core::set(end_event, Value("realtimeInput"), stream_end);
+      Core::append(events, end_event);
+    }
   }
-  Value stream_end = Value::object();
-  Core::set(stream_end, Value("audioStreamEnd"), Value(true));
-  Value end_event = Value::object();
-  Core::set(end_event, Value("realtimeInput"), stream_end);
-  Core::append(events, end_event);
   return events;
 }
 
@@ -16376,39 +16403,21 @@ bool realtime_event_is_done(const Value& event) {
   return !server_content.is_null() && Core::truthy(Core::get(server_content, "turnComplete", Value(false)));
 }
 
-std::string realtime_ws_scheme(const std::string& url) {
-  if (url.rfind("https://", 0) == 0) return "wss://" + url.substr(8);
-  if (url.rfind("http://", 0) == 0) return "ws://" + url.substr(7);
-  return url;
-}
-
-std::string realtime_ws_origin(const std::string& url) {
-  std::string scheme = realtime_ws_scheme(url);
-  std::string prefix = scheme.rfind("wss://", 0) == 0 ? "wss://" : "ws://";
-  std::string rest = scheme.substr(prefix.size());
-  std::size_t slash = rest.find('/');
-  return prefix + (slash == std::string::npos ? rest : rest.substr(0, slash));
-}
-
 struct RealtimeWsTarget {
   std::string url;
   std::vector<std::pair<std::string, std::string>> headers;
 };
 
-RealtimeWsTarget realtime_ws_target(const std::string& profile, const std::string& base_url, const std::string& api_key, const std::string& model) {
-  Value descriptor = Core::provider_operation_descriptor(profile, "realtime_audio");
-  std::string grammar = str(Core::get(descriptor, "grammar", Value("openai_realtime_compatible")));
-  std::string explicit_url = str(Core::get(descriptor, "url", Value("")));
-  std::string path = str(Core::get(descriptor, "path", Value("/realtime")));
+RealtimeWsTarget realtime_ws_target(const std::string& profile, const std::string& api_key, const std::string& model) {
+  // Grammar-specific URL + auth construction lives in Core so the client stays
+  // provider-agnostic.
+  Value result = Core::provider_realtime_ws_url(Value(profile), Value(model), Value(api_key));
   RealtimeWsTarget target;
-  if (grammar == "gemini_live_bidi") {
-    std::string origin = realtime_ws_origin(explicit_url.empty() ? base_url : explicit_url);
-    target.url = origin + path + "?key=" + url_component(api_key);
-    return target;
+  target.url = str(Core::get(result, "url", Value("")));
+  Value headers = Core::get(result, "headers");
+  for (const auto& key : array_ref(Core::map_keys(headers))) {
+    target.headers.push_back({str(key), str(Core::get(headers, key, Value("")))});
   }
-  std::string ws_base = explicit_url.empty() ? realtime_ws_scheme(base_url) + path : explicit_url;
-  target.url = ws_base + "?model=" + url_component(model);
-  target.headers.push_back({"Authorization", "Bearer " + api_key});
   return target;
 }
 
@@ -16471,7 +16480,7 @@ Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* tr
   std::unique_ptr<RealtimeTransport> owned;
   if (transport == nullptr) {
 #if defined(AXLLM_ENABLE_REALTIME)
-    RealtimeWsTarget target = realtime_ws_target(profile_, base_url_, api_key_, model);
+    RealtimeWsTarget target = realtime_ws_target(profile_, api_key_, model);
     owned = std::make_unique<WsRealtimeTransport>(target.url, target.headers);
     transport = owned.get();
 #else

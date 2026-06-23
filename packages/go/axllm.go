@@ -6579,7 +6579,7 @@ func provider_descriptor(args ...Value) (Value, error) {
 		{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}"); if err != nil { return nil, err }; v_responses_transcribe = v }
 		{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}"); if err != nil { return nil, err }; v_responses_speak = v }
 		{ v, err := _core_json_parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}"); if err != nil { return nil, err }; v_responses_realtime = v }
-		{ v, err := _core_json_parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}"); if err != nil { return nil, err }; v_responses_realtime_audio = v }
+		{ v, err := _core_json_parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"url\":\"wss://api.openai.com/v1/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}"); if err != nil { return nil, err }; v_responses_realtime_audio = v }
 		if err := coreSet(v_operations, "chat", v_responses_chat); err != nil { return nil, err }
 		if err := coreSet(v_operations, "stream_chat", v_responses_stream); err != nil { return nil, err }
 		if err := coreSet(v_operations, "embed", v_responses_embed); err != nil { return nil, err }
@@ -6606,7 +6606,7 @@ func provider_descriptor(args ...Value) (Value, error) {
 			{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/models/{model}:batchEmbedContents\",\"body\":\"json\",\"stream\":false}"); if err != nil { return nil, err }; v_gemini_embed = v }
 			{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}"); if err != nil { return nil, err }; v_gemini_transcribe = v }
 			{ v, err := _core_json_parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}"); if err != nil { return nil, err }; v_gemini_speak = v }
-			{ v, err := _core_json_parse("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}"); if err != nil { return nil, err }; v_gemini_realtime_audio = v }
+			{ v, err := _core_json_parse("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}"); if err != nil { return nil, err }; v_gemini_realtime_audio = v }
 			if err := coreSet(v_operations, "chat", v_gemini_chat); err != nil { return nil, err }
 			if err := coreSet(v_operations, "stream_chat", v_gemini_stream); err != nil { return nil, err }
 			if err := coreSet(v_operations, "embed", v_gemini_embed); err != nil { return nil, err }
@@ -6753,6 +6753,57 @@ func _provider_realtime_audio_descriptor(args ...Value) (Value, error) {
 	_ = v_descriptor
 	{ v, err := provider_operation_descriptor(v_profile, "realtime_audio"); if err != nil { return nil, err }; v_descriptor = v }
 	return v_descriptor, nil
+}
+
+func provider_realtime_ws_url(args ...Value) (Value, error) {
+	axirCoverageMark("provider_realtime_ws_url")
+	var v_profile Value
+	var v_model Value
+	var v_api_key Value
+	var v_auth Value
+	var v_base Value
+	var v_descriptor Value
+	var v_gemini_url Value
+	var v_grammar Value
+	var v_headers Value
+	var v_is_gemini Value
+	var v_openai_url Value
+	var v_out Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	if len(args) > 2 { v_api_key = args[2] }
+	_ = v_api_key
+	_ = v_auth
+	_ = v_base
+	_ = v_descriptor
+	_ = v_gemini_url
+	_ = v_grammar
+	_ = v_headers
+	_ = v_is_gemini
+	_ = v_openai_url
+	_ = v_out
+	{ v, err := _provider_realtime_audio_descriptor(v_profile); if err != nil { return nil, err }; v_descriptor = v }
+	v_grammar = coreGet(v_descriptor, "grammar", "openai_realtime_compatible")
+	v_base = coreGet(v_descriptor, "url", "")
+	v_out = Object()
+	v_headers = Object()
+	v_is_gemini = _core_eq(v_grammar, "gemini_live_bidi")
+	if coreTruthy(v_is_gemini) {
+		v_gemini_url = _core_string_format("{}?key={}", v_base, v_api_key)
+		if err := coreSet(v_out, "url", v_gemini_url); err != nil { return nil, err }
+		if err := coreSet(v_out, "headers", v_headers); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_openai_url = _core_string_format("{}?model={}", v_base, v_model)
+	v_auth = _core_string_format("Bearer {}", v_api_key)
+	if err := coreSet(v_headers, "Authorization", v_auth); err != nil { return nil, err }
+	if err := coreSet(v_out, "url", v_openai_url); err != nil { return nil, err }
+	if err := coreSet(v_out, "headers", v_headers); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func provider_build_realtime_audio_setup(args ...Value) (Value, error) {
@@ -7134,6 +7185,7 @@ func _gemini_live_bidi_build_input(args ...Value) (Value, error) {
 	var v_descriptor Value
 	var v_request Value
 	var v_audio Value
+	var v_audio_count Value
 	var v_audio_event Value
 	var v_audio_events Value
 	var v_client_content Value
@@ -7155,6 +7207,7 @@ func _gemini_live_bidi_build_input(args ...Value) (Value, error) {
 	var v_message Value
 	var v_messages Value
 	var v_mime Value
+	var v_msg_has_audio Value
 	var v_part Value
 	var v_part_type Value
 	var v_realtime_input Value
@@ -7167,6 +7220,7 @@ func _gemini_live_bidi_build_input(args ...Value) (Value, error) {
 	var v_text_part Value
 	var v_text_parts Value
 	var v_turn Value
+	var v_turn_complete Value
 	var v_turns Value
 	var v_valid_pcm Value
 	if len(args) > 0 { v_descriptor = args[0] }
@@ -7174,6 +7228,7 @@ func _gemini_live_bidi_build_input(args ...Value) (Value, error) {
 	if len(args) > 1 { v_request = args[1] }
 	_ = v_request
 	_ = v_audio
+	_ = v_audio_count
 	_ = v_audio_event
 	_ = v_audio_events
 	_ = v_client_content
@@ -7195,6 +7250,7 @@ func _gemini_live_bidi_build_input(args ...Value) (Value, error) {
 	_ = v_message
 	_ = v_messages
 	_ = v_mime
+	_ = v_msg_has_audio
 	_ = v_part
 	_ = v_part_type
 	_ = v_realtime_input
@@ -7207,6 +7263,7 @@ func _gemini_live_bidi_build_input(args ...Value) (Value, error) {
 	_ = v_text_part
 	_ = v_text_parts
 	_ = v_turn
+	_ = v_turn_complete
 	_ = v_turns
 	_ = v_valid_pcm
 	v_events = MutableArray()
@@ -7269,6 +7326,8 @@ func _gemini_live_bidi_build_input(args ...Value) (Value, error) {
 			if err := coreSet(v_text_part, "text", v_content); err != nil { return nil, err }
 			v_text_parts = coreAppend(v_text_parts, v_text_part)
 		}
+		v_audio_count = _core_len(v_audio_events)
+		v_msg_has_audio = _core_gt(v_audio_count, 0)
 		v_text_count = _core_len(v_text_parts)
 		v_has_text = _core_gt(v_text_count, 0)
 		if coreTruthy(v_has_text) {
@@ -7279,7 +7338,8 @@ func _gemini_live_bidi_build_input(args ...Value) (Value, error) {
 			v_turns = coreAppend(v_turns, v_turn)
 			v_client_content = Object()
 			if err := coreSet(v_client_content, "turns", v_turns); err != nil { return nil, err }
-			if err := coreSet(v_client_content, "turnComplete", false); err != nil { return nil, err }
+			v_turn_complete = _core_not(v_msg_has_audio)
+			if err := coreSet(v_client_content, "turnComplete", v_turn_complete); err != nil { return nil, err }
 			v_content_event = Object()
 			if err := coreSet(v_content_event, "clientContent", v_client_content); err != nil { return nil, err }
 			v_events = coreAppend(v_events, v_content_event)
@@ -7289,12 +7349,16 @@ func _gemini_live_bidi_build_input(args ...Value) (Value, error) {
 		for _, v_audio_event = range coreIter(v_audio_events) {
 			v_events = coreAppend(v_events, v_audio_event)
 		}
+		if coreTruthy(v_msg_has_audio) {
+			v_stream_end = Object()
+			if err := coreSet(v_stream_end, "audioStreamEnd", true); err != nil { return nil, err }
+			v_end_event = Object()
+			if err := coreSet(v_end_event, "realtimeInput", v_stream_end); err != nil { return nil, err }
+			v_events = coreAppend(v_events, v_end_event)
+		} else {
+		// empty
+		}
 	}
-	v_stream_end = Object()
-	if err := coreSet(v_stream_end, "audioStreamEnd", true); err != nil { return nil, err }
-	v_end_event = Object()
-	if err := coreSet(v_end_event, "realtimeInput", v_stream_end); err != nil { return nil, err }
-	v_events = coreAppend(v_events, v_end_event)
 	return v_events, nil
 }
 
@@ -30289,24 +30353,6 @@ func (t *wsRealtimeTransport) Recv() (Value, bool) {
 }
 func (t *wsRealtimeTransport) Close() { _ = t.conn.Close(websocket.StatusNormalClosure, "") }
 
-func realtimeWSScheme(rawURL string) string {
-	if strings.HasPrefix(rawURL, "https://") {
-		return "wss://" + strings.TrimPrefix(rawURL, "https://")
-	}
-	if strings.HasPrefix(rawURL, "http://") {
-		return "ws://" + strings.TrimPrefix(rawURL, "http://")
-	}
-	return rawURL
-}
-func realtimeWSOrigin(rawURL string) string {
-	scheme := realtimeWSScheme(rawURL)
-	prefix := "ws://"
-	if strings.HasPrefix(scheme, "wss://") {
-		prefix = "wss://"
-	}
-	host := strings.SplitN(strings.TrimPrefix(scheme, prefix), "/", 2)[0]
-	return prefix + host
-}
 func realtimeEventIsReady(event Value) bool {
 	switch display(coreGet(event, "type", "")) {
 	case "session.created", "session.updated", "transcription_session.created", "transcription_session.updated":
@@ -30328,25 +30374,16 @@ func realtimeEventIsDone(event Value) bool {
 }
 
 func (c *OpenAICompatibleClient) realtimeWSTarget(model Value, opts map[string]Value) (string, map[string]Value) {
-	rt := mustCore(provider_operation_descriptor(c.Profile, "realtime_audio"))
-	descriptor := mustCore(provider_descriptor(c.Profile))
-	grammar := display(coreGet(rt, "grammar", "openai_realtime_compatible"))
-	explicit := display(coreGet(rt, "url", ""))
-	path := display(coreGet(rt, "path", "/realtime"))
-	base := display(coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://api.openai.com/v1"))))
+	// Grammar-specific URL + auth construction lives in Core so the client stays
+	// provider-agnostic.
 	apiKey := display(coreGet(opts, "api_key", coreGet(opts, "apiKey", os.Getenv("OPENAI_API_KEY"))))
-	if grammar == "gemini_live_bidi" {
-		origin := explicit
-		if origin == "" {
-			origin = base
-		}
-		return realtimeWSOrigin(origin) + path + "?key=" + url.QueryEscape(apiKey), Object()
+	target := mustCore(provider_realtime_ws_url(c.Profile, display(model), apiKey))
+	headers := Object()
+	rawHeaders := asMap(coreGet(target, "headers", Object()))
+	for _, key := range orderedKeys(rawHeaders) {
+		coreSet(headers, key, coreGet(rawHeaders, key, ""))
 	}
-	wsBase := explicit
-	if wsBase == "" {
-		wsBase = realtimeWSScheme(base) + path
-	}
-	return wsBase + "?model=" + url.QueryEscape(display(model)), Object("Authorization", "Bearer "+apiKey)
+	return display(coreGet(target, "url", "")), headers
 }
 
 // RealtimeChat drives a realtime audio turn over a WebSocket transport: it sends

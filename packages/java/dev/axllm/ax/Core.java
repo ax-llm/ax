@@ -3662,7 +3662,7 @@ final class Core {
       Object responses_transcribe = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}");
       Object responses_speak = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}");
       Object responses_realtime = Core.jsonParse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}");
-      Object responses_realtime_audio = Core.jsonParse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}");
+      Object responses_realtime_audio = Core.jsonParse("{\"method\":\"WS\",\"path\":\"/realtime\",\"url\":\"wss://api.openai.com/v1/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}");
       Core.set(operations, "chat", responses_chat);
       Core.set(operations, "stream_chat", responses_stream);
       Core.set(operations, "embed", responses_embed);
@@ -3690,7 +3690,7 @@ final class Core {
         Object gemini_embed = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/models/{model}:batchEmbedContents\",\"body\":\"json\",\"stream\":false}");
         Object gemini_transcribe = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}");
         Object gemini_speak = Core.jsonParse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}");
-        Object gemini_realtime_audio = Core.jsonParse("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}");
+        Object gemini_realtime_audio = Core.jsonParse("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}");
         Core.set(operations, "chat", gemini_chat);
         Core.set(operations, "stream_chat", gemini_stream);
         Core.set(operations, "embed", gemini_embed);
@@ -3817,6 +3817,28 @@ final class Core {
     axirCoverageMark("_provider_realtime_audio_descriptor");
     Object descriptor = Core.provider_operation_descriptor(profile, "realtime_audio");
     return descriptor;
+  }
+
+  static Object provider_realtime_ws_url(Object profile, Object model, Object api_key) {
+    axirCoverageMark("provider_realtime_ws_url");
+    Object descriptor = Core._provider_realtime_audio_descriptor(profile);
+    Object grammar = Core.get(descriptor, "grammar", "openai_realtime_compatible");
+    Object base = Core.get(descriptor, "url", "");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object headers = new java.util.LinkedHashMap<String, Object>();
+    Object is_gemini = Core.eq(grammar, "gemini_live_bidi");
+    if (Core.truthy(is_gemini)) {
+      Object gemini_url = Core.stringFormat("{}?key={}", base, api_key);
+      Core.set(out, "url", gemini_url);
+      Core.set(out, "headers", headers);
+      return out;
+    }
+    Object openai_url = Core.stringFormat("{}?model={}", base, model);
+    Object auth = Core.stringFormat("Bearer {}", api_key);
+    Core.set(headers, "Authorization", auth);
+    Core.set(out, "url", openai_url);
+    Core.set(out, "headers", headers);
+    return out;
   }
 
   static Object provider_build_realtime_audio_setup(Object profile, Object request) {
@@ -4057,6 +4079,8 @@ final class Core {
         Core.set(text_part, "text", content);
         Core.append(text_parts, text_part);
       }
+      Object audio_count = Core.len(audio_events);
+      Object msg_has_audio = Core.gt(audio_count, 0);
       Object text_count = Core.len(text_parts);
       Object has_text = Core.gt(text_count, 0);
       if (Core.truthy(has_text)) {
@@ -4067,7 +4091,8 @@ final class Core {
         Core.append(turns, turn);
         Object client_content = new java.util.LinkedHashMap<String, Object>();
         Core.set(client_content, "turns", turns);
-        Core.set(client_content, "turnComplete", Boolean.FALSE);
+        Object turn_complete = Core.not(msg_has_audio);
+        Core.set(client_content, "turnComplete", turn_complete);
         Object content_event = new java.util.LinkedHashMap<String, Object>();
         Core.set(content_event, "clientContent", client_content);
         Core.append(events, content_event);
@@ -4075,12 +4100,14 @@ final class Core {
       for (Object audio_event : Core.iter(audio_events)) {
         Core.append(events, audio_event);
       }
+      if (Core.truthy(msg_has_audio)) {
+        Object stream_end = new java.util.LinkedHashMap<String, Object>();
+        Core.set(stream_end, "audioStreamEnd", Boolean.TRUE);
+        Object end_event = new java.util.LinkedHashMap<String, Object>();
+        Core.set(end_event, "realtimeInput", stream_end);
+        Core.append(events, end_event);
+      }
     }
-    Object stream_end = new java.util.LinkedHashMap<String, Object>();
-    Core.set(stream_end, "audioStreamEnd", Boolean.TRUE);
-    Object end_event = new java.util.LinkedHashMap<String, Object>();
-    Core.set(end_event, "realtimeInput", stream_end);
-    Core.append(events, end_event);
     return events;
   }
 

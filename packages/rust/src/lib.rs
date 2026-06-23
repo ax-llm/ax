@@ -1591,50 +1591,30 @@ impl OpenAICompatibleClient {
 
     #[allow(dead_code)]
     fn realtime_ws_target(&self, model: &str) -> (String, Vec<(String, String)>) {
-        let descriptor = core_value_to_json(
-            &provider_operation_descriptor(&[
+        // Grammar-specific URL + auth construction lives in Core so the client
+        // stays provider-agnostic.
+        let target = core_value_to_json(
+            &provider_realtime_ws_url(&[
                 CoreValue::from(self.profile.as_str()),
-                CoreValue::from("realtime_audio"),
+                CoreValue::from(model),
+                CoreValue::from(self.api_key.as_str()),
             ])
             .unwrap_or_else(|_| CoreValue::new_map()),
         );
-        let grammar = descriptor
-            .get("grammar")
-            .and_then(|g| g.as_str())
-            .unwrap_or("openai_realtime_compatible");
-        let explicit = descriptor.get("url").and_then(|u| u.as_str()).unwrap_or("");
-        let path = descriptor
-            .get("path")
-            .and_then(|p| p.as_str())
-            .unwrap_or("/realtime");
-        let base = self
-            .base_url_override
-            .clone()
-            .unwrap_or_else(|| self.api_url.clone());
-        if grammar == "gemini_live_bidi" {
-            let origin = realtime_ws_origin(if explicit.is_empty() { &base } else { explicit });
-            return (
-                format!(
-                    "{}{}?key={}",
-                    origin,
-                    path,
-                    url_component_escape(&self.api_key)
-                ),
-                Vec::new(),
-            );
+        let url = target
+            .get("url")
+            .and_then(|u| u.as_str())
+            .unwrap_or("")
+            .to_string();
+        let mut headers = Vec::new();
+        if let Some(map) = target.get("headers").and_then(|h| h.as_object()) {
+            for (key, value) in map {
+                if let Some(value) = value.as_str() {
+                    headers.push((key.clone(), value.to_string()));
+                }
+            }
         }
-        let ws_base = if explicit.is_empty() {
-            format!("{}{}", realtime_ws_scheme(&base), path)
-        } else {
-            explicit.to_string()
-        };
-        (
-            format!("{}?model={}", ws_base, url_component_escape(model)),
-            vec![(
-                "Authorization".to_string(),
-                format!("Bearer {}", self.api_key),
-            )],
-        )
+        (url, headers)
     }
 }
 
@@ -1680,27 +1660,6 @@ impl ScriptedRealtimeTransport {
             sent: Vec::new(),
         }
     }
-}
-
-fn realtime_ws_scheme(url: &str) -> String {
-    if let Some(rest) = url.strip_prefix("https://") {
-        format!("wss://{}", rest)
-    } else if let Some(rest) = url.strip_prefix("http://") {
-        format!("ws://{}", rest)
-    } else {
-        url.to_string()
-    }
-}
-
-fn realtime_ws_origin(url: &str) -> String {
-    let scheme = realtime_ws_scheme(url);
-    let prefix = if scheme.starts_with("wss://") {
-        "wss://"
-    } else {
-        "ws://"
-    };
-    let host = scheme[prefix.len()..].split('/').next().unwrap_or("");
-    format!("{}{}", prefix, host)
 }
 
 fn realtime_event_is_ready(event: &Value) -> bool {
@@ -21748,7 +21707,7 @@ fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_responses_realtime = core_json_parse(&[CoreValue::from(
             "{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}",
         )])?;
-        v_responses_realtime_audio = core_json_parse(&[CoreValue::from("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")])?;
+        v_responses_realtime_audio = core_json_parse(&[CoreValue::from("{\"method\":\"WS\",\"path\":\"/realtime\",\"url\":\"wss://api.openai.com/v1/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")])?;
         core_set(
             &v_operations,
             CoreValue::from("chat"),
@@ -21847,7 +21806,7 @@ fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_gemini_embed = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/models/{model}:batchEmbedContents\",\"body\":\"json\",\"stream\":false}")])?;
             v_gemini_transcribe = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")])?;
             v_gemini_speak = core_json_parse(&[CoreValue::from("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")])?;
-            v_gemini_realtime_audio = core_json_parse(&[CoreValue::from("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}")])?;
+            v_gemini_realtime_audio = core_json_parse(&[CoreValue::from("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}")])?;
             core_set(
                 &v_operations,
                 CoreValue::from("chat"),
@@ -22192,6 +22151,59 @@ fn _provider_realtime_audio_descriptor(args: &[CoreValue]) -> Result<CoreValue, 
     v_descriptor =
         provider_operation_descriptor(&[v_profile.clone(), CoreValue::from("realtime_audio")])?;
     return Ok(v_descriptor.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_realtime_ws_url(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_realtime_ws_url");
+    let mut v_profile = core_arg(args, 0);
+    let mut v_model = core_arg(args, 1);
+    let mut v_api_key = core_arg(args, 2);
+    let mut v_auth = CoreValue::Null;
+    let mut v_base = CoreValue::Null;
+    let mut v_descriptor = CoreValue::Null;
+    let mut v_gemini_url = CoreValue::Null;
+    let mut v_grammar = CoreValue::Null;
+    let mut v_headers = CoreValue::Null;
+    let mut v_is_gemini = CoreValue::Null;
+    let mut v_openai_url = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_descriptor = _provider_realtime_audio_descriptor(&[v_profile.clone()])?;
+    v_grammar = core_get(
+        &v_descriptor,
+        &CoreValue::from("grammar"),
+        CoreValue::from("openai_realtime_compatible"),
+    );
+    v_base = core_get(&v_descriptor, &CoreValue::from("url"), CoreValue::from(""));
+    v_out = CoreValue::new_map();
+    v_headers = CoreValue::new_map();
+    v_is_gemini = core_eq(&[v_grammar.clone(), CoreValue::from("gemini_live_bidi")])?;
+    if core_truthy(&v_is_gemini) {
+        v_gemini_url = core_string_format(&[
+            CoreValue::from("{}?key={}"),
+            v_base.clone(),
+            v_api_key.clone(),
+        ])?;
+        core_set(&v_out, CoreValue::from("url"), v_gemini_url.clone())?;
+        core_set(&v_out, CoreValue::from("headers"), v_headers.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_openai_url = core_string_format(&[
+        CoreValue::from("{}?model={}"),
+        v_base.clone(),
+        v_model.clone(),
+    ])?;
+    v_auth = core_string_format(&[CoreValue::from("Bearer {}"), v_api_key.clone()])?;
+    core_set(&v_headers, CoreValue::from("Authorization"), v_auth.clone())?;
+    core_set(&v_out, CoreValue::from("url"), v_openai_url.clone())?;
+    core_set(&v_out, CoreValue::from("headers"), v_headers.clone())?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -22698,6 +22710,7 @@ fn _gemini_live_bidi_build_input(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_descriptor = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_audio = CoreValue::Null;
+    let mut v_audio_count = CoreValue::Null;
     let mut v_audio_event = CoreValue::Null;
     let mut v_audio_events = CoreValue::Null;
     let mut v_client_content = CoreValue::Null;
@@ -22719,6 +22732,7 @@ fn _gemini_live_bidi_build_input(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_message = CoreValue::Null;
     let mut v_messages = CoreValue::Null;
     let mut v_mime = CoreValue::Null;
+    let mut v_msg_has_audio = CoreValue::Null;
     let mut v_part = CoreValue::Null;
     let mut v_part_type = CoreValue::Null;
     let mut v_realtime_input = CoreValue::Null;
@@ -22731,6 +22745,7 @@ fn _gemini_live_bidi_build_input(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_text_part = CoreValue::Null;
     let mut v_text_parts = CoreValue::Null;
     let mut v_turn = CoreValue::Null;
+    let mut v_turn_complete = CoreValue::Null;
     let mut v_turns = CoreValue::Null;
     let mut v_valid_pcm = CoreValue::Null;
     v_events = CoreValue::new_list();
@@ -22807,6 +22822,8 @@ fn _gemini_live_bidi_build_input(args: &[CoreValue]) -> Result<CoreValue, AxErro
             core_set(&v_text_part, CoreValue::from("text"), v_content.clone())?;
             core_append(&v_text_parts, v_text_part.clone())?;
         }
+        v_audio_count = core_len(&[v_audio_events.clone()])?;
+        v_msg_has_audio = core_gt(&[v_audio_count.clone(), CoreValue::Num(0f64)])?;
         v_text_count = core_len(&[v_text_parts.clone()])?;
         v_has_text = core_gt(&[v_text_count.clone(), CoreValue::Num(0f64)])?;
         if core_truthy(&v_has_text) {
@@ -22817,10 +22834,11 @@ fn _gemini_live_bidi_build_input(args: &[CoreValue]) -> Result<CoreValue, AxErro
             core_append(&v_turns, v_turn.clone())?;
             v_client_content = CoreValue::new_map();
             core_set(&v_client_content, CoreValue::from("turns"), v_turns.clone())?;
+            v_turn_complete = core_not(&[v_msg_has_audio.clone()])?;
             core_set(
                 &v_client_content,
                 CoreValue::from("turnComplete"),
-                CoreValue::Bool(false),
+                v_turn_complete.clone(),
             )?;
             v_content_event = CoreValue::new_map();
             core_set(
@@ -22834,20 +22852,22 @@ fn _gemini_live_bidi_build_input(args: &[CoreValue]) -> Result<CoreValue, AxErro
             let mut v_audio_event = v_audio_event;
             core_append(&v_events, v_audio_event.clone())?;
         }
+        if core_truthy(&v_msg_has_audio) {
+            v_stream_end = CoreValue::new_map();
+            core_set(
+                &v_stream_end,
+                CoreValue::from("audioStreamEnd"),
+                CoreValue::Bool(true),
+            )?;
+            v_end_event = CoreValue::new_map();
+            core_set(
+                &v_end_event,
+                CoreValue::from("realtimeInput"),
+                v_stream_end.clone(),
+            )?;
+            core_append(&v_events, v_end_event.clone())?;
+        }
     }
-    v_stream_end = CoreValue::new_map();
-    core_set(
-        &v_stream_end,
-        CoreValue::from("audioStreamEnd"),
-        CoreValue::Bool(true),
-    )?;
-    v_end_event = CoreValue::new_map();
-    core_set(
-        &v_end_event,
-        CoreValue::from("realtimeInput"),
-        v_stream_end.clone(),
-    )?;
-    core_append(&v_events, v_end_event.clone())?;
     return Ok(v_events.clone());
 }
 
@@ -49333,4 +49353,4 @@ fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_response.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (389 of 389 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (390 of 390 core functions)

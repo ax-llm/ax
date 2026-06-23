@@ -165,21 +165,6 @@ def _encode_multipart(payload: dict[str, Any]) -> tuple[bytes, str]:
     return b"".join(parts), "multipart/form-data; boundary=" + boundary
 
 
-def _realtime_ws_scheme(url: str) -> str:
-    if url.startswith("https://"):
-        return "wss://" + url[len("https://"):]
-    if url.startswith("http://"):
-        return "ws://" + url[len("http://"):]
-    return url
-
-
-def _realtime_ws_origin(url: str) -> str:
-    scheme = _realtime_ws_scheme(url)
-    prefix = "wss://" if scheme.startswith("wss://") else "ws://"
-    host = scheme[len(prefix):].split("/", 1)[0]
-    return prefix + host
-
-
 def _realtime_event_is_ready(event: dict[str, Any]) -> bool:
     if event.get("type") in (
         "session.created",
@@ -634,17 +619,11 @@ class ProviderOperationClient(AxBaseAI):
         return {"results": [merged], "remote_id": response_id, "model_usage": model_usage}
 
     def _realtime_ws_target(self, model: str | None):
-        descriptor = provider_operation_descriptor(self.profile, "realtime_audio")
-        grammar = descriptor.get("grammar", "openai_realtime_compatible")
-        explicit_url = descriptor.get("url")
-        path = descriptor.get("path", "/realtime")
-        if grammar == "gemini_live_bidi":
-            origin = _realtime_ws_origin(explicit_url or self.base_url)
-            key = urllib.parse.quote(self.api_key or "", safe="")
-            return origin + path + "?key=" + key, []
-        base = explicit_url if explicit_url else _realtime_ws_scheme(self.base_url) + path
-        url = base + "?model=" + urllib.parse.quote(str(model or ""), safe="")
-        return url, ["Authorization: Bearer " + str(self.api_key or "")]
+        # Grammar-specific URL + auth construction lives in Core so the client
+        # stays provider-agnostic.
+        target = provider_realtime_ws_url(self.profile, str(model or ""), self.api_key or "")
+        headers = [f"{key}: {value}" for key, value in (target.get("headers") or {}).items()]
+        return target.get("url", ""), headers
 
     def _operation_path(self, operation: str, model: str | None = None):
         descriptor = provider_operation_descriptor(self.profile, operation)

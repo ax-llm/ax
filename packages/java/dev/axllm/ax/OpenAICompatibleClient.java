@@ -290,33 +290,15 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   private Object[] realtimeWsTarget(String model) {
-    Map<String, Object> desc = Core.asMap(Core.provider_operation_descriptor(profile, "realtime_audio"));
-    String grammar = String.valueOf(desc.getOrDefault("grammar", "openai_realtime_compatible"));
-    String explicit = String.valueOf(desc.getOrDefault("url", ""));
-    String path = String.valueOf(desc.getOrDefault("path", "/realtime"));
+    // Grammar-specific URL + auth construction lives in Core so the client stays
+    // provider-agnostic.
     String key = apiKey == null || "null".equals(apiKey) ? "" : apiKey;
-    if (grammar.equals("gemini_live_bidi")) {
-      String origin = realtimeWsOrigin(explicit.isEmpty() ? baseUrl : explicit);
-      return new Object[] { origin + path + "?key=" + URLEncoder.encode(key, StandardCharsets.UTF_8), new LinkedHashMap<String, String>() };
-    }
-    String wsBase = explicit.isEmpty() ? realtimeWsScheme(baseUrl) + path : explicit;
+    Map<String, Object> target = Core.asMap(Core.provider_realtime_ws_url(profile, model, key));
     Map<String, String> wsHeaders = new LinkedHashMap<>();
-    wsHeaders.put("Authorization", "Bearer " + key);
-    return new Object[] { wsBase + "?model=" + URLEncoder.encode(model, StandardCharsets.UTF_8), wsHeaders };
-  }
-
-  private static String realtimeWsScheme(String url) {
-    if (url.startsWith("https://")) return "wss://" + url.substring("https://".length());
-    if (url.startsWith("http://")) return "ws://" + url.substring("http://".length());
-    return url;
-  }
-
-  private static String realtimeWsOrigin(String url) {
-    String scheme = realtimeWsScheme(url);
-    String prefix = scheme.startsWith("wss://") ? "wss://" : "ws://";
-    String rest = scheme.substring(prefix.length());
-    int slash = rest.indexOf('/');
-    return prefix + (slash >= 0 ? rest.substring(0, slash) : rest);
+    for (Map.Entry<String, Object> header : Core.asMap(target.get("headers")).entrySet()) {
+      wsHeaders.put(header.getKey(), String.valueOf(header.getValue()));
+    }
+    return new Object[] { String.valueOf(target.getOrDefault("url", "")), wsHeaders };
   }
 
   private Map<String, Object> modelConfig() {
