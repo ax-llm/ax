@@ -2316,7 +2316,12 @@ GrokClient::GrokClient(Value options, Transport* transport)
         return out;
       }(), transport, "grok-4.3", "") {}
 
-Value OpenAICompatibleClient::do_chat(Value request, Value) {
+Value OpenAICompatibleClient::do_chat(Value request, Value options) {
+  Value realtime_model = Core::coalesce(Core::get(request, "model"), Value(model_));
+  if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request))) {
+    return realtime_chat(request, nullptr);
+  }
+  (void)options;
   Value payload = Core::provider_build_chat_request(profile_, request);
   bool stream = Core::truthy(Core::get(payload, "stream"));
   if (stream) {

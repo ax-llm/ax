@@ -4793,6 +4793,31 @@ Value Core::provider_realtime_ws_url(Value profile, Value model, Value api_key) 
   return out;
 }
 
+Value Core::provider_should_use_realtime(Value profile, Value model, Value request) {
+  axir_coverage_mark("provider_should_use_realtime");
+  Value descriptor = Core::provider_descriptor(profile);
+  Value operations = Core::get(descriptor, Value("operations"), Value());
+  Value realtime_op = Core::get(operations, Value("realtime_audio"), Value());
+  Value has_realtime = Core::is_not_none(realtime_op);
+  Value is_gpt_realtime = Core::string_starts_with(model, Value("gpt-realtime"));
+  Value is_grok_voice = Core::string_starts_with(model, Value("grok-voice"));
+  Value is_native_audio = Core::contains(model, Value("native-audio"));
+  Value is_dash_live = Core::contains(model, Value("-live-"));
+  Value is_gemini_live = Core::string_starts_with(model, Value("gemini-live"));
+  Value pattern_a = Core::or_(is_gpt_realtime, is_grok_voice);
+  Value pattern_b = Core::or_(is_native_audio, is_dash_live);
+  Value pattern_ab = Core::or_(pattern_a, pattern_b);
+  Value is_realtime_model = Core::or_(pattern_ab, is_gemini_live);
+  Value audio = Core::get(request, Value("audio"), Value());
+  Value output = Core::get(audio, Value("output"), Value());
+  Value enabled = Core::get(output, Value("enabled"), Value());
+  Value explicitly_disabled = Core::eq(enabled, Value(false));
+  Value audio_ok = Core::not_(explicitly_disabled);
+  Value model_and_realtime = Core::and_(has_realtime, is_realtime_model);
+  Value result = Core::and_(model_and_realtime, audio_ok);
+  return result;
+}
+
 Value Core::provider_build_realtime_audio_setup(Value profile, Value request) {
   axir_coverage_mark("provider_build_realtime_audio_setup");
   Value descriptor = Core::_provider_realtime_audio_descriptor(profile);
@@ -16312,7 +16337,12 @@ GrokClient::GrokClient(Value options, Transport* transport)
         return out;
       }(), transport, "grok-4.3", "") {}
 
-Value OpenAICompatibleClient::do_chat(Value request, Value) {
+Value OpenAICompatibleClient::do_chat(Value request, Value options) {
+  Value realtime_model = Core::coalesce(Core::get(request, "model"), Value(model_));
+  if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request))) {
+    return realtime_chat(request, nullptr);
+  }
+  (void)options;
   Value payload = Core::provider_build_chat_request(profile_, request);
   bool stream = Core::truthy(Core::get(payload, "stream"));
   if (stream) {

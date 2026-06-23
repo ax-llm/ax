@@ -1602,6 +1602,21 @@ impl AxAIClient for OpenAICompatibleClient {
         let req = self.prepare_chat_request(&request)?;
         // python: AxBaseAI.chat validates the coerced request up front.
         validate_chat_request(&[core_value_from_json(&req)])?;
+        let realtime_model = req
+            .get("model")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .unwrap_or_else(|| self.model.clone());
+        if core_value_to_json(&provider_should_use_realtime(&[
+            CoreValue::from(self.profile.as_str()),
+            CoreValue::from(realtime_model.as_str()),
+            core_value_from_json(&req),
+        ])?)
+        .as_bool()
+        .unwrap_or(false)
+        {
+            return self.realtime_chat(req, None);
+        }
         if self.profile == "openai-compatible" {
             let _ = build_chat_request(&[
                 CoreValue::Null,

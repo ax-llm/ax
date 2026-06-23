@@ -1748,6 +1748,21 @@ impl AxAIClient for OpenAICompatibleClient {
         let req = self.prepare_chat_request(&request)?;
         // python: AxBaseAI.chat validates the coerced request up front.
         validate_chat_request(&[core_value_from_json(&req)])?;
+        let realtime_model = req
+            .get("model")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .unwrap_or_else(|| self.model.clone());
+        if core_value_to_json(&provider_should_use_realtime(&[
+            CoreValue::from(self.profile.as_str()),
+            CoreValue::from(realtime_model.as_str()),
+            core_value_from_json(&req),
+        ])?)
+        .as_bool()
+        .unwrap_or(false)
+        {
+            return self.realtime_chat(req, None);
+        }
         if self.profile == "openai-compatible" {
             let _ = build_chat_request(&[
                 CoreValue::Null,
@@ -22204,6 +22219,70 @@ fn provider_realtime_ws_url(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_out, CoreValue::from("url"), v_openai_url.clone())?;
     core_set(&v_out, CoreValue::from("headers"), v_headers.clone())?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_should_use_realtime(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_should_use_realtime");
+    let mut v_profile = core_arg(args, 0);
+    let mut v_model = core_arg(args, 1);
+    let mut v_request = core_arg(args, 2);
+    let mut v_audio = CoreValue::Null;
+    let mut v_audio_ok = CoreValue::Null;
+    let mut v_descriptor = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_explicitly_disabled = CoreValue::Null;
+    let mut v_has_realtime = CoreValue::Null;
+    let mut v_is_dash_live = CoreValue::Null;
+    let mut v_is_gemini_live = CoreValue::Null;
+    let mut v_is_gpt_realtime = CoreValue::Null;
+    let mut v_is_grok_voice = CoreValue::Null;
+    let mut v_is_native_audio = CoreValue::Null;
+    let mut v_is_realtime_model = CoreValue::Null;
+    let mut v_model_and_realtime = CoreValue::Null;
+    let mut v_operations = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_pattern_a = CoreValue::Null;
+    let mut v_pattern_ab = CoreValue::Null;
+    let mut v_pattern_b = CoreValue::Null;
+    let mut v_realtime_op = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    v_descriptor = provider_descriptor(&[v_profile.clone()])?;
+    v_operations = core_get(
+        &v_descriptor,
+        &CoreValue::from("operations"),
+        CoreValue::Null,
+    );
+    v_realtime_op = core_get(
+        &v_operations,
+        &CoreValue::from("realtime_audio"),
+        CoreValue::Null,
+    );
+    v_has_realtime = core_is_not_none(&[v_realtime_op.clone()])?;
+    v_is_gpt_realtime =
+        core_string_starts_with(&[v_model.clone(), CoreValue::from("gpt-realtime")])?;
+    v_is_grok_voice = core_string_starts_with(&[v_model.clone(), CoreValue::from("grok-voice")])?;
+    v_is_native_audio = core_contains(&[v_model.clone(), CoreValue::from("native-audio")])?;
+    v_is_dash_live = core_contains(&[v_model.clone(), CoreValue::from("-live-")])?;
+    v_is_gemini_live = core_string_starts_with(&[v_model.clone(), CoreValue::from("gemini-live")])?;
+    v_pattern_a = core_or(&[v_is_gpt_realtime.clone(), v_is_grok_voice.clone()])?;
+    v_pattern_b = core_or(&[v_is_native_audio.clone(), v_is_dash_live.clone()])?;
+    v_pattern_ab = core_or(&[v_pattern_a.clone(), v_pattern_b.clone()])?;
+    v_is_realtime_model = core_or(&[v_pattern_ab.clone(), v_is_gemini_live.clone()])?;
+    v_audio = core_get(&v_request, &CoreValue::from("audio"), CoreValue::Null);
+    v_output = core_get(&v_audio, &CoreValue::from("output"), CoreValue::Null);
+    v_enabled = core_get(&v_output, &CoreValue::from("enabled"), CoreValue::Null);
+    v_explicitly_disabled = core_eq(&[v_enabled.clone(), CoreValue::Bool(false)])?;
+    v_audio_ok = core_not(&[v_explicitly_disabled.clone()])?;
+    v_model_and_realtime = core_and(&[v_has_realtime.clone(), v_is_realtime_model.clone()])?;
+    v_result = core_and(&[v_model_and_realtime.clone(), v_audio_ok.clone()])?;
+    return Ok(v_result.clone());
 }
 
 #[allow(
@@ -49353,4 +49432,4 @@ fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_response.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (390 of 390 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (391 of 391 core functions)

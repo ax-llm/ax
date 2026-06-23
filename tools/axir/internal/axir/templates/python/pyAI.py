@@ -478,6 +478,9 @@ class ProviderOperationClient(AxBaseAI):
         return False
 
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
+        realtime_model = request.get("model") or self.model
+        if provider_should_use_realtime(self.profile, str(realtime_model or ""), request):
+            return self.realtime_chat(request, options)
         payload = provider_build_chat_request(self.profile, request)
         if payload.get("stream"):
             return self._stream_chat(payload, request)

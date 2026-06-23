@@ -60,6 +60,10 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    Object realtimeModel = request.getOrDefault("model", model);
+    if (Boolean.TRUE.equals(Core.provider_should_use_realtime(profile, String.valueOf(realtimeModel), request))) {
+      return realtimeChat(request, null);
+    }
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, request));
     Object stream = payload.get("stream");
     if (Boolean.TRUE.equals(stream)) {

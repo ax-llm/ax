@@ -3841,6 +3841,31 @@ final class Core {
     return out;
   }
 
+  static Object provider_should_use_realtime(Object profile, Object model, Object request) {
+    axirCoverageMark("provider_should_use_realtime");
+    Object descriptor = Core.provider_descriptor(profile);
+    Object operations = Core.get(descriptor, "operations", null);
+    Object realtime_op = Core.get(operations, "realtime_audio", null);
+    Object has_realtime = Core.isNotNone(realtime_op);
+    Object is_gpt_realtime = Core.stringStartsWith(model, "gpt-realtime");
+    Object is_grok_voice = Core.stringStartsWith(model, "grok-voice");
+    Object is_native_audio = Core.contains(model, "native-audio");
+    Object is_dash_live = Core.contains(model, "-live-");
+    Object is_gemini_live = Core.stringStartsWith(model, "gemini-live");
+    Object pattern_a = Core.or(is_gpt_realtime, is_grok_voice);
+    Object pattern_b = Core.or(is_native_audio, is_dash_live);
+    Object pattern_ab = Core.or(pattern_a, pattern_b);
+    Object is_realtime_model = Core.or(pattern_ab, is_gemini_live);
+    Object audio = Core.get(request, "audio", null);
+    Object output = Core.get(audio, "output", null);
+    Object enabled = Core.get(output, "enabled", null);
+    Object explicitly_disabled = Core.eq(enabled, Boolean.FALSE);
+    Object audio_ok = Core.not(explicitly_disabled);
+    Object model_and_realtime = Core.and(has_realtime, is_realtime_model);
+    Object result = Core.and(model_and_realtime, audio_ok);
+    return result;
+  }
+
   static Object provider_build_realtime_audio_setup(Object profile, Object request) {
     axirCoverageMark("provider_build_realtime_audio_setup");
     Object descriptor = Core._provider_realtime_audio_descriptor(profile);

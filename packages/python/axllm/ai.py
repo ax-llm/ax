@@ -477,6 +477,9 @@ class ProviderOperationClient(AxBaseAI):
         return False
 
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
+        realtime_model = request.get("model") or self.model
+        if provider_should_use_realtime(self.profile, str(realtime_model or ""), request):
+            return self.realtime_chat(request, options)
         payload = provider_build_chat_request(self.profile, request)
         if payload.get("stream"):
             return self._stream_chat(payload, request)
@@ -3326,6 +3329,31 @@ def provider_realtime_ws_url(profile: str, model: str, api_key: str) -> Any:
     out["url"] = openai_url
     out["headers"] = headers
     return out
+
+
+def provider_should_use_realtime(profile: str, model: str, request: Any) -> bool:
+    _core_coverage_mark("provider_should_use_realtime")
+    descriptor = provider_descriptor(profile)
+    operations = _core_get(descriptor, "operations", None)
+    realtime_op = _core_get(operations, "realtime_audio", None)
+    has_realtime = _core_is_not_none(realtime_op)
+    is_gpt_realtime = _core_string_starts_with(model, "gpt-realtime")
+    is_grok_voice = _core_string_starts_with(model, "grok-voice")
+    is_native_audio = _core_contains(model, "native-audio")
+    is_dash_live = _core_contains(model, "-live-")
+    is_gemini_live = _core_string_starts_with(model, "gemini-live")
+    pattern_a = _core_or(is_gpt_realtime, is_grok_voice)
+    pattern_b = _core_or(is_native_audio, is_dash_live)
+    pattern_ab = _core_or(pattern_a, pattern_b)
+    is_realtime_model = _core_or(pattern_ab, is_gemini_live)
+    audio = _core_get(request, "audio", None)
+    output = _core_get(audio, "output", None)
+    enabled = _core_get(output, "enabled", None)
+    explicitly_disabled = _core_eq(enabled, False)
+    audio_ok = _core_not(explicitly_disabled)
+    model_and_realtime = _core_and(has_realtime, is_realtime_model)
+    result = _core_and(model_and_realtime, audio_ok)
+    return result
 
 
 def provider_build_realtime_audio_setup(profile: str, request: Any) -> Any:

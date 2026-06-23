@@ -1775,6 +1775,41 @@ module @ax.provider version "0.1" {
     }
   }
 
+  // Decide whether a chat() request should be served over the realtime WebSocket
+  // transport: true when the provider exposes a realtime_audio operation, the
+  // model is a realtime/live audio model, and audio output is not explicitly
+  // disabled. Lets chat()/stream() route realtime models transparently.
+  op ax.provider.semantic @provider_should_use_realtime {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "provider-realtime-audio-operation"
+    type signature = "(profile:string, model:string, request:json) -> bool throws"
+    body @entry(%profile: string, %model: string, %request: json) {
+      %descriptor = core.call @provider_descriptor(%profile)
+      %operations = core.get %descriptor["operations"]
+      %realtime_op = core.get %operations["realtime_audio"]
+      %has_realtime = core.call intrinsic.is_not_none(%realtime_op)
+      %is_gpt_realtime = core.call intrinsic.string.starts_with(%model, "gpt-realtime")
+      %is_grok_voice = core.call intrinsic.string.starts_with(%model, "grok-voice")
+      %is_native_audio = core.call intrinsic.contains(%model, "native-audio")
+      %is_dash_live = core.call intrinsic.contains(%model, "-live-")
+      %is_gemini_live = core.call intrinsic.string.starts_with(%model, "gemini-live")
+      %pattern_a = core.call intrinsic.or(%is_gpt_realtime, %is_grok_voice)
+      %pattern_b = core.call intrinsic.or(%is_native_audio, %is_dash_live)
+      %pattern_ab = core.call intrinsic.or(%pattern_a, %pattern_b)
+      %is_realtime_model = core.call intrinsic.or(%pattern_ab, %is_gemini_live)
+      %audio = core.get %request["audio"]
+      %output = core.get %audio["output"]
+      %enabled = core.get %output["enabled"]
+      %explicitly_disabled = core.call intrinsic.eq(%enabled, false)
+      %audio_ok = core.call intrinsic.not(%explicitly_disabled)
+      %model_and_realtime = core.call intrinsic.and(%has_realtime, %is_realtime_model)
+      %result = core.call intrinsic.and(%model_and_realtime, %audio_ok)
+      core.return %result
+    }
+  }
+
   op ax.provider.semantic @provider_build_realtime_audio_setup {
     attr core_kind = "func"
     attr effect = "throws"
