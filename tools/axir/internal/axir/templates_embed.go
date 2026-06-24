@@ -24,6 +24,9 @@ var goAudioResponsesMappingExample string
 //go:embed templates/go/goAudioHTTPRoundtripExample.go.txt
 var goAudioHTTPRoundtripExample string
 
+//go:embed templates/go/goStreamHTTPRoundtripExample.go.txt
+var goStreamHTTPRoundtripExample string
+
 //go:embed templates/go/goAxFlowOpenAIExample.go.txt
 var goAxFlowOpenAIExample string
 
@@ -213,6 +216,9 @@ var goMCP string
 //go:embed templates/mcp/goMCPScriptedToolsExample.go.txt
 var goMCPScriptedToolsExample string
 
+//go:embed templates/mcp/goMCPSseRoundtripExample.go.txt
+var goMCPSseRoundtripExample string
+
 //go:embed templates/mcp/javaAxMCPClient.java
 var javaAxMCPClient string
 
@@ -248,6 +254,9 @@ var rustMCP string
 
 //go:embed templates/mcp/rustMCPScriptedToolsExample.rs
 var rustMCPScriptedToolsExample string
+
+//go:embed templates/mcp/rustMCPSseRoundtripExample.rs
+var rustMCPSseRoundtripExample string
 
 // templates/package
 
@@ -410,6 +419,9 @@ var rustAudioResponsesMappingExample string
 
 //go:embed templates/rust/rustAudioHTTPRoundtripExample.rs
 var rustAudioHTTPRoundtripExample string
+
+//go:embed templates/rust/rustStreamHTTPRoundtripExample.rs
+var rustStreamHTTPRoundtripExample string
 
 //go:embed templates/rust/rustAxFlowOpenAIExample.rs
 var rustAxFlowOpenAIExample string

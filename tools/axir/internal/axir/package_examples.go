@@ -980,6 +980,134 @@ finally:
 print("audio-http-roundtrip-ok")
 `
 
+const pyMCPSseRoundtripExample = `"""Drive AxMCPStreamableHTTPTransport.send() through the REAL urllib transport
+against an in-process loopback server that answers the JSON-RPC POST with
+Content-Type: text/event-stream -- the MCP Streamable HTTP SSE path the
+ScriptedTransport conformance fixtures bypass. The SSE body interleaves a
+notification ahead of the id-matched response, so a transport that ignored the
+Content-Type (json.loads on the raw stream) or returned the first data frame
+would fail. Exits non-zero on any mismatch so axir verify fails if the SSE
+branch regresses."""
+
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from axllm import AxMCPStreamableHTTPTransport
+
+SSE_BODY = (
+    ": keepalive\n"
+    "event: message\n"
+    'data: {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info"}}\n'
+    "\n"
+    "event: message\n"
+    'data: {"jsonrpc":"2.0","id":"ax-sse-1","result":{"ok":true,"protocolVersion":"2025-11-25"}}\n'
+    "\n"
+)
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(length)
+        payload = SSE_BODY.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+port = server.server_address[1]
+thread = threading.Thread(target=server.serve_forever, daemon=True)
+thread.start()
+
+try:
+    transport = AxMCPStreamableHTTPTransport(
+        f"http://127.0.0.1:{port}/mcp",
+        {"ssrfProtection": {"requireHttps": False, "allowLocalhost": True, "allowPrivateNetworks": True}},
+    )
+    response = transport.send(
+        {"jsonrpc": "2.0", "id": "ax-sse-1", "method": "tools/call", "params": {"name": "noop"}}
+    )
+    assert response.get("id") == "ax-sse-1", f"SSE selector returned wrong message: {response}"
+    assert response.get("result", {}).get("ok") is True, f"SSE result not decoded: {response}"
+finally:
+    server.shutdown()
+
+print("mcp-sse-roundtrip-ok")
+`
+
+const pyStreamHTTPRoundtripExample = `"""Drive a streaming chat through the REAL urllib transport against an
+in-process loopback server that returns a spec-legal text/event-stream body
+with a MULTI-LINE data: event and CRLF line endings. The conformance
+ScriptedTransport only ever feeds single-line data: JSON, so this is the only
+end-to-end coverage for the SSE line-folding that src/ax/util/sse.ts performs.
+Exits non-zero on any mismatch so ` + "`axir verify`" + ` fails if it regresses."""
+
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from axllm import OpenAICompatibleClient
+
+# One logical chat-completion delta whose JSON is split across two data: lines
+# (folded with "\n" into ...,"delta":\n{"content":"Hello "}}), then a normal
+# single-line delta, then [DONE]. Every line uses CRLF.
+EVENT1A = '{"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":'
+EVENT1B = '{"content":"Hello "}}]}'
+EVENT2 = '{"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}'
+SSE_BODY = (
+    "data: " + EVENT1A + "\r\n"
+    + "data: " + EVENT1B + "\r\n"
+    + "\r\n"
+    + "data: " + EVENT2 + "\r\n"
+    + "\r\n"
+    + "data: [DONE]\r\n"
+    + "\r\n"
+).encode()
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(length)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Content-Length", str(len(SSE_BODY)))
+        self.end_headers()
+        self.wfile.write(SSE_BODY)
+
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+port = server.server_address[1]
+thread = threading.Thread(target=server.serve_forever, daemon=True)
+thread.start()
+
+try:
+    client = OpenAICompatibleClient(
+        api_key="test-key", base_url=f"http://127.0.0.1:{port}", model="gpt-4.1-mini"
+    )
+    deltas = [
+        (event.get("results") or [{}])[0].get("content")
+        for event in client.stream({"chat_prompt": [{"role": "user", "content": "stream"}]})
+    ]
+    deltas = [delta for delta in deltas if delta]
+    assert deltas[:1] == ["Hello "], (
+        f"multi-line data: event was not folded into one JSON value: {deltas}"
+    )
+    assert "".join(deltas) == "Hello world", f"bad stream fold: {deltas}"
+finally:
+    server.shutdown()
+
+print("stream-http-roundtrip-ok")
+`
+
 const pyRealtimeAudioEventsExample = `import json
 
 from axllm import GoogleGeminiClient, GrokClient
@@ -1356,6 +1484,145 @@ public final class AudioHTTPRoundtripExample {
       return true;
     }
     return false;
+  }
+}
+`
+
+const javaMCPSseRoundtripExample = `import com.sun.net.httpserver.HttpServer;
+import dev.axllm.ax.*;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+
+// Drive AxMCPStreamableHTTPTransport.send() through the REAL HttpClient transport
+// against an in-process com.sun.net.httpserver loopback that answers the JSON-RPC
+// POST with Content-Type: text/event-stream -- the MCP Streamable HTTP SSE path
+// the ScriptedTransport conformance fixtures bypass. The SSE body interleaves a
+// notification ahead of the id-matched response, so a transport that ignored the
+// Content-Type (JSON-decoding the raw stream) or returned the first data frame
+// would fail. Exits non-zero on any mismatch so axir verify fails if the SSE
+// branch regresses.
+public final class AxMCPSseRoundtripExample {
+  public static void main(String[] args) throws Exception {
+    String sseBody =
+        ": keepalive\n"
+            + "event: message\n"
+            + "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/message\",\"params\":{\"level\":\"info\"}}\n"
+            + "\n"
+            + "event: message\n"
+            + "data: {\"jsonrpc\":\"2.0\",\"id\":\"ax-sse-1\",\"result\":{\"ok\":true,\"protocolVersion\":\"2025-11-25\"}}\n"
+            + "\n";
+
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/",
+        exchange -> {
+          exchange.getRequestBody().readAllBytes();
+          byte[] resp = sseBody.getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+          exchange.sendResponseHeaders(200, resp.length);
+          try (OutputStream os = exchange.getResponseBody()) {
+            os.write(resp);
+          }
+        });
+    server.start();
+    int port = server.getAddress().getPort();
+
+    try {
+      AxMCPStreamableHTTPTransport transport =
+          new AxMCPStreamableHTTPTransport(
+              "http://127.0.0.1:" + port + "/mcp",
+              Map.of(
+                  "ssrfProtection",
+                  Map.of(
+                      "requireHttps", false, "allowLocalhost", true, "allowPrivateNetworks", true)));
+      Map<String, Object> response =
+          transport.send(
+              Map.of(
+                  "jsonrpc", "2.0", "id", "ax-sse-1", "method", "tools/call", "params",
+                  Map.of("name", "noop")));
+      if (!"ax-sse-1".equals(response.get("id")))
+        throw new RuntimeException("SSE selector returned wrong message: " + response);
+      Object result = response.get("result");
+      boolean ok = result instanceof Map && Boolean.TRUE.equals(((Map<?, ?>) result).get("ok"));
+      if (!ok)
+        throw new RuntimeException(
+            "SSE result not decoded from text/event-stream body: " + response);
+    } finally {
+      server.stop(0);
+    }
+    System.out.println("mcp-sse-roundtrip-ok");
+  }
+}
+`
+
+const javaStreamHTTPRoundtripExample = `import com.sun.net.httpserver.HttpServer;
+import dev.axllm.ax.*;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+
+// Drive a streaming stream() through the REAL HttpClient transport against an
+// in-process com.sun.net.httpserver loopback that returns a spec-legal
+// text/event-stream body with a MULTI-LINE data: event and CRLF line endings.
+// The conformance ScriptedTransport only ever feeds single-line data: JSON, so
+// this is the only end-to-end coverage for the SSE line-folding that
+// src/ax/util/sse.ts performs. Exits non-zero on any mismatch so ` + "`axir verify`" + `
+// fails if the folding regresses.
+public final class StreamHTTPRoundtripExample {
+  public static void main(String[] args) throws Exception {
+    // One logical delta whose JSON is split across two data: lines (folded with
+    // "\n"), then a single-line delta, then [DONE]. Every line uses CRLF.
+    String event1a = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":";
+    String event1b = "{\"content\":\"Hello \"}}]}";
+    String event2 = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
+    String sseBody =
+        "data: " + event1a + "\r\n"
+            + "data: " + event1b + "\r\n"
+            + "\r\n"
+            + "data: " + event2 + "\r\n"
+            + "\r\n"
+            + "data: [DONE]\r\n"
+            + "\r\n";
+    byte[] sseBytes = sseBody.getBytes(StandardCharsets.UTF_8);
+
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/",
+        exchange -> {
+          exchange.getRequestBody().readAllBytes();
+          exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+          exchange.sendResponseHeaders(200, sseBytes.length);
+          try (OutputStream os = exchange.getResponseBody()) {
+            os.write(sseBytes);
+          }
+        });
+    server.start();
+    int port = server.getAddress().getPort();
+
+    try {
+      OpenAICompatibleClient client =
+          new OpenAICompatibleClient(
+              Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + port, "model", "gpt-4.1-mini"));
+      List<String> deltas = new ArrayList<>();
+      for (Map<String, Object> event :
+          client.stream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "stream"))))) {
+        Object results = event.get("results");
+        if (results instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {
+          Object content = first.get("content");
+          if (content instanceof String s && !s.isEmpty()) deltas.add(s);
+        }
+      }
+      if (deltas.isEmpty() || !"Hello ".equals(deltas.get(0)))
+        throw new RuntimeException("multi-line data: event was not folded into one JSON value: " + deltas);
+      if (!"Hello world".equals(String.join("", deltas)))
+        throw new RuntimeException("bad stream fold: " + deltas);
+    } finally {
+      server.stop(0);
+    }
+    System.out.println("stream-http-roundtrip-ok");
   }
 }
 `
@@ -1787,6 +2054,283 @@ int main() {
     return 1;
   }
   std::cout << "audio-http-roundtrip-ok\n";
+  return 0;
+}
+`
+
+const cppMCPSseRoundtripExample = `#include "axllm/axllm.hpp"
+#include "axllm/mcp.hpp"
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <cctype>
+#include <iostream>
+#include <string>
+#include <thread>
+
+// Drive AxMCPStreamableHTTPTransport::send() through the REAL libcurl
+// HttpTransport against an in-process loopback server that answers the JSON-RPC
+// POST with Content-Type: text/event-stream -- the MCP Streamable HTTP SSE path
+// the ScriptedTransport conformance fixtures bypass. The SSE body interleaves a
+// notification ahead of the id-matched response, so a transport that ignored the
+// Content-Type (JSON-decoding the raw stream) or returned the first data frame
+// would fail. Returns non-zero on any mismatch so axir verify fails if the SSE
+// branch regresses. Requires libcurl (AXLLM_ENABLE_CURL); axir verify skips it
+// when libcurl is unavailable.
+
+namespace {
+
+void drain_request(int fd) {
+  std::string buf;
+  char tmp[4096];
+  size_t header_end = std::string::npos;
+  size_t content_length = 0;
+  while (true) {
+    size_t pos = buf.find("\r\n\r\n");
+    if (pos != std::string::npos) {
+      header_end = pos + 4;
+      break;
+    }
+    ssize_t n = recv(fd, tmp, sizeof(tmp), 0);
+    if (n <= 0) return;
+    buf.append(tmp, static_cast<size_t>(n));
+  }
+  std::string lower = buf.substr(0, header_end);
+  for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  size_t cl = lower.find("content-length:");
+  if (cl != std::string::npos) content_length = std::stoul(lower.substr(cl + 15));
+  while (buf.size() - header_end < content_length) {
+    ssize_t n = recv(fd, tmp, sizeof(tmp), 0);
+    if (n <= 0) break;
+    buf.append(tmp, static_cast<size_t>(n));
+  }
+}
+
+void write_response(int fd, const std::string& content_type, const std::string& body) {
+  std::string out = "HTTP/1.1 200 OK\r\nContent-Type: " + content_type +
+                    "\r\nContent-Length: " + std::to_string(body.size()) +
+                    "\r\nConnection: close\r\n\r\n" + body;
+  size_t off = 0;
+  while (off < out.size()) {
+    ssize_t n = send(fd, out.data() + off, out.size() - off, 0);
+    if (n <= 0) break;
+    off += static_cast<size_t>(n);
+  }
+}
+
+}  // namespace
+
+int main() {
+  const std::string sse_body =
+      ": keepalive\n"
+      "event: message\n"
+      "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/message\",\"params\":{\"level\":\"info\"}}\n"
+      "\n"
+      "event: message\n"
+      "data: {\"jsonrpc\":\"2.0\",\"id\":\"ax-sse-1\",\"result\":{\"ok\":true,\"protocolVersion\":\"2025-11-25\"}}\n"
+      "\n";
+
+  int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (server_fd < 0) {
+    std::cerr << "socket failed\n";
+    return 1;
+  }
+  int opt = 1;
+  setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = 0;
+  if (bind(server_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+    std::cerr << "bind failed\n";
+    return 1;
+  }
+  if (listen(server_fd, 4) < 0) {
+    std::cerr << "listen failed\n";
+    return 1;
+  }
+  socklen_t alen = sizeof(addr);
+  getsockname(server_fd, reinterpret_cast<sockaddr*>(&addr), &alen);
+  int port = ntohs(addr.sin_port);
+
+  std::thread server([&]() {
+    int fd = accept(server_fd, nullptr, nullptr);
+    if (fd < 0) return;
+    drain_request(fd);
+    write_response(fd, "text/event-stream", sse_body);
+    close(fd);
+  });
+
+  axllm::AxMCPStreamableHTTPTransport transport(
+      std::string("http://127.0.0.1:") + std::to_string(port) + "/mcp",
+      axllm::object({{"ssrfProtection", axllm::object({{"requireHttps", false}, {"allowLocalhost", true}, {"allowPrivateNetworks", true}})}}));
+  axllm::Value response = transport.send(axllm::object({{"jsonrpc", "2.0"},
+                                                        {"id", "ax-sse-1"},
+                                                        {"method", "tools/call"},
+                                                        {"params", axllm::object({{"name", "noop"}})}}));
+
+  server.join();
+  close(server_fd);
+
+  if (!axllm::equal(axllm::Core::get(response, "id"), std::string("ax-sse-1"))) {
+    std::cerr << "SSE selector returned wrong message: " << axllm::stringify(response) << "\n";
+    return 1;
+  }
+  if (!axllm::Core::truthy(axllm::Core::get(axllm::Core::get(response, "result"), "ok"))) {
+    std::cerr << "SSE result not decoded from text/event-stream body: " << axllm::stringify(response)
+              << "\n";
+    return 1;
+  }
+  std::cout << "mcp-sse-roundtrip-ok\n";
+  return 0;
+}
+`
+
+const cppStreamHTTPRoundtripExample = `#include "axllm/axllm.hpp"
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <iostream>
+#include <string>
+#include <thread>
+#include <vector>
+
+// Drive a streaming stream() through the REAL libcurl HttpTransport against an
+// in-process loopback server that returns a spec-legal text/event-stream body
+// with a MULTI-LINE data: event and CRLF line endings. The conformance
+// ScriptedTransport only ever feeds single-line data: JSON, so this is the only
+// end-to-end coverage for the SSE line-folding that src/ax/util/sse.ts performs.
+// Returns non-zero on any mismatch so axir verify fails if the folding
+// regresses. Requires libcurl (AXLLM_ENABLE_CURL); axir verify skips it when
+// libcurl is unavailable.
+
+namespace {
+
+// Read the full request (headers + Content-Length body) so libcurl can then
+// read the response without the connection being reset mid-write.
+void drain_request(int fd) {
+  std::string buf;
+  char tmp[4096];
+  size_t header_end = std::string::npos;
+  size_t content_length = 0;
+  while (true) {
+    if (header_end == std::string::npos) {
+      size_t pos = buf.find("\r\n\r\n");
+      if (pos != std::string::npos) {
+        header_end = pos + 4;
+        std::string headers = buf.substr(0, pos);
+        size_t start = 0;
+        while (start < headers.size()) {
+          size_t next = headers.find("\r\n", start);
+          std::string line =
+              headers.substr(start, (next == std::string::npos ? headers.size() : next) - start);
+          std::string lower = line;
+          for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+          if (lower.rfind("content-length:", 0) == 0) {
+            content_length = std::stoul(line.substr(line.find(':') + 1));
+          }
+          if (next == std::string::npos) break;
+          start = next + 2;
+        }
+      }
+    }
+    if (header_end != std::string::npos && buf.size() >= header_end + content_length) break;
+    ssize_t n = recv(fd, tmp, sizeof(tmp), 0);
+    if (n <= 0) break;
+    buf.append(tmp, static_cast<size_t>(n));
+  }
+}
+
+void write_response(int fd, const std::string& content_type, const std::string& body) {
+  std::string out = "HTTP/1.1 200 OK\r\nContent-Type: " + content_type +
+                    "\r\nContent-Length: " + std::to_string(body.size()) +
+                    "\r\nConnection: close\r\n\r\n" + body;
+  size_t off = 0;
+  while (off < out.size()) {
+    ssize_t n = send(fd, out.data() + off, out.size() - off, 0);
+    if (n <= 0) break;
+    off += static_cast<size_t>(n);
+  }
+}
+
+}  // namespace
+
+int main() {
+  // One logical delta whose JSON is split across two data: lines (folded with
+  // "\n"), then a single-line delta, then [DONE]. Every line uses CRLF.
+  const std::string event1a =
+      "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":";
+  const std::string event1b = "{\"content\":\"Hello \"}}]}";
+  const std::string event2 =
+      "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
+  const std::string sse_body = "data: " + event1a + "\r\n" + "data: " + event1b + "\r\n" + "\r\n" +
+                               "data: " + event2 + "\r\n" + "\r\n" + "data: [DONE]\r\n" + "\r\n";
+
+  int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (server_fd < 0) {
+    std::cerr << "socket failed\n";
+    return 1;
+  }
+  int opt = 1;
+  setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = 0;
+  if (bind(server_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+    std::cerr << "bind failed\n";
+    return 1;
+  }
+  if (listen(server_fd, 4) < 0) {
+    std::cerr << "listen failed\n";
+    return 1;
+  }
+  socklen_t alen = sizeof(addr);
+  getsockname(server_fd, reinterpret_cast<sockaddr*>(&addr), &alen);
+  int port = ntohs(addr.sin_port);
+
+  std::thread server([&]() {
+    int fd = accept(server_fd, nullptr, nullptr);
+    if (fd < 0) return;
+    drain_request(fd);
+    write_response(fd, "text/event-stream", sse_body);
+    close(fd);
+  });
+
+  axllm::OpenAICompatibleClient client(
+      axllm::object({{"api_key", "test-key"},
+                     {"base_url", std::string("http://127.0.0.1:") + std::to_string(port)},
+                     {"model", "gpt-4.1-mini"}}),
+      nullptr);
+  std::vector<std::string> deltas;
+  for (const auto& event : client.stream(axllm::object(
+           {{"chat_prompt",
+             axllm::array({axllm::object({{"role", "user"}, {"content", "stream"}})})}}))) {
+    std::string content = axllm::display(
+        axllm::Core::get(axllm::Core::get(axllm::Core::get(event, "results"), 0), "content", ""));
+    if (!content.empty()) deltas.push_back(content);
+  }
+
+  server.join();
+  close(server_fd);
+
+  if (deltas.empty() || deltas.front() != "Hello ") {
+    std::cerr << "multi-line data: event was not folded into one JSON value\n";
+    return 1;
+  }
+  std::string text;
+  for (const auto& d : deltas) text += d;
+  if (text != "Hello world") {
+    std::cerr << "bad stream fold: " << text << "\n";
+    return 1;
+  }
+  std::cout << "stream-http-roundtrip-ok\n";
   return 0;
 }
 `

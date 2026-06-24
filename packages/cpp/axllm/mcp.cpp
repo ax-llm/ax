@@ -194,11 +194,58 @@ Tool AxMCPClient::resource_template_to_function(Value spec) {
 AxMCPStreamableHTTPTransport::AxMCPStreamableHTTPTransport(std::string endpoint, Value options)
     : endpoint_(ax_mcp_validate_endpoint(endpoint, Core::get(options, "ssrfProtection", Value::object()))), options_(std::move(options)) {}
 
+static std::vector<Value> ax_mcp_parse_sse(const std::string& body) {
+  // Extract JSON-RPC messages from the `data:` frames of an SSE body.
+  std::vector<Value> messages;
+  std::size_t pos = 0;
+  while (pos <= body.size()) {
+    std::size_t eol = body.find('\n', pos);
+    std::string line = body.substr(pos, eol == std::string::npos ? std::string::npos : eol - pos);
+    std::size_t begin = line.find_first_not_of(" \t\r");
+    std::size_t end = line.find_last_not_of(" \t\r");
+    line = (begin == std::string::npos) ? std::string() : line.substr(begin, end - begin + 1);
+    if (line.rfind("data:", 0) == 0) {
+      std::string data = line.substr(5);
+      std::size_t data_begin = data.find_first_not_of(" \t");
+      data = (data_begin == std::string::npos) ? std::string() : data.substr(data_begin);
+      if (!data.empty() && data != "[DONE]") messages.push_back(Core::json_parse(data));
+    }
+    if (eol == std::string::npos) break;
+    pos = eol + 1;
+  }
+  return messages;
+}
+
+static Value ax_mcp_select_sse_response(const std::vector<Value>& messages, const Value& request_id) {
+  // Return the JSON-RPC response whose id matches the request. The C++ MCP
+  // transports expose no inbound message handler, so interleaved server->client
+  // notifications on the POST stream are not dispatched.
+  for (const auto& message : messages) {
+    if (value_has(message, "id") && equal(Core::get(message, "id", Value()), request_id)) return message;
+  }
+  if (!messages.empty()) return messages.back();
+  return object({{"jsonrpc", "2.0"}, {"id", request_id}, {"result", Value::object()}});
+}
+
 Value AxMCPStreamableHTTPTransport::send(Value message) {
   Value headers = build_headers(object({{"Content-Type", "application/json"}, {"Accept", "application/json, text/event-stream"}}),
                                 display(Core::get(message, "method", "")) != "initialize");
-  Value response = http_.call(object({{"url", endpoint_}, {"method", "POST"}, {"headers", headers}, {"json", message}}));
-  return Core::get(response, "json", Value::object());
+  // Request the raw body (stream:true) so we can branch on the response
+  // Content-Type: a spec-compliant MCP server may answer a JSON-RPC POST with an
+  // SSE stream (text/event-stream) carrying the response — and any interleaved
+  // notifications — in `data:` frames, which must be SSE-parsed rather than
+  // JSON-decoded. Otherwise keep the JSON path. (The optional standalone GET
+  // stream for unsolicited server->client messages is out of scope here.)
+  Value response = http_.call(object({{"url", endpoint_}, {"method", "POST"}, {"headers", headers}, {"json", message}, {"stream", true}}));
+  Value request_id = Core::get(message, "id", Value());
+  std::string body = display(Core::get(response, "body", ""));
+  if (body.empty()) return object({{"jsonrpc", "2.0"}, {"id", request_id}, {"result", Value::object()}});
+  std::string content_type = display(Core::get(response, "contentType", ""));
+  std::transform(content_type.begin(), content_type.end(), content_type.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (content_type.find("text/event-stream") != std::string::npos) {
+    return ax_mcp_select_sse_response(ax_mcp_parse_sse(body), request_id);
+  }
+  return Core::json_parse(body);
 }
 
 void AxMCPStreamableHTTPTransport::send_notification(Value message) { (void)send(std::move(message)); }
@@ -280,8 +327,11 @@ std::string ax_mcp_validate_endpoint(const std::string& endpoint, Value options)
   bool require_https = Core::truthy(Core::get(options, "requireHttps", Core::get(options, "require_https", true)));
   if (lower.rfind("http://", 0) != 0 && lower.rfind("https://", 0) != 0) throw AxError("mcp", "MCP endpoint must use http or https");
   if (require_https && lower.rfind("https://", 0) != 0) throw AxError("mcp", "MCP endpoint must use https");
-  if (lower.find("localhost") != std::string::npos || lower.find("127.") != std::string::npos || lower.find("10.") != std::string::npos ||
-      lower.find("192.168.") != std::string::npos) {
+  bool allow_local = Core::truthy(Core::get(options, "allowLocalhost", Core::get(options, "allow_localhost", false)));
+  bool allow_private = Core::truthy(Core::get(options, "allowPrivateNetworks", Core::get(options, "allow_private_networks", false)));
+  bool is_local = lower.find("localhost") != std::string::npos || lower.find("127.") != std::string::npos;
+  bool is_private = lower.find("10.") != std::string::npos || lower.find("192.168.") != std::string::npos;
+  if ((is_local && !allow_local) || (is_private && !allow_private)) {
     throw AxError("mcp", "MCP endpoint host is not allowed by SSRF protection");
   }
   return endpoint;

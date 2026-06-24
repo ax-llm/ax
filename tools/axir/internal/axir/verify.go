@@ -452,6 +452,7 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 		"provider_stream_no_key",
 		"audio_responses_mapping",
 		"audio_http_roundtrip",
+		"stream_http_roundtrip",
 		"realtime_audio_events",
 		"realtime_audio_turn",
 		"runtime_adapter",
@@ -460,6 +461,7 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 		"optimizer_artifact",
 		"gepa_local_optimizer",
 		"mcp_scripted_tools",
+		"mcp_sse_roundtrip",
 	} {
 		if err := runVerifyCommand(&report, "example "+example, report.OutDir, env, goTool, "run", "./examples/"+example); err != nil {
 			return report, err
@@ -538,6 +540,7 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"axgen_scripted_client_tool",
 		"audio_responses_mapping",
 		"audio_http_roundtrip",
+		"stream_http_roundtrip",
 		"realtime_audio_events",
 		"realtime_audio_turn",
 		"runtime_adapter",
@@ -546,6 +549,7 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"optimizer_artifact",
 		"gepa_local_optimizer",
 		"mcp_scripted_tools",
+		"mcp_sse_roundtrip",
 	} {
 		if err := runCargoVerifyCommand(&report, "example "+example, report.OutDir, env, cargo, "run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--example", example); err != nil {
 			return report, err
@@ -675,6 +679,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"provider_stream_no_key.py",
 		"audio_responses_mapping.py",
 		"audio_http_roundtrip.py",
+		"stream_http_roundtrip.py",
 		"realtime_audio_events.py",
 		"realtime_audio_turn.py",
 		"runtime_adapter.py",
@@ -683,6 +688,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"optimizer_artifact.py",
 		"gepa_local_optimizer.py",
 		"mcp_scripted_tools.py",
+		"mcp_sse_roundtrip.py",
 	} {
 		if err := runVerifyCommand(&report, "example "+example, "", env, python, filepath.Join(report.OutDir, "examples", example)); err != nil {
 			return report, err
@@ -806,6 +812,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"ProviderStreamNoKeyExample",
 		"AudioResponsesMappingExample",
 		"AudioHTTPRoundtripExample",
+		"StreamHTTPRoundtripExample",
 		"RealtimeAudioEventsExample",
 		"RealtimeAudioTurnExample",
 		"RuntimeAdapterExample",
@@ -814,6 +821,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"OptimizerArtifactExample",
 		"GEPALocalOptimizerExample",
 		"AxMCPScriptedToolsExample",
+		"AxMCPSseRoundtripExample",
 	} {
 		if err := runVerifyCommand(&report, "example "+className, "", env, java, "-cp", report.OutDir, className); err != nil {
 			return report, err
@@ -1188,24 +1196,35 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 			return report, err
 		}
 	}
-	// audio_http_roundtrip drives the real libcurl transport against a loopback
-	// server, so it needs a curl-enabled axllm.o + libcurl. Skip it when libcurl
-	// is unavailable rather than failing the whole target.
+	// audio_http_roundtrip, stream_http_roundtrip, and mcp_sse_roundtrip drive
+	// the real libcurl transport against a loopback server, so they need a
+	// curl-enabled axllm.o + libcurl (mcp_sse_roundtrip also links mcp.o). Skip
+	// them when libcurl is unavailable rather than failing the whole target.
+	curlExamples := []string{"audio_http_roundtrip", "stream_http_roundtrip", "mcp_sse_roundtrip"}
 	if cppLibcurlAvailable(cpp) {
 		curlObj := filepath.Join(buildDir, "axllm_curl.o")
 		if err := runVerifyCommand(&report, "compile axllm.cpp (curl)", "", nil, cpp, "-std=c++17", "-DAXLLM_ENABLE_CURL=1", "-I", report.OutDir, "-c", axSource, "-o", curlObj); err != nil {
 			return report, err
 		}
-		source := filepath.Join(report.OutDir, "examples", "audio_http_roundtrip.cpp")
-		bin := filepath.Join(report.OutDir, "audio_http_roundtrip")
-		if err := runVerifyCommand(&report, "compile example audio_http_roundtrip", "", nil, cpp, "-std=c++17", "-I", report.OutDir, source, curlObj, "-lcurl", "-o", bin); err != nil {
-			return report, err
-		}
-		if err := runVerifyCommand(&report, "example audio_http_roundtrip", "", nil, bin); err != nil {
-			return report, err
+		for _, example := range curlExamples {
+			source := filepath.Join(report.OutDir, "examples", example+".cpp")
+			bin := filepath.Join(report.OutDir, example)
+			compileArgs := []string{"-std=c++17", "-I", report.OutDir, source, curlObj}
+			if example == "mcp_sse_roundtrip" {
+				compileArgs = append(compileArgs, mcpObj)
+			}
+			compileArgs = append(compileArgs, "-lcurl", "-o", bin)
+			if err := runVerifyCommand(&report, "compile example "+example, "", nil, cpp, compileArgs...); err != nil {
+				return report, err
+			}
+			if err := runVerifyCommand(&report, "example "+example, "", nil, bin); err != nil {
+				return report, err
+			}
 		}
 	} else {
-		report.Steps = append(report.Steps, VerifyStep{Name: "example audio_http_roundtrip", Status: "skip", Message: "libcurl unavailable"})
+		for _, example := range curlExamples {
+			report.Steps = append(report.Steps, VerifyStep{Name: "example " + example, Status: "skip", Message: "libcurl unavailable"})
+		}
 	}
 	conformanceBin := filepath.Join(report.OutDir, "conformance")
 	if err := runVerifyCommand(&report, "compile conformance", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "conformance.cpp"), axObj, mcpObj, "-o", conformanceBin); err != nil {

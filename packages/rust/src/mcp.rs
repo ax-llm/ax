@@ -482,7 +482,28 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
                 format!("HTTP error {}", response.status().as_u16()),
             ));
         }
-        Ok(response.json()?)
+        // A spec-compliant MCP server may answer a JSON-RPC POST with an SSE stream
+        // (Content-Type: text/event-stream) carrying the response — and any
+        // interleaved notifications/keepalives — in `data:` frames; parse those
+        // rather than JSON-decoding the raw stream. Otherwise keep the JSON path.
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let request_id = message.get("id").cloned().unwrap_or(Value::Null);
+        let body = response.text()?;
+        if body.trim().is_empty() {
+            return Ok(json!({"jsonrpc": "2.0", "id": request_id, "result": {}}));
+        }
+        if content_type.contains("text/event-stream") {
+            return Ok(ax_mcp_select_sse_response(
+                crate::parse_sse_events(&body)?,
+                &request_id,
+            ));
+        }
+        Ok(serde_json::from_str(&body)?)
     }
 
     fn send_notification(&mut self, message: Value) -> AxResult<()> {
@@ -491,6 +512,21 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
     fn set_protocol_version(&mut self, protocol_version: &str) {
         self.protocol_version = Some(protocol_version.to_string());
     }
+}
+
+// Return the JSON-RPC response whose id matches the request from the `data:`
+// frames of an SSE answer. Interleaved server->client notifications on the POST
+// stream are not dispatched (the HTTP transport keeps no inbound handler; the
+// optional standalone GET stream would be required for that).
+fn ax_mcp_select_sse_response(messages: Vec<Value>, request_id: &Value) -> Value {
+    let mut fallback: Option<Value> = None;
+    for message in messages.into_iter() {
+        if message.get("id") == Some(request_id) {
+            return message;
+        }
+        fallback = Some(message);
+    }
+    fallback.unwrap_or_else(|| json!({"jsonrpc": "2.0", "id": request_id, "result": {}}))
 }
 
 pub struct AxMCPStdioTransport {

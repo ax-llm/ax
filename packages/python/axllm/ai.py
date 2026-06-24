@@ -6530,11 +6530,37 @@ def _iter_sse_json(raw: Any):
                 yield item
         return
     text = raw.decode() if isinstance(raw, bytes) else str(raw)
-    for line in text.splitlines():
-        line = line.strip()
-        if not line.startswith("data:"):
+    # Mirror src/ax/util/sse.ts: normalize CRLF/CR, then fold the data: lines of
+    # each event (events are blank-line separated) into a single payload before
+    # parsing. A spec-legal SSE event may split one JSON value across several
+    # data: lines, joined with "\n"; parsing each line on its own would choke.
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    buffer = ""
+
+    def flush(payload: str):
+        payload = payload.strip()
+        if not payload or payload == "[DONE]":
+            return None
+        return json.loads(payload)
+
+    for line in text.split("\n"):
+        if line == "":
+            event = flush(buffer)
+            buffer = ""
+            if event is not None:
+                yield event
             continue
-        data = line[5:].strip()
-        if not data or data == "[DONE]":
-            continue
-        yield json.loads(data)
+        if line.startswith(":"):
+            continue  # comment line
+        field, sep, value = line.partition(":")
+        if sep:
+            field = field.strip()
+            value = value.strip()
+            if field != "data":
+                continue  # event:/id:/retry: do not contribute to the payload
+        else:
+            value = line.strip()
+        buffer += ("\n" if buffer and not buffer.endswith("\n") else "") + value
+    event = flush(buffer)
+    if event is not None:
+        yield event

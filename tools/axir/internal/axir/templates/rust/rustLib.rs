@@ -1855,19 +1855,45 @@ fn normalize_stream_response(profile: &str, model: &str, response: Value) -> AxR
     Ok(out)
 }
 
-fn parse_sse_events(body: &str) -> AxResult<Vec<Value>> {
-    let mut events = Vec::new();
-    for line in body.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("data:") {
-            continue;
+pub(crate) fn parse_sse_events(body: &str) -> AxResult<Vec<Value>> {
+    // Mirror src/ax/util/sse.ts: normalize CRLF/CR, then fold the data: lines of
+    // each event (events are blank-line separated) into a single payload before
+    // parsing. A spec-legal SSE event may split one JSON value across several
+    // data: lines, joined with "\n"; parsing each line on its own would choke.
+    fn flush(buffer: &mut String, events: &mut Vec<Value>) -> AxResult<()> {
+        let payload = buffer.trim();
+        if !payload.is_empty() && payload != "[DONE]" {
+            events.push(serde_json::from_str::<Value>(payload)?);
         }
-        let data = trimmed.trim_start_matches("data:").trim();
-        if data.is_empty() || data == "[DONE]" {
-            continue;
-        }
-        events.push(serde_json::from_str::<Value>(data)?);
+        buffer.clear();
+        Ok(())
     }
+    let normalized = body.replace("\r\n", "\n").replace('\r', "\n");
+    let mut events = Vec::new();
+    let mut buffer = String::new();
+    for line in normalized.split('\n') {
+        if line.is_empty() {
+            flush(&mut buffer, &mut events)?;
+            continue;
+        }
+        if line.starts_with(':') {
+            continue; // comment line
+        }
+        let value = match line.find(':') {
+            Some(idx) => {
+                if line[..idx].trim() != "data" {
+                    continue; // event:/id:/retry: do not contribute to the payload
+                }
+                line[idx + 1..].trim()
+            }
+            None => line.trim(),
+        };
+        if !buffer.is_empty() && !buffer.ends_with('\n') {
+            buffer.push('\n');
+        }
+        buffer.push_str(value);
+    }
+    flush(&mut buffer, &mut events)?;
     Ok(events)
 }
 

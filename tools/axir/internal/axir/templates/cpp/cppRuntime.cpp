@@ -428,6 +428,11 @@ Value HttpTransport::call(Value request) {
   CURLcode rc = curl_easy_perform(curl);
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+  // Capture the response Content-Type before cleanup so callers (e.g. the MCP
+  // Streamable HTTP transport) can branch on text/event-stream vs JSON.
+  char* response_content_type = nullptr;
+  curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &response_content_type);
+  std::string content_type = response_content_type != nullptr ? std::string(response_content_type) : std::string();
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
 
@@ -441,6 +446,7 @@ Value HttpTransport::call(Value request) {
 
   Value out = Value::object();
   Core::set(out, "status", static_cast<double>(status));
+  Core::set(out, "contentType", content_type);
   if (binary_response) {
     // Base64-encode the full (binary-safe) body; response may contain NULs, so
     // axir_base64_encode reads its whole .size() rather than a c_str().
@@ -2654,16 +2660,48 @@ std::vector<Value> OpenAICompatibleClient::iter_sse_json(Value raw) {
     for (const auto& item : array_ref(raw)) if (display(item) != "[DONE]") out.push_back(item);
     return out;
   }
-  std::istringstream lines(display(raw));
+  // Mirror src/ax/util/sse.ts: normalize CRLF/CR, then fold the data: lines of
+  // each event (events are blank-line separated) into a single payload before
+  // parsing. A spec-legal SSE event may split one JSON value across several
+  // data: lines, joined with "\n"; parsing each line on its own would choke.
+  std::string text = display(raw);
+  std::string normalized;
+  normalized.reserve(text.size());
+  for (size_t i = 0; i < text.size(); ++i) {
+    if (text[i] == '\r') {
+      normalized.push_back('\n');
+      if (i + 1 < text.size() && text[i + 1] == '\n') ++i;  // collapse CRLF
+    } else {
+      normalized.push_back(text[i]);
+    }
+  }
+  std::string buffer;
+  auto flush = [&]() {
+    std::string payload = display(Core::string_trim(buffer));
+    buffer.clear();
+    if (payload.empty() || payload == "[DONE]") return;
+    out.push_back(parse_json(payload));
+  };
+  std::istringstream lines(normalized);
   std::string line;
   while (std::getline(lines, line)) {
-    Value trimmed = Core::string_trim(line);
-    std::string text = display(trimmed);
-    if (text.rfind("data:", 0) != 0) continue;
-    std::string data = display(Core::string_trim(text.substr(5)));
-    if (data.empty() || data == "[DONE]") continue;
-    out.push_back(parse_json(data));
+    if (line.empty()) {
+      flush();
+      continue;
+    }
+    if (line[0] == ':') continue;  // comment line
+    std::string value;
+    std::string::size_type colon = line.find(':');
+    if (colon != std::string::npos) {
+      if (display(Core::string_trim(line.substr(0, colon))) != "data") continue;  // not a data: line
+      value = display(Core::string_trim(line.substr(colon + 1)));
+    } else {
+      value = display(Core::string_trim(line));
+    }
+    if (!buffer.empty() && buffer.back() != '\n') buffer.push_back('\n');
+    buffer += value;
   }
+  flush();
   return out;
 }
 

@@ -2350,18 +2350,41 @@ func safeValue(fn func() Value) (out Value, err error) {
 }
 
 func iterSSE(body Value) []Value {
+	// Mirror src/ax/util/sse.ts: normalize CRLF/CR, then fold the data: lines of
+	// each event (events are blank-line separated) into a single payload before
+	// parsing. A spec-legal SSE event may split one JSON value across several
+	// data: lines, joined with "\n"; parsing each line on its own would choke.
+	text := strings.ReplaceAll(strings.ReplaceAll(display(body), "\r\n", "\n"), "\r", "\n")
 	var out []Value
-	for _, line := range strings.Split(display(body), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "data:") {
-			continue
+	buffer := ""
+	flush := func() {
+		payload := strings.TrimSpace(buffer)
+		buffer = ""
+		if payload != "" && payload != "[DONE]" {
+			out = append(out, parseJSON(payload))
 		}
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" || payload == "[DONE]" {
-			continue
-		}
-		out = append(out, parseJSON(payload))
 	}
+	for _, line := range strings.Split(text, "\n") {
+		if line == "" {
+			flush()
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue // comment line
+		}
+		value := strings.TrimSpace(line)
+		if idx := strings.Index(line, ":"); idx >= 0 {
+			if strings.TrimSpace(line[:idx]) != "data" {
+				continue // event:/id:/retry: do not contribute to the payload
+			}
+			value = strings.TrimSpace(line[idx+1:])
+		}
+		if buffer != "" && !strings.HasSuffix(buffer, "\n") {
+			buffer += "\n"
+		}
+		buffer += value
+	}
+	flush()
 	return out
 }
 

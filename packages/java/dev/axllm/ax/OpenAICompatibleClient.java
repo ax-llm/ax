@@ -354,10 +354,17 @@ public class OpenAICompatibleClient extends AxBaseAI {
       return Base64.getEncoder().encodeToString(res.body());
     }
     HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
-    Object body;
-    try { body = Json.parse(res.body()); } catch (RuntimeException ex) { body = res.body(); }
-    if (res.statusCode() >= 400) throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), body, call));
-    return body;
+    String responseBody = res.body();
+    if (res.statusCode() >= 400) {
+      Object parsed;
+      try { parsed = Json.parse(responseBody); } catch (RuntimeException ex) { parsed = responseBody; }
+      throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, call));
+    }
+    // Streaming responses are SSE text (text/event-stream): return the raw body
+    // for iterSseJson to fold. This explicit branch matches the other ports
+    // rather than relying on Json.parse throwing on the SSE body to fall back.
+    if (stream) return responseBody;
+    return Json.parse(responseBody);
   }
 
   // Encode a request payload as multipart/form-data. Multipart operations (e.g. OpenAI
@@ -482,14 +489,38 @@ public class OpenAICompatibleClient extends AxBaseAI {
       for (Object item : items) if (!"[DONE]".equals(item)) out.add(item);
       return out;
     }
+    // Mirror src/ax/util/sse.ts: normalize CRLF/CR, then fold the data: lines of
+    // each event (events are blank-line separated) into a single payload before
+    // parsing. A spec-legal SSE event may split one JSON value across several
+    // data: lines, joined with "\n"; parsing each line on its own would choke.
+    String text = String.valueOf(raw).replace("\r\n", "\n").replace("\r", "\n");
     List<Object> out = new ArrayList<>();
-    for (String line : String.valueOf(raw).split("\\R")) {
-      line = line.trim();
-      if (!line.startsWith("data:")) continue;
-      String data = line.substring(5).trim();
-      if (data.isBlank() || "[DONE]".equals(data)) continue;
-      out.add(Json.parse(data));
+    StringBuilder buffer = new StringBuilder();
+    for (String line : text.split("\n", -1)) {
+      if (line.isEmpty()) {
+        flushSseEvent(buffer, out);
+        continue;
+      }
+      if (line.startsWith(":")) continue; // comment line
+      String value;
+      int colon = line.indexOf(':');
+      if (colon >= 0) {
+        if (!"data".equals(line.substring(0, colon).trim())) continue; // not a data: line
+        value = line.substring(colon + 1).trim();
+      } else {
+        value = line.trim();
+      }
+      if (buffer.length() > 0 && buffer.charAt(buffer.length() - 1) != '\n') buffer.append('\n');
+      buffer.append(value);
     }
+    flushSseEvent(buffer, out);
     return out;
+  }
+
+  private static void flushSseEvent(StringBuilder buffer, List<Object> out) {
+    String payload = buffer.toString().trim();
+    buffer.setLength(0);
+    if (payload.isEmpty() || "[DONE]".equals(payload)) return;
+    out.add(Json.parse(payload));
   }
 }

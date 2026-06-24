@@ -273,7 +273,34 @@ func (t *AxMCPStreamableHTTPTransport) Send(message map[string]Value) (map[strin
 	if res.StatusCode < 200 || res.StatusCode >= 300 { return nil, AxError{Category:"mcp", Message:fmt.Sprintf("HTTP error %d", res.StatusCode)} }
 	data, _ := io.ReadAll(res.Body)
 	if len(strings.TrimSpace(string(data))) == 0 { return map[string]Value{"jsonrpc":"2.0", "id":coreGet(message, "id", nil), "result":map[string]Value{}}, nil }
+	// A spec-compliant MCP server may answer a JSON-RPC POST with an SSE stream
+	// (Content-Type: text/event-stream) carrying the response — and any interleaved
+	// notifications/keepalives — in `data:` frames; parse those rather than
+	// JSON-decoding the raw stream. Otherwise keep the JSON path.
+	if strings.Contains(strings.ToLower(res.Header.Get("Content-Type")), "text/event-stream") {
+		return t.selectSSEResponse(iterSSE(string(data)), coreGet(message, "id", nil)), nil
+	}
 	return asMap(ParseJSON(string(data))), nil
+}
+
+// selectSSEResponse returns the JSON-RPC response whose id matches the request
+// from the `data:` frames of an SSE answer, routing any interleaved server
+// notifications/requests to the inbound handler (mirroring the stdio transport).
+func (t *AxMCPStreamableHTTPTransport) selectSSEResponse(messages []Value, requestID Value) map[string]Value {
+	var response map[string]Value
+	for _, msg := range messages {
+		m := asMap(msg)
+		if response == nil {
+			if id, ok := m["id"]; ok && display(id) == display(requestID) {
+				response = m
+				continue
+			}
+		}
+		if t.handler != nil { t.handler(m) }
+	}
+	if response != nil { return response }
+	if len(messages) > 0 { return asMap(messages[len(messages)-1]) }
+	return map[string]Value{"jsonrpc":"2.0", "id":requestID, "result":map[string]Value{}}
 }
 
 func (t *AxMCPStreamableHTTPTransport) SendNotification(message map[string]Value) error { _, err := t.Send(message); return err }

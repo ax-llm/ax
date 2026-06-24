@@ -9,7 +9,7 @@
     },
     "axllm/ai.py": {
       "emitted_lines": 4878,
-      "total_lines": 6541
+      "total_lines": 6567
     },
     "axllm/flow.py": {
       "emitted_lines": 1086,
@@ -21,7 +21,7 @@
     },
     "axllm/mcp.py": {
       "emitted_lines": 64,
-      "total_lines": 727
+      "total_lines": 770
     },
     "axllm/prompt.py": {
       "emitted_lines": 87,
