@@ -11,7 +11,7 @@ cargo add axllm
 Or add to your `Cargo.toml`:
 
 ```toml
-axllm = "22.0.6"
+axllm = "22.0.7"
 ```
 
 ```rust

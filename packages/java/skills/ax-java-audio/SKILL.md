@@ -1,7 +1,7 @@
 ---
 name: "ax-java-audio"
 description: "Use when writing Java code with `dev.axllm:ax` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples."
-version: "22.0.6"
+version: "22.0.7"
 ---
 # Ax Audio And Realtime For Java
 
