@@ -6,7 +6,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-06-24-port-anthropic-transient-error-classification-streaming-retry-fa` [axai] Port Anthropic transient-error classification + streaming retry/failover
+  - Status: open
+  - Source PR: #556
+  - Source commit: `2d1a5f96f033640bf4e892e866fde99bc92e8268`
+  - TS paths: `src/ax/ai`
+  - Impact: Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording — so transient Anthropic errors hard-fail there with no retry or failover.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
