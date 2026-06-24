@@ -49,6 +49,32 @@ const buildAnthropicBetaHeader = (extraBetas: readonly string[] = []): string =>
   [...new Set([...ANTHROPIC_BASE_BETAS, ...extraBetas])].join(', ');
 
 /**
+ * The HTTP status an Anthropic `error.type` corresponds to, or undefined for types that
+ * aren't status errors (authentication, or unknown types treated as refusals). Shared by
+ * the error-event mapper and the streaming-error classifier so both agree on the mapping.
+ */
+function anthropicErrorTypeToStatus(type: string): number | undefined {
+  switch (type) {
+    case 'overloaded_error':
+      return 529;
+    case 'api_error':
+      return 500;
+    case 'rate_limit_error':
+      return 429;
+    case 'invalid_request_error':
+      return 400;
+    case 'permission_error':
+      return 403;
+    case 'not_found_error':
+      return 404;
+    case 'request_too_large':
+      return 413;
+    default:
+      return undefined;
+  }
+}
+
+/**
  * Maps an Anthropic `type: 'error'` event to the right Ax error class so the balancer can fail
  * over on transient errors instead of hard-failing. These callbacks only run on HTTP-200 error
  * envelopes (e.g. the streaming `overloaded_error` SSE event), so the status is derived from
@@ -58,26 +84,14 @@ function mapAnthropicErrorEvent(error: {
   type: string;
   message: string;
 }): AxAIServiceStatusError | AxAIServiceAuthenticationError | AxAIRefusalError {
-  switch (error.type) {
-    case 'overloaded_error':
-      return new AxAIServiceStatusError(529, error.type, '', undefined, error);
-    case 'api_error':
-      return new AxAIServiceStatusError(500, error.type, '', undefined, error);
-    case 'rate_limit_error':
-      return new AxAIServiceStatusError(429, error.type, '', undefined, error);
-    case 'invalid_request_error':
-      return new AxAIServiceStatusError(400, error.type, '', undefined, error);
-    case 'permission_error':
-      return new AxAIServiceStatusError(403, error.type, '', undefined, error);
-    case 'not_found_error':
-      return new AxAIServiceStatusError(404, error.type, '', undefined, error);
-    case 'request_too_large':
-      return new AxAIServiceStatusError(413, error.type, '', undefined, error);
-    case 'authentication_error':
-      return new AxAIServiceAuthenticationError('', undefined, error);
-    default:
-      return new AxAIRefusalError(error.message);
+  if (error.type === 'authentication_error') {
+    return new AxAIServiceAuthenticationError('', undefined, error);
   }
+  const status = anthropicErrorTypeToStatus(error.type);
+  if (status !== undefined) {
+    return new AxAIServiceStatusError(status, error.type, '', undefined, error);
+  }
+  return new AxAIRefusalError(error.message);
 }
 
 const isClaudeOpus47OrLater = (model: string): boolean =>
@@ -802,6 +816,15 @@ class AxAIAnthropicImpl
 
     return { results, remoteId: resp.id };
   };
+
+  // Classifies a streaming error event (delivered as an HTTP-200 SSE event) into its HTTP
+  // status so the base layer can retry transient overloads with backoff before failover.
+  classifyStreamErrorStatus = (
+    resp: Readonly<AxAIAnthropicChatResponseDelta>
+  ): number | undefined =>
+    resp.type === 'error'
+      ? anthropicErrorTypeToStatus(resp.error.type)
+      : undefined;
 
   createChatStreamResp = (
     resp: Readonly<AxAIAnthropicChatResponseDelta>,
