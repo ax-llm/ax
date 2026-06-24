@@ -491,7 +491,7 @@ func verifyGoPackageSmoke(report *VerifyTargetReport, goTool string) error {
 	}
 	if err := os.WriteFile(filepath.Join(consumerDir, "go.mod"), []byte(`module axllm_consumer
 
-go 1.22
+go 1.23
 
 require github.com/ax-llm/ax/packages/go v0.0.0
 
@@ -517,7 +517,7 @@ func main() {
 `), 0o644); err != nil {
 		return err
 	}
-	return runVerifyCommand(report, "package go consumer", consumerDir, scrubbedEnviron(), goTool, "run", ".")
+	return runVerifyCommand(report, "package go consumer", consumerDir, scrubbedEnviron(), goTool, "run", "-mod=mod", ".")
 }
 
 func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {

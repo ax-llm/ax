@@ -385,7 +385,7 @@ async function runGo(examplePath, rest) {
     path.join(scratchDir, 'go.mod'),
     `module axllm_example_${stem}
 
-go 1.22
+go 1.23
 
 require github.com/ax-llm/ax/packages/go v0.0.0
 

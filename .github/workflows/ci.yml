@@ -107,7 +107,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22.x'
+          go-version: '1.23.x'
           cache: false
       - name: Cache AxIR Go outputs
         uses: actions/cache@v4
@@ -155,7 +155,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22.x'
+          go-version: '1.23.x'
           cache: false
       - name: Cache AxIR Go outputs
         uses: actions/cache@v4
@@ -223,7 +223,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22.x'
+          go-version: '1.23.x'
           cache: false
       - name: Cache AxIR Go outputs
         uses: actions/cache@v4
@@ -275,7 +275,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22.x'
+          go-version: '1.23.x'
           cache: false
       - name: Go in-process engine antidote (goja, bundled)
         run: cd packages/go && go run ./conformance ../../ir/conformance/axagent-real
