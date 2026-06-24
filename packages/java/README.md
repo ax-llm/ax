@@ -20,6 +20,8 @@ Or with Gradle:
 implementation 'dev.axllm:ax:22.0.7'
 ```
 
+Realtime audio over WebSocket uses the JDK's built-in `java.net.http` WebSocket — no extra dependency.
+
 ```java
 import dev.axllm.ax.*;
 import java.util.*;
@@ -34,6 +36,7 @@ System.out.println(schema.get("properties"));
 - Signatures and schemas: describe inputs and outputs once, then reuse that shape for validation, prompts, tools, and typed results.
 - AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.
 - AxAI: call OpenAI-compatible, OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients through one provider boundary.
+- Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).
 - AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
 - AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
 - Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.
@@ -59,6 +62,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/AxFlowProgramGraphExample.java`: AxFlow program graph
 - `examples/AudioResponsesMappingExample.java`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `examples/RealtimeAudioEventsExample.java`: Grok/Gemini realtime audio setup, input, and event folding
+- `examples/RealtimeAudioTurnExample.java`: drive a full realtime audio turn through `realtimeChat` (offline, scripted transport)
 - `examples/RuntimeAdapterExample.java`: custom `AxCodeRuntime` session
 - `examples/RuntimeProtocolExample.java`: process runtime protocol against the AxJS reference adapter
 - `examples/OptimizerArtifactExample.java`: optimizer artifact save/load/apply lifecycle

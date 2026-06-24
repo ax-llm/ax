@@ -58,6 +58,16 @@ Agents transcribe top-level audio input fields before the distiller, executor, a
 
 Native audio understanding remains available through direct `ax()` and `.chat()` calls when you intentionally want the model to receive the audio bytes.
 
+## Generated Packages
+
+All three audio paths work in the five generated ports (Python, Go, Rust, Java, C++), not just TypeScript:
+
+- **Batch STT/TTS** — `transcribe()` and `speak()` go over the real multipart-upload and binary-response HTTP paths.
+- **Conversational audio** — `.chat()` accepts `input_audio` content parts.
+- **Realtime voice** — streamed over a WebSocket. Realtime-capable models route transparently through `chat()`, or you can call the productized `realtime_chat()` driver directly (Go: `RealtimeChat`).
+
+The socket transport is an opt-in dependency per language: Python `pip install axllm[realtime]` (websocket-client), Rust `cargo add axllm --features realtime` (tungstenite), C++ `-DAXLLM_ENABLE_REALTIME=ON` (IXWebSocket via FetchContent); Go needs Go 1.23+ and pulls `github.com/coder/websocket` automatically; Java uses the JDK's built-in WebSocket with no extra dependency. Each port ships an offline `realtime_audio_turn` example that drives a full turn through a scripted transport — see the package README for the per-language snippet.
+
 ## Provider Notes
 
 Current public provider docs change quickly; verify production pricing before committing volume.

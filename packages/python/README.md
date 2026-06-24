@@ -8,6 +8,12 @@ Build Ax programs from Python without giving up the Ax model: typed signatures, 
 pip install axllm
 ```
 
+Realtime audio over WebSocket is an opt-in extra (pulls `websocket-client`):
+
+```bash
+pip install axllm[realtime]
+```
+
 ```python
 from axllm import s
 
@@ -21,6 +27,7 @@ assert "answer" in schema["properties"]
 - Signatures and schemas: describe inputs and outputs once, then reuse that shape for validation, prompts, tools, and typed results.
 - AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.
 - AxAI: call OpenAI-compatible, OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients through one provider boundary.
+- Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).
 - AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
 - AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
 - Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.
@@ -45,6 +52,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `python examples/axflow_program_graph.py`: AxFlow program graph
 - `python examples/audio_responses_mapping.py`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `python examples/realtime_audio_events.py`: Grok/Gemini realtime audio setup, input, and event folding
+- `python examples/realtime_audio_turn.py`: drive a full realtime audio turn through the productized `realtime_chat()` driver (offline, scripted transport)
 - `python examples/runtime_adapter.py`: custom `AxCodeRuntime` session
 - `python examples/runtime_protocol.py`: process runtime protocol against the AxJS reference adapter
 - `python examples/optimizer_artifact.py`: optimizer artifact save/load/apply lifecycle

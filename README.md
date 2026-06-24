@@ -252,6 +252,8 @@ Agents transcribe `:audio` inputs before the planner/executor/responder stages, 
 
 OpenAI supports both request-based audio chat (`gpt-audio`, `gpt-audio-mini`) and realtime voice/transcription models (`gpt-realtime-2`, `gpt-realtime-whisper`). Gemini native audio uses the Live API under the same `.chat()` shape; Grok Voice uses the realtime voice endpoint.
 
+These same three audio paths ship in all five generated ports (Python, Go, Rust, Java, C++): batch `transcribe()`/`speak()`, `.chat()` with `input_audio` content parts, and realtime voice over WebSocket — realtime-capable models route transparently through `chat()`, or you can call the productized `realtime_chat()` driver directly (Go: `RealtimeChat`). Each port ships an offline `realtime_audio_turn` example and an opt-in dependency for the socket (see the install notes below).
+
 ```typescript
 import WebSocket from "ws";
 import {
@@ -457,7 +459,7 @@ const result = await optimizer.compile(
 | Multi-modal | `f.image`, `f.audio`, `.chat({ audio })` | OpenAI, Gemini, Anthropic |
 | Batch STT/TTS | `ai.transcribe`, `ai.speak` | OpenAI, xAI, Gemini, Mistral where provider endpoints exist |
 | Signature audio artifacts | `speech:audio` outputs + `speech` options | model emits script text, Ax synthesizes audio after parsing |
-| Conversational audio | `.chat()` + `result.audio` | OpenAI `gpt-audio*`, `gpt-realtime-2`, `gpt-realtime-whisper`; Gemini Live native audio; Grok Voice |
+| Conversational audio | `.chat()` + `result.audio` | OpenAI `gpt-audio*`, `gpt-realtime-2`, `gpt-realtime-whisper`; Gemini Live native audio; Grok Voice; also in Python/Go/Rust/Java/C++ via `realtime_chat()` |
 | Workflows | `flow` | typed program graphs, branching, loops, parallelism, `.returns(...)` |
 | Optimization | `AxGEPA`, `AxBootstrapFewShot` | Pareto front, few-shot, portable optimizer artifacts |
 | Agent loop | `agent`, `AxAgent` | distiller → executor → responder |
@@ -482,12 +484,12 @@ npm install @ax-llm/ax
 The generated Python, Java, C++, Go, and Rust libraries are checked in under `packages/`,
 verified in this repo, and installable from each language's package manager (all Apache-2.0):
 
-- **Python**: `pip install axllm`
-- **Rust**: `cargo add axllm`
-- **Go**: `go get github.com/ax-llm/ax/packages/go`
-- **Java**: `dev.axllm:ax` on Maven Central (Gradle / Maven snippet in [`packages/java`](packages/java/README.md))
+- **Python**: `pip install axllm` (realtime audio: `pip install axllm[realtime]`)
+- **Rust**: `cargo add axllm` (realtime audio: `cargo add axllm --features realtime`)
+- **Go**: `go get github.com/ax-llm/ax/packages/go` (realtime audio needs Go 1.23+ and pulls `github.com/coder/websocket` automatically)
+- **Java**: `dev.axllm:ax` on Maven Central (Gradle / Maven snippet in [`packages/java`](packages/java/README.md)); realtime audio uses the JDK's built-in WebSocket — no extra dependency
 - **C++**: CMake `FetchContent` (`GIT_REPOSITORY https://github.com/ax-llm/ax`,
-  `SOURCE_SUBDIR packages/cpp`), then link `axllm::axllm`
+  `SOURCE_SUBDIR packages/cpp`), then link `axllm::axllm` (realtime audio: build with `-DAXLLM_ENABLE_REALTIME=ON`)
 
 Optional packages:
 

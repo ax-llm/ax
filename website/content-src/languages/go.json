@@ -18,6 +18,15 @@
     "optimize": ["Optimizers"]
   },
   "snippets": {
+    "ai": {
+      "audio": [
+        "// Realtime audio over WebSocket — needs Go 1.23+",
+        "client := ax.NewOpenAIResponsesClient(map[string]ax.Value{\"model\": \"gpt-realtime-2\", \"api_key\": os.Getenv(\"OPENAI_APIKEY\")})",
+        "request := map[string]ax.Value{\"model\": \"gpt-realtime-2\", \"chat_prompt\": ax.Array(ax.Object(\"role\", \"user\", \"content\", \"Say hello.\")), \"audio\": ax.Object(\"output\", ax.Object(\"voice\", \"alloy\"))}",
+        "final, _ := client.RealtimeChat(context.Background(), request, nil, nil)  // one merged turn: transcript + base64 PCM audio",
+        "// Realtime models also route transparently through Chat(); Chat() accepts input_audio parts; Transcribe()/Speak() do batch STT/TTS."
+      ]
+    },
     "quickStart": [
       "import axllm \"github.com/ax-llm/ax/packages/go\"",
       "",

@@ -18,6 +18,15 @@
     "optimize": ["Optimizers"]
   },
   "snippets": {
+    "ai": {
+      "audio": [
+        "// Realtime audio over WebSocket — cargo add axllm --features realtime",
+        "let client = ai(\"openai-responses\", json!({\"model\": \"gpt-realtime-2\"}))?;",
+        "let request = json!({\"model\": \"gpt-realtime-2\", \"chat_prompt\": [{\"role\": \"user\", \"content\": \"Say hello.\"}], \"audio\": {\"output\": {\"voice\": \"alloy\"}}});",
+        "let response = client.realtime_chat(request, None)?;  // one merged turn: transcript + base64 PCM audio",
+        "// Realtime models also route transparently through chat(); chat() accepts input_audio parts; transcribe()/speak() do batch STT/TTS."
+      ]
+    },
     "quickStart": [
       "use axllm::{ai, ax};",
       "use serde_json::json;",

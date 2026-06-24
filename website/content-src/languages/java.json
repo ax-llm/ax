@@ -27,6 +27,15 @@
     "optimize": ["Optimizers"]
   },
   "snippets": {
+    "ai": {
+      "audio": [
+        "// Realtime audio over WebSocket — uses the JDK's built-in WebSocket (no extra dependency)",
+        "OpenAIResponsesClient client = new OpenAIResponsesClient(Map.of(\"model\", \"gpt-realtime-2\", \"api_key\", System.getenv(\"OPENAI_APIKEY\")));",
+        "Map<String, Object> request = Map.of(\"model\", \"gpt-realtime-2\", \"chat_prompt\", List.of(Map.of(\"role\", \"user\", \"content\", \"Say hello.\")), \"audio\", Map.of(\"output\", Map.of(\"voice\", \"alloy\")));",
+        "Map<String, Object> result = client.realtimeChat(request, null);  // one merged turn: transcript + base64 PCM audio",
+        "// Realtime models also route transparently through chat(); chat() accepts input_audio parts; transcribe()/speak() do batch STT/TTS."
+      ]
+    },
     "quickStart": [
       "import dev.axllm.ax.Ax;",
       "",

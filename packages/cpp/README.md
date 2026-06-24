@@ -13,6 +13,12 @@ FetchContent_MakeAvailable(axllm)
 target_link_libraries(your_app PRIVATE axllm::axllm)
 ```
 
+Realtime audio over WebSocket is opt-in; enable it (fetches IXWebSocket) by setting the CMake option before `FetchContent_MakeAvailable`:
+
+```cmake
+set(AXLLM_ENABLE_REALTIME ON)
+```
+
 ```cpp
 #include "axllm/axllm.hpp"
 
@@ -25,6 +31,7 @@ auto schema = axllm::to_json_schema(axllm::Core::get(sig, "outputs"));
 - Signatures and schemas: describe inputs and outputs once, then reuse that shape for validation, prompts, tools, and typed results.
 - AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.
 - AxAI: call OpenAI-compatible, OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients through one provider boundary.
+- Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).
 - AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
 - AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
 - Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.
@@ -50,6 +57,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/axflow_program_graph.cpp`: AxFlow program graph
 - `examples/audio_responses_mapping.cpp`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `examples/realtime_audio_events.cpp`: Grok/Gemini realtime audio setup, input, and event folding
+- `examples/realtime_audio_turn.cpp`: drive a full realtime audio turn through `realtime_chat` (offline, scripted transport)
 - `examples/runtime_adapter.cpp`: custom `AxCodeRuntime` session
 - `examples/runtime_protocol.cpp`: process runtime protocol against the AxJS reference adapter
 - `examples/optimizer_artifact.cpp`: optimizer artifact save/load/apply lifecycle

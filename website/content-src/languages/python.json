@@ -18,6 +18,15 @@
     "optimize": ["Optimizers"]
   },
   "snippets": {
+    "ai": {
+      "audio": [
+        "# Realtime audio over WebSocket — pip install axllm[realtime]",
+        "client = OpenAIResponsesClient(model=\"gpt-realtime-2\", api_key=os.environ[\"OPENAI_APIKEY\"])",
+        "request = {\"model\": \"gpt-realtime-2\", \"chat_prompt\": [{\"role\": \"user\", \"content\": \"Say hello.\"}], \"audio\": {\"output\": {\"voice\": \"alloy\"}}}",
+        "final = client.realtime_chat(request)  # one merged turn: transcript + base64 PCM audio",
+        "# Realtime models also route transparently through chat(); .chat() accepts input_audio parts; transcribe()/speak() do batch STT/TTS."
+      ]
+    },
     "quickStart": [
       "from axllm import ai, ax",
       "",

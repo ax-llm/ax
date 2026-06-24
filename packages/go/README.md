@@ -8,6 +8,8 @@ Write Ax programs in Go with the same contract used by the main Ax library: sign
 go get github.com/ax-llm/ax/packages/go
 ```
 
+Realtime audio over WebSocket needs Go 1.23+; the module pulls in `github.com/coder/websocket` automatically.
+
 ```go
 package main
 
@@ -24,6 +26,7 @@ func main() {
 - Signatures and schemas: describe inputs and outputs once, then reuse that shape for validation, prompts, tools, and typed results.
 - AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.
 - AxAI: call OpenAI-compatible, OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients through one provider boundary.
+- Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).
 - AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
 - AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
 - Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.
@@ -49,6 +52,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `go run ./examples/axflow_program_graph`: AxFlow program graph
 - `go run ./examples/audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `go run ./examples/realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding
+- `go run ./examples/realtime_audio_turn`: drive a full realtime audio turn through `RealtimeChat` (offline, scripted transport)
 - `go run ./examples/runtime_adapter`: custom `AxCodeRuntime` session
 - `go run ./examples/runtime_protocol`: process runtime protocol against the AxJS reference adapter
 - `go run ./examples/optimizer_artifact`: optimizer artifact save/load/apply lifecycle
