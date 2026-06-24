@@ -285,7 +285,15 @@ export type AxAIAnthropicChatResponse = {
 export type AxAIAnthropicChatError = {
   type: 'error';
   error: {
-    type: 'authentication_error';
+    type:
+      | 'overloaded_error'
+      | 'api_error'
+      | 'rate_limit_error'
+      | 'invalid_request_error'
+      | 'authentication_error'
+      | 'permission_error'
+      | 'not_found_error'
+      | 'request_too_large';
     message: string;
   };
 };
@@ -410,7 +418,15 @@ export interface AxAIAnthropicPingEvent {
 export interface AxAIAnthropicErrorEvent {
   type: 'error';
   error: {
-    type: 'overloaded_error';
+    type:
+      | 'overloaded_error'
+      | 'api_error'
+      | 'rate_limit_error'
+      | 'invalid_request_error'
+      | 'authentication_error'
+      | 'permission_error'
+      | 'not_found_error'
+      | 'request_too_large';
     message: string;
   };
 }

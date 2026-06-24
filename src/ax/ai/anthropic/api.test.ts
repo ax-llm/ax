@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AxAIRefusalError } from '../../util/apicall.js';
+import {
+  AxAIServiceAuthenticationError,
+  AxAIServiceStatusError,
+} from '../../util/apicall.js';
 import { AxAIAnthropic } from './api.js';
 import { AxAIAnthropicModel } from './types.js';
 
@@ -896,6 +900,227 @@ describe('AxAIAnthropic thinking configuration', () => {
       explanation: 'Cyber safety policy refusal.',
       refusalMessage: 'Cyber safety policy refusal.',
     } satisfies Partial<AxAIRefusalError>);
+  });
+});
+
+describe('AxAIAnthropic error-event classification', () => {
+  it('maps a non-streaming overloaded_error event to a 529 status error', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+    const fetch = createMockFetch({
+      type: 'error',
+      error: { type: 'overloaded_error', message: 'Overloaded' },
+    });
+    ai.setOptions({ fetch });
+
+    const err = await ai
+      .chat(
+        { chatPrompt: [{ role: 'user', content: 'hello' }] },
+        { stream: false }
+      )
+      .then(
+        () => undefined,
+        (e) => e
+      );
+
+    expect(err).toBeInstanceOf(AxAIServiceStatusError);
+    expect((err as AxAIServiceStatusError).status).toBe(529);
+  });
+
+  it('maps a streaming overloaded_error event to a 529 status error', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+    const fetch = createMockStreamFetch([
+      {
+        type: 'error',
+        error: { type: 'overloaded_error', message: 'Overloaded' },
+      },
+    ]);
+    // Disable retries so this exercises the classification mapping in isolation; the
+    // retry-with-backoff behavior is covered by 'streaming transient-error retry'.
+    ai.setOptions({ fetch, retry: { maxRetries: 0 } });
+
+    const stream = (await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hello' }] },
+      { stream: true }
+    )) as ReadableStream<any>;
+    const reader = stream.getReader();
+
+    const err = await reader.read().then(
+      () => undefined,
+      (e) => e
+    );
+
+    expect(err).toBeInstanceOf(AxAIServiceStatusError);
+    expect((err as AxAIServiceStatusError).status).toBe(529);
+  });
+
+  it('maps an authentication_error event to an authentication error', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+    const fetch = createMockFetch({
+      type: 'error',
+      error: { type: 'authentication_error', message: 'invalid x-api-key' },
+    });
+    ai.setOptions({ fetch });
+
+    const err = await ai
+      .chat(
+        { chatPrompt: [{ role: 'user', content: 'hello' }] },
+        { stream: false }
+      )
+      .then(
+        () => undefined,
+        (e) => e
+      );
+
+    expect(err).toBeInstanceOf(AxAIServiceAuthenticationError);
+  });
+
+  it.each([
+    ['invalid_request_error', 400],
+    ['permission_error', 403],
+    ['not_found_error', 404],
+    ['request_too_large', 413],
+  ])(
+    'maps a %s event to a non-refusal %i status error',
+    async (type, status) => {
+      const ai = new AxAIAnthropic({
+        apiKey: 'key',
+        config: { model: AxAIAnthropicModel.Claude48Opus },
+      });
+      const fetch = createMockFetch({
+        type: 'error',
+        error: { type, message: type },
+      });
+      ai.setOptions({ fetch });
+
+      const err = await ai
+        .chat(
+          { chatPrompt: [{ role: 'user', content: 'hello' }] },
+          { stream: false }
+        )
+        .then(
+          () => undefined,
+          (e) => e
+        );
+
+      expect(err).toBeInstanceOf(AxAIServiceStatusError);
+      expect((err as AxAIServiceStatusError).status).toBe(status);
+    }
+  );
+});
+
+describe('AxAIAnthropic streaming transient-error retry', () => {
+  const overloadChunk = {
+    type: 'error',
+    error: { type: 'overloaded_error', message: 'Overloaded' },
+  };
+  const goodChunks = [
+    {
+      type: 'message_start',
+      message: {
+        id: 'msg_ok',
+        type: 'message',
+        role: 'assistant',
+        content: [],
+        model: 'claude-opus-4-8',
+        stop_reason: null,
+        usage: { input_tokens: 1, output_tokens: 0 },
+      },
+    },
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'text_delta', text: 'recovered' },
+    },
+    {
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn' },
+      usage: { output_tokens: 2 },
+    },
+  ];
+
+  // Builds a streaming Response from chunks, choosing per fetch call so we can return an
+  // overload first and a healthy stream on retry.
+  const streamFetch = (chunksByCall: readonly (readonly unknown[])[]) => {
+    let call = 0;
+    return vi.fn().mockImplementation(async () => {
+      const chunks = chunksByCall[Math.min(call, chunksByCall.length - 1)];
+      call++;
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const chunk of chunks ?? []) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`)
+            );
+          }
+          controller.close();
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+  };
+
+  it('retries a pre-content overloaded_error then streams the recovered response', async () => {
+    const fetch = streamFetch([[overloadChunk], goodChunks]);
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+    ai.setOptions({ fetch, retry: { initialDelayMs: 1, maxRetries: 2 } });
+
+    const stream = (await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hello' }] },
+      { stream: true }
+    )) as ReadableStream<any>;
+
+    let text = '';
+    const reader = stream.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += value.results?.[0]?.content ?? '';
+    }
+
+    expect(text).toBe('recovered');
+    expect(fetch).toHaveBeenCalledTimes(2); // initial overload + 1 retry that succeeded
+  });
+
+  it('surfaces a 529 after exhausting the streaming overload retry budget', async () => {
+    const fetch = streamFetch([[overloadChunk]]); // always overloaded
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+    ai.setOptions({ fetch, retry: { initialDelayMs: 1, maxRetries: 2 } });
+
+    const stream = (await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hello' }] },
+      { stream: true }
+    )) as ReadableStream<any>;
+
+    const err = await stream
+      .getReader()
+      .read()
+      .then(
+        () => undefined,
+        (e) => e
+      );
+
+    expect(err).toBeInstanceOf(AxAIServiceStatusError);
+    expect((err as AxAIServiceStatusError).status).toBe(529);
+    expect(fetch).toHaveBeenCalledTimes(3); // initial + maxRetries(2)
   });
 });
 

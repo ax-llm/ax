@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { AxAIServiceNetworkError } from '../util/apicall.js';
+import {
+  AxAIServiceNetworkError,
+  AxAIServiceStatusError,
+} from '../util/apicall.js';
 
 import { AxBalancer } from './balance.js';
 import { AxMockAIService, type AxMockAIServiceConfig } from './mock/api.js';
@@ -348,5 +351,227 @@ describe('AxBalancer', () => {
     });
 
     expect(calledService).toBe(1);
+  });
+
+  test('fails over to next service on a 529 overloaded status', async () => {
+    let calledService: number | undefined;
+    const services: AxAIService[] = [
+      createMockService({
+        name: 'service-0',
+        latencyMs: 200,
+        chatResponse: async () => {
+          throw new AxAIServiceStatusError(
+            529,
+            'overloaded_error',
+            'test-url',
+            {},
+            {}
+          );
+        },
+      }),
+      createMockService({
+        name: 'service-1',
+        chatResponse: async () => {
+          calledService = 1;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'test response',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: {
+              ai: 'test-ai',
+              model: 'test-model',
+              tokens: {
+                promptTokens: 20,
+                completionTokens: 10,
+                totalTokens: 30,
+              },
+            },
+          };
+        },
+      }),
+    ];
+
+    const balancer = new AxBalancer(services, {
+      comparator: AxBalancer.inputOrderComparator,
+      debug: false,
+    });
+
+    const res = await balancer.chat({
+      chatPrompt: [{ role: 'user', content: 'test' }],
+      model: 'mock',
+    });
+
+    expect(calledService).toBe(1);
+    expect('results' in res && res.results[0]?.content).toBe('test response');
+  });
+
+  test('fails over on a streaming 529 thrown while reading the stream', async () => {
+    let calledService: number | undefined;
+    const services: AxAIService[] = [
+      createMockService({
+        name: 'service-0',
+        // Resolves with a stream (HTTP-200), then errors on the first read — the shape of
+        // Anthropic's streaming overloaded_error. The balancer must peek this and fail over.
+        chatResponse: async () =>
+          new ReadableStream({
+            pull(controller) {
+              controller.error(
+                new AxAIServiceStatusError(
+                  529,
+                  'overloaded_error',
+                  'test-url',
+                  {},
+                  {}
+                )
+              );
+            },
+          }),
+      }),
+      createMockService({
+        name: 'service-1',
+        chatResponse: async () => {
+          calledService = 1;
+          return new ReadableStream({
+            start(controller) {
+              controller.enqueue({
+                results: [
+                  {
+                    index: 0,
+                    content: 'streamed fallback',
+                    finishReason: 'stop' as const,
+                  },
+                ],
+                modelUsage: {
+                  ai: 'test-ai',
+                  model: 'test-model',
+                  tokens: {
+                    promptTokens: 20,
+                    completionTokens: 10,
+                    totalTokens: 30,
+                  },
+                },
+              });
+              controller.close();
+            },
+          });
+        },
+      }),
+    ];
+
+    const balancer = new AxBalancer(services, {
+      comparator: AxBalancer.inputOrderComparator,
+      debug: false,
+    });
+
+    const res = await balancer.chat(
+      { chatPrompt: [{ role: 'user', content: 'test' }], model: 'mock' },
+      { stream: true }
+    );
+
+    let content = '';
+    const reader = (res as ReadableStream<any>).getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      content += value.results?.[0]?.content ?? '';
+    }
+
+    expect(calledService).toBe(1);
+    expect(content).toBe('streamed fallback');
+  });
+
+  test('records a mid-stream failure so the next call backs off the failed service', async () => {
+    let calledService1 = false;
+    const streamingChunk = {
+      results: [
+        { index: 0, content: 'partial', finishReason: 'stop' as const },
+      ],
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+      },
+    };
+    const services: AxAIService[] = [
+      createMockService({
+        name: 'service-0',
+        // Emits one good chunk, then errors mid-stream — too late to fail over transparently
+        // (partial output is committed), but the failure must still be recorded for backoff.
+        chatResponse: async () =>
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(streamingChunk);
+            },
+            pull(controller) {
+              controller.error(
+                new AxAIServiceStatusError(
+                  529,
+                  'overloaded_error',
+                  'test-url',
+                  {},
+                  {}
+                )
+              );
+            },
+          }),
+      }),
+      createMockService({
+        name: 'service-1',
+        chatResponse: async () => {
+          calledService1 = true;
+          return new ReadableStream({
+            start(controller) {
+              controller.enqueue({ ...streamingChunk });
+              controller.close();
+            },
+          });
+        },
+      }),
+    ];
+
+    const balancer = new AxBalancer(services, {
+      comparator: AxBalancer.inputOrderComparator,
+      debug: false,
+    });
+
+    // First call: stream from service-0 delivers one chunk then throws mid-stream.
+    const res1 = (await balancer.chat(
+      { chatPrompt: [{ role: 'user', content: 'test' }], model: 'mock' },
+      { stream: true }
+    )) as ReadableStream<any>;
+    let firstContent = '';
+    let midStreamError: unknown;
+    const reader1 = res1.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader1.read();
+        if (done) break;
+        firstContent += value.results?.[0]?.content ?? '';
+      }
+    } catch (e) {
+      midStreamError = e;
+    }
+    expect(firstContent).toBe('partial');
+    expect(midStreamError).toBeInstanceOf(AxAIServiceStatusError);
+    expect(calledService1).toBe(false);
+
+    // Second call: service-0 is now in backoff, so the balancer must route to service-1.
+    const res2 = (await balancer.chat(
+      { chatPrompt: [{ role: 'user', content: 'test' }], model: 'mock' },
+      { stream: true }
+    )) as ReadableStream<any>;
+    let secondContent = '';
+    const reader2 = res2.getReader();
+    while (true) {
+      const { done, value } = await reader2.read();
+      if (done) break;
+      secondContent += value.results?.[0]?.content ?? '';
+    }
+    expect(calledService1).toBe(true);
+    expect(secondContent).toBe('partial');
   });
 });
