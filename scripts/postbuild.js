@@ -40,13 +40,16 @@ packageJson.exports = {
     import: './index.js',
     require: './index.cjs',
   },
-  './index.global.js': './index.global.js',
   './*': {
     types: './*.d.ts',
     import: './*.js',
     require: './*.cjs',
   },
 };
+
+if (existsSync(path.join(buildPath, 'index.global.js'))) {
+  packageJson.exports['./index.global.js'] = './index.global.js';
+}
 
 // Remove devDependencies and scripts
 delete packageJson.devDependencies;
