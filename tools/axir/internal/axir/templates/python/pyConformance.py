@@ -1874,6 +1874,8 @@ def _run_ai_balancer(fixture):
             name = op.get("name")
             if name == "chat":
                 outputs[name] = balancer.chat(op.get("request") or {}, op.get("options"))
+            elif name == "stream":
+                outputs[name] = list(balancer.stream(op.get("request") or {}, op.get("options")))
             elif name == "embed":
                 outputs[name] = balancer.embed(op.get("request") or {}, op.get("options"))
             elif name == "transcribe":

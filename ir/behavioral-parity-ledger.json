@@ -189,6 +189,28 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES. cache-hit asserts execution is skipped (request count 0) and the cached output returned; cache-miss asserts the output is written. KNOWN MINOR GAPS (not ported, documented here): TS SHA256 cache-key (IR uses json.stable_stringify); streamingForward (TS yields one accumulated result); nodeExtended; multi-source abort-signal merge; finer step-level execution logging."
+    },
+    {
+      "capability": "ai.stream.transient_overload_retry_and_failover",
+      "summary": "A transient Anthropic error event is classified by error.type to its HTTP status (overloaded_error->529, api_error->500, rate_limit_error->429, client errors->4xx, authentication_error->auth, unknown->refusal) in both the non-streaming and streaming parsers. A pre-content streaming transient error (e.g. Anthropic's HTTP-200 overloaded_error SSE event) is retried with the same exponential backoff apiCall applies to a 529 before surfacing; the balancer then fails over on the surfaced retryable status (529 is in every balancer's retryable set). TS peekStreamForFailover + mid-stream failure recording are workarounds for TS's lazy ReadableStream (errors defer past the balancer try/catch); the eager/synchronous ports have no portable equivalent and instead fail over through the chat-routed balancer loop, proven by balancer-status-529-stream-failover.",
+      "ir_ops": [
+        "@anthropic_map_error_event",
+        "@anthropic_error_type_to_status",
+        "@provider_classify_stream_error_status",
+        "@is_retryable_status",
+        "@resolve_stream_retry"
+      ],
+      "fixtures": [
+        "axai/anthropic-stream-retry-overloaded.json",
+        "axai/anthropic-stream-retry-exhausted.json",
+        "axai/anthropic-stream-error-overloaded.json",
+        "axai/balancer-status-529-failover.json",
+        "axai/balancer-status-529-stream-failover.json"
+      ],
+      "gate": "test:axir verify (all targets)",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES via npm run test:axir. Anthropic error fixtures assert error.type -> error class + HTTP status (overloaded->Status 529, rate_limit->429, api->500, invalid_request->400, authentication->Auth, unknown->Refusal) on both chat and stream paths. anthropic-stream-retry-overloaded proves a first-delta overloaded_error is retried then the next response's content is returned; anthropic-stream-retry-exhausted proves the 529 surfaces once the retry budget is spent; anthropic-stream-error-overloaded opts out of retries (maxRetries:0) to assert the classification in isolation. balancer-status-529-failover and -stream-failover prove the balancer fails over to a healthy backup on a retryable 529 via both chat() and stream(). peekStreamForFailover/mid-stream recording intentionally not ported (TS-lazy-streaming-specific; the ports stream synchronously)."
     }
   ]
 }

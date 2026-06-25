@@ -1,0 +1,190 @@
+{
+  "expected_output": {
+    "outputs": {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Overload529StreamBackup chat",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "kind": "ai_balancer",
+  "name": "balancer-status-529-stream-failover",
+  "operations": [
+    {
+      "name": "stream",
+      "options": {
+        "trace": "overload"
+      },
+      "request": {
+        "chatPrompt": [
+          {
+            "content": "overload",
+            "role": "user"
+          }
+        ],
+        "model": "overload-model"
+      }
+    }
+  ],
+  "options": {
+    "debug": false,
+    "maxRetries": 2,
+    "strategy": "input_order"
+  },
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "Overload529StreamPrimary-id",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 100,
+            "p95": 105,
+            "p99": 109,
+            "samples": [100]
+          },
+          "embed": {
+            "mean": 100,
+            "p95": 105,
+            "p99": 109,
+            "samples": [100]
+          }
+        }
+      },
+      "name": "Overload529StreamPrimary",
+      "responses": [
+        {
+          "error": {
+            "message": "overloaded",
+            "status": 529,
+            "type": "status"
+          }
+        },
+        {
+          "error": {
+            "message": "overloaded",
+            "status": 529,
+            "type": "status"
+          }
+        }
+      ]
+    },
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "Overload529StreamBackup-id",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 300,
+            "p95": 305,
+            "p99": 309,
+            "samples": [300]
+          },
+          "embed": {
+            "mean": 300,
+            "p95": 305,
+            "p99": 309,
+            "samples": [300]
+          }
+        }
+      },
+      "name": "Overload529StreamBackup"
+    }
+  ]
+}

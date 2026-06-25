@@ -1773,6 +1773,11 @@ public final class Conformance {
         Map<String, Object> op = Core.asMap(raw);
         String name = String.valueOf(op.get("name"));
         if ("chat".equals(name)) outputs.put(name, balancer.chat(Core.asMap(op.getOrDefault("request", Map.of())), Core.asMap(op.getOrDefault("options", Map.of()))));
+        else if ("stream".equals(name)) {
+          List<Object> deltas = new ArrayList<>();
+          for (Object delta : balancer.stream(Core.asMap(op.getOrDefault("request", Map.of())))) deltas.add(delta);
+          outputs.put(name, deltas);
+        }
         else if ("embed".equals(name)) outputs.put(name, balancer.embed(Core.asMap(op.getOrDefault("request", Map.of())), Core.asMap(op.getOrDefault("options", Map.of()))));
         else if ("transcribe".equals(name)) outputs.put(name, balancer.transcribe(Core.asMap(op.getOrDefault("request", Map.of())), Core.asMap(op.getOrDefault("options", Map.of()))));
         else if ("speak".equals(name)) outputs.put(name, balancer.speak(Core.asMap(op.getOrDefault("request", Map.of())), Core.asMap(op.getOrDefault("options", Map.of()))));

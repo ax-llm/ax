@@ -964,6 +964,63 @@ writeFixture('balancer-status-529-failover', {
   },
 });
 
+// Proves balancer failover on the STREAMING path: a stream() call whose primary hits a
+// retryable 529 must fail over to the healthy backup, same as chat(). The ports route
+// balancer.stream() through the chat() failover loop, so the streamed deltas come from the
+// backup. TS AxBalancer has no separate stream(), so the expected single-result delta is the
+// failover chat result wrapped as one stream chunk (every port's stream wrapper collapses a
+// single-result response to [{ results: [result] }]). serviceCalls are not asserted because
+// the stream wrapper adds `stream: true` to the recorded options.
+const overload529StreamPrimarySpec = {
+  name: 'Overload529StreamPrimary',
+  id: 'Overload529StreamPrimary-id',
+  features: routerFeatures(),
+  metrics: balancerMetrics(100),
+  responses: [
+    { error: { type: 'status', status: 529, message: 'overloaded' } },
+    { error: { type: 'status', status: 529, message: 'overloaded' } },
+  ],
+};
+const overload529StreamBackupSpec = {
+  name: 'Overload529StreamBackup',
+  id: 'Overload529StreamBackup-id',
+  features: routerFeatures(),
+  metrics: balancerMetrics(300),
+};
+const balancerOverload529StreamServices = [
+  new FixtureAIService(overload529StreamPrimarySpec),
+  new FixtureAIService(overload529StreamBackupSpec),
+];
+const balancerOverload529Stream = new AxBalancer(
+  balancerOverload529StreamServices as any,
+  { comparator: AxBalancer.inputOrderComparator, debug: false, maxRetries: 2 }
+);
+const balancerOverload529StreamChat = await balancerOverload529Stream.chat(
+  {
+    model: 'overload-model',
+    chatPrompt: [{ role: 'user', content: 'overload' }],
+  } as any,
+  { trace: 'overload' } as any
+);
+writeFixture('balancer-status-529-stream-failover', {
+  kind: 'ai_balancer',
+  services: [overload529StreamPrimarySpec, overload529StreamBackupSpec],
+  options: { strategy: 'input_order', debug: false, maxRetries: 2 },
+  operations: [
+    {
+      name: 'stream',
+      request: {
+        model: 'overload-model',
+        chatPrompt: [{ role: 'user', content: 'overload' }],
+      },
+      options: { trace: 'overload' },
+    },
+  ],
+  expected_output: {
+    outputs: { stream: [balancerOverload529StreamChat as any] },
+  },
+});
+
 const textOnlyBalancerSpec = {
   name: 'TextBalancer',
   id: 'TextBalancer-id',

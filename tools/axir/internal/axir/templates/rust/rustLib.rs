@@ -5379,6 +5379,22 @@ impl ConformanceBalancer {
         )))
     }
 
+    // Streaming routes through the same failover loop as chat(): a transient error on the
+    // primary fails over to a healthy backup, and the backup's response is replayed as stream
+    // deltas (a single-result response collapses to [{ results: [result] }]). No lazy
+    // first-chunk peek is needed — the ports stream synchronously, so the error surfaces inside
+    // the failover loop rather than deferring past it the way TS's ReadableStream does.
+    fn stream(&mut self, request: &Value, options: &Value) -> AxResult<Vec<Value>> {
+        let response = self.chat(request, options)?;
+        if let Some(results) = response.get("results").and_then(Value::as_array) {
+            return Ok(results
+                .iter()
+                .map(|result| json!({ "results": [result.clone()] }))
+                .collect());
+        }
+        Ok(vec![response])
+    }
+
     fn chat(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
         let candidates = self.candidate_indices(request)?;
         let mut candidate_pos = 0;
@@ -5463,6 +5479,12 @@ fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
         match name {
             "chat" => {
                 outputs.insert(name.to_string(), balancer.chat(&request, &options)?);
+            }
+            "stream" => {
+                outputs.insert(
+                    name.to_string(),
+                    Value::Array(balancer.stream(&request, &options)?),
+                );
             }
             "embed" => {
                 outputs.insert(name.to_string(), balancer.embed(&request, &options)?);

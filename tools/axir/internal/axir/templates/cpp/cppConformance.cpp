@@ -1875,6 +1875,11 @@ static void run_ai_balancer(Value fixture) {
       Value request = Core::get(raw, "request", Value::object());
       Value options = Core::get(raw, "options", Value::object());
       if (name == "chat") Core::set(outputs, name, balancer.chat(request, options));
+      else if (name == "stream") {
+        Value deltas = Value::array();
+        for (const auto& delta : balancer.stream(request)) Core::append(deltas, delta);
+        Core::set(outputs, name, deltas);
+      }
       else if (name == "embed") Core::set(outputs, name, balancer.embed(request, options));
       else if (name == "transcribe") Core::set(outputs, name, balancer.transcribe(request, options));
       else if (name == "speak") Core::set(outputs, name, balancer.speak(request, options));

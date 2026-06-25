@@ -3019,7 +3019,15 @@ func (b *AxBalancer) Embed(ctx context.Context, request map[string]Value, option
 }
 func (b *AxBalancer) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
 	value, err := b.Chat(ctx, request, options)
-	return asSlice(value), err
+	if err != nil {
+		return nil, err
+	}
+	if slice, ok := value.([]Value); ok {
+		return slice, nil
+	}
+	// Balancer streaming routes through the chat() failover loop; replay the chosen service's
+	// response as one stream chunk, matching the other ports' balancer.stream() wrappers.
+	return []Value{value}, nil
 }
 func (b *AxBalancer) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	return b.currentService.Transcribe(ctx, request, options)
@@ -5549,6 +5557,12 @@ func runConformanceAIBalancer(fixture map[string]Value) {
 			switch name {
 			case "chat":
 				value, err := balancer.Chat(context.Background(), request, options)
+				if err != nil {
+					panic(err)
+				}
+				coreSet(outputs, name, value)
+			case "stream":
+				value, err := balancer.Stream(context.Background(), request, options)
 				if err != nil {
 					panic(err)
 				}
