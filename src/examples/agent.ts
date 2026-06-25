@@ -59,17 +59,17 @@ const llm = ai({
   models: [
     {
       key: 'dumb',
-      model: AxAIOpenAIModel.GPT35Turbo,
+      model: AxAIOpenAIModel.GPT54Mini,
       description: 'Use the dumb model for very simple questions',
     },
     {
       key: 'smart',
-      model: AxAIOpenAIModel.GPT4OMini,
+      model: AxAIOpenAIModel.GPT54Mini,
       description: 'Use the smart model for advanced questions',
     },
     {
       key: 'smartest',
-      model: AxAIOpenAIModel.GPT4O,
+      model: AxAIOpenAIModel.GPT54,
       description: 'Use the smartest model for the most advanced questions',
     },
   ],

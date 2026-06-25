@@ -36,6 +36,7 @@ from .flow import AxFlow, AxProgram, flow
 from .mcp import AxMCPClient, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport
 from .prompt import AxPromptTemplate, TemplateError, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, ProcessCodeSession, RuntimeCapabilities, RuntimeEnvelope
+from .runtime_quickjs import AxQuickJsCodeRuntime, AxQuickJsCodeSession
 
 __all__ = [
     "AIClient",
@@ -57,6 +58,8 @@ __all__ = [
     "AxBootstrapFewShot",
     "AxCodeRuntime",
     "AxCodeSession",
+    "AxQuickJsCodeRuntime",
+    "AxQuickJsCodeSession",
     "AxGEPA",
     "AxMemory",
     "AxMCPClient",

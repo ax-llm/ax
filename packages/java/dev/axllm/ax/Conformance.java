@@ -21,6 +21,7 @@ public final class Conformance {
   static final class ConformanceScriptedAI extends AxBaseAI {
     final List<Object> responses;
     final List<Object> streamEvents;
+    final List<Object> transcribeResponses = new ArrayList<>();
     final List<Map<String, Object>> requests = new ArrayList<>();
     int chatCalls;
 
@@ -51,7 +52,17 @@ public final class Conformance {
     }
 
     public Map<String, Object> transcribe(Map<String, Object> request) {
+      return transcribe(request, Map.of());
+    }
+
+    @Override
+    public Map<String, Object> transcribe(Map<String, Object> request, Map<String, Object> options) {
       requests.add(new LinkedHashMap<>(request));
+      if (!transcribeResponses.isEmpty()) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> next = (Map<String, Object>) transcribeResponses.remove(0);
+        return next;
+      }
       return Map.of("text", "scripted transcript");
     }
 
@@ -553,6 +564,8 @@ public final class Conformance {
       case "ai_speak" -> runAISpeak(fixture);
       case "ai_realtime" -> runAIRealtime(fixture);
       case "agent_forward" -> runAgentForward(fixture);
+      case "agent_prompt" -> runAgentPrompt(fixture);
+      case "agent_runtime_real" -> runAgentForward(fixture);
       case "agent_runtime_policy" -> runAgentRuntimePolicy(fixture);
       case "agent_runtime_session" -> runAgentRuntimeSession(fixture);
       case "agent_runtime_adapter" -> runAgentRuntimeAdapter(fixture);
@@ -756,6 +769,8 @@ public final class Conformance {
         out.put(field, values);
       } else if ("copy".equals(op)) {
         out.put(String.valueOf(spec.get("to")), flowStateValue(out, spec.get("from"), null));
+      } else if ("upper".equals(op)) {
+        out.put(String.valueOf(spec.getOrDefault("to", "__derived")), String.valueOf(flowStateValue(out, spec.getOrDefault("from", "__item"), "")).toUpperCase());
       } else {
         out.putAll(Core.asMap(spec.getOrDefault("values", Map.of())));
       }
@@ -767,9 +782,9 @@ public final class Conformance {
     String kind = String.valueOf(step.getOrDefault("kind", "execute"));
     String name = String.valueOf(step.get("name"));
     Map<String, Object> options = new LinkedHashMap<>(Core.asMap(step.getOrDefault("options", Map.of())));
-    if ("map".equals(kind)) {
+    if ("map".equals(kind) || "derive".equals(kind)) {
       Object mapper = step.containsKey("mapper") ? flowMapperFromSpec(step.get("mapper")) : (AxFlow.Mapper) state -> step.getOrDefault("output", Map.of());
-      return Core.asMap(Core._flow_step("map", name, mapper, options));
+      return Core.asMap(Core._flow_step(kind, name, mapper, options));
     }
     if ("branch".equals(kind)) {
       options.put("predicate", flowConditionFromSpec(step.getOrDefault("predicate", options.get("predicate"))));
@@ -1180,8 +1195,35 @@ public final class Conformance {
     }
   }
 
+  // Prompt-parity gate (G3): build a real agent and assert the RLM stage instructions
+  // were rendered into agent state. A hollow agent has empty description keys, so this
+  // fails -- catching the defect that slipped a non-functional agent() past every gate.
+  static void runAgentPrompt(Map<String, Object> fixture) {
+    AxAgent agent = Ax.agent(
+      String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string")),
+      Core.asMap(fixture.getOrDefault("options", Map.of())));
+    Map<String, Object> state = agent.state;
+    Map<String, Object> expects = Core.asMap(fixture.getOrDefault("expected_description_contains", Map.of()));
+    for (Map.Entry<String, Object> entry : expects.entrySet()) {
+      String field = entry.getKey();
+      if (field.equals("__order")) continue;
+      Object descObj = state.get(field);
+      String desc = descObj instanceof String ? (String) descObj : "";
+      if (desc.strip().isEmpty()) {
+        throw new RuntimeException("agent stage description " + field + " is empty; RLM prompt was not rendered into agent state");
+      }
+      for (Object needleObj : Core.asList(entry.getValue())) {
+        String needle = String.valueOf(needleObj);
+        if (!desc.contains(needle)) {
+          throw new RuntimeException("agent stage description " + field + " missing \"" + needle + "\": " + desc);
+        }
+      }
+    }
+  }
+
   static void runAgentForward(Map<String, Object> fixture) {
     ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+    client.transcribeResponses.addAll(Core.asList(fixture.getOrDefault("transcribe_responses", List.of())));
     Map<String, Object> agentOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
     ScriptedCodeRuntime runtime = null;
     if (fixture.containsKey("runtime_script")) {
@@ -1193,10 +1235,19 @@ public final class Conformance {
       );
       agentOptions.put("runtime", runtime);
     }
+    if (fixture.containsKey("runtime_engine")) {
+      try {
+        Object qjs = Class.forName("dev.axllm.ax.runtime.quickjs.AxQuickJsCodeRuntime").getDeclaredConstructor().newInstance();
+        agentOptions.put("runtime", qjs);
+      } catch (ReflectiveOperationException e) {
+        throw new RuntimeException("agent_runtime_real requires the quickjs profile (dev.axllm.ax.runtime.quickjs.AxQuickJsCodeRuntime) and quickjs4j on the classpath: " + e);
+      }
+    }
     AxAgent agent = null;
     try {
       agent = Ax.agent(String.valueOf(fixture.get("signature")), agentOptions);
       if (fixture.containsKey("set_state")) agent.setState(Core.asMap(fixture.get("set_state")));
+      if (fixture.containsKey("restore_runtime_state")) agent.restoreRuntimeState(Core.asMap(fixture.get("restore_runtime_state")));
       Object output = agent.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected agent forward to fail");
       if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "agent output");
@@ -1722,6 +1773,11 @@ public final class Conformance {
         Map<String, Object> op = Core.asMap(raw);
         String name = String.valueOf(op.get("name"));
         if ("chat".equals(name)) outputs.put(name, balancer.chat(Core.asMap(op.getOrDefault("request", Map.of())), Core.asMap(op.getOrDefault("options", Map.of()))));
+        else if ("stream".equals(name)) {
+          List<Object> deltas = new ArrayList<>();
+          for (Object delta : balancer.stream(Core.asMap(op.getOrDefault("request", Map.of())))) deltas.add(delta);
+          outputs.put(name, deltas);
+        }
         else if ("embed".equals(name)) outputs.put(name, balancer.embed(Core.asMap(op.getOrDefault("request", Map.of())), Core.asMap(op.getOrDefault("options", Map.of()))));
         else if ("transcribe".equals(name)) outputs.put(name, balancer.transcribe(Core.asMap(op.getOrDefault("request", Map.of())), Core.asMap(op.getOrDefault("options", Map.of()))));
         else if ("speak".equals(name)) outputs.put(name, balancer.speak(Core.asMap(op.getOrDefault("request", Map.of())), Core.asMap(op.getOrDefault("options", Map.of()))));
@@ -1928,6 +1984,7 @@ public final class Conformance {
     options.put("api_key", "test-key");
     options.put("transport", transport);
     options.put("model_config", fixture.get("model_config"));
+    options.put("options", fixture.getOrDefault("options", Map.of()));
     for (String key : List.of("base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version")) {
       if (fixture.containsKey(key)) options.put(key, fixture.get(key));
     }

@@ -3,7 +3,7 @@ import { AxAIOpenAIModel, ax, ai as createAI } from '@ax-llm/ax';
 const llm = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
-  config: { model: AxAIOpenAIModel.GPT4OMini },
+  config: { model: AxAIOpenAIModel.GPT54Mini },
 });
 
 const gen = ax('question:string -> answerInPoints:string');

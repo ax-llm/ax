@@ -10,6 +10,7 @@
     }
   ],
   "expected_executed": [
+    "final(\"Guide before answering\", {})",
     "guideAgent(\"Prefer concise final.\")",
     "final(\"Answer\", {\"answer\": \"Concise\"})"
   ],
@@ -24,9 +25,7 @@
   "expected_output": {
     "answer": "Concise"
   },
-  "expected_request_contains": [
-    "Prefer concise final."
-  ],
+  "expected_request_contains": ["Prefer concise final."],
   "expected_request_count": 4,
   "input": {
     "question": "Use guidance"
@@ -40,7 +39,7 @@
   },
   "responses": [
     {
-      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide before answering\",{}]}}"
+      "content": "{\"pythonCode\": \"final(\\\"Guide before answering\\\", {})\"}"
     },
     {
       "content": "{\"pythonCode\":\"guideAgent(\\\"Prefer concise final.\\\")\"}"
@@ -53,6 +52,13 @@
     }
   ],
   "runtime_script": [
+    {
+      "expected_code": "final(\"Guide before answering\", {})",
+      "result": {
+        "args": ["Guide before answering", {}],
+        "type": "final"
+      }
+    },
     {
       "expected_code": "guideAgent(\"Prefer concise final.\")",
       "result": {

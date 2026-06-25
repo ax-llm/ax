@@ -1,0 +1,48 @@
+{
+  "kind": "flow",
+  "name": "derive-per-item",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts"
+    ],
+    "name": "derive-per-item",
+    "note": "Mirrors AxFlow.derive (flow.ts:1321-1360): a per-item transform over an array input field, plus a scalar, producing {outputField: mapped}. No model call (expected_request_count 0).",
+    "observed": {
+      "output": {
+        "upperNames": ["ADA", "GRACE"],
+        "upperSingle": "LIN"
+      }
+    }
+  },
+  "input": {
+    "names": ["ada", "grace"],
+    "single": "lin"
+  },
+  "steps": [
+    {
+      "kind": "derive",
+      "name": "upperNames",
+      "mapper": { "op": "upper" },
+      "options": { "reads": ["names"] }
+    },
+    {
+      "kind": "derive",
+      "name": "upperSingle",
+      "mapper": { "op": "upper" },
+      "options": { "reads": ["single"] }
+    }
+  ],
+  "returns": {
+    "upperNames": "upperNames",
+    "upperSingle": "upperSingle"
+  },
+  "expected_output": {
+    "upperNames": ["ADA", "GRACE"],
+    "upperSingle": "LIN"
+  },
+  "expected_request_count": 0
+}

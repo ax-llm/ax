@@ -1107,6 +1107,17 @@ export interface AxAIServiceImpl<
     state: object
   ): AxChatResponse;
 
+  /**
+   * Optional: classify a raw streaming delta that carries a transient error into the
+   * HTTP status it corresponds to (e.g. Anthropic's HTTP-200 `overloaded_error` SSE event
+   * → 529). The base layer applies the same retryable-status policy used for real HTTP
+   * status errors, so a streaming overload is retried-with-backoff before any failover —
+   * matching the non-streaming path. Return undefined for normal deltas (the common case).
+   */
+  classifyStreamErrorStatus?(
+    resp: Readonly<TChatResponseDelta>
+  ): number | undefined;
+
   createEmbedReq?(
     req: Readonly<AxInternalEmbedRequest<TEmbedModel>>,
     config?: Readonly<AxAIServiceOptions>

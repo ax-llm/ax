@@ -1,0 +1,216 @@
+{
+  "schema_version": "axir-behavioral-parity-v1",
+  "description": "Completeness ledger. Provenance proves emitted-code <= IR op (origin). This ledger proves COMPLETENESS: every claimed behavioral capability maps to the IR op(s) that implement it AND at least one conformance fixture that exercises it for real. A capability with no real fixture is unverifiable and must not be claimed. scripts/axir-ledger-check.mjs fails the build if any listed op or fixture is missing. This is the structural answer to why a non-functional agent() shipped: provenance could not see behavior that was absent from both the IR and the packages, and no gate required a real-execution fixture.",
+  "entries": [
+    {
+      "capability": "agent.rlm.prompt_rendered",
+      "summary": "The agent executor/responder RLM instruction is rendered from IR into agent state (not empty).",
+      "ir_ops": ["@agent_factory"],
+      "fixtures": ["axagent/agent-prompt-executor-rlm-protocol.json"],
+      "gate": "G3 prompt-parity",
+      "state": "red-until-port: executor_description is not yet rendered by @agent_factory"
+    },
+    {
+      "capability": "agent.rlm.real_execution",
+      "summary": "A real embedded engine executes model-authored code end-to-end through forward() and produces the completion -- NOT a ScriptedCodeRuntime returning canned payloads.",
+      "ir_ops": ["@agent_forward"],
+      "fixtures": ["axagent-real/agent-runtime-real-javascript-final.json"],
+      "gate": "G1 real-engine antidote",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES: go (goja), rust (quickjs feature), cpp (quickjs profile -DAX_CONFORMANCE_QUICKJS), python (in-process quickjs wheel), java (quickjs4j/chicory via reflection). Each runs the full forward() loop through a real engine executing model-authored final() code. Engines are optional deps, so agent_runtime_real runs in engine-enabled build lanes, not the default conformance suite."
+    },
+    {
+      "capability": "agent.rlm.multi_turn_convergence",
+      "summary": "Across multiple distiller and executor turns, each turn's request carries the accumulated per-turn feedback -- the Action Log and the refreshed liveRuntimeState snapshot of live session variables -- so the model sees its own prior work and converges to final(), instead of re-exploring blindly until max_actor_steps. NOT a 1-2-turn canned case.",
+      "ir_ops": [
+        "@agent_forward",
+        "@agent_runtime_refresh_state_summary",
+        "@build_distiller_inputs"
+      ],
+      "fixtures": ["axagent-real/agent-runtime-real-multi-turn-feedback.json"],
+      "gate": "G1 real-engine antidote + G6 response perturbation",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED via a real-engine fixture driving a 2-turn distiller and a 2-turn executor: the later request must contain a marker produced by executing the earlier turn. distillProbe7731 can only reach the distiller's 2nd request through the newly-provided distiller actionLog/liveRuntimeState (@build_distiller_inputs); 'Current runtime state:' + execLiveStateProbe8842 can only reach the executor's 2nd request when @agent_runtime_refresh_state_summary repopulates runtime_session_state each non-error turn. Proven to FAIL without the fix (distiller request was input/context-only and liveRuntimeState rendered empty) and anti-hardcoded by the response-perturbation gate (mutating the probe responses drops the markers and fails the runner)."
+    },
+    {
+      "capability": "agent.rlm.llm_query_subquery",
+      "summary": "Actor code can await the built-in llmQuery([{query, context}]) primitive: each item runs a focused sub-query through a dedicated AxGen (task:string, context:json -> answer:string) against the same client, and the answers return to the runtime as a real string[] the model indexes -- NOT a stub or canned value.",
+      "ir_ops": [
+        "@agent_run_llm_query",
+        "@agent_run_llm_query_one",
+        "@agent_factory"
+      ],
+      "fixtures": ["axagent-real/agent-runtime-real-llm-query.json"],
+      "gate": "G1 real-engine antidote + G6 response perturbation",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES via a real-engine fixture: the executor awaits llmQuery([{query:'llmQueryTaskProbe5521', context:{detail:'contextMarker8843'}}]) (both markers must appear in the sub-query request, proving the sub-gen ran with the passed task+context), captures the result, then finals with answer:'EXTRACTED_'+result[0]. 'EXTRACTED_subAnswerMarker9931' can only reach the responder request when the sub-query consumed the scripted answer AND the returned value is a JS array the model indexes with [0] -- which exposed and drove a Go fix (AxArray.MarshalJSON, so the wrapper struct serializes as a JSON array across the host-callable boundary) and an rquickjs fix (a host callable may claim an agent-declared reserved primitive name like llmQuery; only runtime-installed built-ins conflict). Each language registers llmQuery through a package-neutral seam (Go runtimeCallableRegistrar + goja RegisterHostCallable; Rust AxCodeRuntime::register_host_callable trait method + CoreHost::register_runtime_callable; Java AxCodeRuntime.HostCallable default method; C++ AxCodeRuntime::register_host_callable virtual recovered via code_runtime_registry; Python register_callable). Anti-hardcoded by the response-perturbation gate (mutating the sub-query answer or the executor code drops the marker and fails the runner)."
+    },
+    {
+      "capability": "agent.audio.transcription",
+      "summary": "Audio-typed input fields are transcribed to text via the AI client before the agent loop, and the transcribed text reaches the distiller/executor request -- NOT a canned string.",
+      "ir_ops": [
+        "@agent_transcribe_audio_inputs",
+        "@agent_transcribe_one_audio"
+      ],
+      "fixtures": ["axagent/agent-audio-transcription.json"],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Required converting rust's chat-only scoped client bridge to a method-dispatch closure FnMut(&str,Value) so chat+transcribe share one &mut borrow; transcribe added to the rust AxAIClient trait + cpp base AIClient + java AiClient interface. The new intrinsic.agent.transcribe is bound in all four explicit host-name maps and drift-guarded by TestAgentCrossLanguageParity."
+    },
+    {
+      "capability": "agent.context.llm_checkpoint_summary",
+      "summary": "When summarizerOptions is set, a pending checkpoint is summarized by a real model call (intrinsic.ai.complete_once) and the model's summary replaces the deterministic fallback -- NOT a canned value. Deterministic fallback is retained when the flag is off.",
+      "ir_ops": [
+        "@agent_apply_llm_checkpoint_summary",
+        "@agent_refresh_checkpoint_state"
+      ],
+      "fixtures": ["axagent/agent-checkpoint-llm-summary.json"],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Uses the op-callable raw-chat intrinsic intrinsic.ai.complete_once (already bridged in all five incl. rust's scoped closure), so no new per-language host code. restore_runtime_state handling was added to all five agent_forward conformance runners to pre-set the pending checkpoint. The fixture asserts expected_exported_state_subset.checkpoint_state.summary == the model response AND summary_source==model, so mutating the model response fails the test (anti-hardcode verified: an impl that ignored the model output or hardcoded a summary would not pass)."
+    },
+    {
+      "capability": "agent.context.map_read_and_evolve",
+      "summary": "The cross-run context map is read (injected into the distiller's context + the distiller prompt's hasContextMap section) AND evolved by a full TS-parity two-stage pipeline: a context-map distiller (itemTags + cacheCandidates) then a cartographer (ADD/DELETE/REPLACE operations), both via intrinsic.ai.complete_once. Operations apply to parsed [id] items across 6 fixed sections; helpful/harmful/stale tags adjust per-item scores; score-based eviction trims the map to maxChars; evolution is gated by infiniteEvolve || steps<evolveSteps. The evolved map persists through export/restore. Distiller scores AND cartographer operations are both asserted from the model, not canned.",
+      "ir_ops": [
+        "@agent_factory",
+        "@agent_evolve_context_map",
+        "@context_map_parse_items",
+        "@context_map_render_items",
+        "@context_map_apply_operations",
+        "@context_map_update_scores",
+        "@context_map_evict_to_budget",
+        "@build_distiller_inputs",
+        "@render_rlm_distiller_description",
+        "@agent_export_runtime_state",
+        "@agent_restore_runtime_state"
+      ],
+      "fixtures": [
+        "axagent/agent-context-map-config.json",
+        "axagent/agent-context-map-read.json",
+        "axagent/agent-context-map-evolve.json",
+        "axagent/agent-context-map-evict.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES (full TS parity). Create: @agent_factory builds state.context_map from options.contextMap (map string/snapshot + maxChars/infiniteEvolve/evolveSteps/scores/next_id) -- agent-context-map-config uses a FRESH agent (no restore), the cartographer ADDs an item, and the exported text+scores+steps are asserted. Read: agent-context-map-read restores a non-evolving map (infiniteEvolve:false, evolveSteps:0) and asserts the map text reaches the DISTILLER request, isolating read from evolve. Evolve: agent-context-map-evolve asserts the distiller itemTags update scores AND the cartographer ADD operation mints a new [id] item in the rendered text (mutating either model response fails the test). Evict: agent-context-map-evict tags an item harmful and asserts it is dropped under a tight maxChars while the neutral item survives (flipping the tag to helpful fails the test). next_id is a persisted counter (no numeric id parsing -- rust mul rejects string operands, so ids are minted from the counter and eviction tie-breaks on text order). context_map is part of the export/restore state contract."
+    },
+    {
+      "capability": "agent.context.tombstone_llm",
+      "summary": "When contextPolicy.tombstoning is enabled, a resolved-error action-log entry (error turn followed by a success turn) gets its tombstone written by a real model call (intrinsic.ai.complete_once with the TS TOMBSTONE_SUMMARIZER_DESCRIPTION) -- a one-line [TOMBSTONE]: summary -- replacing the deterministic fallback, with tombstone_source=model. Also wires @agent_apply_context_management into the live forward loop (previously it ran only in the fixture op), so deterministic tombstones + error-pruning now run during forward().",
+      "ir_ops": [
+        "@agent_apply_context_management",
+        "@agent_apply_llm_tombstone_summary",
+        "@agent_build_deterministic_tombstone"
+      ],
+      "fixtures": ["axagent/agent-tombstone-llm.json"],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. agent-tombstone-llm restores an action_log with an error entry (tags:[error]) followed by a success entry, sets options.tombstoning:true, and asserts the exported action_log[0].tombstone == the model response with tombstone_source==model (the action-log sanitizer was extended to preserve tombstone_source). Mutating the model response fails the test (anti-hardcode verified). Mirrors the checkpoint summarizer pattern (llm_pending/llm_input set in @agent_apply_context_management, consumed by @agent_apply_llm_tombstone_summary post-loop)."
+    },
+    {
+      "capability": "flow.node_execution",
+      "summary": "An AxFlow node executes its program by invoking the model through intrinsic.agent.stage_forward and writes the result into flow state (as {name}Result + merged fields); the final state is projected via the returns spec. Nested flows recurse through the same path.",
+      "ir_ops": [
+        "@flow_execute_program_node",
+        "@flow_execute_steps",
+        "@flow_forward"
+      ],
+      "fixtures": [
+        "axflow/simple-forward-returns.json",
+        "axflow/nested-flow-program-call.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. simple-forward-returns runs a single node whose scripted response {answer:Paris} becomes the flow output (output depends on the model response, not a canned value); nested-flow-program-call proves a nested flow's inner node executes a real stage_forward (chat-log entry 'nested.inner')."
+    },
+    {
+      "capability": "flow.control_flow",
+      "summary": "AxFlow control steps execute deterministically in all five: branch routes to the matching when-branch by predicate/value; while loops until the condition fails (max-iteration guarded); feedback re-runs a labelled body until its condition fails. All dispatched in @flow_execute_step.",
+      "ir_ops": ["@flow_execute_step", "@flow_execute_nested_steps"],
+      "fixtures": [
+        "axflow/control-branch-execution.json",
+        "axflow/control-while-execution.json",
+        "axflow/control-feedback-execution.json",
+        "axflow/control-nested-branch-while.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Each fixture asserts the state mutations produced by the chosen control path (branch taken, loop iteration count, feedback re-entry) match the TS-derived golden."
+    },
+    {
+      "capability": "flow.parallel",
+      "summary": "AxFlow plans parallel groups from barrier flags + read/write dependency analysis (@flow_plan) and executes independent steps as a group, merging their results (@flow_merge_parallel_results / parallelMerge). Auto-parallel is controllable per flow + per forward.",
+      "ir_ops": [
+        "@flow_plan",
+        "@flow_plan_can_share_group",
+        "@flow_execute_steps",
+        "@flow_merge_parallel_results"
+      ],
+      "fixtures": [
+        "axflow/auto-parallel-independent-executes.json",
+        "axflow/explicit-parallel-merge-execution.json",
+        "axflow/plan-barriers.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. plan-barriers asserts the computed parallel groups/maxParallelism; the execution fixtures assert both independent results are produced and merged into the final state."
+    },
+    {
+      "capability": "flow.derive",
+      "summary": "AxFlow derive applies a per-item transform over an array input field (or once over a scalar) and writes the mapped result to the output field — NOT a single model call over the whole state. @flow_execute_step iterates the input list and calls the transform per item via intrinsic.object.call_method.",
+      "ir_ops": ["@flow_execute_step"],
+      "fixtures": ["axflow/derive-per-item.json"],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. derive-per-item maps an uppercase transform over [\"ada\",\"grace\"] -> [\"ADA\",\"GRACE\"] (per-item) and a scalar \"lin\" -> \"LIN\", with expected_request_count:0 (no model call). FIXES a prior gap where derive routed through stage_forward over the whole state instead of per-item (TS flow.ts:1321-1360)."
+    },
+    {
+      "capability": "flow.caching",
+      "summary": "AxFlow forward consults an optional cacheStore: on a key hit it returns the cached output and skips execution; on a miss it runs and writes the output (errors swallowed). Key is built from the input (@flow_cache_key). NOTE: the key uses json.stable_stringify, NOT the TS SHA256 — keys diverge between the TS build and generated packages, so a cache must not be shared across them (documented simplification).",
+      "ir_ops": ["@flow_cache_read_write", "@flow_cache_key", "@flow_forward"],
+      "fixtures": [
+        "axflow/cache-hit-skips-execution.json",
+        "axflow/cache-miss-writes-output.json",
+        "axflow/cache-errors-are-swallowed.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. cache-hit asserts execution is skipped (request count 0) and the cached output returned; cache-miss asserts the output is written. KNOWN MINOR GAPS (not ported, documented here): TS SHA256 cache-key (IR uses json.stable_stringify); streamingForward (TS yields one accumulated result); nodeExtended; multi-source abort-signal merge; finer step-level execution logging."
+    },
+    {
+      "capability": "ai.stream.transient_overload_retry_and_failover",
+      "summary": "A transient Anthropic error event is classified by error.type to its HTTP status (overloaded_error->529, api_error->500, rate_limit_error->429, client errors->4xx, authentication_error->auth, unknown->refusal) in both the non-streaming and streaming parsers. A pre-content streaming transient error (e.g. Anthropic's HTTP-200 overloaded_error SSE event) is retried with the same exponential backoff apiCall applies to a 529 before surfacing; the balancer then fails over on the surfaced retryable status (529 is in every balancer's retryable set). TS peekStreamForFailover + mid-stream failure recording are workarounds for TS's lazy ReadableStream (errors defer past the balancer try/catch); the eager/synchronous ports have no portable equivalent and instead fail over through the chat-routed balancer loop, proven by balancer-status-529-stream-failover.",
+      "ir_ops": [
+        "@anthropic_map_error_event",
+        "@anthropic_error_type_to_status",
+        "@provider_classify_stream_error_status",
+        "@is_retryable_status",
+        "@resolve_stream_retry"
+      ],
+      "fixtures": [
+        "axai/anthropic-stream-retry-overloaded.json",
+        "axai/anthropic-stream-retry-exhausted.json",
+        "axai/anthropic-stream-error-overloaded.json",
+        "axai/balancer-status-529-failover.json",
+        "axai/balancer-status-529-stream-failover.json"
+      ],
+      "gate": "test:axir verify (all targets)",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES via npm run test:axir. Anthropic error fixtures assert error.type -> error class + HTTP status (overloaded->Status 529, rate_limit->429, api->500, invalid_request->400, authentication->Auth, unknown->Refusal) on both chat and stream paths. anthropic-stream-retry-overloaded proves a first-delta overloaded_error is retried then the next response's content is returned; anthropic-stream-retry-exhausted proves the 529 surfaces once the retry budget is spent; anthropic-stream-error-overloaded opts out of retries (maxRetries:0) to assert the classification in isolation. balancer-status-529-failover and -stream-failover prove the balancer fails over to a healthy backup on a retryable 529 via both chat() and stream(). peekStreamForFailover/mid-stream recording intentionally not ported (TS-lazy-streaming-specific; the ports stream synchronously)."
+    }
+  ]
+}

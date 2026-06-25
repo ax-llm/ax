@@ -5,9 +5,19 @@ Write Ax programs in Rust with native Result-based errors, serde_json dynamic va
 ## Quick Start
 
 ```bash
-cd packages/rust
-cargo test --all-targets
-cargo run --example signature_schema
+cargo add axllm
+```
+
+Or add to your `Cargo.toml`:
+
+```toml
+axllm = "22.0.7"
+```
+
+Enable realtime audio over WebSocket with the `realtime` feature (pulls `tungstenite`):
+
+```bash
+cargo add axllm --features realtime
 ```
 
 ```rust
@@ -26,6 +36,7 @@ fn main() -> AxResult<()> {
 - Signatures and schemas: describe inputs and outputs once, then reuse that shape for validation, prompts, tools, and typed results.
 - AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.
 - AxAI: call OpenAI-compatible, OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients through one provider boundary.
+- Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).
 - AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
 - AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
 - Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.
@@ -49,10 +60,10 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `cargo run --example provider_mapping_no_key`: provider mapping through a scripted transport
 - `cargo run --example provider_stream_no_key`: provider streaming through a scripted SSE transport
 - `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool
-- `cargo run --example axagent_pipeline`: deterministic AxAgent pipeline
 - `cargo run --example axflow_program_graph`: AxFlow program graph
 - `cargo run --example audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `cargo run --example realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding
+- `cargo run --example realtime_audio_turn`: drive a full realtime audio turn through `realtime_chat` (offline, scripted transport)
 - `cargo run --example runtime_adapter`: custom `AxCodeRuntime` session
 - `cargo run --example runtime_protocol`: process runtime protocol against the AxJS reference adapter
 - `cargo run --example javascript_quickjs --features runtime-quickjs`: embedded QuickJS actor runtime profile
@@ -63,7 +74,6 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - `OPENAI_API_KEY=... cargo run --example axgen_openai_api`: AxGen with a real OpenAI-compatible provider API
-- `OPENAI_API_KEY=... cargo run --example agent_openai_api`: AxAgent with a real OpenAI-compatible provider API
 - `OPENAI_API_KEY=... cargo run --example flow_openai_api`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents

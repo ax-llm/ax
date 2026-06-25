@@ -23,6 +23,14 @@ Use this skill when a change affects `website/`, Ax public APIs, examples, AxIR 
 5. Do not hand-edit `website/.generated/` or generated package docs. If AxIR package truth is stale, refresh it with `npm run axir:generate-packages`.
 6. Keep old Astro docs untouched unless the user explicitly asks to change that site.
 
+## Feature, Language, And Example Sync
+
+- When adding a public feature or language capability, update the runnable public examples under `src/examples/<language>/<group>/` with `ax-example` headers before updating generated markdown.
+- Keep the public example catalog provider-backed: required header fields are `title`, `group`, `description`, `provider`, `env`, and `level`; use `story` only for examples that belong in Advanced Start.
+- Maintain the core public groups for each language: `generation`, `short-agents`, `flows`, `optimization`, and `audio` need beginner, intermediate, and advanced examples.
+- Keep generated package examples under `packages/<language>/examples` for AxIR verification separate from the public website catalog.
+- After language or feature changes, validate the catalog with `npm run example -- list --json` and regenerate the website with `npm run website:prepare`.
+
 ## API Mapping
 
 - TypeScript subsystem API pages map TypeDoc pages from `build/apidocs`.
@@ -38,8 +46,10 @@ Run the narrow checks for the surface you changed, then run:
 npm run doc:build:markdown
 npm run axir:check-packages
 npm run example -- list
+npm run example -- list --json
 npm run website:prepare
 npm run website:check
+npm run test:examples:generated
 npx biome check package.json scripts/website-prepare.mjs scripts/check-website-links.mjs .github/workflows/ci.yml --files-ignore-unknown=true
 git diff --check
 ```

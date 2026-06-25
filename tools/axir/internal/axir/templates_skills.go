@@ -359,7 +359,7 @@ func skillSignatureSnippet(target string) string {
 	case "cpp":
 		return readmeLines("#include \"axllm/axllm.hpp\"", "", "auto sig = axllm::s(\"question:string -> answer:string\");", "auto schema = axllm::to_json_schema(axllm::Core::get(sig, \"outputs\"));")
 	case "go":
-		return readmeLines("import ax \"github.com/ax-llm/ax/go\"", "", "sig := ax.NewSignature(\"question:string -> answer:string\")", "schema := sig.ToJSONSchema(nil)")
+		return readmeLines("import ax \"github.com/ax-llm/ax/packages/go\"", "", "sig := ax.NewSignature(\"question:string -> answer:string\")", "schema := sig.ToJSONSchema(nil)")
 	case "rust":
 		return readmeLines("use axllm::s;", "", "let sig = s(\"question:string -> answer:string\")?;", "let schema = sig.to_json_schema(\"outputs\");")
 	default:
@@ -376,7 +376,7 @@ func skillAISnippet(target string) string {
 	case "cpp":
 		return readmeLines("#include \"axllm/axllm.hpp\"", "", "auto llm = axllm::ai(\"openai\", { {\"apiKey\", std::getenv(\"OPENAI_API_KEY\")} });")
 	case "go":
-		return readmeLines("import ax \"github.com/ax-llm/ax/go\"", "", "llm := ax.NewAI(\"openai\", map[string]ax.Value{\"apiKey\": os.Getenv(\"OPENAI_API_KEY\")})")
+		return readmeLines("import ax \"github.com/ax-llm/ax/packages/go\"", "", "llm := ax.NewAI(\"openai\", map[string]ax.Value{\"apiKey\": os.Getenv(\"OPENAI_API_KEY\")})")
 	case "rust":
 		return readmeLines("use axllm::ai;", "", "let llm = ai(\"openai\", options)?;")
 	default:

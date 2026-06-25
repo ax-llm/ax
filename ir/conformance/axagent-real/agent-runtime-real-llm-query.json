@@ -1,0 +1,40 @@
+{
+  "kind": "agent_runtime_real",
+  "name": "agent-runtime-real-llm-query",
+  "runtime_engine": "javascript",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Interpret the evidence"
+  },
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Distill the request\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"const r = await llmQuery([{ query: 'llmQueryTaskProbe5521', context: { detail: 'contextMarker8843' } }]); globalThis.subAnswerCapture = r;\"}"
+    },
+    {
+      "content": "{\"answer\":\"subAnswerMarker9931\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Synthesize from the sub-query answer\\\", { answer: 'EXTRACTED_' + globalThis.subAnswerCapture[0] })\"}"
+    },
+    {
+      "content": "{\"answer\":\"EXTRACTED_subAnswerMarker9931\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "EXTRACTED_subAnswerMarker9931"
+  },
+  "expected_request_count": 5,
+  "expected_request_contains": [
+    "llmQueryTaskProbe5521",
+    "contextMarker8843",
+    "EXTRACTED_subAnswerMarker9931"
+  ]
+}

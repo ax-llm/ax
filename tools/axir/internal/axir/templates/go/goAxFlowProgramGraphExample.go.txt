@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	ax "github.com/ax-llm/ax/go"
+	ax "github.com/ax-llm/ax/packages/go"
 )
 
 type scriptedFlowClient struct{}

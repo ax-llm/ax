@@ -53,7 +53,7 @@ gen.addFieldProcessor(
 const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string, // Ensure this is set!
-  config: { model: AxAIGoogleGeminiModel.Gemini20Flash }, //Not stream.
+  config: { model: AxAIGoogleGeminiModel.Gemini35Flash }, //Not stream.
 });
 
 ai.setOptions({ debug: true });

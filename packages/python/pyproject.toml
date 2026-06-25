@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "axllm"
-version = "22.0.3"
+version = "22.0.7"
 description = "Generated Ax runtime library"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,6 +18,14 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Typing :: Typed",
 ]
+
+[project.optional-dependencies]
+# In-process QuickJS engine for agent().forward(...): `pip install axllm[runtime-quickjs]`.
+# The core wheel stays stdlib-only; this extra enables AxQuickJsCodeRuntime.
+runtime-quickjs = ["quickjs>=1.19.4"]
+# WebSocket transport for realtime audio chat(): `pip install axllm[realtime]`.
+# The core wheel stays stdlib-only; this extra enables the live realtime_chat transport.
+realtime = ["websocket-client>=1.7"]
 
 [project.urls]
 Homepage = "https://axllm.dev"

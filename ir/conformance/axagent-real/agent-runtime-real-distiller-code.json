@@ -1,0 +1,29 @@
+{
+  "kind": "agent_runtime_real",
+  "name": "agent-runtime-real-distiller-code",
+  "runtime_engine": "javascript",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Use runtime"
+  },
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the task\\\", {\\\"note\\\": \\\"distilled\\\"})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"from runtime\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"from runtime\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "from runtime"
+  },
+  "expected_request_count": 3
+}

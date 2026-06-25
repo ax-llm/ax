@@ -14,7 +14,7 @@ const main = async () => {
     name: 'google-gemini',
     apiKey: process.env.GOOGLE_APIKEY || '',
     config: {
-      model: AxAIGoogleGeminiModel.Gemini25Flash,
+      model: AxAIGoogleGeminiModel.Gemini35Flash,
       thinking: {
         // Can be set at the AI level as default
         includeThoughts: false, // Default to false, will be overridden per request
@@ -28,7 +28,7 @@ const main = async () => {
     name: 'openai-responses',
     apiKey: process.env.OPENAI_APIKEY || '',
     config: {
-      model: AxAIOpenAIResponsesModel.O1,
+      model: AxAIOpenAIResponsesModel.O4Mini,
     },
   });
 
@@ -184,7 +184,9 @@ const main = async () => {
   console.log('\n=== Feature Support Information ===');
   console.log('📋 APIs that support showThoughts:');
   console.log('  ✅ google-gemini (Gemini models with thinking capabilities)');
-  console.log('  ✅ openai-responses (OpenAI Responses API with o1 models)');
+  console.log(
+    '  ✅ openai-responses (OpenAI Responses API with o-series reasoning models)'
+  );
   console.log(
     '  ❌ openai (Regular OpenAI Chat API - use openai-responses instead)'
   );

@@ -8,7 +8,7 @@ import {
 const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.Gemini25FlashLite },
+  config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
 });
 
 async function runAutoParallelDemo() {

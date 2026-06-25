@@ -38,6 +38,7 @@ class QuickJsCodeRuntime : public AxCodeRuntime {
  public:
   explicit QuickJsCodeRuntime(Value runtime_policy = Value::object());
   QuickJsCodeRuntime& register_callable(std::string name, HostCallable handler);
+  void register_host_callable(std::string name, std::function<Value(Value)> callable) override;
   std::string usage_instructions() const override;
   AxCodeSession* create_session(Value globals, Value options = Value::object()) override;
   Value runtime_policy() const;

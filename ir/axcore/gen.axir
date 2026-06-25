@@ -62,8 +62,48 @@ module @ax.gen version "0.1" {
       %mode_raw = core.get %options["functionCallMode"] default %mode_snake
       %mode = core.call @function_call_mode_impl(%mode_raw)
       core.set %request["function_call"] = %mode
+      // Structured-output enforcement. A strict json_schema makes the model emit
+      // exactly the declared output fields (e.g. javascriptCode for RLM stages, or a
+      // responder's typed fields) — without it a live model picks its own keys and
+      // drifts (the responder drops required fields, an llmQuery sub-query answers
+      // off-shape), which stalls the agent loop. Mirrors TS AxGen. Only
+      // function-calling gens (no code field, functions present) keep json_object,
+      // so the model stays free to choose tool calls instead of structured output.
+      %signature = core.get %gen["signature"]
+      %output_fields = core.get %signature["output_fields"]
+      %has_code_field = core.let false
+      core.for %of in %output_fields {
+        %of_type = core.get %of["type"]
+        %of_type_name = core.get %of_type["name"]
+        %of_is_code = core.call intrinsic.eq(%of_type_name, "code")
+        core.if %of_is_code {
+          %has_code_field = core.let true
+        }
+      }
       %response_format = core.map
-      core.set %response_format["type"] = "json_object"
+      %fn_count = core.call intrinsic.len(%function_specs)
+      %has_functions = core.call intrinsic.gt(%fn_count, 0)
+      %no_functions = core.call intrinsic.not(%has_functions)
+      %use_json_schema = core.call intrinsic.or(%has_code_field, %no_functions)
+      core.if %use_json_schema {
+        %schema_options = core.map
+        core.set %schema_options["strictStructuredOutputs"] = true
+        // A freeform `json`/`json[]` output field has no declared properties, and a
+        // strict schema forces additionalProperties:false, which pins every such
+        // object to `{}` (a forensics `findings:json[]` came back as `[{}]`). Mirror
+        // TS AxGen: encode flexible-json fields as JSON strings the model CAN fill,
+        // then parse them back after the response (see @parse_json_string_fields).
+        core.set %schema_options["flexibleJsonFieldsAsString"] = true
+        %code_schema = core.call @schema_to_json_schema_impl(%output_fields, "output", %schema_options)
+        %code_schema_wrap = core.map
+        core.set %code_schema_wrap["name"] = "output"
+        core.set %code_schema_wrap["strict"] = true
+        core.set %code_schema_wrap["schema"] = %code_schema
+        core.set %response_format["type"] = "json_schema"
+        core.set %response_format["schema"] = %code_schema_wrap
+      } else {
+        core.set %response_format["type"] = "json_object"
+      }
       core.set %request["response_format"] = %response_format
       core.set %request["model_config"] = %model_config
       core.return %request
@@ -153,7 +193,8 @@ module @ax.gen version "0.1" {
           core.try {
             %content = core.get %response["content"] default ""
             %output = core.call @parse_output_impl(%content)
-            %validated = core.call @validate_output(%output_fields, %output)
+            %recovered = core.call @parse_json_string_fields(%output_fields, %output)
+            %validated = core.call @validate_output(%output_fields, %recovered)
             %processed = core.call @apply_field_processors(%gen, %validated)
             core.call @run_assertions(%gen, %processed)
             %public_output = core.call @strip_internal_fields(%output_fields, %processed)
@@ -333,6 +374,177 @@ module @ax.gen version "0.1" {
       %text = core.string_trim %content
       %output = core.call intrinsic.json.parse(%text)
       core.return %output
+    }
+  }
+
+  // A freeform `json`/`json[]` output field is encoded as a JSON-encoded string in
+  // the strict schema (see flexibleJsonFieldsAsString in @build_gen_chat_request),
+  // so the model can actually fill it instead of being pinned to `{}`. After the
+  // response is parsed we walk the output fields and parse those string values back
+  // into real json. Mirrors TS AxGen parseStructuredJsonFieldValues / isFlexibleJsonField.
+  op ax.gen.semantic @is_flexible_json_field {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "is-flexible-json-field-core-helper"
+    type signature = "(FieldType) -> bool"
+    body @entry(%typ: FieldType) {
+      %type_name = core.get %typ["name"]
+      %is_json = core.call intrinsic.eq(%type_name, "json")
+      %is_object = core.call intrinsic.eq(%type_name, "object")
+      %fields = core.get %typ["fields"]
+      %has_fields = core.call intrinsic.truthy(%fields)
+      %no_fields = core.call intrinsic.not(%has_fields)
+      // %flexible = is_json OR (is_object AND no_fields); nested if avoids
+      // intrinsic.and, which the gen module does not emit a helper for.
+      %flexible = core.let %is_json
+      core.if %is_object {
+        core.if %no_fields {
+          %flexible = core.let true
+        }
+      }
+      core.return %flexible
+    }
+  }
+
+  op ax.gen.semantic @parse_json_string_value {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "parse-json-string-value-core-helper"
+    type signature = "(json) -> json"
+    body @entry(%value: json) {
+      %is_string = core.type_is %value type "string"
+      %not_string = core.call intrinsic.not(%is_string)
+      core.if %not_string {
+        core.return %value
+      }
+      %result = core.let %value
+      core.try {
+        %parsed = core.call intrinsic.json.parse(%value)
+        %result = core.let %parsed
+      } catch %parse_error {
+        %result = core.let %value
+      }
+      core.return %result
+    }
+  }
+
+  op ax.gen.semantic @parse_json_string_for_field {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "parse-json-string-for-field-core-helper"
+    type signature = "(Field, json) -> json"
+    body @entry(%field: Field, %value: json) {
+      %typ = core.get %field["type"]
+      %value_is_none = core.call intrinsic.is_none(%value)
+      core.if %value_is_none {
+        core.return %value
+      }
+      %flexible = core.call @is_flexible_json_field(%typ)
+      %is_array = core.get %typ["is_array"] default false
+      %typ_fields = core.get %typ["fields"]
+      %has_typ_fields = core.call intrinsic.truthy(%typ_fields)
+      core.if %is_array {
+        %value_is_list = core.type_is %value type "list"
+        %not_list = core.call intrinsic.not(%value_is_list)
+        core.if %not_list {
+          core.return %value
+        }
+        core.if %flexible {
+          %out = core.list
+          core.for %item in %value {
+            %parsed_item = core.call @parse_json_string_value(%item)
+            core.append %out, %parsed_item
+          }
+          core.return %out
+        }
+        // object[] with declared sub-fields: recurse into each item's nested
+        // flexible-json leaves (mirrors TS parseJsonStringValuesForField array branch).
+        core.if %has_typ_fields {
+          %rebuilt = core.list
+          core.for %item in %value {
+            %item_is_map = core.type_is %item type "object"
+            core.if %item_is_map {
+              %parsed_obj = core.call @parse_json_string_for_fields(%typ_fields, %item)
+              core.append %rebuilt, %parsed_obj
+            } else {
+              core.append %rebuilt, %item
+            }
+          }
+          core.return %rebuilt
+        }
+        core.return %value
+      }
+      core.if %flexible {
+        %parsed_scalar = core.call @parse_json_string_value(%value)
+        core.return %parsed_scalar
+      }
+      // shaped object: recurse into its nested flexible-json leaves.
+      %type_name = core.get %typ["name"]
+      %is_object = core.call intrinsic.eq(%type_name, "object")
+      core.if %is_object {
+        core.if %has_typ_fields {
+          %parsed_obj2 = core.call @parse_json_string_for_fields(%typ_fields, %value)
+          core.return %parsed_obj2
+        }
+      }
+      core.return %value
+    }
+  }
+
+  op ax.gen.semantic @parse_json_string_fields {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "parse-structured-json-field-values-core-helper"
+    type signature = "(list<Field>, json) -> json"
+    body @entry(%output_fields: list<Field>, %values: json) {
+      %values_is_map = core.type_is %values type "object"
+      %not_map = core.call intrinsic.not(%values_is_map)
+      core.if %not_map {
+        core.return %values
+      }
+      core.for %field in %output_fields {
+        %name = core.get %field["name"]
+        %has_key = core.call intrinsic.map.contains(%values, %name)
+        core.if %has_key {
+          %value = core.get %values[%name]
+          %parsed = core.call @parse_json_string_for_field(%field, %value)
+          core.set %values[%name] = %parsed
+        }
+      }
+      core.return %values
+    }
+  }
+
+  // Recurse into a shaped object's / object[] item's nested sub-fields and parse any
+  // flexible-json leaves back. Mirrors TS parseJsonStringValuesForFields: convert the
+  // FieldType `fields` map to a Field list, then parse each present value.
+  op ax.gen.semantic @parse_json_string_for_fields {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "parse-json-string-nested-fields-core-helper"
+    type signature = "(json, json) -> json"
+    body @entry(%fields_map: json, %values: json) {
+      %values_is_map = core.type_is %values type "object"
+      %not_map = core.call intrinsic.not(%values_is_map)
+      core.if %not_map {
+        core.return %values
+      }
+      %nested_fields = core.call intrinsic.fields.from_map(%fields_map)
+      core.for %field in %nested_fields {
+        %name = core.get %field["name"]
+        %has_key = core.call intrinsic.map.contains(%values, %name)
+        core.if %has_key {
+          %value = core.get %values[%name]
+          %parsed = core.call @parse_json_string_for_field(%field, %value)
+          core.set %values[%name] = %parsed
+        }
+      }
+      core.return %values
     }
   }
 

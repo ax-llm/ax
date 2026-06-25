@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <thread>
 #include <cctype>
 #include <cstdlib>
 #include <cstdint>
@@ -210,6 +212,7 @@ struct Core {
   static Value agent_runtime_close(Value session);
   static Value agent_memory_search(Value state, Value searches, Value already_loaded);
   static Value agent_skill_search(Value state, Value searches);
+  static Value agent_transcribe(Value client, Value request, Value options);
   static Value agent_callable_invoke(Value state, Value request, Value options);
   static Value stream_event_content_parts(Value event);
   static Value openai_normalize_chat_response(Value raw);
@@ -299,6 +302,8 @@ struct Core {
   static Value provider_descriptor(Value profile);
   static Value provider_operation_descriptor(Value profile, Value operation);
   static Value _provider_realtime_audio_descriptor(Value profile);
+  static Value provider_realtime_ws_url(Value profile, Value model, Value api_key);
+  static Value provider_should_use_realtime(Value profile, Value model, Value request);
   static Value provider_build_realtime_audio_setup(Value profile, Value request);
   static Value provider_build_realtime_audio_input(Value profile, Value request);
   static Value _openai_realtime_compatible_build_setup(Value descriptor, Value request);
@@ -316,6 +321,11 @@ struct Core {
   static Value provider_build_embed_request(Value profile, Value request);
   static Value provider_normalize_chat_response(Value profile, Value raw, Value ai_name, Value model);
   static Value provider_normalize_stream_delta(Value profile, Value raw, Value state, Value ai_name, Value model);
+  static Value provider_classify_stream_error_status(Value profile, Value event);
+  static Value is_retryable_status(Value status);
+  static Value default_retry_config();
+  static Value retry_opt_value(Value map, Value camel, Value snake, Value fallback);
+  static Value resolve_stream_retry(Value options);
   static Value provider_normalize_embed_response(Value profile, Value raw, Value ai_name, Value model);
   static Value provider_build_transcribe_request(Value profile, Value request);
   static Value provider_build_speak_request(Value profile, Value request);
@@ -365,6 +375,8 @@ struct Core {
   static Value _anthropic_content_part_impl(Value part);
   static Value _anthropic_tool_spec_impl(Value fn);
   static Value _anthropic_tool_choice_impl(Value request);
+  static Value _anthropic_error_type_to_status(Value type);
+  static Value _anthropic_map_error_event(Value error, Value raw);
   static Value _anthropic_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value _anthropic_merge_response_block_impl(Value text_parts, Value function_calls, Value thought_parts, Value thought_blocks, Value citations, Value block);
   static Value _anthropic_append_citations_impl(Value out, Value block);
@@ -379,39 +391,44 @@ struct Core {
   static Value _forward_impl(Value gen, Value client, Value values, Value options);
   static Value _validate_optimization_component_map(Value components, Value component_map);
   static Value _validate_optimized_artifact_provenance(Value artifact, Value components);
-  static Value _set_examples(Value gen, Value examples);
   static Value _validate_optimized_artifact(Value artifact, Value components);
+  static Value _set_examples(Value gen, Value examples);
   static Value _set_demos(Value gen, Value demos);
   static Value _render_examples(Value gen);
   static Value _render_demos(Value gen);
-  static Value _apply_field_processors(Value gen, Value output);
-  static Value _run_assertions(Value gen, Value output);
-  static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
   static Value _serialize_optimized_artifact(Value artifact);
-  static Value _record_trace(Value gen, Value input, Value output, Value status);
+  static Value _apply_field_processors(Value gen, Value output);
   static Value _deserialize_optimized_artifact(Value text, Value components);
-  static Value _should_continue_steps(Value gen, Value calls);
+  static Value _run_assertions(Value gen, Value output);
   static Value _optimization_changed_components(Value components, Value component_map);
-  static Value _complete_with_retries_impl(Value client, Value request, Value retries);
+  static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
+  static Value _record_trace(Value gen, Value input, Value output, Value status);
   static Value _optimization_component_current_map(Value components);
-  static Value _parse_output_impl(Value content);
+  static Value _should_continue_steps(Value gen, Value calls);
   static Value _normalize_optimization_dataset(Value dataset);
-  static Value _tool_spec_impl(Value fn);
+  static Value _complete_with_retries_impl(Value client, Value request, Value retries);
   static Value _normalize_optimization_metric_scores(Value raw);
-  static Value _function_call_mode_impl(Value mode);
+  static Value _parse_output_impl(Value content);
   static Value _scalarize_optimization_scores(Value scores, Value options);
-  static Value _response_function_calls_impl(Value response);
-  static Value _append_tool_call_messages_impl(Value messages, Value response, Value calls);
+  static Value _is_flexible_json_field(Value typ);
   static Value _optimization_action_name_matches(Value expected, Value call);
-  static Value _completion_call_to_chat_impl(Value call);
+  static Value _parse_json_string_value(Value value);
   static Value _adjust_optimization_score_for_actions(Value score, Value task, Value prediction);
+  static Value _parse_json_string_for_field(Value field, Value value);
+  static Value _parse_json_string_fields(Value output_fields, Value values);
+  static Value _parse_json_string_for_fields(Value fields_map, Value values);
+  static Value _build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error);
+  static Value _tool_spec_impl(Value fn);
+  static Value _build_optimization_eval_result(Value rows, Value candidate_map, Value phase);
+  static Value _function_call_mode_impl(Value mode);
+  static Value _response_function_calls_impl(Value response);
+  static Value _filter_optimization_components(Value components, Value target);
+  static Value _append_tool_call_messages_impl(Value messages, Value response, Value calls);
+  static Value _completion_call_to_chat_impl(Value call);
   static Value _tool_result_message_impl(Value call, Value result);
+  static Value _build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace);
   static Value _tool_error_message_impl(Value call, Value error);
   static Value _append_validation_retry_messages_impl(Value messages, Value response, Value error);
-  static Value _build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error);
-  static Value _build_optimization_eval_result(Value rows, Value candidate_map, Value phase);
-  static Value _filter_optimization_components(Value components, Value target);
-  static Value _build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace);
   static Value _prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available);
   static Value _normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components);
   static Value _build_optimizer_evidence_batch(Value eval_result, Value components);
@@ -439,12 +456,24 @@ struct Core {
   static Value _agent_context_event_reason(Value stable_id);
   static Value _agent_policy_registry(Value policy, Value flags);
   static Value _policy_flag_enabled(Value flags, Value condition);
+  static Value _build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace);
   static Value _select_actor_primitives(Value registry, Value stage);
   static Value _select_protocol_actions(Value registry);
-  static Value _build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace);
   static Value _select_runtime_globals(Value registry);
   static Value _validate_policy_reserved_names(Value registry, Value name);
   static Value _render_actor_primitive_guidance(Value registry, Value stage);
+  static Value _rlm_flag_enabled(Value flags, Value flag);
+  static Value _rlm_any_flag_enabled(Value flags, Value flag_names);
+  static Value _rlm_entry_enabled(Value entry, Value flags);
+  static Value _render_runtime_primitive(Value primitive, Value flags);
+  static Value _render_actor_primitives_list(Value stage, Value flags);
+  static Value _build_rlm_flags(Value options);
+  static Value _rlm_context_var_list(Value context_fields);
+  static Value _rlm_context_var_summary(Value context_fields);
+  static Value _rlm_render_template(Value template_, Value vars, Value context);
+  static Value _render_rlm_executor_description(Value state, Value options);
+  static Value _render_rlm_responder_description(Value state, Value options);
+  static Value _render_rlm_distiller_description(Value state, Value options);
   static Value _record_policy_event(Value state, Value action, Value payload);
   static Value _normalize_policy_action_result(Value action, Value payload);
   static Value _build_agent_actor_prompt_policy(Value state);
@@ -468,6 +497,7 @@ struct Core {
   static Value _agent_fallback_checkpoint_summary(Value entries, Value turns);
   static Value _agent_build_deterministic_tombstone(Value error_entry, Value resolution_entry);
   static Value _agent_apply_context_management(Value state);
+  static Value _agent_apply_llm_tombstone_summary(Value state, Value client, Value options);
   static Value _agent_working_code_state(Value entries, Value turns);
   static Value _agent_refresh_checkpoint_state(Value state);
   static Value _agent_build_action_log_parts(Value state, Value hygiene_mode);
@@ -517,6 +547,7 @@ struct Core {
   static Value _agent_runtime_execute_step(Value state, Value runtime, Value session, Value code, Value options);
   static Value _agent_runtime_inspect_state(Value state, Value session, Value options);
   static Value _agent_runtime_export_session_state(Value state, Value session, Value options);
+  static Value _agent_runtime_refresh_state_summary(Value state, Value session, Value options);
   static Value _agent_runtime_restore_session_state(Value state, Value session, Value snapshot, Value options);
   static Value _agent_runtime_close_session(Value state, Value session);
   static Value _agent_runtime_test(Value state, Value runtime, Value code, Value values, Value options);
@@ -524,6 +555,8 @@ struct Core {
   static Value _build_distiller_inputs(Value state, Value values);
   static Value _build_executor_inputs(Value state, Value values, Value distiller_payload);
   static Value _build_responder_inputs(Value state, Value values, Value executor_payload);
+  static Value _agent_render_field_token(Value field);
+  static Value _build_responder_signature(Value sig, Value context_fields);
   static Value _normalize_agent_completion_payload(Value output);
   static Value _throw_agent_clarification(Value payload, Value state);
   static Value _merge_agent_chat_log(Value state, Value distiller, Value executor, Value responder);
@@ -532,6 +565,21 @@ struct Core {
   static Value _agent_set_state(Value state, Value runtime_state);
   static Value _agent_stage_options(Value state, Value stage, Value forward_options);
   static Value _extract_agent_runtime_code(Value state, Value executor_output);
+  static Value _agent_apply_llm_checkpoint_summary(Value state, Value client, Value options);
+  static Value _context_map_sections();
+  static Value _context_map_parse_items(Value text);
+  static Value _context_map_render_items(Value items);
+  static Value _context_map_update_scores(Value scores, Value item_tags);
+  static Value _context_map_apply_operations(Value items, Value operations, Value next_id);
+  static Value _context_map_evict_to_budget(Value items, Value scores, Value max_chars);
+  static Value _format_context_map_trajectory(Value state);
+  static Value _context_map_complete(Value client, Value system, Value user);
+  static Value _context_map_parse_json(Value content);
+  static Value _agent_evolve_context_map(Value state, Value client, Value options);
+  static Value _agent_transcribe_one_audio(Value client, Value audio, Value transcribe_opts, Value options);
+  static Value _agent_transcribe_audio_inputs(Value state, Value client, Value values, Value options);
+  static Value _agent_run_llm_query_one(Value sub_gen, Value client, Value item);
+  static Value _agent_run_llm_query(Value sub_gen, Value client, Value params);
   static Value _agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
@@ -578,6 +626,13 @@ class AIClient {
   virtual ~AIClient() = default;
   virtual Value complete(Value request) = 0;
   virtual Value chat(Value request);
+  // Default so intrinsic.agent.transcribe can call transcribe through an AIClient* (the agent's
+  // scripted client extends the base AIClient). AxAIService and the scripted client override it.
+  virtual Value transcribe(Value request, Value options) {
+    (void)request;
+    (void)options;
+    return Value::object();
+  }
 };
 
 class AxAIService : public AIClient {
@@ -758,6 +813,29 @@ class HttpTransport : public Transport {
   Value call(Value request) override;
 };
 
+// Transport seam for the realtime turn driver: ScriptedRealtimeTransport for
+// deterministic offline turns, plus a WebSocket-backed transport (compiled only
+// when AXLLM_ENABLE_REALTIME is defined) for live turns.
+class RealtimeTransport {
+ public:
+  virtual ~RealtimeTransport() = default;
+  virtual void send(const Value& event) = 0;
+  virtual bool recv(Value& out) = 0;
+  virtual void close() {}
+};
+
+class ScriptedRealtimeTransport : public RealtimeTransport {
+ public:
+  explicit ScriptedRealtimeTransport(std::vector<Value> inbound);
+  void send(const Value& event) override;
+  bool recv(Value& out) override;
+  std::vector<Value> sent;
+
+ private:
+  std::vector<Value> inbound_;
+  std::size_t index_ = 0;
+};
+
 class OpenAICompatibleClient : public AxBaseAI {
  public:
   explicit OpenAICompatibleClient(Value options = Value::object(), Transport* transport = nullptr);
@@ -767,6 +845,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   std::vector<Value> realtime(Value events);
   Value realtime_audio_setup(Value request);
   Value realtime_audio_input(Value request);
+  Value realtime_chat(Value request, RealtimeTransport* transport = nullptr);
 
  protected:
   OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model);
@@ -784,6 +863,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   Transport* transport_;
   Value request_json(const std::string& endpoint, Value payload, bool stream);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key);
+  Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response);
   std::string operation_path(const std::string& operation) const;
   std::string operation_path(const std::string& operation, Value model) const;
   Value headers() const;
@@ -980,6 +1060,10 @@ class AxCodeRuntime {
   virtual std::string language() const { return "JavaScript"; }
   virtual std::string usage_instructions() const { return ""; }
   virtual AxCodeSession* create_session(Value globals, Value options = Value::object()) = 0;
+  // Register a host callable under `name`. Default no-op so runtimes that do
+  // not host callables are unaffected; the embedded JS engines override it so
+  // the agent wrapper can wire the built-in `llmQuery` primitive.
+  virtual void register_host_callable(std::string /*name*/, std::function<Value(Value)> /*callable*/) {}
 };
 
 struct RuntimeCapabilities {
@@ -1130,6 +1214,7 @@ class AxAgent : public AxProgram {
   std::unique_ptr<AxGen> distiller_;
   std::unique_ptr<AxGen> executor_;
   std::unique_ptr<AxGen> responder_;
+  std::unique_ptr<AxGen> llm_query_;
 };
 
 std::string stringify(const Value& value);
@@ -1146,6 +1231,12 @@ AxGen ax(Value signature, Value options = Value::object());
 AxAgent agent(const std::string& signature, Value options = Value::object());
 AxAgent agent(const char* signature, Value options = Value::object());
 AxAgent agent(Value signature, Value options = Value::object());
+// Register a native host search callback and return a marker to place in the agent options
+// under "onMemoriesSearch"/"onSkillsSearch". The callbacks run host-side when the actor calls
+// recall()/discover(); their presence auto-enables the memory/skill subsystems. Callbacks take
+// and return Value: memories (searches, alreadyLoaded) -> results, skills (searches) -> results.
+Value register_memories_search(std::function<Value(Value, Value)> fn);
+Value register_skills_search(std::function<Value(Value)> fn);
 AxFlow flow(Value options = Value::object());
 Value optimize(AxGen& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxFlow& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);

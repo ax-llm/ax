@@ -1,9 +1,7 @@
 {
   "expected_action_log_subset": [
     {
-      "searches": [
-        "prefs"
-      ],
+      "searches": ["prefs"],
       "type": "recall"
     },
     {
@@ -12,6 +10,7 @@
     }
   ],
   "expected_executed": [
+    "final(\"Recall preferences\", {})",
     "recall(\"prefs\")",
     "final(\"Answer\", {\"answer\": \"User likes concise docs.\"})"
   ],
@@ -26,9 +25,7 @@
   "expected_output": {
     "answer": "User likes concise docs."
   },
-  "expected_request_contains": [
-    "User likes concise docs."
-  ],
+  "expected_request_contains": ["User likes concise docs."],
   "expected_request_count": 4,
   "input": {
     "question": "Use memory"
@@ -51,7 +48,7 @@
   },
   "responses": [
     {
-      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Recall preferences\",{}]}}"
+      "content": "{\"pythonCode\": \"final(\\\"Recall preferences\\\", {})\"}"
     },
     {
       "content": "{\"pythonCode\":\"recall(\\\"prefs\\\")\"}"
@@ -64,6 +61,13 @@
     }
   ],
   "runtime_script": [
+    {
+      "expected_code": "final(\"Recall preferences\", {})",
+      "result": {
+        "args": ["Recall preferences", {}],
+        "type": "final"
+      }
+    },
     {
       "expected_code": "recall(\"prefs\")",
       "result": {

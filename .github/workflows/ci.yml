@@ -55,6 +55,12 @@ jobs:
         run: npm run axir:backlog:validate
       - name: Test AxIR maintenance tools
         run: npm run test:axir:tools
+      - name: Check AxIR behavioral-parity ledger
+        run: npm run axir:gate:ledger
+      - name: Check AxIR anti-facade examples
+        run: npm run axir:gate:anti-facade
+      - name: Check AxIR RLM prompt sync (TS .md vs IR json)
+        run: npm run axir:gate:prompt-sync
       - name: Check formatting
         run: npm run test:format
       - name: Lint
@@ -101,7 +107,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22.x'
+          go-version: '1.23.x'
           cache: false
       - name: Cache AxIR Go outputs
         uses: actions/cache@v4
@@ -128,6 +134,12 @@ jobs:
         run: npm ci
       - name: Run generated examples
         run: npm run test:examples:generated
+      - name: AxIR perturbation gate (expected-mutation, all targets)
+        run: npm run axir:perturb:check
+      - name: AxIR anti-hardcode gate (model-response mutation, all targets)
+        run: npm run axir:gate:response-perturb
+        env:
+          AXIR_PERTURB_ALL: "1"
 
   axir-packages:
     name: AxIR Package Freshness
@@ -143,7 +155,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22.x'
+          go-version: '1.23.x'
           cache: false
       - name: Cache AxIR Go outputs
         uses: actions/cache@v4
@@ -211,7 +223,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22.x'
+          go-version: '1.23.x'
           cache: false
       - name: Cache AxIR Go outputs
         uses: actions/cache@v4
@@ -240,6 +252,77 @@ jobs:
       - name: Verify AxIR ${{ matrix.target }} package
         run: npm run axir:verify:release -- --targets ${{ matrix.target }}
 
+  axir-agent-antidote:
+    # Real-engine antidote (see docs/AXIR_GATES.md). Runs the WHOLE ir/conformance/axagent-real
+    # suite, so BOTH RLM actor stages are genuinely executed by a real embedded engine: the executor
+    # (agent-runtime-real-javascript-final) AND the distiller (agent-runtime-real-distiller-code,
+    # which a one-shot distiller that demands a completion cannot pass -- the bug a live model surfaced
+    # that scripted fixtures + the executor-only antidote missed). The recorded transcript supplies the
+    # model turns, but the completion MUST be produced by the engine run -- a hollow agent that
+    # fabricates a completion payload cannot pass. Go uses the bundled goja engine; Python the optional
+    # quickjs wheel (axllm[runtime-quickjs]); Rust the rquickjs feature; Java the pure-JVM quickjs4j
+    # engine from Maven Central. cpp is verified locally (all five real engines pass) -- it needs a
+    # native libquickjs: g++ -std=c++17 -DAX_CONFORMANCE_QUICKJS -I packages/cpp -I <quickjs-include>
+    # packages/cpp/conformance.cpp packages/cpp/axllm/axllm.cpp packages/cpp/axllm/mcp.cpp
+    # packages/cpp/axllm/runtime/quickjs/quickjs_runtime.cpp -L <quickjs-lib> -lquickjs (see
+    # docs/AXIR_GATES.md). TestRLMStagesSymmetric + TestRealEngineFixturesRunCode (go test) statically
+    # guard that every actor stage has a code signature + runtime loop and that these fixtures run code,
+    # not a hand-fed completion.
+    name: AxIR Agent Real-Engine Antidote
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Go in-process engine antidote (goja, bundled)
+        run: cd packages/go && go run ./conformance ../../ir/conformance/axagent-real
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Python in-process engine antidote (axllm[runtime-quickjs])
+        run: |
+          pip install quickjs
+          PYTHONPATH=packages/python python -m axllm.conformance ir/conformance/axagent-real
+      - name: Cache Cargo outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            ${{ env.CARGO_TARGET_DIR }}
+          key: ${{ runner.os }}-cargo-antidote-${{ hashFiles('packages/rust/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Rust in-process engine antidote (rquickjs)
+        run: cargo run --manifest-path packages/rust/Cargo.toml --features runtime-quickjs --bin axllm-conformance -- ir/conformance/axagent-real
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Java in-process engine antidote (quickjs4j/Chicory)
+        # quickjs4j is a pure-JVM WASM engine, so the only setup is fetching it (+ deps) from
+        # Maven Central, compiling the package against it, and running -- no native toolchain.
+        run: |
+          cat > /tmp/qjs4j-pom.xml <<'EOF'
+          <project xmlns="http://maven.apache.org/POM/4.0.0">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>tmp</groupId><artifactId>fetch</artifactId><version>1</version><packaging>pom</packaging>
+            <dependencies><dependency>
+              <groupId>io.roastedroot</groupId><artifactId>quickjs4j</artifactId><version>0.0.18</version>
+            </dependency></dependencies>
+          </project>
+          EOF
+          mvn -q -f /tmp/qjs4j-pom.xml dependency:copy-dependencies -DoutputDirectory=/tmp/qjs4j-libs
+          CP=$(ls /tmp/qjs4j-libs/*.jar | tr '\n' ':')
+          find packages/java/dev -name '*.java' > /tmp/java-sources.txt
+          javac -cp "$CP" -d /tmp/java-classes @/tmp/java-sources.txt
+          java -cp "/tmp/java-classes:$CP" dev.axllm.ax.Conformance ir/conformance/axagent-real
+
   ci-summary:
     name: CI Summary
     runs-on: ubuntu-latest
@@ -252,6 +335,7 @@ jobs:
       - axir-packages
       - website
       - axir-verify
+      - axir-agent-antidote
     steps:
       - name: Check all CI shards
         run: |
@@ -262,7 +346,8 @@ jobs:
             "${{ needs.generated-examples.result }}" \
             "${{ needs.axir-packages.result }}" \
             "${{ needs.website.result }}" \
-            "${{ needs.axir-verify.result }}"; do
+            "${{ needs.axir-verify.result }}" \
+            "${{ needs.axir-agent-antidote.result }}"; do
             if [ "$result" != "success" ]; then
               echo "CI shard failed or was skipped: $result"
               exit 1

@@ -5,7 +5,7 @@ This generated API reference is emitted by AxIR from compiler-owned metadata. Do
 ## Package
 
 - Target: `go`
-- Package: `github.com/ax-llm/ax/go`
+- Package: `github.com/ax-llm/ax/packages/go`
 - AxIR contract: `0.1`
 
 ## Signatures

@@ -15,5 +15,5 @@
     ]
   },
   "expected_error_type": "AxUnsupportedCapabilityError",
-  "expected_error_contains": "content part type: audio"
+  "expected_error_contains": "wav and mp3 audio"
 }

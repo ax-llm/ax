@@ -4,11 +4,23 @@ Bring Ax into Java services and JVM applications with a small native API: signat
 
 ## Quick Start
 
-```bash
-cd packages/java
-javac -cp . dev/axllm/ax/*.java examples/SignatureSchemaExample.java
-java -cp .:examples SignatureSchemaExample
+Add the dependency from Maven Central:
+
+```xml
+<dependency>
+  <groupId>dev.axllm</groupId>
+  <artifactId>ax</artifactId>
+  <version>22.0.7</version>
+</dependency>
 ```
+
+Or with Gradle:
+
+```groovy
+implementation 'dev.axllm:ax:22.0.7'
+```
+
+Realtime audio over WebSocket uses the JDK's built-in `java.net.http` WebSocket — no extra dependency.
 
 ```java
 import dev.axllm.ax.*;
@@ -24,6 +36,7 @@ System.out.println(schema.get("properties"));
 - Signatures and schemas: describe inputs and outputs once, then reuse that shape for validation, prompts, tools, and typed results.
 - AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.
 - AxAI: call OpenAI-compatible, OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients through one provider boundary.
+- Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).
 - AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
 - AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
 - Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.
@@ -46,10 +59,10 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/AxGenScriptedClientToolExample.java`: AxGen with a scripted client and tool
 - `examples/ProviderMappingNoKeyExample.java`: provider mapping through a scripted transport
 - `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport
-- `examples/AxAgentPipelineExample.java`: deterministic AxAgent pipeline
 - `examples/AxFlowProgramGraphExample.java`: AxFlow program graph
 - `examples/AudioResponsesMappingExample.java`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `examples/RealtimeAudioEventsExample.java`: Grok/Gemini realtime audio setup, input, and event folding
+- `examples/RealtimeAudioTurnExample.java`: drive a full realtime audio turn through `realtimeChat` (offline, scripted transport)
 - `examples/RuntimeAdapterExample.java`: custom `AxCodeRuntime` session
 - `examples/RuntimeProtocolExample.java`: process runtime protocol against the AxJS reference adapter
 - `examples/OptimizerArtifactExample.java`: optimizer artifact save/load/apply lifecycle
@@ -59,7 +72,6 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/AxGenOpenAIExample.java && java -cp .:examples AxGenOpenAIExample`: AxGen with a real OpenAI-compatible provider API
-- `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/AgentOpenAIExample.java && java -cp .:examples AgentOpenAIExample`: AxAgent with a real OpenAI-compatible provider API
 - `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/FlowOpenAIExample.java && java -cp .:examples FlowOpenAIExample`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents

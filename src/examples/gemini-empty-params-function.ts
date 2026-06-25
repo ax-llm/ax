@@ -25,7 +25,7 @@ export const gen = ax(
 const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.GeminiFlashLatest, stream: true },
+  config: { model: AxAIGoogleGeminiModel.Gemini35Flash, stream: true },
 });
 
 const res = await gen.forward(llm, {

@@ -67,13 +67,13 @@ async function main() {
   const student = ai({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY!,
-    config: { model: AxAIOpenAIModel.GPT4OMini },
+    config: { model: AxAIOpenAIModel.GPT54Mini },
   });
 
   const teacher = ai({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY!,
-    config: { model: AxAIOpenAIModel.GPT4O },
+    config: { model: AxAIOpenAIModel.GPT54 },
   });
 
   // Optimizer

@@ -401,12 +401,39 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
         try:
             with urllib.request.urlopen(request, timeout=float(self.options.get("timeout", 30))) as response:
                 self._capture_session(response.headers)
+                content_type = response.headers.get("Content-Type", "") if hasattr(response.headers, "get") else ""
                 text = response.read().decode("utf-8")
-                return json.loads(text) if text else {"jsonrpc": "2.0", "id": message.get("id"), "result": {}}
+                if not text:
+                    return {"jsonrpc": "2.0", "id": message.get("id"), "result": {}}
+                # A spec-compliant MCP server may answer a JSON-RPC POST with an SSE
+                # stream (Content-Type: text/event-stream) carrying the response — and
+                # any interleaved notifications/keepalives — in `data:` frames. Parse
+                # those rather than JSON-decoding the raw stream; otherwise keep the
+                # JSON path. (The optional standalone GET stream for unsolicited
+                # server->client messages is out of scope for this request/response
+                # transport.)
+                if "text/event-stream" in content_type.lower():
+                    return self._select_sse_response(_ax_mcp_parse_sse(text), message.get("id"))
+                return json.loads(text)
         except urllib.error.HTTPError as error:
             if error.code == 401 and self._apply_oauth():
                 return self.send(message)
             raise AxMCPError(f"HTTP error {error.code}: {error.reason}")
+
+    def _select_sse_response(self, messages: list[dict[str, Any]], request_id: Any) -> dict[str, Any]:
+        # Return the JSON-RPC response whose id matches this request; route any
+        # other messages (server notifications/requests interleaved on the POST
+        # stream) to the inbound handler, mirroring the stdio transport.
+        response: dict[str, Any] | None = None
+        for msg in messages:
+            if response is None and isinstance(msg, dict) and msg.get("id") == request_id:
+                response = msg
+                continue
+            if self._message_handler:
+                self._message_handler(msg)
+        if response is not None:
+            return response
+        return messages[-1] if messages else {"jsonrpc": "2.0", "id": request_id, "result": {}}
 
     def send_notification(self, message: dict[str, Any]) -> None:
         response = self.send({**message, "id": "__notification__"})
@@ -512,6 +539,22 @@ def ax_mcp_stdio_encode(message: dict[str, Any]) -> str:
 
 def ax_mcp_stdio_decode(line: str) -> dict[str, Any]:
     return json.loads(line.strip())
+
+
+def _ax_mcp_parse_sse(text: str) -> list[dict[str, Any]]:
+    # Extract JSON-RPC messages from the `data:` frames of an SSE body. Mirrors
+    # the AI module's streaming SSE reader but stays self-contained so the MCP
+    # module keeps no cross-module dependency (TestPythonModulesSelfContained).
+    messages: list[dict[str, Any]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if not data or data == "[DONE]":
+            continue
+        messages.append(json.loads(data))
+    return messages
 
 
 def ax_mcp_pkce_verifier() -> str:

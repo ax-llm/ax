@@ -1,0 +1,27 @@
+{
+  "name": "anthropic-error-authentication",
+  "kind": "ai_error",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "type": "error",
+        "error": {
+          "type": "authentication_error",
+          "message": "invalid x-api-key"
+        }
+      }
+    }
+  ],
+  "expected_error_type": "AxAIServiceAuthenticationError",
+  "expected_error_contains": "invalid x-api-key"
+}

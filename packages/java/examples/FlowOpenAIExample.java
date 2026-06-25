@@ -1,4 +1,3 @@
-// docs:start provider-flow
 import dev.axllm.ax.*;
 import java.util.*;
 
@@ -27,4 +26,3 @@ public final class FlowOpenAIExample {
     System.out.println(Json.stringify(output));
   }
 }
-// docs:end provider-flow

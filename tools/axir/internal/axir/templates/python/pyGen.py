@@ -163,6 +163,8 @@ class AxGen:
             structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
             custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
         )
+        if self.instruction:
+            self.prompt_template.set_instruction(self.instruction)
 
     def set_examples(self, examples):
         self.examples = list(examples or [])
@@ -507,6 +509,43 @@ def _core_json_parse(value):
 
 def _core_json_stringify(value):
     return json.dumps(value)
+
+
+def _core_fields_from_map(fields):
+    if not fields:
+        return []
+    return [_nested_field(name, item) for name, item in fields.items()]
+
+
+def _nested_field(name, item):
+    from .signature import Field, FieldType
+    if isinstance(item, Field):
+        return item
+    if isinstance(item, FieldType):
+        return Field(name=name, type=item)
+    if isinstance(item, dict):
+        typ = FieldType(
+            item.get("type", item.get("name", "string")),
+            is_array=bool(item.get("isArray", item.get("is_array", False))),
+            options=item.get("options"),
+            fields=item.get("fields"),
+            min_length=item.get("minLength", item.get("min_length")),
+            max_length=item.get("maxLength", item.get("max_length")),
+            minimum=item.get("minimum"),
+            maximum=item.get("maximum"),
+            pattern=item.get("pattern"),
+            pattern_description=item.get("patternDescription", item.get("pattern_description")),
+            format=item.get("format"),
+            description=item.get("description"),
+        )
+        return Field(
+            name=name,
+            type=typ,
+            description=item.get("description"),
+            is_optional=bool(item.get("isOptional", item.get("is_optional", False))),
+            is_internal=bool(item.get("isInternal", item.get("is_internal", False))),
+        )
+    return Field(name=name, type=item)
 
 
 def _core_string_format(template, *args):

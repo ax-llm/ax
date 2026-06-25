@@ -16,7 +16,7 @@
     },
     {
       "response": {
-        "modalities": ["audio"]
+        "output_modalities": ["audio"]
       },
       "type": "response.create"
     }
@@ -35,13 +35,14 @@
           "format": {
             "rate": 24000,
             "type": "audio/pcm"
-          }
+          },
+          "voice": "alloy"
         }
       },
       "instructions": "Speak briefly.",
-      "modalities": ["audio"],
-      "turn_detection": null,
-      "voice": "alloy"
+      "model": "gpt-4o",
+      "output_modalities": ["audio"],
+      "type": "realtime"
     },
     "type": "session.update"
   },

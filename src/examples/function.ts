@@ -114,7 +114,7 @@ const ai = createAI({
   apiKey: process.env.ANTHROPIC_APIKEY as string,
   config: {
     stream: true,
-    model: AxAIAnthropicModel.Claude35Haiku,
+    model: AxAIAnthropicModel.Claude45Haiku,
     maxTokens: 3000,
   },
 });
@@ -122,7 +122,7 @@ const ai = createAI({
 // const ai = createAI({
 //   name: 'google-gemini',
 //   apiKey: process.env.GOOGLE_APIKEY as string,
-//   config: { stream: true, model: AxAIGoogleGeminiModel.Gemini15Flash },
+//   config: { stream: true, model: AxAIGoogleGeminiModel.Gemini35Flash },
 // })
 
 // const ai = createAI({

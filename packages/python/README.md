@@ -5,9 +5,13 @@ Build Ax programs from Python without giving up the Ax model: typed signatures, 
 ## Quick Start
 
 ```bash
-cd packages/python
-python -m pip install -e .
-PYTHONPATH=. python examples/signature_schema.py
+pip install axllm
+```
+
+Realtime audio over WebSocket is an opt-in extra (pulls `websocket-client`):
+
+```bash
+pip install axllm[realtime]
 ```
 
 ```python
@@ -23,6 +27,7 @@ assert "answer" in schema["properties"]
 - Signatures and schemas: describe inputs and outputs once, then reuse that shape for validation, prompts, tools, and typed results.
 - AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.
 - AxAI: call OpenAI-compatible, OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients through one provider boundary.
+- Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).
 - AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
 - AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
 - Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.
@@ -44,10 +49,10 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client and tool
 - `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport
 - `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport
-- `python examples/axagent_pipeline.py`: deterministic AxAgent pipeline
 - `python examples/axflow_program_graph.py`: AxFlow program graph
 - `python examples/audio_responses_mapping.py`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `python examples/realtime_audio_events.py`: Grok/Gemini realtime audio setup, input, and event folding
+- `python examples/realtime_audio_turn.py`: drive a full realtime audio turn through the productized `realtime_chat()` driver (offline, scripted transport)
 - `python examples/runtime_adapter.py`: custom `AxCodeRuntime` session
 - `python examples/runtime_protocol.py`: process runtime protocol against the AxJS reference adapter
 - `python examples/optimizer_artifact.py`: optimizer artifact save/load/apply lifecycle
@@ -57,7 +62,6 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - `OPENAI_API_KEY=... python examples/axgen_openai_api.py`: AxGen with a real OpenAI-compatible provider API
-- `OPENAI_API_KEY=... python examples/agent_openai_api.py`: AxAgent with a real OpenAI-compatible provider API
 - `OPENAI_API_KEY=... python examples/flow_openai_api.py`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents

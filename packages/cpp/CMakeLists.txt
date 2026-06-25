@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(axllm VERSION 22.0.3 LANGUAGES CXX)
+project(axllm VERSION 22.0.7 LANGUAGES CXX)
 
 option(AX_BUILD_EXAMPLES "Build generated Ax examples" ON)
 option(AX_BUILD_CONFORMANCE "Build generated Ax conformance runner" ON)
@@ -9,6 +9,7 @@ set(AX_QUICKJS_LDFLAGS "" CACHE STRING "Extra link flags or libraries for the op
 option(AXLLM_ENABLE_CURL "Build the built-in libcurl HTTP transport" ON)
 option(AXLLM_ENABLE_MCP_OPENSSL "Use OpenSSL for MCP PKCE helpers when available" ON)
 option(AXLLM_ENABLE_MCP_STDIO_BOOST "Use Boost.Process for MCP stdio process transport when available" OFF)
+option(AXLLM_ENABLE_REALTIME "Build the built-in IXWebSocket realtime audio transport" OFF)
 
 add_library(axllm axllm/axllm.cpp axllm/mcp.cpp)
 add_library(axllm::axllm ALIAS axllm)
@@ -28,6 +29,19 @@ if(AXLLM_ENABLE_CURL)
   else()
     message(WARNING "libcurl was not found; axllm will build, but built-in provider HTTP will throw unless a custom Transport is supplied.")
   endif()
+endif()
+
+if(AXLLM_ENABLE_REALTIME)
+  include(FetchContent)
+  set(USE_TLS ON CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    ixwebsocket
+    GIT_REPOSITORY https://github.com/machinezone/IXWebSocket.git
+    GIT_TAG v11.4.5
+  )
+  FetchContent_MakeAvailable(ixwebsocket)
+  target_link_libraries(axllm PUBLIC ixwebsocket)
+  target_compile_definitions(axllm PUBLIC AXLLM_ENABLE_REALTIME=1)
 endif()
 
 if(AXLLM_ENABLE_MCP_OPENSSL)
@@ -59,8 +73,6 @@ if(AX_BUILD_EXAMPLES)
     axgen_openai_api
     provider_mapping_no_key
     provider_stream_no_key
-    axagent_pipeline
-    agent_openai_api
     runtime_adapter
     runtime_protocol
     axflow_program_graph

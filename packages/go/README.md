@@ -5,15 +5,15 @@ Write Ax programs in Go with the same contract used by the main Ax library: sign
 ## Quick Start
 
 ```bash
-cd packages/go
-go test ./...
-go run ./examples/signature_schema
+go get github.com/ax-llm/ax/packages/go
 ```
+
+Realtime audio over WebSocket needs Go 1.23+; the module pulls in `github.com/coder/websocket` automatically.
 
 ```go
 package main
 
-import ax "github.com/ax-llm/ax/go"
+import ax "github.com/ax-llm/ax/packages/go"
 
 func main() {
     sig := ax.NewSignature("question:string -> answer:string")
@@ -26,13 +26,14 @@ func main() {
 - Signatures and schemas: describe inputs and outputs once, then reuse that shape for validation, prompts, tools, and typed results.
 - AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.
 - AxAI: call OpenAI-compatible, OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients through one provider boundary.
+- Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).
 - AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
 - AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
 - Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.
 
 ## Package Shape
 
-- Module: `github.com/ax-llm/ax/go`
+- Module: `github.com/ax-llm/ax/packages/go`
 - Import alias used in examples: `ax`
 - Base package uses the Go standard library for HTTP/process boundaries
 - Optional JavaScript actor execution lives in `runtime/goja` and is opt-in by import
@@ -48,10 +49,10 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `go run ./examples/axgen_scripted_client_tool`: AxGen with a scripted client and tool
 - `go run ./examples/provider_mapping_no_key`: provider mapping through a scripted transport
 - `go run ./examples/provider_stream_no_key`: provider streaming through a scripted SSE transport
-- `go run ./examples/axagent_pipeline`: deterministic AxAgent pipeline
 - `go run ./examples/axflow_program_graph`: AxFlow program graph
 - `go run ./examples/audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `go run ./examples/realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding
+- `go run ./examples/realtime_audio_turn`: drive a full realtime audio turn through `RealtimeChat` (offline, scripted transport)
 - `go run ./examples/runtime_adapter`: custom `AxCodeRuntime` session
 - `go run ./examples/runtime_protocol`: process runtime protocol against the AxJS reference adapter
 - `go run ./examples/optimizer_artifact`: optimizer artifact save/load/apply lifecycle
@@ -61,7 +62,6 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
 - From the repo root, `OPENAI_API_KEY=... npm run example -- go axgen_openai_api.go`: AxGen with a real OpenAI-compatible provider API
-- From the repo root, `OPENAI_API_KEY=... npm run example -- go agent_openai_api.go`: AxAgent with a real OpenAI-compatible provider API
 - From the repo root, `OPENAI_API_KEY=... npm run example -- go flow_openai_api.go`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents
@@ -83,7 +83,7 @@ Optional runtime profiles are dependency-bearing and opt-in. Adapter policy owns
 ## Contract Snapshot
 
 - Compiler contract version: 0.1
-- Package: github.com/ax-llm/ax/go
+- Package: github.com/ax-llm/ax/packages/go
 - Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow, axmcp
 - Provider mode: provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic
 - Scripted transport support: true

@@ -1,14 +1,12 @@
 {
   "expected_output": {
     "auth": "anthropic_key",
-    "baseUrl": "https://api.anthropic.com/v1",
+    "baseUrl": "https://api.anthropic.com",
     "defaultModel": "claude-3-7-sonnet-latest",
     "features": {
       "caching": {
         "supported": true,
-        "types": [
-          "ephemeral_block"
-        ]
+        "types": ["ephemeral_block"]
       },
       "media": {
         "audio": {
@@ -33,13 +31,13 @@
       "chat": {
         "body": "json",
         "method": "POST",
-        "path": "/messages",
+        "path": "/v1/messages",
         "stream": false
       },
       "stream_chat": {
         "body": "json",
         "method": "POST",
-        "path": "/messages",
+        "path": "/v1/messages",
         "stream": true
       }
     }

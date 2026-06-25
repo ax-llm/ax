@@ -38,7 +38,7 @@
     },
     {
       "response": {
-        "modalities": ["audio"]
+        "output_modalities": ["audio"]
       },
       "type": "response.create"
     }
@@ -110,13 +110,14 @@
           "format": {
             "rate": 24000,
             "type": "audio/pcm"
-          }
+          },
+          "voice": "eve"
         }
       },
       "instructions": "You are a concise voice agent.",
-      "modalities": ["audio"],
-      "turn_detection": null,
-      "voice": "eve"
+      "model": "grok-voice-think-fast-1.0",
+      "output_modalities": ["audio"],
+      "type": "realtime"
     },
     "type": "session.update"
   },

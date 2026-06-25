@@ -38,7 +38,7 @@ const calculateTool = {
 const llm = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { stream: false, model: AxAIOpenAIModel.GPT4OMini },
+  config: { stream: false, model: AxAIOpenAIModel.GPT54Mini },
 });
 
 // Create agent with function call mode set to prompt

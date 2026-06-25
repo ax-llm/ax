@@ -821,6 +821,14 @@ final class Core {
   }
   static Object agentMemorySearch(Object state, Object searches, Object alreadyLoaded) {
     Map<String, Object> options = asMap(get(state, "options", Map.of()));
+    // Native host callback: a BiFunction<List,List,List> passed under "onMemoriesSearch" at
+    // construction receives the actor's recall() searches + already-loaded ids and returns matches.
+    Object callback = options.getOrDefault("on_memories_search", options.get("onMemoriesSearch"));
+    if (callback instanceof java.util.function.BiFunction<?, ?, ?> fn) {
+      @SuppressWarnings("unchecked")
+      Object result = ((java.util.function.BiFunction<Object, Object, Object>) fn).apply(asList(searches), asList(alreadyLoaded));
+      return result == null ? List.of() : result;
+    }
     Object scripted = options.getOrDefault("memory_search_results", options.get("memorySearchResults"));
     if (scripted instanceof Map<?, ?> map) {
       String joined = String.join("|", asList(searches).stream().map(String::valueOf).toList());
@@ -831,8 +839,27 @@ final class Core {
     if (scripted instanceof List<?>) return scripted;
     return List.of();
   }
+  static Object agentTranscribe(Object client, Object request, Object options) {
+    // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
+    // text before the agent loop (the client passes through _agent_forward as a real client).
+    if (!(client instanceof AiClient ai)) return Map.of("text", "");
+    try {
+      return ai.transcribe(asMap(request), asMap(options));
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   static Object agentSkillSearch(Object state, Object searches) {
     Map<String, Object> options = asMap(get(state, "options", Map.of()));
+    // Native host callback: a Function<List,List> passed under "onSkillsSearch" at construction
+    // receives the actor's discover() searches and returns matching skills.
+    Object callback = options.getOrDefault("on_skills_search", options.get("onSkillsSearch"));
+    if (callback instanceof java.util.function.Function<?, ?> fn) {
+      @SuppressWarnings("unchecked")
+      Object result = ((java.util.function.Function<Object, Object>) fn).apply(asList(searches));
+      return result == null ? List.of() : result;
+    }
     Object scripted = options.getOrDefault("skill_search_results", options.get("skillSearchResults"));
     if (scripted instanceof Map<?, ?> map) {
       String joined = String.join("|", asList(searches).stream().map(String::valueOf).toList());

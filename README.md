@@ -8,8 +8,13 @@ provider mappings, agents, flows, runtime contracts, and optimizers are also
 compiled into verified generated Python, Java, C++, Go, and Rust libraries.
 
 [![NPM](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=222&label=npm)](https://www.npmjs.com/package/@ax-llm/ax)
+[![PyPI](https://img.shields.io/pypi/v/axllm?style=for-the-badge&color=3775A9&label=pypi)](https://pypi.org/project/axllm/)
+[![crates.io](https://img.shields.io/crates/v/axllm?style=for-the-badge&color=E43717&label=crates.io)](https://crates.io/crates/axllm)
+[![Maven Central](https://img.shields.io/maven-central/v/dev.axllm/ax?style=for-the-badge&color=C71A36&label=maven)](https://central.sonatype.com/artifact/dev.axllm/ax)
 [![Discord](https://img.shields.io/discord/1078454354849304667?style=for-the-badge&color=5865F2&label=discord)](https://discord.gg/DSHg3dU7dW)
-[![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=1da1f2&label=%40dosco)](https://twitter.com/dosco)
+[![Follow @dosco on X](https://img.shields.io/badge/Follow_%40dosco-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/intent/follow?screen_name=dosco)
+
+> 💬 **Follow [@dosco](https://x.com/intent/follow?screen_name=dosco) on X** for new releases and to chat about the project.
 
 ## What Ax is
 
@@ -32,12 +37,12 @@ compiled into verified generated Python, Java, C++, Go, and Rust libraries.
 
 | Ecosystem | Package / import | Status |
 |---|---|---|
-| TypeScript / JavaScript | `@ax-llm/ax`<br>`import { ai, ax, agent, flow } from "@ax-llm/ax"` | Published npm package |
-| Python | `axllm`<br>`from axllm import ai, ax, agent, flow` | Generated and verified in repo; prepared for PyPI |
-| Java | `dev.axllm:ax`<br>`import dev.axllm.ax.*` | Generated and verified in repo; prepared for Maven Central |
-| C++ | `axllm::axllm`<br>`#include <axllm/axllm.hpp>` | Generated and verified in repo; prepared for CMake/GitHub Release |
-| Go | `github.com/ax-llm/ax/go`<br>`import ax "github.com/ax-llm/ax/go"` | Generated in repo with conformance checks and opt-in `runtime/goja` JavaScript actor runtime |
-| Rust | `axllm`<br>`use axllm::{ai, ax, agent, flow};` | Generated in repo with conformance checks, blocking HTTP/TLS transport, and protocol-first code runtime |
+| TypeScript / JavaScript | `@ax-llm/ax`<br>`import { ai, ax, agent, flow } from "@ax-llm/ax"` | Published on npm |
+| Python | `axllm`<br>`from axllm import ai, ax, agent, flow` | Published on PyPI |
+| Java | `dev.axllm:ax`<br>`import dev.axllm.ax.*` | Published on Maven Central |
+| C++ | `axllm::axllm`<br>`#include <axllm/axllm.hpp>` | CMake `FetchContent` (source build) |
+| Go | `github.com/ax-llm/ax/packages/go`<br>`import ax "github.com/ax-llm/ax/packages/go"` | Installable with `go get`; opt-in `runtime/goja` actor runtime |
+| Rust | `axllm`<br>`use axllm::{ai, ax, agent, flow};` | Published on crates.io; protocol-first code runtime |
 
 ```mermaid
 flowchart LR
@@ -85,11 +90,12 @@ runner uses those committed packages and runs examples without asking you to
 remember compiler commands:
 
 ```bash
-npm run example -- python signature_schema.py
-npm run example -- java SignatureSchemaExample.java
-npm run example -- cpp signature_schema.cpp
-npm run example -- go signature_schema.go
-npm run example -- rust signature_schema.rs
+npm run example -- list
+npm run example -- python src/examples/python/generation/axgen-openai.py
+npm run example -- java src/examples/java/generation/BasicGenerationExample.java
+npm run example -- cpp src/examples/cpp/generation/basic_generation.cpp
+npm run example -- go src/examples/go/generation/basic_generation.go
+npm run example -- rust src/examples/rust/generation/basic_generation.rs
 ```
 
 See [`src/examples/README.md`](src/examples/README.md) for runnable examples,
@@ -245,6 +251,8 @@ console.log(res.speech.transcript); // generated script
 Agents transcribe `:audio` inputs before the planner/executor/responder stages, so tools and memory receive stable text rather than base64 payloads. Native conversational audio is still available through `.chat()`.
 
 OpenAI supports both request-based audio chat (`gpt-audio`, `gpt-audio-mini`) and realtime voice/transcription models (`gpt-realtime-2`, `gpt-realtime-whisper`). Gemini native audio uses the Live API under the same `.chat()` shape; Grok Voice uses the realtime voice endpoint.
+
+These same three audio paths ship in all five generated ports (Python, Go, Rust, Java, C++): batch `transcribe()`/`speak()`, `.chat()` with `input_audio` content parts, and realtime voice over WebSocket — realtime-capable models route transparently through `chat()`, or you can call the productized `realtime_chat()` driver directly (Go: `RealtimeChat`). Each port ships an offline `realtime_audio_turn` example and an opt-in dependency for the socket (see the install notes below).
 
 ```typescript
 import WebSocket from "ws";
@@ -451,7 +459,7 @@ const result = await optimizer.compile(
 | Multi-modal | `f.image`, `f.audio`, `.chat({ audio })` | OpenAI, Gemini, Anthropic |
 | Batch STT/TTS | `ai.transcribe`, `ai.speak` | OpenAI, xAI, Gemini, Mistral where provider endpoints exist |
 | Signature audio artifacts | `speech:audio` outputs + `speech` options | model emits script text, Ax synthesizes audio after parsing |
-| Conversational audio | `.chat()` + `result.audio` | OpenAI `gpt-audio*`, `gpt-realtime-2`, `gpt-realtime-whisper`; Gemini Live native audio; Grok Voice |
+| Conversational audio | `.chat()` + `result.audio` | OpenAI `gpt-audio*`, `gpt-realtime-2`, `gpt-realtime-whisper`; Gemini Live native audio; Grok Voice; also in Python/Go/Rust/Java/C++ via `realtime_chat()` |
 | Workflows | `flow` | typed program graphs, branching, loops, parallelism, `.returns(...)` |
 | Optimization | `AxGEPA`, `AxBootstrapFewShot` | Pareto front, few-shot, portable optimizer artifacts |
 | Agent loop | `agent`, `AxAgent` | distiller → executor → responder |
@@ -467,26 +475,21 @@ const result = await optimizer.compile(
 
 ## Install
 
-The current published package is TypeScript / JavaScript:
+TypeScript / JavaScript:
 
 ```bash
 npm install @ax-llm/ax
 ```
 
-Generated Python, Java, C++, Go, and Rust libraries are checked in under `packages/`
-and verified in this repo, all Apache-2.0 licensed.
+The generated Python, Java, C++, Go, and Rust libraries are checked in under `packages/`,
+verified in this repo, and installable from each language's package manager (all Apache-2.0):
 
-- **Python**: `pip install axllm` (published to PyPI on each release)
-- **Rust**: `cargo add axllm` (published to crates.io on each release)
-- **Go**: `go get github.com/ax-llm/ax/packages/go`
-- **Java**: consume `packages/java` from the repo (Maven coordinates
-  `dev.axllm:ax`; build with the included `pom.xml`, or use JitPack against
-  this repository)
-- **C++**: consume `packages/cpp` via CMake `FetchContent` or
-  `add_subdirectory`; the package installs headers and library targets
-
-Until a registry lane you need is enabled, use the repo runner to smoke-test
-the committed packages locally.
+- **Python**: `pip install axllm` (realtime audio: `pip install axllm[realtime]`)
+- **Rust**: `cargo add axllm` (realtime audio: `cargo add axllm --features realtime`)
+- **Go**: `go get github.com/ax-llm/ax/packages/go` (realtime audio needs Go 1.23+ and pulls `github.com/coder/websocket` automatically)
+- **Java**: `dev.axllm:ax` on Maven Central (Gradle / Maven snippet in [`packages/java`](packages/java/README.md)); realtime audio uses the JDK's built-in WebSocket — no extra dependency
+- **C++**: CMake `FetchContent` (`GIT_REPOSITORY https://github.com/ax-llm/ax`,
+  `SOURCE_SUBDIR packages/cpp`), then link `axllm::axllm` (realtime audio: build with `-DAXLLM_ENABLE_REALTIME=ON`)
 
 Optional packages:
 
@@ -519,27 +522,21 @@ npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extr
 ```bash
 OPENAI_APIKEY=your-key npm run tsx ./src/examples/<name>.ts
 npm run example -- list
-npm run example -- python axagent_pipeline.py
-npm run example -- java AxFlowProgramGraphExample.java
-npm run example -- cpp realtime_audio_events.cpp
-npm run example -- go signature_schema.go
-npm run example -- rust signature_schema.rs
-npm run example -- ts src/examples/mcp-scripted-tools.ts
-npm run example -- python mcp_scripted_tools.py
-npm run example -- python axgen_openai_api.py
-npm run example -- java AxGenOpenAIExample.java
-npm run example -- cpp axgen_openai_api.cpp
-npm run example -- go axgen_openai_api.go
-npm run example -- rust axgen_openai_api.rs
+npm run example -- list --json
+npm run example -- ts src/examples/typescript/generation/axgen-openai.ts
+npm run example -- python src/examples/python/short-agents/agent-openai.py
+npm run example -- java src/examples/java/flows/SequentialFlowExample.java
+npm run example -- cpp src/examples/cpp/audio/speech_audio.cpp
+npm run example -- go src/examples/go/optimization/axgen_optimization.go
+npm run example -- rust src/examples/rust/generation/basic_generation.rs
 ```
 
-`npm run example -- list` shows `no-key` and `provider-api` examples for
-TypeScript, Python, Java, C++, Go, and Rust. No-key examples cover signatures,
-AxAgent, AxFlow, MCP scripted transports, audio/realtime mapping, runtime adapters,
-optimizer artifacts, and GEPA with deterministic local clients. Provider API
-examples call real provider HTTP and read credentials from `.env`. TypeScript
-examples live under `src/examples`; generated language examples are canonical in
-`packages/<language>/examples` and are resolved from those packages first.
+`npm run example -- list` shows public provider-backed examples for TypeScript,
+Python, Java, C++, Go, and Rust. Public examples live under
+`src/examples/<language>/<group>/`, use `ax-example` metadata headers, call real
+providers, and read credentials from `.env`. Internal generated-package fixtures
+remain under `packages/<language>/examples` for AxIR verification, but the public
+catalog and website are generated only from `src/examples/<language>/`.
 
 Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `audio-chat.ts`, `audio-batch-and-agent.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `openai-compatible.ts`, `ax-flow-enhanced-demo.ts`. [Browse all examples →](src/examples/)
 
@@ -570,9 +567,11 @@ That keeps normal TypeScript PRs small while giving AxIR maintainers and coding
 agents a precise queue for migrating the behavior into Python, Java, C++, Go,
 and future generated backends later.
 
-## I need help?
+## Questions or feedback?
 
-Reach out to [@dosco](https://x.com/dosco)
+**Follow [@dosco](https://x.com/intent/follow?screen_name=dosco) on X** to keep up with new releases and chat with
+me about the project — or [open an issue](https://github.com/ax-llm/ax/issues) or join the
+[Discord](https://discord.gg/DSHg3dU7dW).
 
 ## License
 

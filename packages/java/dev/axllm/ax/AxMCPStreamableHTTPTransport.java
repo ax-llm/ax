@@ -4,8 +4,11 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   private final String endpoint;
@@ -36,12 +39,59 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
       response.headers().firstValue("MCP-Session-Id").ifPresent(value -> sessionId = value);
       if (response.statusCode() == 401 && applyOAuth()) return send(message);
       if (response.statusCode() < 200 || response.statusCode() >= 300) throw new AxMCPError("HTTP error " + response.statusCode());
-      return Core.asMap(Json.parse(response.body().isBlank() ? "{}" : response.body()));
+      String bodyText = response.body();
+      Object requestId = message.get("id");
+      if (bodyText == null || bodyText.isBlank()) return jsonRpcResult(requestId);
+      // A spec-compliant MCP server may answer a JSON-RPC POST with an SSE stream
+      // (Content-Type: text/event-stream) carrying the response — and any
+      // interleaved notifications/keepalives — in `data:` frames; parse those
+      // rather than JSON-decoding the raw stream. Otherwise keep the JSON path.
+      String contentType = response.headers().firstValue("Content-Type").orElse("").toLowerCase();
+      if (contentType.contains("text/event-stream")) return selectSseResponse(parseSse(bodyText), requestId);
+      return Core.asMap(Json.parse(bodyText));
     } catch (AxMCPError error) {
       throw error;
     } catch (Exception error) {
       throw new AxMCPError(error.getMessage());
     }
+  }
+
+  private static Map<String, Object> jsonRpcResult(Object requestId) {
+    Map<String, Object> envelope = new LinkedHashMap<>();
+    envelope.put("jsonrpc", "2.0");
+    envelope.put("id", requestId);
+    envelope.put("result", new LinkedHashMap<>());
+    return envelope;
+  }
+
+  // Extract JSON-RPC messages from the `data:` frames of an SSE body.
+  private static List<Map<String, Object>> parseSse(String body) {
+    List<Map<String, Object>> messages = new ArrayList<>();
+    for (String raw : body.split("\n")) {
+      String line = raw.trim();
+      if (!line.startsWith("data:")) continue;
+      String data = line.substring(5).trim();
+      if (data.isEmpty() || data.equals("[DONE]")) continue;
+      messages.add(Core.asMap(Json.parse(data)));
+    }
+    return messages;
+  }
+
+  // Return the JSON-RPC response whose id matches the request, routing any
+  // interleaved server notifications/requests to the inbound handler (mirroring
+  // the stdio transport).
+  private Map<String, Object> selectSseResponse(List<Map<String, Object>> messages, Object requestId) {
+    Map<String, Object> response = null;
+    for (Map<String, Object> msg : messages) {
+      if (response == null && msg.containsKey("id") && Objects.equals(msg.get("id"), requestId)) {
+        response = msg;
+        continue;
+      }
+      if (handler != null) handler.accept(msg);
+    }
+    if (response != null) return response;
+    if (!messages.isEmpty()) return messages.get(messages.size() - 1);
+    return jsonRpcResult(requestId);
   }
 
   public void sendNotification(Map<String, Object> message) {

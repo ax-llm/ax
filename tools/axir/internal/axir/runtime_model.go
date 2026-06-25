@@ -156,7 +156,6 @@ func BuildRuntimeModel(core Module) (AxRuntimeModel, error) {
 			"axgen_trace":                                  true,
 			"axgen_stop_functions":                         true,
 			"cache_aware_prompt_inputs":                    true,
-			"axagent_pipeline":                             true,
 			"axagent_context_fields":                       true,
 			"axagent_clarification":                        true,
 			"axagent_chat_log":                             true,

@@ -6,10 +6,16 @@ import (
 	"path/filepath"
 	"strings"
 
-	ax "github.com/ax-llm/ax/go"
+	ax "github.com/ax-llm/ax/packages/go"
+	axgoja "github.com/ax-llm/ax/packages/go/runtime/goja"
 )
 
 func main() {
+	// G1 antidote gate: register the real goja engine for agent_runtime_real fixtures.
+	// This binary is package main and can import goja without the package-ax import cycle.
+	ax.RegisterConformanceRealRuntime("javascript", func(options map[string]ax.Value) (ax.CodeRuntime, error) {
+		return axgoja.NewRuntime(), nil
+	})
 	if len(os.Args) < 2 {
 		fmt.Println("go-conformance-ok")
 		return

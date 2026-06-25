@@ -51,7 +51,7 @@ const packageNames = {
   python: 'axllm',
   java: 'dev.axllm:ax',
   cpp: 'axllm',
-  go: 'github.com/ax-llm/ax/go',
+  go: 'github.com/ax-llm/ax/packages/go',
   rust: 'axllm',
 };
 const packageJson = await readJson(path.join(repoRoot, 'package.json'));

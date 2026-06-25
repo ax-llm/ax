@@ -39,7 +39,7 @@ John Doe.
 const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { model: AxAIGoogleGeminiModel.Gemini15Flash8B },
+  config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
 });
 
 ai.setOptions({ debug: true });

@@ -20,13 +20,13 @@ const validationExamples = [
 const studentAI = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: AxAIOpenAIModel.GPT4OMini },
+  config: { model: AxAIOpenAIModel.GPT54Mini },
 });
 
 const teacherAI = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: AxAIOpenAIModel.GPT4O },
+  config: { model: AxAIOpenAIModel.GPT54 },
 });
 
 const metric = ({ prediction, example }: { prediction: any; example: any }) =>

@@ -21,11 +21,11 @@ var cppRuntime string
 //go:embed templates/go/goAudioResponsesMappingExample.go.txt
 var goAudioResponsesMappingExample string
 
-//go:embed templates/go/goAxAgentOpenAIExample.go.txt
-var goAxAgentOpenAIExample string
+//go:embed templates/go/goAudioHTTPRoundtripExample.go.txt
+var goAudioHTTPRoundtripExample string
 
-//go:embed templates/go/goAxAgentPipelineExample.go.txt
-var goAxAgentPipelineExample string
+//go:embed templates/go/goStreamHTTPRoundtripExample.go.txt
+var goStreamHTTPRoundtripExample string
 
 //go:embed templates/go/goAxFlowOpenAIExample.go.txt
 var goAxFlowOpenAIExample string
@@ -56,6 +56,9 @@ var goProviderStreamNoKeyExample string
 
 //go:embed templates/go/goRealtimeAudioEventsExample.go.txt
 var goRealtimeAudioEventsExample string
+
+//go:embed templates/go/goRealtimeAudioTurnExample.go.txt
+var goRealtimeAudioTurnExample string
 
 //go:embed templates/go/goRuntime.go.txt
 var goRuntime string
@@ -213,6 +216,9 @@ var goMCP string
 //go:embed templates/mcp/goMCPScriptedToolsExample.go.txt
 var goMCPScriptedToolsExample string
 
+//go:embed templates/mcp/goMCPSseRoundtripExample.go.txt
+var goMCPSseRoundtripExample string
+
 //go:embed templates/mcp/javaAxMCPClient.java
 var javaAxMCPClient string
 
@@ -248,6 +254,9 @@ var rustMCP string
 
 //go:embed templates/mcp/rustMCPScriptedToolsExample.rs
 var rustMCPScriptedToolsExample string
+
+//go:embed templates/mcp/rustMCPSseRoundtripExample.rs
+var rustMCPSseRoundtripExample string
 
 // templates/package
 
@@ -400,16 +409,19 @@ var javaAxRuntimeEnvelope string
 //go:embed templates/runtime/pyRuntime.py
 var pyRuntime string
 
+//go:embed templates/runtime/pyRuntimeQuickjs.py
+var pyRuntimeQuickjs string
+
 // templates/rust
 
 //go:embed templates/rust/rustAudioResponsesMappingExample.rs
 var rustAudioResponsesMappingExample string
 
-//go:embed templates/rust/rustAxAgentOpenAIExample.rs
-var rustAxAgentOpenAIExample string
+//go:embed templates/rust/rustAudioHTTPRoundtripExample.rs
+var rustAudioHTTPRoundtripExample string
 
-//go:embed templates/rust/rustAxAgentPipelineExample.rs
-var rustAxAgentPipelineExample string
+//go:embed templates/rust/rustStreamHTTPRoundtripExample.rs
+var rustStreamHTTPRoundtripExample string
 
 //go:embed templates/rust/rustAxFlowOpenAIExample.rs
 var rustAxFlowOpenAIExample string
@@ -446,6 +458,9 @@ var rustProviderStreamNoKeyExample string
 
 //go:embed templates/rust/rustRealtimeAudioEventsExample.rs
 var rustRealtimeAudioEventsExample string
+
+//go:embed templates/rust/rustRealtimeAudioTurnExample.rs
+var rustRealtimeAudioTurnExample string
 
 //go:embed templates/rust/rustRuntimeAdapterExample.rs
 var rustRuntimeAdapterExample string

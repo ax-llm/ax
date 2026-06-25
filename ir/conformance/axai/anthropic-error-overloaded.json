@@ -1,0 +1,28 @@
+{
+  "name": "anthropic-error-overloaded",
+  "kind": "ai_error",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "type": "error",
+        "error": {
+          "type": "overloaded_error",
+          "message": "Overloaded, please retry"
+        }
+      }
+    }
+  ],
+  "expected_error_type": "AxAIServiceStatusError",
+  "expected_error_contains": "Overloaded, please retry",
+  "expected_status": 529
+}

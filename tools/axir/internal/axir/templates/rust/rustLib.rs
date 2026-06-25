@@ -568,6 +568,160 @@ fn trim_num(value: f64) -> String {
     }
 }
 
+// Decode a standard-alphabet base64 string into raw bytes. Mirrors Python's
+// base64.b64decode tolerance: whitespace is ignored and the input may omit
+// trailing padding. Invalid characters terminate decoding (the caller falls
+// back to the raw UTF-8 bytes when this yields nothing usable).
+fn decode_base64(input: &str) -> Vec<u8> {
+    fn sextet(byte: u8) -> Option<u8> {
+        match byte {
+            b'A'..=b'Z' => Some(byte - b'A'),
+            b'a'..=b'z' => Some(byte - b'a' + 26),
+            b'0'..=b'9' => Some(byte - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let mut out = Vec::new();
+    let mut buffer: u32 = 0;
+    let mut bits = 0u32;
+    for &byte in input.as_bytes() {
+        if byte == b'=' {
+            break;
+        }
+        if byte.is_ascii_whitespace() {
+            continue;
+        }
+        let value = match sextet(byte) {
+            Some(value) => value,
+            None => break,
+        };
+        buffer = (buffer << 6) | u32::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buffer >> bits) as u8);
+        }
+    }
+    out
+}
+
+// Encode raw bytes as a standard-alphabet base64 string (with `=` padding).
+// Inverse of `decode_base64`; used for binary responses (e.g. OpenAI
+// /audio/speech returns raw mp3) which must not be UTF-8 decoded. Mirrors the
+// verified Python `base64.b64encode(...).decode()`.
+fn encode_base64(input: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[((triple >> 18) & 0x3f) as usize] as char);
+        out.push(ALPHABET[((triple >> 12) & 0x3f) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[((triple >> 6) & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[(triple & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+// Encode a request payload as multipart/form-data and return the raw body
+// bytes plus the matching Content-Type header value. Multipart operations
+// (e.g. OpenAI /audio/transcriptions) carry the audio as a binary `file` part;
+// every other field is a plain form field. The `file` value is a base64 string
+// (optionally a `data:` URL) or a map {data, mimeType?, filename?}. Mirrors the
+// verified Python `_encode_multipart`; the fixed boundary avoids needing a
+// random/uuid dependency.
+fn encode_multipart(payload: &Value) -> (Vec<u8>, String) {
+    const BOUNDARY: &str = "----axllmFormBoundaryAx7LlmMultipartBoundary";
+    const CRLF: &[u8] = b"\r\n";
+    let mut body: Vec<u8> = Vec::new();
+    if let Some(entries) = payload.as_object() {
+        for (key, value) in entries {
+            if value.is_null() {
+                continue;
+            }
+            if key == "file" {
+                let (raw_data, filename, content_type) = match value {
+                    Value::Object(map) => {
+                        let data = map.get("data").and_then(Value::as_str).unwrap_or("").to_string();
+                        let filename = map
+                            .get("filename")
+                            .and_then(Value::as_str)
+                            .filter(|name| !name.is_empty())
+                            .unwrap_or("audio.wav")
+                            .to_string();
+                        let content_type = map
+                            .get("mimeType")
+                            .or_else(|| map.get("mime_type"))
+                            .and_then(Value::as_str)
+                            .filter(|mime| !mime.is_empty())
+                            .unwrap_or("audio/wav")
+                            .to_string();
+                        (data, filename, content_type)
+                    }
+                    _ => (
+                        value_as_display_string(value),
+                        "audio.wav".to_string(),
+                        "audio/wav".to_string(),
+                    ),
+                };
+                let stripped = if raw_data.starts_with("data:") {
+                    match raw_data.split_once(',') {
+                        Some((_, rest)) => rest.to_string(),
+                        None => raw_data.clone(),
+                    }
+                } else {
+                    raw_data.clone()
+                };
+                let mut file_bytes = decode_base64(&stripped);
+                if file_bytes.is_empty() && !stripped.is_empty() {
+                    file_bytes = stripped.into_bytes();
+                }
+                body.extend_from_slice(b"--");
+                body.extend_from_slice(BOUNDARY.as_bytes());
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(
+                    format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"")
+                        .as_bytes(),
+                );
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(format!("Content-Type: {content_type}").as_bytes());
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(&file_bytes);
+                body.extend_from_slice(CRLF);
+            } else {
+                body.extend_from_slice(b"--");
+                body.extend_from_slice(BOUNDARY.as_bytes());
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(
+                    format!("Content-Disposition: form-data; name=\"{key}\"").as_bytes(),
+                );
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(CRLF);
+                body.extend_from_slice(value_as_display_string(value).as_bytes());
+                body.extend_from_slice(CRLF);
+            }
+        }
+    }
+    body.extend_from_slice(b"--");
+    body.extend_from_slice(BOUNDARY.as_bytes());
+    body.extend_from_slice(b"--");
+    body.extend_from_slice(CRLF);
+    (body, format!("multipart/form-data; boundary={BOUNDARY}"))
+}
+
 fn json_number(value: f64) -> Value {
     if value.fract() == 0.0 {
         json!(value as i64)
@@ -587,6 +741,11 @@ fn bool_key(value: &Value, keys: &[&str]) -> bool {
 
 pub trait AxAIClient {
     fn chat(&mut self, request: Value) -> AxResult<Value>;
+
+    fn transcribe(&mut self, request: Value) -> AxResult<Value> {
+        let _ = request;
+        Ok(json!({"text": ""}))
+    }
 
     fn complete(&mut self, request: Value) -> AxResult<Value> {
         self.chat(request)
@@ -644,6 +803,7 @@ pub struct OpenAICompatibleClient {
     pub embed_model: String,
     pub profile: String,
     pub model_config: Value,
+    pub options: Value,
     pub transport: Option<Box<dyn AxTransport>>,
 }
 
@@ -658,6 +818,7 @@ impl OpenAICompatibleClient {
             embed_model: "text-embedding-3-small".to_string(),
             profile: "openai-compatible".to_string(),
             model_config: json!({}),
+            options: json!({}),
             transport: None,
         }
     }
@@ -687,6 +848,11 @@ impl OpenAICompatibleClient {
         self
     }
 
+    pub fn with_options(mut self, options: Value) -> Self {
+        self.options = if options.is_object() { options } else { json!({}) };
+        self
+    }
+
     fn prepare_chat_request(&self, request: &Value) -> AxResult<Value> {
         let mut req = if request.is_object() { request.clone() } else { json!({}) };
         if req.get("chat_prompt").is_none() {
@@ -694,7 +860,12 @@ impl OpenAICompatibleClient {
                 req["chat_prompt"] = prompt.clone();
             }
         }
-        if req.get("model").is_none() {
+        if req
+            .get("model")
+            .and_then(Value::as_str)
+            .filter(|model| !model.is_empty())
+            .is_none()
+        {
             req["model"] = json!(self.model.clone());
         }
         let mut base_config = if self.model_config.is_object() { self.model_config.clone() } else { json!({}) };
@@ -799,16 +970,25 @@ impl OpenAICompatibleClient {
                 builder = builder.header(key.as_str(), value.as_str().unwrap_or_default());
             }
         }
-        let body = call
-            .get("json")
-            .or_else(|| call.get("data"))
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        let response: Value = builder
-            .json(&body)
-            .send()?
-            .error_for_status()?
-            .json()?;
+        // A `data` body marks a multipart/form-data operation (e.g. /audio/transcriptions):
+        // encode it as a binary multipart body and override Content-Type. A `json` body is
+        // serialized as JSON as usual.
+        let response: Value = if let Some(data) = call.get("data") {
+            let (body, content_type) = encode_multipart(data);
+            builder
+                .header("Content-Type", content_type)
+                .body(body)
+                .send()?
+                .error_for_status()?
+                .json()?
+        } else {
+            let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
+            builder
+                .json(&body)
+                .send()?
+                .error_for_status()?
+                .json()?
+        };
         Ok(json!({"status": 200, "json": response}))
     }
 
@@ -869,14 +1049,18 @@ impl OpenAICompatibleClient {
         if path.starts_with("http://") || path.starts_with("https://") {
             path.to_string()
         } else {
-            format!("{}{}", self.api_url.trim_end_matches('/'), path)
+            // Honor a base_url override (e.g. a proxy/gateway) for the audio paths
+            // too, matching how chat/embed dispatch already resolve the base URL;
+            // fall back to api_url when no override was supplied.
+            let base = self.base_url_override.as_deref().unwrap_or(&self.api_url);
+            format!("{}{}", base.trim_end_matches('/'), path)
         }
     }
 
     fn chat_path(&self) -> &'static str {
         match self.profile.as_str() {
             "openai-responses" => "/responses",
-            "anthropic" => "/messages",
+            "anthropic" => "/v1/messages",
             _ => "/chat/completions",
         }
     }
@@ -891,7 +1075,7 @@ impl OpenAICompatibleClient {
         }
     }
 
-    fn post_json(&mut self, path: &str, body: Value) -> AxResult<Value> {
+    fn post_json(&mut self, path: &str, body: Value, binary: bool) -> AxResult<Value> {
         let url = self.endpoint_url(path);
         if let Some(transport) = self.transport.as_mut() {
             return transport.send(json!({
@@ -901,15 +1085,22 @@ impl OpenAICompatibleClient {
                 "json": body
             }));
         }
-        let response: Value = HttpClient::builder()
+        let raw = HttpClient::builder()
             .timeout(Duration::from_secs(60))
             .build()?
             .post(url)
             .bearer_auth(&self.api_key)
             .json(&body)
             .send()?
-            .error_for_status()?
-            .json()?;
+            .error_for_status()?;
+        // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
+        // be UTF-8 decoded or parsed as JSON; return the bytes as a base64 string
+        // so the speak normalizer can pass it through to the `audio` field.
+        let response: Value = if binary {
+            Value::String(encode_base64(&raw.bytes()?))
+        } else {
+            raw.json()?
+        };
         Ok(json!({"status": 200, "json": response}))
     }
 
@@ -923,12 +1114,16 @@ impl OpenAICompatibleClient {
                 "data": data
             }));
         }
+        // `data` operations (e.g. OpenAI /audio/transcriptions) are multipart/form-data,
+        // not JSON. Encode the payload as a binary multipart body and override Content-Type.
+        let (body, content_type) = encode_multipart(&data);
         let response: Value = HttpClient::builder()
             .timeout(Duration::from_secs(60))
             .build()?
             .post(url)
             .bearer_auth(&self.api_key)
-            .json(&data)
+            .header("Content-Type", content_type)
+            .body(body)
             .send()?
             .error_for_status()?
             .json()?;
@@ -1035,7 +1230,7 @@ impl OpenAICompatibleClient {
                     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
                     self.api_key
                 );
-                self.post_json(&path, body)?
+                self.post_json(&path, body, false)?
             }
             "grok" => self.post_data("/stt", body)?,
             _ => self.post_data("/audio/transcriptions", body)?,
@@ -1055,6 +1250,14 @@ impl OpenAICompatibleClient {
             CoreValue::from(profile.as_str()),
             core_value_from_json(&request),
         ])?);
+        // Some speak endpoints (e.g. OpenAI /audio/speech) return RAW binary audio
+        // rather than JSON. The operation descriptor flags this with `response:
+        // "binary"`; when set, the HTTP layer base64-encodes the response bytes.
+        let speak_descriptor = core_value_to_json(&provider_operation_descriptor(&[
+            CoreValue::from(profile.as_str()),
+            CoreValue::from("speak"),
+        ])?);
+        let binary = speak_descriptor.get("response").and_then(Value::as_str) == Some("binary");
         let raw = match profile.as_str() {
             "google-gemini" => {
                 let model = string_at(&request, "model")
@@ -1063,11 +1266,11 @@ impl OpenAICompatibleClient {
                     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
                     self.api_key
                 );
-                self.post_json(&path, body)?
+                self.post_json(&path, body, binary)?
             }
-            "grok" => self.post_json("/tts", body)?,
-            "mistral" => self.post_json("/audio/speech", body)?,
-            _ => self.post_json("/audio/speech", body)?,
+            "grok" => self.post_json("/tts", body, binary)?,
+            "mistral" => self.post_json("/audio/speech", body, binary)?,
+            _ => self.post_json("/audio/speech", body, binary)?,
         };
         let payload = normalize_passthrough_response(raw)?;
         let normalized = provider_normalize_speak_response(&[
@@ -1123,6 +1326,286 @@ impl OpenAICompatibleClient {
         ])?;
         Ok(core_value_to_json(&built))
     }
+
+    /// Drive a realtime audio turn over a WebSocket transport: send the
+    /// Core-built session setup + input events, fold the inbound stream through
+    /// the shared realtime codec, and merge the per-delta results into one turn
+    /// response (transcript concatenated, audio chunks base64-joined). Pass a
+    /// ScriptedRealtimeTransport to exercise the loop offline without a socket.
+    pub fn realtime_chat(&self, request: Value, transport: Option<RealtimeTransport>) -> AxResult<Value> {
+        let model = request
+            .get("model")
+            .and_then(|m| m.as_str())
+            .unwrap_or(self.model.as_str())
+            .to_string();
+        let setup = self.realtime_audio_setup(request.clone())?;
+        let inputs = self.realtime_audio_input(request.clone())?;
+        let mut transport = match transport {
+            Some(transport) => transport,
+            None => self.open_realtime_transport(&model)?,
+        };
+        transport.send(&setup)?;
+        let mut input_sent = false;
+        let mut events: Vec<Value> = Vec::new();
+        loop {
+            let event = match transport.recv()? {
+                Some(event) => event,
+                None => break,
+            };
+            if event.get("type").and_then(|t| t.as_str()) == Some("error") {
+                let message = event
+                    .get("error")
+                    .and_then(|err| err.get("message"))
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("realtime error");
+                return Err(AxError::runtime(message));
+            }
+            if realtime_event_is_ready(&event) {
+                if !input_sent {
+                    input_sent = true;
+                    if let Some(items) = inputs.as_array() {
+                        for item in items {
+                            transport.send(item)?;
+                        }
+                    }
+                }
+                continue;
+            }
+            let done = realtime_event_is_done(&event);
+            events.push(event);
+            if done {
+                break;
+            }
+        }
+        let state = CoreValue::new_map();
+        let ai_name = provider_ai_display_name(&self.profile);
+        let mut content = String::new();
+        let mut audio_bytes: Vec<u8> = Vec::new();
+        let mut has_audio = false;
+        let mut function_calls: Vec<Value> = Vec::new();
+        let mut response_id = String::new();
+        let mut finish_reason = String::new();
+        let mut model_usage = Value::Null;
+        for event in &events {
+            let normalized = provider_normalize_realtime_event(&[
+                CoreValue::from(self.profile.as_str()),
+                core_value_from_json(event),
+                state.clone(),
+                ai_name.clone(),
+                CoreValue::from(model.as_str()),
+            ])?;
+            let out = core_value_to_json(&normalized);
+            let result = match out.get("results").and_then(|r| r.as_array()).and_then(|a| a.first()) {
+                Some(result) => result.clone(),
+                None => continue,
+            };
+            if let Some(text) = result.get("content").and_then(|c| c.as_str()) {
+                content.push_str(text);
+            }
+            if let Some(data) = result.get("audio").and_then(|a| a.get("data")).and_then(|d| d.as_str()) {
+                if !data.is_empty() {
+                    audio_bytes.extend(decode_base64(data));
+                    has_audio = true;
+                }
+            }
+            if let Some(calls) = result.get("function_calls").and_then(|f| f.as_array()) {
+                function_calls.extend(calls.iter().cloned());
+            }
+            if let Some(reason) = result.get("finish_reason").and_then(|f| f.as_str()) {
+                finish_reason = reason.to_string();
+            }
+            let remote_id = out
+                .get("remote_id")
+                .and_then(|r| r.as_str())
+                .or_else(|| result.get("id").and_then(|i| i.as_str()))
+                .unwrap_or("");
+            if !remote_id.is_empty() && remote_id != "0" {
+                response_id = remote_id.to_string();
+            }
+            if let Some(usage) = out.get("model_usage") {
+                if !usage.is_null() {
+                    model_usage = usage.clone();
+                }
+            }
+        }
+        if response_id.is_empty() {
+            response_id = "realtime".to_string();
+        }
+        if finish_reason.is_empty() {
+            finish_reason = "stop".to_string();
+        }
+        let mut result = json!({
+            "index": 0,
+            "id": response_id.clone(),
+            "content": content.clone(),
+            "function_calls": function_calls,
+            "finish_reason": finish_reason,
+        });
+        if has_audio {
+            result["audio"] = json!({
+                "data": encode_base64(&audio_bytes),
+                "format": "pcm16",
+                "transcript": content,
+            });
+        }
+        Ok(json!({
+            "results": [result],
+            "remote_id": response_id,
+            "model_usage": model_usage,
+        }))
+    }
+
+    fn open_realtime_transport(&self, model: &str) -> AxResult<RealtimeTransport> {
+        #[cfg(feature = "realtime")]
+        {
+            let (url, headers) = self.realtime_ws_target(model);
+            Ok(RealtimeTransport::Live(WsRealtimeTransport::connect(&url, headers)?))
+        }
+        #[cfg(not(feature = "realtime"))]
+        {
+            let _ = model;
+            Err(AxError::runtime(
+                "realtime audio requires building with --features realtime, or pass a transport",
+            ))
+        }
+    }
+
+    #[allow(dead_code)]
+    fn realtime_ws_target(&self, model: &str) -> (String, Vec<(String, String)>) {
+        // Grammar-specific URL + auth construction lives in Core so the client
+        // stays provider-agnostic.
+        let target = core_value_to_json(
+            &provider_realtime_ws_url(&[
+                CoreValue::from(self.profile.as_str()),
+                CoreValue::from(model),
+                CoreValue::from(self.api_key.as_str()),
+            ])
+            .unwrap_or_else(|_| CoreValue::new_map()),
+        );
+        let url = target.get("url").and_then(|u| u.as_str()).unwrap_or("").to_string();
+        let mut headers = Vec::new();
+        if let Some(map) = target.get("headers").and_then(|h| h.as_object()) {
+            for (key, value) in map {
+                if let Some(value) = value.as_str() {
+                    headers.push((key.clone(), value.to_string()));
+                }
+            }
+        }
+        (url, headers)
+    }
+}
+
+/// Transport seam for the realtime turn driver: ScriptedRealtimeTransport for
+/// deterministic offline tests, the websocket-backed variant (behind the
+/// `realtime` feature) for live turns.
+pub enum RealtimeTransport {
+    Scripted(ScriptedRealtimeTransport),
+    #[cfg(feature = "realtime")]
+    Live(WsRealtimeTransport),
+}
+
+impl RealtimeTransport {
+    fn send(&mut self, event: &Value) -> AxResult<()> {
+        match self {
+            RealtimeTransport::Scripted(transport) => {
+                transport.sent.push(event.clone());
+                Ok(())
+            }
+            #[cfg(feature = "realtime")]
+            RealtimeTransport::Live(transport) => transport.send(event),
+        }
+    }
+
+    fn recv(&mut self) -> AxResult<Option<Value>> {
+        match self {
+            RealtimeTransport::Scripted(transport) => Ok(transport.inbound.pop_front()),
+            #[cfg(feature = "realtime")]
+            RealtimeTransport::Live(transport) => transport.recv(),
+        }
+    }
+}
+
+pub struct ScriptedRealtimeTransport {
+    inbound: VecDeque<Value>,
+    pub sent: Vec<Value>,
+}
+
+impl ScriptedRealtimeTransport {
+    pub fn new(inbound: Vec<Value>) -> Self {
+        Self {
+            inbound: inbound.into(),
+            sent: Vec::new(),
+        }
+    }
+}
+
+fn realtime_event_is_ready(event: &Value) -> bool {
+    if matches!(
+        event.get("type").and_then(|t| t.as_str()),
+        Some("session.created") | Some("session.updated") | Some("transcription_session.created") | Some("transcription_session.updated")
+    ) {
+        return true;
+    }
+    event.get("setupComplete").is_some()
+}
+
+fn realtime_event_is_done(event: &Value) -> bool {
+    if matches!(
+        event.get("type").and_then(|t| t.as_str()),
+        Some("response.done") | Some("response.completed")
+    ) {
+        return true;
+    }
+    event
+        .get("serverContent")
+        .and_then(|s| s.get("turnComplete"))
+        .and_then(|t| t.as_bool())
+        .unwrap_or(false)
+}
+
+#[cfg(feature = "realtime")]
+pub struct WsRealtimeTransport {
+    socket: tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>,
+}
+
+#[cfg(feature = "realtime")]
+impl WsRealtimeTransport {
+    fn connect(url: &str, headers: Vec<(String, String)>) -> AxResult<Self> {
+        use tungstenite::client::IntoClientRequest;
+        let mut request = url.into_client_request().map_err(|e| AxError::runtime(e.to_string()))?;
+        for (key, value) in headers {
+            let name = tungstenite::http::header::HeaderName::from_bytes(key.as_bytes())
+                .map_err(|e| AxError::runtime(e.to_string()))?;
+            let val = tungstenite::http::header::HeaderValue::from_str(&value)
+                .map_err(|e| AxError::runtime(e.to_string()))?;
+            request.headers_mut().insert(name, val);
+        }
+        let (socket, _) = tungstenite::connect(request).map_err(|e| AxError::runtime(e.to_string()))?;
+        Ok(Self { socket })
+    }
+
+    fn send(&mut self, event: &Value) -> AxResult<()> {
+        let text = serde_json::to_string(event).map_err(|e| AxError::runtime(e.to_string()))?;
+        self.socket
+            .send(tungstenite::Message::Text(text.into()))
+            .map_err(|e| AxError::runtime(e.to_string()))
+    }
+
+    fn recv(&mut self) -> AxResult<Option<Value>> {
+        loop {
+            match self.socket.read() {
+                Ok(tungstenite::Message::Text(text)) => {
+                    return Ok(Some(serde_json::from_str(text.as_str()).map_err(|e| AxError::runtime(e.to_string()))?));
+                }
+                Ok(tungstenite::Message::Binary(data)) => {
+                    return Ok(Some(serde_json::from_slice(&data).map_err(|e| AxError::runtime(e.to_string()))?));
+                }
+                Ok(tungstenite::Message::Close(_)) => return Ok(None),
+                Ok(_) => continue,
+                Err(_) => return Ok(None),
+            }
+        }
+    }
 }
 
 impl AxAIClient for OpenAICompatibleClient {
@@ -1130,6 +1613,21 @@ impl AxAIClient for OpenAICompatibleClient {
         let req = self.prepare_chat_request(&request)?;
         // python: AxBaseAI.chat validates the coerced request up front.
         validate_chat_request(&[core_value_from_json(&req)])?;
+        let realtime_model = req
+            .get("model")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .unwrap_or_else(|| self.model.clone());
+        if core_value_to_json(&provider_should_use_realtime(&[
+            CoreValue::from(self.profile.as_str()),
+            CoreValue::from(realtime_model.as_str()),
+            core_value_from_json(&req),
+        ])?)
+        .as_bool()
+        .unwrap_or(false)
+        {
+            return self.realtime_chat(req, None);
+        }
         if self.profile == "openai-compatible" {
             let _ = build_chat_request(&[
                 CoreValue::Null,
@@ -1156,8 +1654,38 @@ impl AxAIClient for OpenAICompatibleClient {
     fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
         let body = self.stream_body(&request);
         let path = self.stream_path();
-        let response = self.post_stream(&path, body)?;
-        normalize_stream_response(&self.profile, &self.model, response)
+        let cfg = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(&self.options)])?);
+        let max_retries = cfg.get("max_retries").and_then(Value::as_i64).unwrap_or(3);
+        let initial_delay = cfg.get("initial_delay_ms").and_then(Value::as_f64).unwrap_or(1000.0);
+        let max_delay = cfg.get("max_delay_ms").and_then(Value::as_f64).unwrap_or(60000.0);
+        let backoff = cfg.get("backoff_factor").and_then(Value::as_f64).unwrap_or(2.0);
+        let mut attempt: i64 = 0;
+        loop {
+            let response = self.post_stream(&path, body.clone())?;
+            let events = extract_stream_events(response)?;
+            // Pre-content streaming retry: peek the first raw SSE event before any stateful
+            // normalize runs (so peeking has no side effects); if the provider classifies it as a
+            // retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error event),
+            // re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
+            if let Some(first) = events.first() {
+                let status = provider_classify_stream_error_status(&[
+                    CoreValue::from(self.profile.as_str()),
+                    core_value_from_json(first),
+                ])?;
+                if !status.is_null()
+                    && core_truthy(&is_retryable_status(&[status.clone()])?)
+                    && attempt < max_retries
+                {
+                    attempt += 1;
+                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
+                    if delay > 0.0 {
+                        std::thread::sleep(std::time::Duration::from_millis(delay as u64));
+                    }
+                    continue;
+                }
+            }
+            return normalize_stream_events(&self.profile, &self.model, &events);
+        }
     }
 }
 
@@ -1245,7 +1773,7 @@ fn provider_defaults(provider: &str) -> Option<ProviderDefaults> {
         }),
         "anthropic" => Some(ProviderDefaults {
             profile: "anthropic",
-            api_url: "https://api.anthropic.com/v1",
+            api_url: "https://api.anthropic.com",
             model: "claude-3-7-sonnet-latest",
             embed_model: "text-embedding-3-small",
         }),
@@ -1327,23 +1855,31 @@ fn normalize_passthrough_response(response: Value) -> AxResult<Value> {
     Ok(body)
 }
 
-fn normalize_stream_response(profile: &str, model: &str, response: Value) -> AxResult<Vec<Value>> {
+fn extract_stream_events(response: Value) -> AxResult<Vec<Value>> {
     let payload = normalize_passthrough_response(response)?;
-    let events = if let Some(events) = payload.as_array() {
-        events.clone()
+    if let Some(events) = payload.as_array() {
+        Ok(events.clone())
     } else if let Some(events) = payload.get("events").and_then(Value::as_array) {
-        events.clone()
+        Ok(events.clone())
     } else {
         let body = payload
             .as_str()
             .or_else(|| payload.get("body").and_then(Value::as_str))
             .unwrap_or_default();
-        parse_sse_events(body)?
-    };
+        parse_sse_events(body)
+    }
+}
+
+fn normalize_stream_response(profile: &str, model: &str, response: Value) -> AxResult<Vec<Value>> {
+    let events = extract_stream_events(response)?;
+    normalize_stream_events(profile, model, &events)
+}
+
+fn normalize_stream_events(profile: &str, model: &str, events: &[Value]) -> AxResult<Vec<Value>> {
     let ai_name = provider_ai_display_name(profile);
     let state = CoreValue::new_map();
     let mut out = Vec::new();
-    for event in &events {
+    for event in events {
         if profile == "openai-compatible" {
             let _ = normalize_stream_delta(&[
                 core_value_from_json(event),
@@ -1364,19 +1900,45 @@ fn normalize_stream_response(profile: &str, model: &str, response: Value) -> AxR
     Ok(out)
 }
 
-fn parse_sse_events(body: &str) -> AxResult<Vec<Value>> {
-    let mut events = Vec::new();
-    for line in body.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("data:") {
-            continue;
+pub(crate) fn parse_sse_events(body: &str) -> AxResult<Vec<Value>> {
+    // Mirror src/ax/util/sse.ts: normalize CRLF/CR, then fold the data: lines of
+    // each event (events are blank-line separated) into a single payload before
+    // parsing. A spec-legal SSE event may split one JSON value across several
+    // data: lines, joined with "\n"; parsing each line on its own would choke.
+    fn flush(buffer: &mut String, events: &mut Vec<Value>) -> AxResult<()> {
+        let payload = buffer.trim();
+        if !payload.is_empty() && payload != "[DONE]" {
+            events.push(serde_json::from_str::<Value>(payload)?);
         }
-        let data = trimmed.trim_start_matches("data:").trim();
-        if data.is_empty() || data == "[DONE]" {
-            continue;
-        }
-        events.push(serde_json::from_str::<Value>(data)?);
+        buffer.clear();
+        Ok(())
     }
+    let normalized = body.replace("\r\n", "\n").replace('\r', "\n");
+    let mut events = Vec::new();
+    let mut buffer = String::new();
+    for line in normalized.split('\n') {
+        if line.is_empty() {
+            flush(&mut buffer, &mut events)?;
+            continue;
+        }
+        if line.starts_with(':') {
+            continue; // comment line
+        }
+        let value = match line.find(':') {
+            Some(idx) => {
+                if line[..idx].trim() != "data" {
+                    continue; // event:/id:/retry: do not contribute to the payload
+                }
+                line[idx + 1..].trim()
+            }
+            None => line.trim(),
+        };
+        if !buffer.is_empty() && !buffer.ends_with('\n') {
+            buffer.push('\n');
+        }
+        buffer.push_str(value);
+    }
+    flush(&mut buffer, &mut events)?;
     Ok(events)
 }
 
@@ -1515,7 +2077,9 @@ impl AxGen {
         options: Value,
     ) -> AxResult<Value> {
         let state = core_gen_state(self)?;
-        let mut chat = |request: Value| client.chat(request);
+        let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+            if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+        };
         let result = with_core_client(&mut chat, || {
             _forward_impl(&[
                 state.clone(),
@@ -1984,6 +2548,11 @@ pub struct AxAgent {
     distiller: CoreValue,
     executor: CoreValue,
     responder: CoreValue,
+    // Signature + instruction for the built-in llmQuery sub-query, kept as
+    // plain (Send + Sync) data so the host-callable closure can rebuild the
+    // sub-gen per call without capturing a non-Send CoreValue.
+    llm_query_signature: String,
+    llm_query_instruction: Value,
 }
 
 pub fn agent(spec: &str) -> AxResult<AxAgent> {
@@ -1992,6 +2561,43 @@ pub fn agent(spec: &str) -> AxResult<AxAgent> {
 
 pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
     agent_with_core_options(spec, core_value_from_json(&options))
+}
+
+/// Construct an agent with native host search callbacks for memories and skills.
+/// The callbacks run host-side when the actor calls recall()/discover(); passing
+/// them at construction auto-enables the memory + skill subsystems (so the actor's
+/// prompt advertises recall()/discover()), mirroring the TS/Python API. Callbacks
+/// take and return JSON values: memories `(searches, alreadyLoaded) -> results`,
+/// skills `(searches) -> results`.
+pub fn agent_with_search_callbacks<M, S>(
+    spec: &str,
+    options: Value,
+    memories_search: M,
+    skills_search: S,
+) -> AxResult<AxAgent>
+where
+    M: Fn(Value, Value) -> Value + 'static,
+    S: Fn(Value) -> Value + 'static,
+{
+    let options = core_value_from_json(&options);
+    let memories_host = CoreValue::Host(Rc::new(SearchCallbackHost {
+        label: "AxMemoriesSearchFn",
+        f: Box::new(move |args| {
+            let searches = core_value_to_json(&core_arg(args, 0));
+            let already = core_value_to_json(&core_arg(args, 1));
+            Ok(core_value_from_json(&memories_search(searches, already)))
+        }),
+    }));
+    core_set(&options, CoreValue::from("onMemoriesSearch"), memories_host)?;
+    let skills_host = CoreValue::Host(Rc::new(SearchCallbackHost {
+        label: "AxSkillsSearchFn",
+        f: Box::new(move |args| {
+            let searches = core_value_to_json(&core_arg(args, 0));
+            Ok(core_value_from_json(&skills_search(searches)))
+        }),
+    }));
+    core_set(&options, CoreValue::from("onSkillsSearch"), skills_host)?;
+    agent_with_core_options(spec, options)
 }
 
 pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResult<AxAgent> {
@@ -2007,24 +2613,41 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         &CoreValue::from("executor_signature"),
         CoreValue::Null,
     ))?;
+    let responder_signature = signature_from_record(&core_get(
+        &state,
+        &CoreValue::from("responder_signature"),
+        CoreValue::Null,
+    ))?;
     let validation_retries = {
         let raw = core_get(&options, &CoreValue::from("validation_retries"), CoreValue::Null);
         if raw.is_null() { json!(2) } else { core_value_to_json(&raw) }
     };
+    let distiller_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("distiller_description"), CoreValue::from("")));
+    let executor_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("executor_description"), CoreValue::from("")));
+    let responder_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("responder_description"), CoreValue::from("")));
+    let llm_query_signature = core_get(
+        &state,
+        &CoreValue::from("llm_query_signature"),
+        CoreValue::from("task:string, context:json -> answer:string"),
+    )
+    .text();
+    let llm_query_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("llm_query_description"), CoreValue::from("")));
     Ok(AxAgent {
         state,
         distiller: agent_stage_gen(
             distiller_signature,
-            json!({"validation_retries": 0, "id": "ctx.root.actor"}),
+            json!({"validation_retries": 0, "id": "ctx.root.actor", "instruction": distiller_instruction}),
         ),
         executor: agent_stage_gen(
             executor_signature,
-            json!({"validation_retries": 0, "id": "task.root.actor"}),
+            json!({"validation_retries": 0, "id": "task.root.actor", "instruction": executor_instruction}),
         ),
         responder: agent_stage_gen(
-            signature,
-            json!({"validation_retries": validation_retries, "id": "task.root.responder"}),
+            responder_signature,
+            json!({"validation_retries": validation_retries, "id": "task.root.responder", "instruction": responder_instruction}),
         ),
+        llm_query_signature,
+        llm_query_instruction,
     })
 }
 
@@ -2039,7 +2662,35 @@ impl AxAgent {
         input: Value,
         options: Value,
     ) -> AxResult<Value> {
-        let mut chat = |request: Value| client.chat(request);
+        let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+            if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+        };
+        // Wire the built-in llmQuery primitive onto the runtime carried in
+        // agent options (the same host the actor loop will create sessions on),
+        // mirroring the Go/Python wrappers. The closure rebuilds a focused
+        // sub-gen per call and runs it through _agent_run_llm_query; it uses the
+        // thread-local client bound by with_core_client below (CoreValue::Null
+        // here resolves to that binding), so it captures only Send + Sync data.
+        let state_options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
+        let runtime_host = core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null);
+        if let CoreValue::Host(host) = &runtime_host {
+            let llm_query_signature = self.llm_query_signature.clone();
+            let llm_query_instruction = self.llm_query_instruction.clone();
+            let callable: AxHostCallable = Arc::new(move |params: Value| -> AxResult<Value> {
+                let signature = s(&llm_query_signature)?;
+                let sub_gen = agent_stage_gen(
+                    signature,
+                    json!({"validation_retries": 1, "id": "rlm.llmquery", "instruction": llm_query_instruction.clone()}),
+                );
+                let result = _agent_run_llm_query(&[
+                    sub_gen,
+                    CoreValue::Null,
+                    core_value_from_json(&params),
+                ])?;
+                Ok(core_value_to_json(&result))
+            });
+            host.register_runtime_callable("llmQuery", callable);
+        }
         let result = with_core_client(&mut chat, || {
             _agent_forward(&[
                 self.state.clone(),
@@ -2339,6 +2990,20 @@ impl AxAgent {
             _ => Vec::new(),
         }
     }
+
+    /// Attach a code runtime so `forward()` can execute the actor's code in a
+    /// real engine. Wraps the runtime as a host value with full capabilities and
+    /// stores it under `options.runtime` (the same wiring the conformance runner
+    /// uses), enabling the Python/Go-style `agent(...).with_runtime(rt).forward(...)`.
+    pub fn with_runtime(self, runtime: Box<dyn AxCodeRuntime>) -> AxResult<Self> {
+        let host = core_code_runtime_host_shared(
+            Rc::new(RefCell::new(runtime)),
+            core_runtime_capabilities_full(),
+        );
+        let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
+        core_set(&options, CoreValue::from("runtime"), host)?;
+        Ok(self)
+    }
 }
 
 impl AxProgram for AxAgent {
@@ -2378,7 +3043,9 @@ impl AxFlow {
     }
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
-        let mut chat = |request: Value| client.chat(request);
+        let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+            if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+        };
         let result = with_core_client(&mut chat, || {
             _flow_forward(&[
                 self.state.clone(),
@@ -2907,6 +3574,11 @@ pub fn get_supported_ai_models() -> Vec<&'static str> {
     vec!["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini"]
 }
 
+/// A host callable the agent runtime can expose to actor code (e.g. the
+/// built-in `llmQuery`). JSON-typed both ways so it crosses the runtime
+/// boundary cleanly; `Send + Sync` so a concrete runtime may store it.
+pub type AxHostCallable = Arc<dyn Fn(Value) -> AxResult<Value> + Send + Sync + 'static>;
+
 pub trait AxCodeRuntime {
     fn language(&self) -> &str;
 
@@ -2915,6 +3587,13 @@ pub trait AxCodeRuntime {
     }
 
     fn create_session(&mut self, globals: Value, options: Value) -> AxResult<Box<dyn AxCodeSession>>;
+
+    /// Register a host callable under `name`. Default no-op so runtimes that
+    /// do not host callables are unaffected; the embedded JS engines override
+    /// it so the agent wrapper can wire the built-in `llmQuery` primitive.
+    fn register_host_callable(&mut self, _name: &str, _callable: AxHostCallable) -> AxResult<()> {
+        Ok(())
+    }
 }
 
 pub trait AxCodeSession {
@@ -3235,9 +3914,11 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         | "ai_error"
         | "ai_unsupported" => run_ai_support_fixture(kind, &fixture)?,
         "agent_forward"
+        | "agent_prompt"
         | "agent_runtime_adapter"
         | "agent_runtime_policy"
         | "agent_runtime_protocol"
+        | "agent_runtime_real"
         | "agent_runtime_session" => run_agent_fixture(kind, &fixture)?,
         "flow" => run_flow_fixture(&fixture)?,
         "optimize" => run_optimize_fixture(&fixture)?,
@@ -3554,6 +4235,8 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 fn run_agent_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
     match kind {
         "agent_forward" => run_agent_forward_contract_fixture(fixture),
+        "agent_prompt" => run_agent_prompt_fixture(fixture),
+        "agent_runtime_real" => run_agent_forward_contract_fixture(fixture),
         "agent_runtime_protocol" => run_agent_runtime_protocol_fixture(fixture),
         "agent_runtime_session" => run_agent_runtime_session_fixture(fixture),
         "agent_runtime_adapter" => run_agent_runtime_adapter_fixture(fixture),
@@ -3658,6 +4341,29 @@ fn conformance_flow_callable(mode: &'static str, spec: Value) -> CoreValue {
     CoreValue::Host(Rc::new(ConformanceFlowCallable { mode, spec }))
 }
 
+// Wraps a native host search closure (memories or skills) as a CoreValue::Host the
+// agent loop invokes via core_host_try(.., "call", ..) when the actor calls recall()/discover().
+struct SearchCallbackHost {
+    label: &'static str,
+    f: Box<dyn Fn(&[CoreValue]) -> Result<CoreValue, AxError>>,
+}
+
+impl CoreHost for SearchCallbackHost {
+    fn host_type(&self) -> &'static str {
+        self.label
+    }
+
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        if name != "call" {
+            return Err(AxError::runtime(format!(
+                "{} has no method '{}'",
+                self.label, name
+            )));
+        }
+        (self.f)(args)
+    }
+}
+
 fn conformance_flow_state_value(state: &Value, field: &str, fallback: Value) -> Value {
     get_path(state, field).cloned().unwrap_or(fallback)
 }
@@ -3687,6 +4393,14 @@ fn conformance_flow_mapper_call(spec: &Value, state: &Value) -> Value {
             let current = conformance_flow_state_value(state, field, json!(0));
             let mut out = Map::new();
             out.insert(field.to_string(), json_number(current.as_f64().unwrap_or(0.0) + 1.0));
+            Value::Object(out)
+        }
+        "upper" => {
+            let from = map.get("from").and_then(Value::as_str).unwrap_or("__item");
+            let to = map.get("to").and_then(Value::as_str).unwrap_or("__derived");
+            let val = conformance_flow_state_value(state, from, json!(""));
+            let mut out = Map::new();
+            out.insert(to.to_string(), json!(val.as_str().unwrap_or("").to_uppercase()));
             Value::Object(out)
         }
         _ => map.get("values").cloned().unwrap_or_else(|| json!({})),
@@ -3930,7 +4644,7 @@ fn fixture_ai_service_error(spec: &Value) -> AxError {
     }.to_string());
     err.status = spec.get("status").and_then(Value::as_u64).map(|status| status as u16);
     err.retryable = matches!(error_type, "network" | "response" | "timeout")
-        || matches!(err.status, Some(408 | 429 | 500 | 502 | 503 | 504));
+        || matches!(err.status, Some(408 | 429 | 500 | 502 | 503 | 504 | 529));
     err
 }
 
@@ -4521,7 +5235,7 @@ fn is_retryable_ai_error(err: &AxError) -> bool {
         return false;
     }
     if err.error_type.as_deref() == Some("AxAIServiceStatusError") {
-        return matches!(err.status, Some(408 | 429 | 500 | 502 | 503 | 504));
+        return matches!(err.status, Some(408 | 429 | 500 | 502 | 503 | 504 | 529));
     }
     err.retryable
         || matches!(
@@ -4665,6 +5379,22 @@ impl ConformanceBalancer {
         )))
     }
 
+    // Streaming routes through the same failover loop as chat(): a transient error on the
+    // primary fails over to a healthy backup, and the backup's response is replayed as stream
+    // deltas (a single-result response collapses to [{ results: [result] }]). No lazy
+    // first-chunk peek is needed — the ports stream synchronously, so the error surfaces inside
+    // the failover loop rather than deferring past it the way TS's ReadableStream does.
+    fn stream(&mut self, request: &Value, options: &Value) -> AxResult<Vec<Value>> {
+        let response = self.chat(request, options)?;
+        if let Some(results) = response.get("results").and_then(Value::as_array) {
+            return Ok(results
+                .iter()
+                .map(|result| json!({ "results": [result.clone()] }))
+                .collect());
+        }
+        Ok(vec![response])
+    }
+
     fn chat(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
         let candidates = self.candidate_indices(request)?;
         let mut candidate_pos = 0;
@@ -4750,6 +5480,12 @@ fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
             "chat" => {
                 outputs.insert(name.to_string(), balancer.chat(&request, &options)?);
             }
+            "stream" => {
+                outputs.insert(
+                    name.to_string(),
+                    Value::Array(balancer.stream(&request, &options)?),
+                );
+            }
             "embed" => {
                 outputs.insert(name.to_string(), balancer.embed(&request, &options)?);
             }
@@ -4797,6 +5533,52 @@ fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
     Ok(actual)
 }
 
+// Prompt-parity gate (G3): build a real agent and assert the RLM stage instructions
+// were rendered into agent state. A hollow agent has empty description keys, so this
+// fails -- catching the defect that slipped a non-functional agent() past every gate.
+fn run_agent_prompt_fixture(fixture: &Value) -> AxResult<()> {
+    let signature = fixture
+        .get("signature")
+        .and_then(Value::as_str)
+        .unwrap_or("question:string -> answer:string");
+    let options =
+        core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
+    let agent = agent_with_core_options(signature, options)?;
+    let expects = fixture
+        .get("expected_description_contains")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for (field, needles) in expects.iter() {
+        if field == "__order" {
+            continue;
+        }
+        let desc_value = agent.state_json(field);
+        let desc = desc_value.as_str().unwrap_or("");
+        if desc.trim().is_empty() {
+            return Err(AxError::new(
+                "fixture",
+                format!(
+                    "agent stage description {field} is empty; RLM prompt was not rendered into agent state"
+                ),
+            ));
+        }
+        if let Some(items) = needles.as_array() {
+            for item in items {
+                if let Some(needle) = item.as_str() {
+                    if !desc.contains(needle) {
+                        return Err(AxError::new(
+                            "fixture",
+                            format!("agent stage description {field} missing {needle:?}: {desc}"),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     let responses = fixture
         .get("responses")
@@ -4805,6 +5587,12 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         .unwrap_or_default();
     let mut client = FixtureClient {
         responses: responses.into(),
+        transcribe_responses: fixture
+            .get("transcribe_responses")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .into(),
         requests: Vec::new(),
     };
     let agent_options = core_value_from_json(
@@ -4839,6 +5627,25 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         );
         core_set(&agent_options, CoreValue::from("runtime"), host)?;
     }
+    // agent_runtime_real (G1): drive forward() through the REAL embedded engine.
+    if fixture.get("runtime_engine").is_some() {
+        #[cfg(feature = "runtime-quickjs")]
+        {
+            let runtime = crate::runtime::quickjs::QuickJsCodeRuntime::new();
+            let host = core_code_runtime_host_shared(
+                Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
+                core_runtime_capabilities_full(),
+            );
+            core_set(&agent_options, CoreValue::from("runtime"), host)?;
+        }
+        #[cfg(not(feature = "runtime-quickjs"))]
+        {
+            return Err(AxError::new(
+                "fixture",
+                "agent_runtime_real requires building with --features runtime-quickjs".to_string(),
+            ));
+        }
+    }
     let signature = fixture
         .get("signature")
         .and_then(Value::as_str)
@@ -4856,6 +5663,9 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     };
     if let Some(state) = fixture.get("set_state") {
         agent.set_state(state.clone())?;
+    }
+    if let Some(snapshot) = fixture.get("restore_runtime_state") {
+        agent.restore_runtime_state(snapshot.clone())?;
     }
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
     let forward_options = fixture
@@ -6129,6 +6939,7 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         .unwrap_or_default();
     let mut client = FixtureClient {
         responses: responses.into(),
+        transcribe_responses: VecDeque::new(),
         requests: Vec::new(),
     };
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
@@ -6150,7 +6961,9 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         cache_store.insert(key, seed.clone());
         forward_options["cache_store"] = Value::Object(cache_store);
     }
-    let mut chat = |request: Value| client.chat(request);
+    let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+        if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+    };
     let output = core_value_to_json(&with_core_client(&mut chat, || {
         _flow_forward(&[
             state.clone(),
@@ -6262,7 +7075,7 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
                 options_core,
             ])
         }
-        "map" => {
+        "map" | "derive" => {
             let mapper = step.get("mapper").cloned().unwrap_or_else(|| {
                 json!({"op": "set", "values": step.get("output").cloned().unwrap_or_else(|| json!({}))})
             });
@@ -6279,7 +7092,7 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
             CoreValue::Null,
             core_value_from_json(&options),
         ]),
-        "execute" | "derive" => {
+        "execute" => {
             let signature = step
                 .get("extended_signature")
                 .or_else(|| step.get("extendedSignature"))
@@ -7690,10 +8503,19 @@ fn build_fixture_tools_recording(fixture: &Value) -> AxResult<(Vec<Tool>, std::s
 
 struct FixtureClient {
     responses: VecDeque<Value>,
+    transcribe_responses: VecDeque<Value>,
     requests: Vec<Value>,
 }
 
 impl AxAIClient for FixtureClient {
+    fn transcribe(&mut self, request: Value) -> AxResult<Value> {
+        self.requests.push(request);
+        Ok(self
+            .transcribe_responses
+            .pop_front()
+            .unwrap_or_else(|| json!({"text": ""})))
+    }
+
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
         let response = self
@@ -7812,6 +8634,7 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     };
     let mut client = FixtureClient {
         responses: responses.into(),
+        transcribe_responses: VecDeque::new(),
         requests: Vec::new(),
     };
     let result = program.forward(&mut client, input);
@@ -8015,7 +8838,9 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
             options[key] = value.clone();
         }
     }
-    let client = ai(provider, options)?.with_transport(transport);
+    let client = ai(provider, options)?
+        .with_transport(transport)
+        .with_options(fixture.get("options").cloned().unwrap_or_else(|| json!({})));
     Ok((client, requests))
 }
 
@@ -10533,6 +11358,13 @@ fn provider_ai_display_name(profile: &str) -> CoreValue {
 pub(crate) trait CoreHost {
     fn host_type(&self) -> &'static str;
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError>;
+    /// Register a host callable on the wrapped runtime, if this host wraps one.
+    /// Returns true when the host handled it. Default false (most hosts are not
+    /// runtimes); the code-runtime host overrides it. Used by the agent wrapper
+    /// to wire `llmQuery` onto the runtime carried inside agent options.
+    fn register_runtime_callable(&self, _name: &str, _callable: AxHostCallable) -> bool {
+        false
+    }
 }
 
 // Keeps #[derive(Debug)] on CoreValue working once the Host(Rc<dyn CoreHost>)
@@ -10789,13 +11621,18 @@ impl CoreHost for ToolHost {
 // re-enter core_ai_complete_once for the same frame.
 
 thread_local! {
-    static CORE_CLIENT_STACK: RefCell<Vec<*mut (dyn FnMut(Value) -> AxResult<Value> + 'static)>> =
+    // The scoped client is a single method-dispatch closure (method, request) so chat AND
+    // transcribe share one &mut borrow of the typed client (two separate closures would be a
+    // borrow-check conflict). core_ai_complete_once calls it with "chat"; core_agent_transcribe
+    // with "transcribe". This keeps audio transcription emitted + uniform with the other four
+    // languages (which pass the real client directly).
+    static CORE_CLIENT_STACK: RefCell<Vec<*mut (dyn FnMut(&str, Value) -> AxResult<Value> + 'static)>> =
         RefCell::new(Vec::new());
 }
 
 #[allow(dead_code)]
 pub(crate) fn with_core_client<R>(
-    chat: &mut dyn FnMut(Value) -> AxResult<Value>,
+    chat: &mut dyn FnMut(&str, Value) -> AxResult<Value>,
     run: impl FnOnce() -> R,
 ) -> R {
     struct CoreClientGuard;
@@ -10808,7 +11645,7 @@ pub(crate) fn with_core_client<R>(
     }
     // SAFETY: only the lifetime bound of the trait object changes; the fat
     // pointer layout is identical, and the pointer never outlives this frame.
-    let erased: *mut (dyn FnMut(Value) -> AxResult<Value> + 'static) =
+    let erased: *mut (dyn FnMut(&str, Value) -> AxResult<Value> + 'static) =
         unsafe { std::mem::transmute(chat) };
     CORE_CLIENT_STACK.with(|stack| stack.borrow_mut().push(erased));
     let _guard = CoreClientGuard;
@@ -10830,8 +11667,25 @@ pub(crate) fn core_ai_complete_once(args: &[CoreValue]) -> Result<CoreValue, AxE
     // created from is still live. The RefCell borrow is released before the
     // call so the callback may itself push a nested client.
     let chat = unsafe { &mut *ptr };
-    let response = chat(core_value_to_json(&request))?;
+    let response = chat("chat", core_value_to_json(&request))?;
     chat_response_to_completion(&[core_value_from_json(&response)])
+}
+
+// Backs intrinsic.agent.transcribe. Rust scopes the client as a chat/transcribe dispatch
+// closure (the agent receives CoreValue::Null for %client), so we route "transcribe" through
+// the same scoped closure core_ai_complete_once uses for "chat".
+#[allow(dead_code)]
+pub(crate) fn core_agent_transcribe(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let request = core_arg(args, 1);
+    let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
+    match top {
+        Some(ptr) => {
+            let call = unsafe { &mut *ptr };
+            let response = call("transcribe", core_value_to_json(&request))?;
+            Ok(core_value_from_json(&response))
+        }
+        None => Ok(core_value_from_json(&json!({"text": ""}))),
+    }
 }
 
 // ----- Simple host-boundary intrinsics -----
@@ -11971,14 +12825,19 @@ fn core_tool_args_fields(args: &Map<String, Value>) -> Result<CoreValue, AxError
 }
 
 
-struct RawScopedClient(*mut dyn FnMut(Value) -> AxResult<Value>);
+struct RawScopedClient(*mut dyn FnMut(&str, Value) -> AxResult<Value>);
 
 impl AxAIClient for RawScopedClient {
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         // SAFETY: the pointer was captured from the client stack inside the
         // enclosing with_core_client scope, which outlives this call.
-        let chat = unsafe { &mut *self.0 };
-        chat(request)
+        let call = unsafe { &mut *self.0 };
+        call("chat", request)
+    }
+
+    fn transcribe(&mut self, request: Value) -> AxResult<Value> {
+        let call = unsafe { &mut *self.0 };
+        call("transcribe", request)
     }
 }
 
@@ -12380,6 +13239,13 @@ pub(crate) fn core_code_runtime_host_shared(
 impl CoreHost for CodeRuntimeHost {
     fn host_type(&self) -> &'static str {
         "AxCodeRuntime"
+    }
+
+    fn register_runtime_callable(&self, name: &str, callable: AxHostCallable) -> bool {
+        self.runtime
+            .borrow_mut()
+            .register_host_callable(name, callable)
+            .is_ok()
     }
 
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {

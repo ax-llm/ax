@@ -251,7 +251,7 @@ function createLLM(selectedProvider: SupportedProvider): {
   switch (selectedProvider) {
     case 'openai': {
       const model = (process.env.AX_STREAM_BENCH_MODEL ??
-        AxAIOpenAIModel.GPT41Nano) as AxAIOpenAIModel;
+        AxAIOpenAIModel.GPT5Nano) as AxAIOpenAIModel;
       return {
         model,
         llm: ai({
@@ -279,7 +279,7 @@ function createLLM(selectedProvider: SupportedProvider): {
 
     case 'google-gemini': {
       const model = (process.env.AX_STREAM_BENCH_MODEL ??
-        AxAIGoogleGeminiModel.Gemini25FlashLite) as AxAIGoogleGeminiModel;
+        AxAIGoogleGeminiModel.Gemini35Flash) as AxAIGoogleGeminiModel;
       return {
         model,
         llm: ai({

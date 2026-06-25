@@ -450,15 +450,18 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 		"axgen_scripted_client_tool",
 		"provider_mapping_no_key",
 		"provider_stream_no_key",
-		"axagent_pipeline",
 		"audio_responses_mapping",
+		"audio_http_roundtrip",
+		"stream_http_roundtrip",
 		"realtime_audio_events",
+		"realtime_audio_turn",
 		"runtime_adapter",
 		"runtime_protocol",
 		"axflow_program_graph",
 		"optimizer_artifact",
 		"gepa_local_optimizer",
 		"mcp_scripted_tools",
+		"mcp_sse_roundtrip",
 	} {
 		if err := runVerifyCommand(&report, "example "+example, report.OutDir, env, goTool, "run", "./examples/"+example); err != nil {
 			return report, err
@@ -488,11 +491,11 @@ func verifyGoPackageSmoke(report *VerifyTargetReport, goTool string) error {
 	}
 	if err := os.WriteFile(filepath.Join(consumerDir, "go.mod"), []byte(`module axllm_consumer
 
-go 1.22
+go 1.23
 
-require github.com/ax-llm/ax/go v0.0.0
+require github.com/ax-llm/ax/packages/go v0.0.0
 
-replace github.com/ax-llm/ax/go => ..
+replace github.com/ax-llm/ax/packages/go => ..
 `), 0o644); err != nil {
 		return err
 	}
@@ -501,7 +504,7 @@ replace github.com/ax-llm/ax/go => ..
 import (
 	"fmt"
 
-	ax "github.com/ax-llm/ax/go"
+	ax "github.com/ax-llm/ax/packages/go"
 )
 
 func main() {
@@ -514,7 +517,7 @@ func main() {
 `), 0o644); err != nil {
 		return err
 	}
-	return runVerifyCommand(report, "package go consumer", consumerDir, scrubbedEnviron(), goTool, "run", ".")
+	return runVerifyCommand(report, "package go consumer", consumerDir, scrubbedEnviron(), goTool, "run", "-mod=mod", ".")
 }
 
 func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
@@ -535,15 +538,18 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"provider_mapping_no_key",
 		"provider_stream_no_key",
 		"axgen_scripted_client_tool",
-		"axagent_pipeline",
 		"audio_responses_mapping",
+		"audio_http_roundtrip",
+		"stream_http_roundtrip",
 		"realtime_audio_events",
+		"realtime_audio_turn",
 		"runtime_adapter",
 		"runtime_protocol",
 		"axflow_program_graph",
 		"optimizer_artifact",
 		"gepa_local_optimizer",
 		"mcp_scripted_tools",
+		"mcp_sse_roundtrip",
 	} {
 		if err := runCargoVerifyCommand(&report, "example "+example, report.OutDir, env, cargo, "run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--example", example); err != nil {
 			return report, err
@@ -671,15 +677,18 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"axgen_scripted_client_tool.py",
 		"provider_mapping_no_key.py",
 		"provider_stream_no_key.py",
-		"axagent_pipeline.py",
 		"audio_responses_mapping.py",
+		"audio_http_roundtrip.py",
+		"stream_http_roundtrip.py",
 		"realtime_audio_events.py",
+		"realtime_audio_turn.py",
 		"runtime_adapter.py",
 		"runtime_protocol.py",
 		"axflow_program_graph.py",
 		"optimizer_artifact.py",
 		"gepa_local_optimizer.py",
 		"mcp_scripted_tools.py",
+		"mcp_sse_roundtrip.py",
 	} {
 		if err := runVerifyCommand(&report, "example "+example, "", env, python, filepath.Join(report.OutDir, "examples", example)); err != nil {
 			return report, err
@@ -801,15 +810,18 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"AxGenScriptedClientToolExample",
 		"ProviderMappingNoKeyExample",
 		"ProviderStreamNoKeyExample",
-		"AxAgentPipelineExample",
 		"AudioResponsesMappingExample",
+		"AudioHTTPRoundtripExample",
+		"StreamHTTPRoundtripExample",
 		"RealtimeAudioEventsExample",
+		"RealtimeAudioTurnExample",
 		"RuntimeAdapterExample",
 		"RuntimeProtocolExample",
 		"AxFlowProgramGraphExample",
 		"OptimizerArtifactExample",
 		"GEPALocalOptimizerExample",
 		"AxMCPScriptedToolsExample",
+		"AxMCPSseRoundtripExample",
 	} {
 		if err := runVerifyCommand(&report, "example "+className, "", env, java, "-cp", report.OutDir, className); err != nil {
 			return report, err
@@ -1118,6 +1130,22 @@ func envFlag(value string) bool {
 	}
 }
 
+// cppLibcurlAvailable probe-compiles a tiny libcurl program so the
+// audio_http_roundtrip example (which needs a curl-enabled build) can be
+// skipped cleanly on machines without libcurl development headers.
+func cppLibcurlAvailable(cpp string) bool {
+	dir, err := os.MkdirTemp("", "axir-curl-probe")
+	if err != nil {
+		return false
+	}
+	defer os.RemoveAll(dir)
+	src := filepath.Join(dir, "probe.cpp")
+	if err := os.WriteFile(src, []byte("#include <curl/curl.h>\nint main(){curl_easy_init();return 0;}\n"), 0o644); err != nil {
+		return false
+	}
+	return exec.Command(cpp, "-std=c++17", src, "-lcurl", "-o", filepath.Join(dir, "probe")).Run() == nil
+}
+
 func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
 	cpp, err := findCppCompiler()
 	if err != nil {
@@ -1143,9 +1171,9 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		"axgen_scripted_client_tool",
 		"provider_mapping_no_key",
 		"provider_stream_no_key",
-		"axagent_pipeline",
 		"audio_responses_mapping",
 		"realtime_audio_events",
+		"realtime_audio_turn",
 		"runtime_adapter",
 		"runtime_protocol",
 		"axflow_program_graph",
@@ -1166,6 +1194,36 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		}
 		if err := runVerifyCommand(&report, "example "+example, "", nil, bin); err != nil {
 			return report, err
+		}
+	}
+	// audio_http_roundtrip, stream_http_roundtrip, and mcp_sse_roundtrip drive
+	// the real libcurl transport against a loopback server, so they need a
+	// curl-enabled axllm.o + libcurl (mcp_sse_roundtrip also links mcp.o). Skip
+	// them when libcurl is unavailable rather than failing the whole target.
+	curlExamples := []string{"audio_http_roundtrip", "stream_http_roundtrip", "mcp_sse_roundtrip"}
+	if cppLibcurlAvailable(cpp) {
+		curlObj := filepath.Join(buildDir, "axllm_curl.o")
+		if err := runVerifyCommand(&report, "compile axllm.cpp (curl)", "", nil, cpp, "-std=c++17", "-DAXLLM_ENABLE_CURL=1", "-I", report.OutDir, "-c", axSource, "-o", curlObj); err != nil {
+			return report, err
+		}
+		for _, example := range curlExamples {
+			source := filepath.Join(report.OutDir, "examples", example+".cpp")
+			bin := filepath.Join(report.OutDir, example)
+			compileArgs := []string{"-std=c++17", "-I", report.OutDir, source, curlObj}
+			if example == "mcp_sse_roundtrip" {
+				compileArgs = append(compileArgs, mcpObj)
+			}
+			compileArgs = append(compileArgs, "-lcurl", "-o", bin)
+			if err := runVerifyCommand(&report, "compile example "+example, "", nil, cpp, compileArgs...); err != nil {
+				return report, err
+			}
+			if err := runVerifyCommand(&report, "example "+example, "", nil, bin); err != nil {
+				return report, err
+			}
+		}
+	} else {
+		for _, example := range curlExamples {
+			report.Steps = append(report.Steps, VerifyStep{Name: "example " + example, Status: "skip", Message: "libcurl unavailable"})
 		}
 	}
 	conformanceBin := filepath.Join(report.OutDir, "conformance")

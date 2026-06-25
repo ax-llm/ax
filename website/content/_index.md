@@ -19,38 +19,43 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
     <span><i class="home-proof-dot proof-teal" aria-hidden="true"></i>Audio + realtime</span>
     <span><i class="home-proof-dot proof-green" aria-hidden="true"></i>Evaluate and optimize</span>
   </div>
-{{< home-language-controls >}}
   <div class="home-actions">
     <a href="/typescript/quick-start/">Get started</a>
     <a class="home-button-secondary" href="https://github.com/ax-llm/ax">GitHub</a>
-  </div>
-{{< home-install >}}
-  <div class="home-hero-stats" data-home-stats data-repo="ax-llm/ax" data-npm-package="@ax-llm/ax" aria-label="Project stats">
-    <a href="https://github.com/ax-llm/ax" hidden><strong data-stat="stars"></strong><span>GitHub stars</span></a>
-    <a href="https://www.npmjs.com/package/@ax-llm/ax" hidden><strong data-stat="downloads"></strong><span>npm downloads/week</span></a>
   </div>
 </div>
 <div class="home-hero-panel" aria-label="Ax signature runtime preview">
 {{< home-code topic="classifier" group="hero" >}}
 {{< home-output topic="classifier" title="Typed output" >}}
 </div>
+</section>
+
+<div class="home-maintainer-cta">
+  <p>Built by <strong>@dosco</strong> — follow on X for new releases and to chat about Ax.</p>
+  <a href="https://x.com/intent/follow?screen_name=dosco">Follow @dosco on X</a>
+</div>
+
+<section class="home-section home-quick-install" aria-labelledby="quick-install">
+<div class="home-section-heading">
+  <p class="home-section-label">Get started</p>
+  <h2 id="quick-install">Quick install</h2>
+  <p>One Ax programming model, six languages — pick yours and drop the package in.</p>
+</div>
+<div class="home-quick-install-bar">
+{{< home-language-controls >}}
+  <div class="home-hero-stats" data-home-stats data-repo="ax-llm/ax" data-npm-package="@ax-llm/ax" aria-label="Project stats">
+    <a href="https://github.com/ax-llm/ax" hidden><strong data-stat="stars"></strong><span>GitHub stars</span></a>
+    <a href="https://www.npmjs.com/package/@ax-llm/ax" hidden><strong data-stat="downloads"></strong><span>npm downloads/week</span></a>
+  </div>
+</div>
+{{< home-install >}}
 <div class="home-agent-strip">
-  <p><strong>Using Claude Code or Cursor?</strong> Point your coding agent at Ax — every language ships installable, versioned skills your agent can follow.</p>
+  <h3>Agent skills — for Claude Code &amp; Cursor</h3>
+  <p>New to this? Ax ships installable, versioned <strong>skills</strong>: small instruction files that teach your coding agent (Claude Code, Cursor, and others) exactly how Ax's API works, so it writes correct Ax code instead of guessing. Point your agent at them with one command.</p>
 {{< home-install field="skillsCommand" class="home-install-skills" label="Install Ax agent skills" >}}
   <a class="home-agent-strip-link" href="/typescript/skills/">Browse agent skills</a>
 </div>
 </section>
-
-<nav class="home-paths" aria-label="Choose your path">
-  <a href="/typescript/quick-start/"><strong>Quick Start</strong><span>Install Ax and run the smallest typed generation program.</span></a>
-  <a href="/typescript/examples/"><strong>Examples</strong><span>No-key, provider, agent, MCP, flow, and optimization demos.</span></a>
-  <a href="/typescript/skills/"><strong>Agent skills</strong><span>Point Claude Code or Cursor at installable Ax skills.</span></a>
-  <a href="/typescript/concepts/signatures/"><strong>Signatures</strong><span>Learn why typed I/O contracts beat hand-built prompt strings.</span></a>
-  <a href="/typescript/concepts/llms/"><strong>Audio</strong><span>Transcribe, speak, stream realtime audio, and return typed speech artifacts.</span></a>
-  <a href="/typescript/concepts/agents/"><strong>Agents</strong><span>Tools, memory, child agents, runtime state, and discovery without prompt bloat.</span></a>
-  <a href="/research/"><strong>Research</strong><span>The DSPy, GEPA, RLM, and PEEK papers behind the design.</span></a>
-  <a href="/typescript/api/ax/"><strong>API Docs</strong><span>Curated references for the factory-style Ax API.</span></a>
-</nav>
 
 <section class="home-section home-code-story" aria-labelledby="why-signatures">
 <div class="home-section-heading">
@@ -430,7 +435,9 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
   <a href="/typescript/quick-start/">Get started</a>
   <a class="home-button-secondary" href="/typescript/examples/">Examples</a>
   <a class="home-button-secondary" href="https://github.com/ax-llm/ax">GitHub</a>
+  <a class="home-button-secondary" href="https://x.com/intent/follow?screen_name=dosco">Follow @dosco on X</a>
 </div>
+<p class="home-inline-note">Built by <a href="https://x.com/intent/follow?screen_name=dosco">@dosco</a> — follow on X for new releases and to chat about Ax.</p>
 <p class="home-inline-note">Building with an AI coding agent? <a href="/typescript/skills/">Install the Ax skills</a> and let it write Ax for you.</p>
 </section>
 </div>

@@ -141,7 +141,7 @@ const myAgent = agent(
 const llm = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
-  config: { model: AxAIOpenAIModel.GPT4OMini },
+  config: { model: AxAIOpenAIModel.GPT54Mini },
 });
 
 const result = await myAgent.forward(llm, {

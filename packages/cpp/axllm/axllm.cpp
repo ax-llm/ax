@@ -1,5 +1,6 @@
 #include "axllm.hpp"
 
+#include <array>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -8,6 +9,12 @@
 
 #if defined(AXLLM_ENABLE_CURL)
 #include <curl/curl.h>
+#endif
+
+#if defined(AXLLM_ENABLE_REALTIME)
+#include <condition_variable>
+#include <deque>
+#include <ixwebsocket/IXWebSocket.h>
 #endif
 
 namespace axllm {
@@ -59,6 +66,31 @@ static std::map<std::string, AxCodeRuntime*>& code_runtime_registry() {
 static std::map<std::string, AxCodeSession*>& code_session_registry() {
   static std::map<std::string, AxCodeSession*> sessions;
   return sessions;
+}
+
+// Native host search callbacks: Value cannot hold a closure, so the closures live in
+// a process-lifetime registry keyed by id, and a small marker object ({"__*_search_id": id})
+// is placed in the agent options under "onMemoriesSearch"/"onSkillsSearch". The agent loop
+// (Core::agent_memory_search / agent_skill_search) reads the marker and dispatches here.
+static std::map<std::string, std::function<Value(Value, Value)>>& memories_search_registry() {
+  static std::map<std::string, std::function<Value(Value, Value)>> registry;
+  return registry;
+}
+static std::map<std::string, std::function<Value(Value)>>& skills_search_registry() {
+  static std::map<std::string, std::function<Value(Value)>> registry;
+  return registry;
+}
+Value register_memories_search(std::function<Value(Value, Value)> fn) {
+  static int counter = 0;
+  std::string id = "__mem_search_" + std::to_string(++counter);
+  memories_search_registry()[id] = std::move(fn);
+  return object({{"__memories_search_id", id}});
+}
+Value register_skills_search(std::function<Value(Value)> fn) {
+  static int counter = 0;
+  std::string id = "__skill_search_" + std::to_string(++counter);
+  skills_search_registry()[id] = std::move(fn);
+  return object({{"__skills_search_id", id}});
 }
 
 static std::map<std::string, std::function<Value(Value)>>& tool_registry() {
@@ -196,6 +228,126 @@ static bool has_key(const Value& object, const std::string& key) {
   return alias != aliases.end() && obj.count(alias->second) > 0;
 }
 
+// Decode a standard / URL-safe base64 string into raw bytes. Whitespace and
+// padding are tolerated; invalid characters terminate decoding. Used to turn
+// the base64 audio payload of a multipart `file` field back into raw bytes.
+static std::string axir_base64_decode(const std::string& input) {
+  // Build the reverse lookup table once (standard + URL-safe alphabet).
+  static const std::array<int8_t, 256> lookup = []() {
+    std::array<int8_t, 256> t{};
+    t.fill(-1);
+    const std::string alphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for (size_t i = 0; i < alphabet.size(); ++i) t[static_cast<unsigned char>(alphabet[i])] = static_cast<int8_t>(i);
+    // Accept URL-safe variants.
+    t[static_cast<unsigned char>('-')] = t[static_cast<unsigned char>('+')];
+    t[static_cast<unsigned char>('_')] = t[static_cast<unsigned char>('/')];
+    return t;
+  }();
+  std::string out;
+  out.reserve(input.size() / 4 * 3 + 3);
+  uint32_t buffer = 0;
+  int bits = 0;
+  for (unsigned char ch : input) {
+    if (ch == '=' || ch == '\r' || ch == '\n' || ch == ' ' || ch == '\t') continue;
+    int8_t value = lookup[ch];
+    if (value < 0) continue;
+    buffer = (buffer << 6) | static_cast<uint32_t>(value);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push_back(static_cast<char>((buffer >> bits) & 0xFF));
+    }
+  }
+  return out;
+}
+
+// Encode raw bytes as a standard (RFC 4648) base64 string. Used to return the
+// raw body of a binary response (e.g. OpenAI /audio/speech mp3 bytes) as a
+// string without UTF-8 / JSON handling. The input is a std::string whose length
+// comes from .size() so embedded NUL bytes are preserved.
+static std::string axir_base64_encode(const std::string& input) {
+  static const char alphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string out;
+  out.reserve((input.size() + 2) / 3 * 4);
+  size_t i = 0;
+  const size_t n = input.size();
+  while (i + 3 <= n) {
+    uint32_t triple = (static_cast<uint8_t>(input[i]) << 16) |
+                      (static_cast<uint8_t>(input[i + 1]) << 8) |
+                      static_cast<uint8_t>(input[i + 2]);
+    out.push_back(alphabet[(triple >> 18) & 0x3F]);
+    out.push_back(alphabet[(triple >> 12) & 0x3F]);
+    out.push_back(alphabet[(triple >> 6) & 0x3F]);
+    out.push_back(alphabet[triple & 0x3F]);
+    i += 3;
+  }
+  const size_t remaining = n - i;
+  if (remaining == 1) {
+    uint32_t triple = static_cast<uint8_t>(input[i]) << 16;
+    out.push_back(alphabet[(triple >> 18) & 0x3F]);
+    out.push_back(alphabet[(triple >> 12) & 0x3F]);
+    out.push_back('=');
+    out.push_back('=');
+  } else if (remaining == 2) {
+    uint32_t triple = (static_cast<uint8_t>(input[i]) << 16) |
+                      (static_cast<uint8_t>(input[i + 1]) << 8);
+    out.push_back(alphabet[(triple >> 18) & 0x3F]);
+    out.push_back(alphabet[(triple >> 12) & 0x3F]);
+    out.push_back(alphabet[(triple >> 6) & 0x3F]);
+    out.push_back('=');
+  }
+  return out;
+}
+
+// Encode a request payload as multipart/form-data. Multipart operations (e.g.
+// OpenAI /audio/transcriptions) carry the audio as a binary `file` part; every
+// other field is a plain form field. The `file` value is a base64 string
+// (optionally a data: URL) or an object {data, mimeType?, filename?}. Returns
+// the raw (binary-safe) body and the matching Content-Type header value.
+static std::pair<std::string, std::string> axir_encode_multipart(const Value& payload) {
+  const std::string boundary = "----axllmFormBoundaryAx7LlmMultipartBoundary";
+  const std::string crlf = "\r\n";
+  std::string body;
+  for (const auto& field : entries(payload)) {
+    const std::string& key = field.first;
+    const Value& value = field.second;
+    if (value.is_null()) continue;
+    if (key == "file") {
+      std::string data;
+      std::string filename = "audio.wav";
+      std::string content_type = "audio/wav";
+      if (value.is_object()) {
+        data = str(Core::get(value, "data", Value("")));
+        std::string fn = str(Core::get(value, "filename", Value("")));
+        if (!fn.empty()) filename = fn;
+        std::string mt = str(Core::get(value, "mimeType", Core::get(value, "mime_type", Value(""))));
+        if (!mt.empty()) content_type = mt;
+      } else {
+        data = str(value);
+      }
+      // Strip an optional `data:<mime>;base64,` URL prefix.
+      if (data.rfind("data:", 0) == 0) {
+        auto comma = data.find(',');
+        if (comma != std::string::npos) data = data.substr(comma + 1);
+      }
+      std::string file_bytes = axir_base64_decode(data);
+      if (file_bytes.empty() && !data.empty()) file_bytes = data;  // not base64 -> send raw
+      body += "--" + boundary + crlf;
+      body += "Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"" + crlf;
+      body += "Content-Type: " + content_type + crlf + crlf;
+      body += file_bytes + crlf;
+    } else {
+      body += "--" + boundary + crlf;
+      body += "Content-Disposition: form-data; name=\"" + key + "\"" + crlf + crlf;
+      body += str(value) + crlf;
+    }
+  }
+  body += "--" + boundary + "--" + crlf;
+  return {body, "multipart/form-data; boundary=" + boundary};
+}
+
 Value HttpTransport::call(Value request) {
 #if !defined(AXLLM_ENABLE_CURL)
   (void)request;
@@ -214,18 +366,42 @@ Value HttpTransport::call(Value request) {
 
   std::string response;
   char error_buffer[CURL_ERROR_SIZE] = {0};
+
+  // Build the request body. Normal operations carry a JSON payload under "json";
+  // multipart operations (e.g. OpenAI /audio/transcriptions) carry the payload
+  // under "data" and must be encoded as multipart/form-data with the audio sent
+  // as raw bytes. The body string is binary-safe (length comes from .size()).
+  bool multipart = !has_key(request, "json") && has_key(request, "data");
+  std::string payload;
+  std::string multipart_content_type;
+  if (multipart) {
+    auto encoded = axir_encode_multipart(Core::get(request, "data", Value::object()));
+    payload = std::move(encoded.first);
+    multipart_content_type = std::move(encoded.second);
+  } else {
+    Value body = Core::get(request, "json", Core::get(request, "data", Value::object()));
+    payload = stringify(body);
+  }
+
   struct curl_slist* headers = nullptr;
   for (const auto& entry : object_ref(Core::get(request, "headers", Value::object()))) {
     if (entry.first == "__order") continue;
+    // Override the JSON Content-Type for multipart requests.
+    if (multipart && (entry.first == "Content-Type" || entry.first == "content-type")) continue;
     std::string header = entry.first + ": " + str(entry.second);
     headers = curl_slist_append(headers, header.c_str());
   }
+  if (multipart) {
+    std::string ct_header = "Content-Type: " + multipart_content_type;
+    headers = curl_slist_append(headers, ct_header.c_str());
+  }
 
-  Value body = Core::get(request, "json", Core::get(request, "data", Value::object()));
-  std::string payload = stringify(body);
   std::string method = str(Core::get(request, "method", "POST"));
   std::string url = str(Core::get(request, "url"));
   bool stream = Core::truthy(Core::get(request, "stream", false));
+  // Binary operations (e.g. OpenAI /audio/speech) return raw bytes (mp3) that
+  // must not be JSON-parsed or UTF-8 handled; they are returned as base64.
+  bool binary_response = Core::truthy(Core::get(request, "binary", false));
   double timeout = num(Core::get(request, "timeout", 0));
 
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -240,7 +416,10 @@ Value HttpTransport::call(Value request) {
   if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
   if (method == "POST") {
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
+    // POSTFIELDSIZE makes the body binary-safe: curl sends exactly this many
+    // bytes from the buffer rather than scanning for a NUL terminator, which is
+    // required for the raw audio bytes embedded in a multipart body.
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
   } else {
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
@@ -249,6 +428,11 @@ Value HttpTransport::call(Value request) {
   CURLcode rc = curl_easy_perform(curl);
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+  // Capture the response Content-Type before cleanup so callers (e.g. the MCP
+  // Streamable HTTP transport) can branch on text/event-stream vs JSON.
+  char* response_content_type = nullptr;
+  curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &response_content_type);
+  std::string content_type = response_content_type != nullptr ? std::string(response_content_type) : std::string();
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
 
@@ -262,7 +446,12 @@ Value HttpTransport::call(Value request) {
 
   Value out = Value::object();
   Core::set(out, "status", static_cast<double>(status));
-  if (stream) {
+  Core::set(out, "contentType", content_type);
+  if (binary_response) {
+    // Base64-encode the full (binary-safe) body; response may contain NULs, so
+    // axir_base64_encode reads its whole .size() rather than a c_str().
+    Core::set(out, "body", Value(axir_base64_encode(response)));
+  } else if (stream) {
     Core::set(out, "body", response);
   } else {
     Core::set(out, "json", Core::json_parse(response));
@@ -787,6 +976,14 @@ Value Core::ai_complete_once(Value client, Value request) {
   if (it == client_registry().end() || it->second == nullptr) throw AxError("runtime", "client does not implement AIClient");
   return chat_response_to_completion(it->second->chat(request));
 }
+Value Core::agent_transcribe(Value client, Value request, Value options) {
+  // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
+  // text before the agent loop (the client passes through @agent_forward as a real client).
+  std::string id = str(get_key(client, "__client_id"));
+  auto it = client_registry().find(id);
+  if (it == client_registry().end() || it->second == nullptr) return object({{"text", std::string("")}});
+  return it->second->transcribe(request, options);
+}
 Value Core::retry_sleep(Value) { return Value(); }
 Value Core::tool_invoke(Value fn, Value params) {
   Value args = get_key(fn, "args", Value::array());
@@ -895,6 +1092,20 @@ Value Core::agent_runtime_close(Value session) {
 }
 Value Core::agent_memory_search(Value state, Value searches, Value already_loaded) {
   Value options = get_key(state, "options", Value::object());
+  // Native host callback: a closure registered via register_memories_search, referenced by a
+  // marker under "onMemoriesSearch" -- receives the actor's recall() searches + already-loaded ids.
+  Value callback = get_key(options, "on_memories_search", get_key(options, "onMemoriesSearch", Value()));
+  if (callback.is_object()) {
+    std::string mid = str(get_key(callback, "__memories_search_id", Value("")));
+    if (!mid.empty()) {
+      auto& reg = memories_search_registry();
+      auto it = reg.find(mid);
+      if (it != reg.end() && it->second) {
+        Value r = it->second(searches, already_loaded);
+        return r.is_null() ? Value::array() : r;
+      }
+    }
+  }
   Value scripted = get_key(options, "memory_search_results", get_key(options, "memorySearchResults", Value::object()));
   if (scripted.is_object()) {
     std::vector<std::string> parts;
@@ -917,6 +1128,20 @@ Value Core::agent_memory_search(Value state, Value searches, Value already_loade
 }
 Value Core::agent_skill_search(Value state, Value searches) {
   Value options = get_key(state, "options", Value::object());
+  // Native host callback: a closure registered via register_skills_search, referenced by a
+  // marker under "onSkillsSearch" -- receives the actor's discover() searches.
+  Value callback = get_key(options, "on_skills_search", get_key(options, "onSkillsSearch", Value()));
+  if (callback.is_object()) {
+    std::string mid = str(get_key(callback, "__skills_search_id", Value("")));
+    if (!mid.empty()) {
+      auto& reg = skills_search_registry();
+      auto it = reg.find(mid);
+      if (it != reg.end() && it->second) {
+        Value r = it->second(searches);
+        return r.is_null() ? Value::array() : r;
+      }
+    }
+  }
   Value scripted = get_key(options, "skill_search_results", get_key(options, "skillSearchResults", Value::object()));
   if (scripted.is_object()) {
     std::vector<std::string> parts;
@@ -3238,6 +3463,27 @@ Value Core::_openai_content_part_impl(Value part) {
     Core::set(out, Value("image_url"), image_url);
     return out;
   }
+  Value is_audio = Core::eq(type, Value("audio"));
+  if (Core::truthy(is_audio)) {
+    Value audio_alt = Core::get(part, Value("audio"), Value());
+    Value data = Core::get(part, Value("data"), audio_alt);
+    Value format = Core::get(part, Value("format"), Value());
+    Value is_wav = Core::eq(format, Value("wav"));
+    Value is_mp3 = Core::eq(format, Value("mp3"));
+    Value format_ok = Core::or_(is_wav, is_mp3);
+    if (Core::truthy(format_ok)) {
+      Value out = Value::object();
+      Core::set(out, Value("type"), Value("input_audio"));
+      Value input_audio = Value::object();
+      Core::set(input_audio, Value("data"), data);
+      Core::set(input_audio, Value("format"), format);
+      Core::set(out, Value("input_audio"), input_audio);
+      return out;
+    }
+    Value audio_message = Core::string_format(Value("OpenAI audio chat input supports only wav and mp3 audio, received {}"), format);
+    Value audio_error = Core::ai_error_unsupported(audio_message);
+    throw Core::as_error(audio_error);
+  }
   Value message = Core::string_format(Value("OpenAI-compatible beta does not support content part type: {}"), type);
   Value error = Core::ai_error_unsupported(message);
   throw Core::as_error(error);
@@ -3609,10 +3855,12 @@ Value Core::openai_normalize_error(Value status, Value body, Value request) {
   Value is_500 = Core::eq(status, Value(500));
   Value is_502 = Core::eq(status, Value(502));
   Value is_503 = Core::eq(status, Value(503));
+  Value is_529 = Core::eq(status, Value(529));
   Value retry_left = Core::or_(is_429, is_500);
   Value retry_right = Core::or_(is_502, is_503);
   Value retry_some = Core::or_(retry_left, retry_right);
-  Value retryable = Core::or_(retry_some, is_504);
+  Value retry_more = Core::or_(retry_some, is_504);
+  Value retryable = Core::or_(retry_more, is_529);
   Value error = Core::ai_error_status(message, status, code, body, request, retryable);
   return error;
 }
@@ -4325,7 +4573,7 @@ Value Core::provider_descriptor(Value profile) {
   if (Core::truthy(is_openai_family)) {
     Value family_operations = Core::get(openai_family_descriptor, Value("operations"), Value());
     Value family_transcribe = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}"));
-    Value family_speak = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}"));
+    Value family_speak = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}"));
     Core::set(family_operations, Value("transcribe"), family_transcribe);
     Core::set(family_operations, Value("speak"), family_speak);
     Value is_grok_family = Core::eq(provider_id, Value("grok"));
@@ -4372,9 +4620,9 @@ Value Core::provider_descriptor(Value profile) {
     Value responses_stream = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":true}"));
     Value responses_embed = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}"));
     Value responses_transcribe = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}"));
-    Value responses_speak = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}"));
+    Value responses_speak = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}"));
     Value responses_realtime = Core::json_parse(Value("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}"));
-    Value responses_realtime_audio = Core::json_parse(Value("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}"));
+    Value responses_realtime_audio = Core::json_parse(Value("{\"method\":\"WS\",\"path\":\"/realtime\",\"url\":\"wss://api.openai.com/v1/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}"));
     Core::set(operations, Value("chat"), responses_chat);
     Core::set(operations, Value("stream_chat"), responses_stream);
     Core::set(operations, Value("embed"), responses_embed);
@@ -4402,7 +4650,7 @@ Value Core::provider_descriptor(Value profile) {
       Value gemini_embed = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/models/{model}:batchEmbedContents\",\"body\":\"json\",\"stream\":false}"));
       Value gemini_transcribe = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}"));
       Value gemini_speak = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}"));
-      Value gemini_realtime_audio = Core::json_parse(Value("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}"));
+      Value gemini_realtime_audio = Core::json_parse(Value("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}"));
       Core::set(operations, Value("chat"), gemini_chat);
       Core::set(operations, Value("stream_chat"), gemini_stream);
       Core::set(operations, Value("embed"), gemini_embed);
@@ -4429,15 +4677,15 @@ Value Core::provider_descriptor(Value profile) {
     }
     if (!Core::truthy(is_gemini)) {
       if (Core::truthy(is_anthropic)) {
-        Core::set(descriptor, Value("baseUrl"), Value("https://api.anthropic.com/v1"));
+        Core::set(descriptor, Value("baseUrl"), Value("https://api.anthropic.com"));
         Core::set(descriptor, Value("auth"), Value("anthropic_key"));
         Core::set(descriptor, Value("id"), Value("anthropic"));
         Core::set(descriptor, Value("name"), Value("anthropic"));
         Core::set(descriptor, Value("defaultModel"), Value("claude-3-7-sonnet-latest"));
         Value extra_headers = Core::json_parse(Value("{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"}"));
         Core::set(descriptor, Value("headers"), extra_headers);
-        Value anthropic_chat = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":false}"));
-        Value anthropic_stream = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":true}"));
+        Value anthropic_chat = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":false}"));
+        Value anthropic_stream = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":true}"));
         Core::set(operations, Value("chat"), anthropic_chat);
         Core::set(operations, Value("stream_chat"), anthropic_stream);
         Value anthropic_images = Core::json_parse(Value("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"]}"));
@@ -4462,7 +4710,7 @@ Value Core::provider_descriptor(Value profile) {
         Value compatible_stream = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}"));
         Value compatible_embed = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}"));
         Value compatible_transcribe = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}"));
-        Value compatible_speak = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}"));
+        Value compatible_speak = Core::json_parse(Value("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}"));
         Core::set(operations, Value("chat"), compatible_chat);
         Core::set(operations, Value("stream_chat"), compatible_stream);
         Core::set(operations, Value("embed"), compatible_embed);
@@ -4531,6 +4779,53 @@ Value Core::_provider_realtime_audio_descriptor(Value profile) {
   return descriptor;
 }
 
+Value Core::provider_realtime_ws_url(Value profile, Value model, Value api_key) {
+  axir_coverage_mark("provider_realtime_ws_url");
+  Value descriptor = Core::_provider_realtime_audio_descriptor(profile);
+  Value grammar = Core::get(descriptor, Value("grammar"), Value("openai_realtime_compatible"));
+  Value base = Core::get(descriptor, Value("url"), Value(""));
+  Value out = Value::object();
+  Value headers = Value::object();
+  Value is_gemini = Core::eq(grammar, Value("gemini_live_bidi"));
+  if (Core::truthy(is_gemini)) {
+    Value gemini_url = Core::string_format(Value("{}?key={}"), base, api_key);
+    Core::set(out, Value("url"), gemini_url);
+    Core::set(out, Value("headers"), headers);
+    return out;
+  }
+  Value openai_url = Core::string_format(Value("{}?model={}"), base, model);
+  Value auth = Core::string_format(Value("Bearer {}"), api_key);
+  Core::set(headers, Value("Authorization"), auth);
+  Core::set(out, Value("url"), openai_url);
+  Core::set(out, Value("headers"), headers);
+  return out;
+}
+
+Value Core::provider_should_use_realtime(Value profile, Value model, Value request) {
+  axir_coverage_mark("provider_should_use_realtime");
+  Value descriptor = Core::provider_descriptor(profile);
+  Value operations = Core::get(descriptor, Value("operations"), Value());
+  Value realtime_op = Core::get(operations, Value("realtime_audio"), Value());
+  Value has_realtime = Core::is_not_none(realtime_op);
+  Value is_gpt_realtime = Core::string_starts_with(model, Value("gpt-realtime"));
+  Value is_grok_voice = Core::string_starts_with(model, Value("grok-voice"));
+  Value is_native_audio = Core::contains(model, Value("native-audio"));
+  Value is_dash_live = Core::contains(model, Value("-live-"));
+  Value is_gemini_live = Core::string_starts_with(model, Value("gemini-live"));
+  Value pattern_a = Core::or_(is_gpt_realtime, is_grok_voice);
+  Value pattern_b = Core::or_(is_native_audio, is_dash_live);
+  Value pattern_ab = Core::or_(pattern_a, pattern_b);
+  Value is_realtime_model = Core::or_(pattern_ab, is_gemini_live);
+  Value audio = Core::get(request, Value("audio"), Value());
+  Value output = Core::get(audio, Value("output"), Value());
+  Value enabled = Core::get(output, Value("enabled"), Value());
+  Value explicitly_disabled = Core::eq(enabled, Value(false));
+  Value audio_ok = Core::not_(explicitly_disabled);
+  Value model_and_realtime = Core::and_(has_realtime, is_realtime_model);
+  Value result = Core::and_(model_and_realtime, audio_ok);
+  return result;
+}
+
 Value Core::provider_build_realtime_audio_setup(Value profile, Value request) {
   axir_coverage_mark("provider_build_realtime_audio_setup");
   Value descriptor = Core::_provider_realtime_audio_descriptor(profile);
@@ -4591,9 +4886,12 @@ Value Core::_openai_realtime_compatible_build_setup(Value descriptor, Value requ
     input_sample_rate = default_input_rate;
   }
   Value session = Value::object();
-  Core::set(session, Value("voice"), voice_id);
-  Value turn_detection_none = Core::none();
-  Core::set(session, Value("turn_detection"), turn_detection_none);
+  Core::set(session, Value("type"), Value("realtime"));
+  Value default_model = Core::get(descriptor, Value("defaultModel"), Value());
+  Value model = Core::get(request, Value("model"), default_model);
+  Core::set(session, Value("model"), model);
+  Value output_modalities = Core::json_parse(Value("[\"audio\"]"));
+  Core::set(session, Value("output_modalities"), output_modalities);
   Value audio = Value::object();
   Value input = Value::object();
   Value input_format = Value::object();
@@ -4606,10 +4904,9 @@ Value Core::_openai_realtime_compatible_build_setup(Value descriptor, Value requ
   Core::set(output_format, Value("type"), Value("audio/pcm"));
   Core::set(output_format, Value("rate"), output_sample_rate);
   Core::set(output, Value("format"), output_format);
+  Core::set(output, Value("voice"), voice_id);
   Core::set(audio, Value("output"), output);
   Core::set(session, Value("audio"), audio);
-  Value modalities = Core::json_parse(Value("[\"audio\"]"));
-  Core::set(session, Value("modalities"), modalities);
   Value instructions = Core::_realtime_request_system_instruction_impl(request);
   Value has_instructions = Core::truthy_value(instructions);
   if (Core::truthy(has_instructions)) {
@@ -4639,7 +4936,7 @@ Value Core::_openai_realtime_compatible_build_input(Value descriptor, Value requ
   }
   Value response = Value::object();
   Value response_modalities = Core::json_parse(Value("[\"audio\"]"));
-  Core::set(response, Value("modalities"), response_modalities);
+  Core::set(response, Value("output_modalities"), response_modalities);
   Value response_event = Value::object();
   Core::set(response_event, Value("type"), Value("response.create"));
   Core::set(response_event, Value("response"), response);
@@ -4767,6 +5064,8 @@ Value Core::_gemini_live_bidi_build_input(Value descriptor, Value request) {
       Core::set(text_part, Value("text"), content);
       Core::append(text_parts, text_part);
     }
+    Value audio_count = Core::len(audio_events);
+    Value msg_has_audio = Core::gt(audio_count, Value(0));
     Value text_count = Core::len(text_parts);
     Value has_text = Core::gt(text_count, Value(0));
     if (Core::truthy(has_text)) {
@@ -4777,7 +5076,8 @@ Value Core::_gemini_live_bidi_build_input(Value descriptor, Value request) {
       Core::append(turns, turn);
       Value client_content = Value::object();
       Core::set(client_content, Value("turns"), turns);
-      Core::set(client_content, Value("turnComplete"), Value(false));
+      Value turn_complete = Core::not_(msg_has_audio);
+      Core::set(client_content, Value("turnComplete"), turn_complete);
       Value content_event = Value::object();
       Core::set(content_event, Value("clientContent"), client_content);
       Core::append(events, content_event);
@@ -4785,12 +5085,14 @@ Value Core::_gemini_live_bidi_build_input(Value descriptor, Value request) {
     for (auto audio_event : Core::iter(audio_events)) {
       Core::append(events, audio_event);
     }
+    if (Core::truthy(msg_has_audio)) {
+      Value stream_end = Value::object();
+      Core::set(stream_end, Value("audioStreamEnd"), Value(true));
+      Value end_event = Value::object();
+      Core::set(end_event, Value("realtimeInput"), stream_end);
+      Core::append(events, end_event);
+    }
   }
-  Value stream_end = Value::object();
-  Core::set(stream_end, Value("audioStreamEnd"), Value(true));
-  Value end_event = Value::object();
-  Core::set(end_event, Value("realtimeInput"), stream_end);
-  Core::append(events, end_event);
   return events;
 }
 
@@ -5241,6 +5543,91 @@ Value Core::provider_normalize_stream_delta(Value profile, Value raw, Value stat
     }
   }
   return response;
+}
+
+Value Core::provider_classify_stream_error_status(Value profile, Value event) {
+  axir_coverage_mark("provider_classify_stream_error_status");
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value none = Core::none();
+  Value status = none;
+  Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
+  if (Core::truthy(is_anthropic)) {
+    Value event_is_object = Core::type_is(event, Value("object"));
+    if (Core::truthy(event_is_object)) {
+      Value type = Core::get(event, Value("type"), Value(""));
+      Value is_error = Core::eq(type, Value("error"));
+      if (Core::truthy(is_error)) {
+        Value error_body = Core::get(event, Value("error"), Value());
+        Value error_type = Core::get(error_body, Value("type"), Value(""));
+        Value mapped = Core::_anthropic_error_type_to_status(error_type);
+        status = mapped;
+      }
+    }
+  }
+  return status;
+}
+
+Value Core::is_retryable_status(Value status) {
+  axir_coverage_mark("is_retryable_status");
+  Value is_408 = Core::eq(status, Value(408));
+  Value is_429 = Core::eq(status, Value(429));
+  Value is_500 = Core::eq(status, Value(500));
+  Value is_502 = Core::eq(status, Value(502));
+  Value is_503 = Core::eq(status, Value(503));
+  Value is_504 = Core::eq(status, Value(504));
+  Value is_529 = Core::eq(status, Value(529));
+  Value r1 = Core::or_(is_408, is_429);
+  Value r2 = Core::or_(is_500, is_502);
+  Value r3 = Core::or_(is_503, is_504);
+  Value r4 = Core::or_(r1, r2);
+  Value r5 = Core::or_(r3, is_529);
+  Value retryable = Core::or_(r4, r5);
+  return retryable;
+}
+
+Value Core::default_retry_config() {
+  axir_coverage_mark("default_retry_config");
+  Value config = Value::object();
+  Core::set(config, Value("max_retries"), Value(3));
+  Core::set(config, Value("initial_delay_ms"), Value(1000));
+  Core::set(config, Value("max_delay_ms"), Value(60000));
+  Core::set(config, Value("backoff_factor"), Value(2));
+  return config;
+}
+
+Value Core::retry_opt_value(Value map, Value camel, Value snake, Value fallback) {
+  axir_coverage_mark("retry_opt_value");
+  Value camel_val = Core::get(map, camel, Value());
+  Value has_camel = Core::is_not_none(camel_val);
+  if (Core::truthy(has_camel)) {
+    return camel_val;
+  }
+  Value snake_val = Core::get(map, snake, Value());
+  Value has_snake = Core::is_not_none(snake_val);
+  if (Core::truthy(has_snake)) {
+    return snake_val;
+  }
+  return fallback;
+}
+
+Value Core::resolve_stream_retry(Value options) {
+  axir_coverage_mark("resolve_stream_retry");
+  Value cfg = Core::default_retry_config();
+  Value def_max = Core::get(cfg, Value("max_retries"), Value());
+  Value def_initial = Core::get(cfg, Value("initial_delay_ms"), Value());
+  Value def_max_delay = Core::get(cfg, Value("max_delay_ms"), Value());
+  Value def_backoff = Core::get(cfg, Value("backoff_factor"), Value());
+  Value retry = Core::get(options, Value("retry"), Value());
+  Value max_retries = Core::retry_opt_value(retry, Value("maxRetries"), Value("max_retries"), def_max);
+  Value initial = Core::retry_opt_value(retry, Value("initialDelayMs"), Value("initial_delay_ms"), def_initial);
+  Value max_delay = Core::retry_opt_value(retry, Value("maxDelayMs"), Value("max_delay_ms"), def_max_delay);
+  Value backoff = Core::retry_opt_value(retry, Value("backoffFactor"), Value("backoff_factor"), def_backoff);
+  Value out = Value::object();
+  Core::set(out, Value("max_retries"), max_retries);
+  Core::set(out, Value("initial_delay_ms"), initial);
+  Core::set(out, Value("max_delay_ms"), max_delay);
+  Core::set(out, Value("backoff_factor"), backoff);
+  return out;
 }
 
 Value Core::provider_normalize_embed_response(Value profile, Value raw, Value ai_name, Value model) {
@@ -7143,14 +7530,73 @@ Value Core::_anthropic_tool_choice_impl(Value request) {
   return none;
 }
 
+Value Core::_anthropic_error_type_to_status(Value type) {
+  axir_coverage_mark("_anthropic_error_type_to_status");
+  Value none = Core::none();
+  Value status = none;
+  Value is_overloaded = Core::eq(type, Value("overloaded_error"));
+  if (Core::truthy(is_overloaded)) {
+    status = Value(529);
+  }
+  Value is_api = Core::eq(type, Value("api_error"));
+  if (Core::truthy(is_api)) {
+    status = Value(500);
+  }
+  Value is_rate = Core::eq(type, Value("rate_limit_error"));
+  if (Core::truthy(is_rate)) {
+    status = Value(429);
+  }
+  Value is_invalid = Core::eq(type, Value("invalid_request_error"));
+  if (Core::truthy(is_invalid)) {
+    status = Value(400);
+  }
+  Value is_permission = Core::eq(type, Value("permission_error"));
+  if (Core::truthy(is_permission)) {
+    status = Value(403);
+  }
+  Value is_not_found = Core::eq(type, Value("not_found_error"));
+  if (Core::truthy(is_not_found)) {
+    status = Value(404);
+  }
+  Value is_too_large = Core::eq(type, Value("request_too_large"));
+  if (Core::truthy(is_too_large)) {
+    status = Value(413);
+  }
+  return status;
+}
+
+Value Core::_anthropic_map_error_event(Value error, Value raw) {
+  axir_coverage_mark("_anthropic_map_error_event");
+  Value type = Core::get(error, Value("type"), Value(""));
+  Value message = Core::get(error, Value("message"), Value("Anthropic API error"));
+  Value none = Core::none();
+  Value is_auth = Core::eq(type, Value("authentication_error"));
+  if (Core::truthy(is_auth)) {
+    Value auth_error = Core::ai_error_auth(message, none, type, raw, none);
+    return auth_error;
+  }
+  Value status = Core::_anthropic_error_type_to_status(type);
+  Value has_status = Core::is_not_none(status);
+  if (Core::truthy(has_status)) {
+    Value is_429 = Core::eq(status, Value(429));
+    Value is_500 = Core::eq(status, Value(500));
+    Value is_529 = Core::eq(status, Value(529));
+    Value retry_left = Core::or_(is_429, is_500);
+    Value retryable = Core::or_(retry_left, is_529);
+    Value status_error = Core::ai_error_status(message, status, type, raw, none, retryable);
+    return status_error;
+  }
+  Value refusal = Core::ai_error_refusal(message, raw);
+  return refusal;
+}
+
 Value Core::_anthropic_normalize_chat_response(Value raw, Value ai_name, Value model) {
   axir_coverage_mark("_anthropic_normalize_chat_response");
   Value type = Core::get(raw, Value("type"), Value(""));
   Value is_error = Core::eq(type, Value("error"));
   if (Core::truthy(is_error)) {
     Value error_body = Core::get(raw, Value("error"), Value());
-    Value message = Core::get(error_body, Value("message"), Value("Anthropic API error"));
-    Value error = Core::ai_error_refusal(message, raw);
+    Value error = Core::_anthropic_map_error_event(error_body, raw);
     throw Core::as_error(error);
   }
   Value stop_reason = Core::get(raw, Value("stop_reason"), Value());
@@ -7358,8 +7804,7 @@ Value Core::_anthropic_normalize_stream_delta(Value event, Value state, Value ai
   Value is_error = Core::eq(type, Value("error"));
   if (Core::truthy(is_error)) {
     Value error_body = Core::get(event, Value("error"), Value());
-    Value message = Core::get(error_body, Value("message"), Value("Anthropic stream error"));
-    Value error = Core::ai_error_refusal(message, event);
+    Value error = Core::_anthropic_map_error_event(error_body, event);
     throw Core::as_error(error);
   }
   Value index = Value(0);
@@ -7630,8 +8075,37 @@ Value Core::_build_gen_chat_request(Value gen, Value messages, Value options) {
   Value mode_raw = Core::get(options, Value("functionCallMode"), mode_snake);
   Value mode = Core::_function_call_mode_impl(mode_raw);
   Core::set(request, Value("function_call"), mode);
+  Value signature = Core::get(gen, Value("signature"), Value());
+  Value output_fields = Core::get(signature, Value("output_fields"), Value());
+  Value has_code_field = Value(false);
+  for (auto of : Core::iter(output_fields)) {
+    Value of_type = Core::get(of, Value("type"), Value());
+    Value of_type_name = Core::get(of_type, Value("name"), Value());
+    Value of_is_code = Core::eq(of_type_name, Value("code"));
+    if (Core::truthy(of_is_code)) {
+      has_code_field = Value(true);
+    }
+  }
   Value response_format = Value::object();
-  Core::set(response_format, Value("type"), Value("json_object"));
+  Value fn_count = Core::len(function_specs);
+  Value has_functions = Core::gt(fn_count, Value(0));
+  Value no_functions = Core::not_(has_functions);
+  Value use_json_schema = Core::or_(has_code_field, no_functions);
+  if (Core::truthy(use_json_schema)) {
+    Value schema_options = Value::object();
+    Core::set(schema_options, Value("strictStructuredOutputs"), Value(true));
+    Core::set(schema_options, Value("flexibleJsonFieldsAsString"), Value(true));
+    Value code_schema = Core::_schema_to_json_schema_impl(output_fields, Value("output"), schema_options);
+    Value code_schema_wrap = Value::object();
+    Core::set(code_schema_wrap, Value("name"), Value("output"));
+    Core::set(code_schema_wrap, Value("strict"), Value(true));
+    Core::set(code_schema_wrap, Value("schema"), code_schema);
+    Core::set(response_format, Value("type"), Value("json_schema"));
+    Core::set(response_format, Value("schema"), code_schema_wrap);
+  }
+  if (!Core::truthy(use_json_schema)) {
+    Core::set(response_format, Value("type"), Value("json_object"));
+  }
   Core::set(request, Value("response_format"), response_format);
   Core::set(request, Value("model_config"), model_config);
   return request;
@@ -7839,7 +8313,8 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
       try {
         Value content = Core::get(response, Value("content"), Value(""));
         Value output = Core::_parse_output_impl(content);
-        Value validated = Core::validate_output(output_fields, output);
+        Value recovered = Core::_parse_json_string_fields(output_fields, output);
+        Value validated = Core::validate_output(output_fields, recovered);
         Value processed = Core::_apply_field_processors(gen, validated);
         Core::_run_assertions(gen, processed);
         Value public_output = Core::strip_internal(output_fields, processed);
@@ -7917,12 +8392,6 @@ Value Core::_validate_optimized_artifact_provenance(Value artifact, Value compon
   return Value(true);
 }
 
-Value Core::_set_examples(Value gen, Value examples) {
-  axir_coverage_mark("_set_examples");
-  Core::set(gen, Value("examples"), examples);
-  return gen;
-}
-
 Value Core::_validate_optimized_artifact(Value artifact, Value components) {
   axir_coverage_mark("_validate_optimized_artifact");
   Value is_object = Core::type_is(artifact, Value("object"));
@@ -7990,6 +8459,12 @@ Value Core::_validate_optimized_artifact(Value artifact, Value components) {
   return artifact;
 }
 
+Value Core::_set_examples(Value gen, Value examples) {
+  axir_coverage_mark("_set_examples");
+  Core::set(gen, Value("examples"), examples);
+  return gen;
+}
+
 Value Core::_set_demos(Value gen, Value demos) {
   axir_coverage_mark("_set_demos");
   Core::set(gen, Value("demos"), demos);
@@ -8008,34 +8483,16 @@ Value Core::_render_demos(Value gen) {
   return messages;
 }
 
-Value Core::_apply_field_processors(Value gen, Value output) {
-  axir_coverage_mark("_apply_field_processors");
-  Value processed = Core::axgen_apply_field_processors(gen, output);
-  return processed;
-}
-
-Value Core::_run_assertions(Value gen, Value output) {
-  axir_coverage_mark("_run_assertions");
-  Core::axgen_run_assertions(gen, output);
-  return Value();
-}
-
-Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
-  axir_coverage_mark("_append_assertion_retry_messages");
-  Core::_append_validation_retry_messages_impl(messages, response, error);
-  return Value();
-}
-
 Value Core::_serialize_optimized_artifact(Value artifact) {
   axir_coverage_mark("_serialize_optimized_artifact");
   Value text = Core::json_stringify(artifact);
   return text;
 }
 
-Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
-  axir_coverage_mark("_record_trace");
-  Core::axgen_record_trace(gen, input, output, status);
-  return Value();
+Value Core::_apply_field_processors(Value gen, Value output) {
+  axir_coverage_mark("_apply_field_processors");
+  Value processed = Core::axgen_apply_field_processors(gen, output);
+  return processed;
 }
 
 Value Core::_deserialize_optimized_artifact(Value text, Value components) {
@@ -8045,10 +8502,10 @@ Value Core::_deserialize_optimized_artifact(Value text, Value components) {
   return validated;
 }
 
-Value Core::_should_continue_steps(Value gen, Value calls) {
-  axir_coverage_mark("_should_continue_steps");
-  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
-  return should_continue;
+Value Core::_run_assertions(Value gen, Value output) {
+  axir_coverage_mark("_run_assertions");
+  Core::axgen_run_assertions(gen, output);
+  return Value();
 }
 
 Value Core::_optimization_changed_components(Value components, Value component_map) {
@@ -8069,6 +8526,53 @@ Value Core::_optimization_changed_components(Value components, Value component_m
     }
   }
   return changes;
+}
+
+Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
+  axir_coverage_mark("_append_assertion_retry_messages");
+  Core::_append_validation_retry_messages_impl(messages, response, error);
+  return Value();
+}
+
+Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
+  axir_coverage_mark("_record_trace");
+  Core::axgen_record_trace(gen, input, output, status);
+  return Value();
+}
+
+Value Core::_optimization_component_current_map(Value components) {
+  axir_coverage_mark("_optimization_component_current_map");
+  Value out = Value::object();
+  for (auto component : Core::iter(components)) {
+    Value id = Core::get(component, Value("id"), Value(""));
+    Value current = Core::get(component, Value("current"), Value());
+    Core::set(out, id, current);
+  }
+  return out;
+}
+
+Value Core::_should_continue_steps(Value gen, Value calls) {
+  axir_coverage_mark("_should_continue_steps");
+  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
+  return should_continue;
+}
+
+Value Core::_normalize_optimization_dataset(Value dataset) {
+  axir_coverage_mark("_normalize_optimization_dataset");
+  Value empty_list = Value::array();
+  Value is_object = Core::type_is(dataset, Value("object"));
+  if (Core::truthy(is_object)) {
+    Value train = Core::get(dataset, Value("train"), empty_list);
+    Value validation = Core::get(dataset, Value("validation"), empty_list);
+    Value out_obj = Value::object();
+    Core::set(out_obj, Value("train"), train);
+    Core::set(out_obj, Value("validation"), validation);
+    return out_obj;
+  }
+  Value out_list = Value::object();
+  Core::set(out_list, Value("train"), dataset);
+  Core::set(out_list, Value("validation"), empty_list);
+  return out_list;
 }
 
 Value Core::_complete_with_retries_impl(Value client, Value request, Value retries) {
@@ -8095,54 +8599,6 @@ Value Core::_complete_with_retries_impl(Value client, Value request, Value retri
   throw Core::as_error(last_error);
 }
 
-Value Core::_optimization_component_current_map(Value components) {
-  axir_coverage_mark("_optimization_component_current_map");
-  Value out = Value::object();
-  for (auto component : Core::iter(components)) {
-    Value id = Core::get(component, Value("id"), Value(""));
-    Value current = Core::get(component, Value("current"), Value());
-    Core::set(out, id, current);
-  }
-  return out;
-}
-
-Value Core::_parse_output_impl(Value content) {
-  axir_coverage_mark("_parse_output_impl");
-  Value text = Core::string_trim(content);
-  Value output = Core::json_parse(text);
-  return output;
-}
-
-Value Core::_normalize_optimization_dataset(Value dataset) {
-  axir_coverage_mark("_normalize_optimization_dataset");
-  Value empty_list = Value::array();
-  Value is_object = Core::type_is(dataset, Value("object"));
-  if (Core::truthy(is_object)) {
-    Value train = Core::get(dataset, Value("train"), empty_list);
-    Value validation = Core::get(dataset, Value("validation"), empty_list);
-    Value out_obj = Value::object();
-    Core::set(out_obj, Value("train"), train);
-    Core::set(out_obj, Value("validation"), validation);
-    return out_obj;
-  }
-  Value out_list = Value::object();
-  Core::set(out_list, Value("train"), dataset);
-  Core::set(out_list, Value("validation"), empty_list);
-  return out_list;
-}
-
-Value Core::_tool_spec_impl(Value fn) {
-  axir_coverage_mark("_tool_spec_impl");
-  Value spec = Value::object();
-  Value name = Core::get(fn, Value("name"), Value());
-  Value description = Core::get(fn, Value("description"), Value());
-  Value parameters = Core::get(fn, Value("parameters"), Value());
-  Core::set(spec, Value("name"), name);
-  Core::set(spec, Value("description"), description);
-  Core::set(spec, Value("parameters"), parameters);
-  return spec;
-}
-
 Value Core::_normalize_optimization_metric_scores(Value raw) {
   axir_coverage_mark("_normalize_optimization_metric_scores");
   Value is_number = Core::type_is(raw, Value("number"));
@@ -8160,23 +8616,11 @@ Value Core::_normalize_optimization_metric_scores(Value raw) {
   return out_zero;
 }
 
-Value Core::_function_call_mode_impl(Value mode) {
-  axir_coverage_mark("_function_call_mode_impl");
-  Value missing = Core::is_none(mode);
-  if (Core::truthy(missing)) {
-    return Value("auto");
-  }
-  Value is_native = Core::eq(mode, Value("native"));
-  Value is_auto = Core::eq(mode, Value("auto"));
-  Value native_or_auto = Core::or_(is_native, is_auto);
-  if (Core::truthy(native_or_auto)) {
-    return Value("auto");
-  }
-  Value is_prompt = Core::eq(mode, Value("prompt"));
-  if (Core::truthy(is_prompt)) {
-    return Value("none");
-  }
-  return mode;
+Value Core::_parse_output_impl(Value content) {
+  axir_coverage_mark("_parse_output_impl");
+  Value text = Core::string_trim(content);
+  Value output = Core::json_parse(text);
+  return output;
 }
 
 Value Core::_scalarize_optimization_scores(Value scores, Value options) {
@@ -8204,27 +8648,21 @@ Value Core::_scalarize_optimization_scores(Value scores, Value options) {
   return avg;
 }
 
-Value Core::_response_function_calls_impl(Value response) {
-  axir_coverage_mark("_response_function_calls_impl");
-  Value empty = Value::array();
-  Value calls = Core::get(response, Value("function_calls"), empty);
-  return calls;
-}
-
-Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
-  axir_coverage_mark("_append_tool_call_messages_impl");
-  Value chat_calls = Value::array();
-  for (auto call : Core::iter(calls)) {
-    Value chat_call = Core::_completion_call_to_chat_impl(call);
-    Core::append(chat_calls, chat_call);
+Value Core::_is_flexible_json_field(Value typ) {
+  axir_coverage_mark("_is_flexible_json_field");
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_json = Core::eq(type_name, Value("json"));
+  Value is_object = Core::eq(type_name, Value("object"));
+  Value fields = Core::get(typ, Value("fields"), Value());
+  Value has_fields = Core::truthy_value(fields);
+  Value no_fields = Core::not_(has_fields);
+  Value flexible = is_json;
+  if (Core::truthy(is_object)) {
+    if (Core::truthy(no_fields)) {
+      flexible = Value(true);
+    }
   }
-  Value content = Core::get(response, Value("content"), Value(""));
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("assistant"));
-  Core::set(message, Value("content"), content);
-  Core::set(message, Value("function_calls"), chat_calls);
-  Core::append(messages, message);
-  return Value();
+  return flexible;
 }
 
 Value Core::_optimization_action_name_matches(Value expected, Value call) {
@@ -8240,19 +8678,22 @@ Value Core::_optimization_action_name_matches(Value expected, Value call) {
   return any_match;
 }
 
-Value Core::_completion_call_to_chat_impl(Value call) {
-  axir_coverage_mark("_completion_call_to_chat_impl");
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(call, Value("name"), Value());
-  Value params = Core::get(call, Value("params"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("params"), params);
-  Value out = Value::object();
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
+Value Core::_parse_json_string_value(Value value) {
+  axir_coverage_mark("_parse_json_string_value");
+  Value is_string = Core::type_is(value, Value("string"));
+  Value not_string = Core::not_(is_string);
+  if (Core::truthy(not_string)) {
+    return value;
+  }
+  Value result = value;
+  try {
+    Value parsed = Core::json_parse(value);
+    result = parsed;
+  } catch (const std::exception& e) {
+    Value parse_error = Core::exception_value(e);
+    result = value;
+  }
+  return result;
 }
 
 Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Value prediction) {
@@ -8301,47 +8742,99 @@ Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Valu
   return adjusted;
 }
 
-Value Core::_tool_result_message_impl(Value call, Value result) {
-  axir_coverage_mark("_tool_result_message_impl");
-  Value id = Core::get(call, Value("id"), Value());
-  Value result_json = Core::json_stringify(result);
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("function"));
-  Core::set(message, Value("function_id"), id);
-  Core::set(message, Value("result"), result_json);
-  return message;
+Value Core::_parse_json_string_for_field(Value field, Value value) {
+  axir_coverage_mark("_parse_json_string_for_field");
+  Value typ = Core::get(field, Value("type"), Value());
+  Value value_is_none = Core::is_none(value);
+  if (Core::truthy(value_is_none)) {
+    return value;
+  }
+  Value flexible = Core::_is_flexible_json_field(typ);
+  Value is_array = Core::get(typ, Value("is_array"), Value(false));
+  Value typ_fields = Core::get(typ, Value("fields"), Value());
+  Value has_typ_fields = Core::truthy_value(typ_fields);
+  if (Core::truthy(is_array)) {
+    Value value_is_list = Core::type_is(value, Value("list"));
+    Value not_list = Core::not_(value_is_list);
+    if (Core::truthy(not_list)) {
+      return value;
+    }
+    if (Core::truthy(flexible)) {
+      Value out = Value::array();
+      for (auto item : Core::iter(value)) {
+        Value parsed_item = Core::_parse_json_string_value(item);
+        Core::append(out, parsed_item);
+      }
+      return out;
+    }
+    if (Core::truthy(has_typ_fields)) {
+      Value rebuilt = Value::array();
+      for (auto item : Core::iter(value)) {
+        Value item_is_map = Core::type_is(item, Value("object"));
+        if (Core::truthy(item_is_map)) {
+          Value parsed_obj = Core::_parse_json_string_for_fields(typ_fields, item);
+          Core::append(rebuilt, parsed_obj);
+        }
+        if (!Core::truthy(item_is_map)) {
+          Core::append(rebuilt, item);
+        }
+      }
+      return rebuilt;
+    }
+    return value;
+  }
+  if (Core::truthy(flexible)) {
+    Value parsed_scalar = Core::_parse_json_string_value(value);
+    return parsed_scalar;
+  }
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_object = Core::eq(type_name, Value("object"));
+  if (Core::truthy(is_object)) {
+    if (Core::truthy(has_typ_fields)) {
+      Value parsed_obj2 = Core::_parse_json_string_for_fields(typ_fields, value);
+      return parsed_obj2;
+    }
+  }
+  return value;
 }
 
-Value Core::_tool_error_message_impl(Value call, Value error) {
-  axir_coverage_mark("_tool_error_message_impl");
-  Value id = Core::get(call, Value("id"), Value());
-  Value error_text = Core::exception_message(error);
-  Value payload = Value::object();
-  Core::set(payload, Value("error"), error_text);
-  Value payload_json = Core::json_stringify(payload);
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("function"));
-  Core::set(message, Value("function_id"), id);
-  Core::set(message, Value("result"), payload_json);
-  Core::set(message, Value("is_error"), Value(true));
-  return message;
+Value Core::_parse_json_string_fields(Value output_fields, Value values) {
+  axir_coverage_mark("_parse_json_string_fields");
+  Value values_is_map = Core::type_is(values, Value("object"));
+  Value not_map = Core::not_(values_is_map);
+  if (Core::truthy(not_map)) {
+    return values;
+  }
+  for (auto field : Core::iter(output_fields)) {
+    Value name = Core::get(field, Value("name"), Value());
+    Value has_key = Core::map_contains(values, name);
+    if (Core::truthy(has_key)) {
+      Value value = Core::get(values, name, Value());
+      Value parsed = Core::_parse_json_string_for_field(field, value);
+      Core::set(values, name, parsed);
+    }
+  }
+  return values;
 }
 
-Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
-  axir_coverage_mark("_append_validation_retry_messages_impl");
-  Value content = Core::get(response, Value("content"), Value(""));
-  Value assistant_message = Value::object();
-  Core::set(assistant_message, Value("role"), Value("assistant"));
-  Core::set(assistant_message, Value("content"), content);
-  Core::append(messages, assistant_message);
-  Value error_text = Core::exception_message(error);
-  Value prefix_message = Core::add(Value("The previous response failed validation: "), error_text);
-  Value retry_content = Core::add(prefix_message, Value(". Return only corrected JSON."));
-  Value retry_message = Value::object();
-  Core::set(retry_message, Value("role"), Value("user"));
-  Core::set(retry_message, Value("content"), retry_content);
-  Core::append(messages, retry_message);
-  return Value();
+Value Core::_parse_json_string_for_fields(Value fields_map, Value values) {
+  axir_coverage_mark("_parse_json_string_for_fields");
+  Value values_is_map = Core::type_is(values, Value("object"));
+  Value not_map = Core::not_(values_is_map);
+  if (Core::truthy(not_map)) {
+    return values;
+  }
+  Value nested_fields = Core::fields_from_map(fields_map);
+  for (auto field : Core::iter(nested_fields)) {
+    Value name = Core::get(field, Value("name"), Value());
+    Value has_key = Core::map_contains(values, name);
+    if (Core::truthy(has_key)) {
+      Value value = Core::get(values, name, Value());
+      Value parsed = Core::_parse_json_string_for_field(field, value);
+      Core::set(values, name, parsed);
+    }
+  }
+  return values;
 }
 
 Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
@@ -8357,6 +8850,18 @@ Value Core::_build_optimization_eval_row(Value task, Value prediction, Value sco
     Core::set(out, Value("error"), error);
   }
   return out;
+}
+
+Value Core::_tool_spec_impl(Value fn) {
+  axir_coverage_mark("_tool_spec_impl");
+  Value spec = Value::object();
+  Value name = Core::get(fn, Value("name"), Value());
+  Value description = Core::get(fn, Value("description"), Value());
+  Value parameters = Core::get(fn, Value("parameters"), Value());
+  Core::set(spec, Value("name"), name);
+  Core::set(spec, Value("description"), description);
+  Core::set(spec, Value("parameters"), parameters);
+  return spec;
 }
 
 Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Value phase) {
@@ -8384,6 +8889,32 @@ Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Val
   Core::set(out, Value("avg"), avg);
   Core::set(out, Value("count"), count);
   return out;
+}
+
+Value Core::_function_call_mode_impl(Value mode) {
+  axir_coverage_mark("_function_call_mode_impl");
+  Value missing = Core::is_none(mode);
+  if (Core::truthy(missing)) {
+    return Value("auto");
+  }
+  Value is_native = Core::eq(mode, Value("native"));
+  Value is_auto = Core::eq(mode, Value("auto"));
+  Value native_or_auto = Core::or_(is_native, is_auto);
+  if (Core::truthy(native_or_auto)) {
+    return Value("auto");
+  }
+  Value is_prompt = Core::eq(mode, Value("prompt"));
+  if (Core::truthy(is_prompt)) {
+    return Value("none");
+  }
+  return mode;
+}
+
+Value Core::_response_function_calls_impl(Value response) {
+  axir_coverage_mark("_response_function_calls_impl");
+  Value empty = Value::array();
+  Value calls = Core::get(response, Value("function_calls"), empty);
+  return calls;
 }
 
 Value Core::_filter_optimization_components(Value components, Value target) {
@@ -8447,6 +8978,48 @@ Value Core::_filter_optimization_components(Value components, Value target) {
   return out;
 }
 
+Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
+  axir_coverage_mark("_append_tool_call_messages_impl");
+  Value chat_calls = Value::array();
+  for (auto call : Core::iter(calls)) {
+    Value chat_call = Core::_completion_call_to_chat_impl(call);
+    Core::append(chat_calls, chat_call);
+  }
+  Value content = Core::get(response, Value("content"), Value(""));
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("assistant"));
+  Core::set(message, Value("content"), content);
+  Core::set(message, Value("function_calls"), chat_calls);
+  Core::append(messages, message);
+  return Value();
+}
+
+Value Core::_completion_call_to_chat_impl(Value call) {
+  axir_coverage_mark("_completion_call_to_chat_impl");
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(call, Value("name"), Value());
+  Value params = Core::get(call, Value("params"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("params"), params);
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
+  return out;
+}
+
+Value Core::_tool_result_message_impl(Value call, Value result) {
+  axir_coverage_mark("_tool_result_message_impl");
+  Value id = Core::get(call, Value("id"), Value());
+  Value result_json = Core::json_stringify(result);
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("function"));
+  Core::set(message, Value("function_id"), id);
+  Core::set(message, Value("result"), result_json);
+  return message;
+}
+
 Value Core::_build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace) {
   axir_coverage_mark("_build_optimizer_request");
   Value out = Value::object();
@@ -8465,6 +9038,38 @@ Value Core::_build_optimizer_request(Value program_kind, Value components, Value
   Core::set(evaluator, Value("methods"), methods);
   Core::set(out, Value("evaluator"), evaluator);
   return out;
+}
+
+Value Core::_tool_error_message_impl(Value call, Value error) {
+  axir_coverage_mark("_tool_error_message_impl");
+  Value id = Core::get(call, Value("id"), Value());
+  Value error_text = Core::exception_message(error);
+  Value payload = Value::object();
+  Core::set(payload, Value("error"), error_text);
+  Value payload_json = Core::json_stringify(payload);
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("function"));
+  Core::set(message, Value("function_id"), id);
+  Core::set(message, Value("result"), payload_json);
+  Core::set(message, Value("is_error"), Value(true));
+  return message;
+}
+
+Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
+  axir_coverage_mark("_append_validation_retry_messages_impl");
+  Value content = Core::get(response, Value("content"), Value(""));
+  Value assistant_message = Value::object();
+  Core::set(assistant_message, Value("role"), Value("assistant"));
+  Core::set(assistant_message, Value("content"), content);
+  Core::append(messages, assistant_message);
+  Value error_text = Core::exception_message(error);
+  Value prefix_message = Core::add(Value("The previous response failed validation: "), error_text);
+  Value retry_content = Core::add(prefix_message, Value(". Return only corrected JSON."));
+  Value retry_message = Value::object();
+  Core::set(retry_message, Value("role"), Value("user"));
+  Core::set(retry_message, Value("content"), retry_content);
+  Core::append(messages, retry_message);
+  return Value();
 }
 
 Value Core::_prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available) {
@@ -8717,14 +9322,25 @@ Value Core::_agent_factory(Value signature, Value options) {
   Core::set(state, Value("context_fields"), context_fields);
   Core::set(state, Value("executor_exclude_fields"), executor_exclude);
   Core::set(state, Value("responder_exclude_fields"), responder_exclude);
-  Core::set(state, Value("distiller_signature"), Value("input:json, context:json -> completion:json"));
   Value code_field_name = Core::get(runtime_contract, Value("code_field_name"), Value("javascriptCode"));
+  Value runtime_distiller_signature = Core::string_format(Value("input:json, context:json, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), code_field_name);
+  Value distiller_signature = Value("input:json, context:json -> completion:json");
+  if (Core::truthy(runtime_enabled)) {
+    distiller_signature = runtime_distiller_signature;
+  }
+  Core::set(state, Value("distiller_signature"), distiller_signature);
   Value runtime_executor_signature = Core::string_format(Value("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), code_field_name);
   Value executor_signature = Value("input:json, executorRequest:string, distilledContext:json -> completion:json");
   if (Core::truthy(runtime_enabled)) {
     executor_signature = runtime_executor_signature;
   }
   Core::set(state, Value("executor_signature"), executor_signature);
+  Value llm_query_signature = Value("task:string, context:json -> answer:string");
+  Core::set(state, Value("llm_query_signature"), llm_query_signature);
+  Value llm_query_description = Value("You answer ONE focused question using only the provided context object. Return just the answer text — concise, specific, and grounded in the context. Do not restate the question.");
+  Core::set(state, Value("llm_query_description"), llm_query_description);
+  Value responder_signature = Core::_build_responder_signature(sig, context_fields);
+  Core::set(state, Value("responder_signature"), responder_signature);
   Core::set(state, Value("chat_log"), chat_log);
   Core::set(state, Value("usage"), usage);
   Core::set(state, Value("runtime_state"), state_alpha);
@@ -8736,6 +9352,40 @@ Value Core::_agent_factory(Value signature, Value options) {
   Core::set(state, Value("policy_flags"), policy_flags);
   Core::set(state, Value("policy_registry"), policy_registry);
   Core::set(state, Value("context_policy"), context_policy);
+  Value context_map_config = Core::get(options, Value("contextMap"), Value());
+  Value has_cm_config = Core::is_not_none(context_map_config);
+  if (Core::truthy(has_cm_config)) {
+    Value cm_initial = Value::object();
+    Value cm_map_value = Core::get(context_map_config, Value("map"), Value());
+    Value cm_map_is_object = Core::type_is(cm_map_value, Value("object"));
+    if (Core::truthy(cm_map_is_object)) {
+      cm_initial = Core::map_merge(cm_initial, cm_map_value);
+    }
+    Value cm_map_is_string = Core::type_is(cm_map_value, Value("string"));
+    if (Core::truthy(cm_map_is_string)) {
+      Core::set(cm_initial, Value("text"), cm_map_value);
+    }
+    Value cm_text = Core::get(cm_initial, Value("text"), Value(""));
+    Core::set(cm_initial, Value("text"), cm_text);
+    Value cm_steps = Core::get(cm_initial, Value("steps"), Value(0));
+    Core::set(cm_initial, Value("steps"), cm_steps);
+    Value cm_empty_scores = Value::object();
+    Value cm_scores = Core::get(cm_initial, Value("scores"), cm_empty_scores);
+    Core::set(cm_initial, Value("scores"), cm_scores);
+    Value cm_cfg_max = Core::get(context_map_config, Value("maxChars"), Value(4000));
+    Value cm_max = Core::get(cm_initial, Value("maxChars"), cm_cfg_max);
+    Core::set(cm_initial, Value("maxChars"), cm_max);
+    Value cm_cfg_infinite = Core::get(context_map_config, Value("infiniteEvolve"), Value(true));
+    Value cm_infinite = Core::get(cm_initial, Value("infiniteEvolve"), cm_cfg_infinite);
+    Core::set(cm_initial, Value("infiniteEvolve"), cm_infinite);
+    Value cm_cfg_steps = Core::get(context_map_config, Value("evolveSteps"), Value(0));
+    Value cm_evolve_steps = Core::get(cm_initial, Value("evolveSteps"), cm_cfg_steps);
+    Core::set(cm_initial, Value("evolveSteps"), cm_evolve_steps);
+    Value cm_cfg_next = Core::get(context_map_config, Value("next_id"), Value(1));
+    Value cm_next = Core::get(cm_initial, Value("next_id"), cm_cfg_next);
+    Core::set(cm_initial, Value("next_id"), cm_next);
+    Core::set(state, Value("context_map"), cm_initial);
+  }
   Core::set(state, Value("executor_model_policy"), executor_model_policy);
   Core::set(state, Value("context_events"), context_events);
   Core::set(state, Value("actor_model_state"), actor_model_state);
@@ -8755,6 +9405,14 @@ Value Core::_agent_factory(Value signature, Value options) {
   Core::set(state, Value("optimizer_metadata"), optimizer_metadata);
   Value actor_prompt_policy = Core::_build_agent_actor_prompt_policy(state);
   Core::set(state, Value("actor_prompt_policy"), actor_prompt_policy);
+  if (Core::truthy(runtime_enabled)) {
+    Value executor_description = Core::_render_rlm_executor_description(state, options);
+    Core::set(state, Value("executor_description"), executor_description);
+    Value responder_description = Core::_render_rlm_responder_description(state, options);
+    Core::set(state, Value("responder_description"), responder_description);
+    Value distiller_description = Core::_render_rlm_distiller_description(state, options);
+    Core::set(state, Value("distiller_description"), distiller_description);
+  }
   return state;
 }
 
@@ -9487,6 +10145,22 @@ Value Core::_policy_flag_enabled(Value flags, Value condition) {
   return out;
 }
 
+Value Core::_build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace) {
+  axir_coverage_mark("_build_agent_eval_prediction");
+  Value out = Value::object();
+  Core::set(out, Value("completionType"), Value("final"));
+  Core::set(out, Value("output"), output);
+  Core::set(out, Value("finalOutput"), output);
+  Core::set(out, Value("actionLog"), action_log);
+  Core::set(out, Value("usage"), usage);
+  Core::set(out, Value("trace"), trace);
+  Value empty_list = Value::array();
+  Core::set(out, Value("functionCalls"), empty_list);
+  Core::set(out, Value("toolErrors"), empty_list);
+  Core::set(out, Value("turnCount"), Value(0));
+  return out;
+}
+
 Value Core::_select_actor_primitives(Value registry, Value stage) {
   axir_coverage_mark("_select_actor_primitives");
   Value empty_list = Value::array();
@@ -9511,22 +10185,6 @@ Value Core::_select_protocol_actions(Value registry) {
   Value empty_list = Value::array();
   Value actions = Core::get(registry, Value("protocol_actions"), empty_list);
   return actions;
-}
-
-Value Core::_build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace) {
-  axir_coverage_mark("_build_agent_eval_prediction");
-  Value out = Value::object();
-  Core::set(out, Value("completionType"), Value("final"));
-  Core::set(out, Value("output"), output);
-  Core::set(out, Value("finalOutput"), output);
-  Core::set(out, Value("actionLog"), action_log);
-  Core::set(out, Value("usage"), usage);
-  Core::set(out, Value("trace"), trace);
-  Value empty_list = Value::array();
-  Core::set(out, Value("functionCalls"), empty_list);
-  Core::set(out, Value("toolErrors"), empty_list);
-  Core::set(out, Value("turnCount"), Value(0));
-  return out;
 }
 
 Value Core::_select_runtime_globals(Value registry) {
@@ -9560,6 +10218,257 @@ Value Core::_render_actor_primitive_guidance(Value registry, Value stage) {
     Core::append(lines, line);
   }
   Value out = Core::string_join(Value("\n"), lines);
+  return out;
+}
+
+Value Core::_rlm_flag_enabled(Value flags, Value flag) {
+  axir_coverage_mark("_rlm_flag_enabled");
+  Value is_empty = Core::eq(flag, Value(""));
+  if (Core::truthy(is_empty)) {
+    return Value(true);
+  }
+  Value value = Core::get(flags, flag, Value(false));
+  Value out = Core::truthy_value(value);
+  return out;
+}
+
+Value Core::_rlm_any_flag_enabled(Value flags, Value flag_names) {
+  axir_coverage_mark("_rlm_any_flag_enabled");
+  Value count = Core::len(flag_names);
+  Value is_empty = Core::eq(count, Value(0));
+  if (Core::truthy(is_empty)) {
+    return Value(true);
+  }
+  Value out = Value(false);
+  for (auto name : Core::iter(flag_names)) {
+    Value enabled = Core::_rlm_flag_enabled(flags, name);
+    out = Core::or_(out, enabled);
+  }
+  return out;
+}
+
+Value Core::_rlm_entry_enabled(Value entry, Value flags) {
+  axir_coverage_mark("_rlm_entry_enabled");
+  Value enabled_by = Core::get(entry, Value("enabledBy"), Value(""));
+  Value a = Core::_rlm_flag_enabled(flags, enabled_by);
+  Value empty_list = Value::array();
+  Value enabled_by_any = Core::get(entry, Value("enabledByAny"), empty_list);
+  Value b = Core::_rlm_any_flag_enabled(flags, enabled_by_any);
+  Value ab = Core::and_(a, b);
+  Value disabled_by = Core::get(entry, Value("disabledBy"), Value(""));
+  Value no_disabled = Core::eq(disabled_by, Value(""));
+  Value out = ab;
+  if (Core::truthy(no_disabled)) {
+    out = ab;
+  }
+  if (!Core::truthy(no_disabled)) {
+    Value disabled_active = Core::_rlm_flag_enabled(flags, disabled_by);
+    Value not_disabled = Core::not_(disabled_active);
+    out = Core::and_(ab, not_disabled);
+  }
+  return out;
+}
+
+Value Core::_render_runtime_primitive(Value primitive, Value flags) {
+  axir_coverage_mark("_render_runtime_primitive");
+  Value parts = Value::array();
+  Value description = Core::get(primitive, Value("description"), Value(""));
+  Core::append(parts, description);
+  Value empty_list = Value::array();
+  Value signatures = Core::get(primitive, Value("signatures"), empty_list);
+  for (auto signature : Core::iter(signatures)) {
+    Value sig_ok = Core::_rlm_entry_enabled(signature, flags);
+    if (Core::truthy(sig_ok)) {
+      Value code = Core::get(signature, Value("code"), Value(""));
+      Value line = Core::string_format(Value("`{}`"), code);
+      Core::append(parts, line);
+    }
+  }
+  Value examples = Core::get(primitive, Value("examples"), empty_list);
+  Value example_lines = Value::array();
+  for (auto example : Core::iter(examples)) {
+    Value ex_ok = Core::_rlm_entry_enabled(example, flags);
+    if (Core::truthy(ex_ok)) {
+      Value ex_code = Core::get(example, Value("code"), Value(""));
+      Core::append(example_lines, ex_code);
+    }
+  }
+  Value example_count = Core::len(example_lines);
+  Value has_examples = Core::gt(example_count, Value(0));
+  if (Core::truthy(has_examples)) {
+    Value joined_examples = Core::string_join(Value("\n"), example_lines);
+    Value example_block = Core::string_format(Value("Examples:\n```js\n{}\n```"), joined_examples);
+    Core::append(parts, example_block);
+  }
+  Value out = Core::string_join(Value("\n"), parts);
+  return out;
+}
+
+Value Core::_render_actor_primitives_list(Value stage, Value flags) {
+  axir_coverage_mark("_render_actor_primitives_list");
+  Value data = Core::json_parse(Value("{\"schema_version\":\"axir-rlm-prompts-v1\",\"executor_template\":\"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller stage produced two extra inputs:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.\\n\\nRead `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"responder_template\":\"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\"distiller_template\":\"## Distiller\\n\\nYou (`distiller`) read the available context and forward an actionable request to the downstream **executor** stage, which owns any available tools/functions and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete; put exact inputs (paths, ids, selected records, constraints) in `evidence`, or `{}` if context has nothing to narrow. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of tools or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration when context has nothing to narrow** (direct action request, or schema is already known) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"primitives\":[{\"id\":\"llmQuery\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask focused questions about the narrowed context you pass in.\",\"signatures\":[{\"code\":\"await llmQuery([{ query: string, context: any }, ...]): string[]\"}]},{\"id\":\"final\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\"signatures\":[{\"code\":\"await final(task: string, context?: object)\"}]},{\"id\":\"askClarification\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\"signatures\":[{\"code\":\"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"}]},{\"id\":\"reportSuccess\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportSuccess(message: string)\"}]},{\"id\":\"reportFailure\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportFailure(message: string)\"}]},{\"id\":\"inspectRuntime\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"hasInspectRuntime\",\"description\":\"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\"signatures\":[{\"code\":\"await inspectRuntime(): string\"}]},{\"id\":\"discover\",\"stages\":[\"executor\"],\"enabledByAny\":[\"discoveryMode\",\"skillsMode\"],\"description\":\"Load tool docs and skill guides into the next turn. Use one batched call.\",\"signatures\":[{\"code\":\"await discover(item: string): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(items: string[]): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { skills: string | string[] }): void\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}],\"examples\":[{\"code\":\"await discover('db');\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(['db', 'db.search']);\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ skills: ['release checklist'] });\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ tools: ['db'], skills: ['release checklist'] });\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}]},{\"id\":\"recall\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"memoriesMode\",\"description\":\"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\"signatures\":[{\"code\":\"await recall(searches: string[]): void\"}]},{\"id\":\"used\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"usageTrackingMode\",\"description\":\"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\"signatures\":[{\"code\":\"await used(id: string, reason?: string): void\"}]}]}"));
+  Value empty_list = Value::array();
+  Value primitives = Core::get(data, Value("primitives"), empty_list);
+  Value blocks = Value::array();
+  for (auto primitive : Core::iter(primitives)) {
+    Value stages = Core::get(primitive, Value("stages"), empty_list);
+    Value in_stage = Core::contains(stages, stage);
+    if (Core::truthy(in_stage)) {
+      Value enabled = Core::_rlm_entry_enabled(primitive, flags);
+      if (Core::truthy(enabled)) {
+        Value block = Core::_render_runtime_primitive(primitive, flags);
+        Core::append(blocks, block);
+      }
+    }
+  }
+  Value out = Core::string_join(Value("\n\n"), blocks);
+  return out;
+}
+
+Value Core::_build_rlm_flags(Value options) {
+  axir_coverage_mark("_build_rlm_flags");
+  Value flags = Core::_agent_policy_flags(options);
+  Value disc = Core::get(flags, Value("discoveryMode"), Value(false));
+  Value skills = Core::get(flags, Value("skillsMode"), Value(false));
+  Value combined = Core::and_(disc, skills);
+  Core::set(flags, Value("discoveryMode+skillsMode"), combined);
+  return flags;
+}
+
+Value Core::_rlm_context_var_list(Value context_fields) {
+  axir_coverage_mark("_rlm_context_var_list");
+  Value count = Core::len(context_fields);
+  Value is_empty = Core::eq(count, Value(0));
+  if (Core::truthy(is_empty)) {
+    return Value("(none)");
+  }
+  Value lines = Value::array();
+  for (auto field : Core::iter(context_fields)) {
+    Value name = Core::get(field, Value("name"), Value(""));
+    Value line = Core::string_format(Value("- `{}` -> `inputs.{}`"), name, name);
+    Core::append(lines, line);
+  }
+  Value out = Core::string_join(Value("\n"), lines);
+  return out;
+}
+
+Value Core::_rlm_context_var_summary(Value context_fields) {
+  axir_coverage_mark("_rlm_context_var_summary");
+  Value count = Core::len(context_fields);
+  Value is_empty = Core::eq(count, Value(0));
+  if (Core::truthy(is_empty)) {
+    return Value("(none)");
+  }
+  Value lines = Value::array();
+  for (auto field : Core::iter(context_fields)) {
+    Value name = Core::get(field, Value("name"), Value(""));
+    Value line = Core::string_format(Value("- `{}`"), name);
+    Core::append(lines, line);
+  }
+  Value out = Core::string_join(Value("\n"), lines);
+  return out;
+}
+
+Value Core::_rlm_render_template(Value template_, Value vars, Value context) {
+  axir_coverage_mark("_rlm_render_template");
+  Value rendered = Core::render_template_content(template_, vars, context);
+  Value collapsed = Core::regex_replace(Value("\\n{3,}"), Value("\n\n"), rendered);
+  Value trimmed = Core::string_trim(collapsed);
+  return trimmed;
+}
+
+Value Core::_render_rlm_executor_description(Value state, Value options) {
+  axir_coverage_mark("_render_rlm_executor_description");
+  Value empty_map = Value::object();
+  Value contract = Core::get(state, Value("runtime_contract"), empty_map);
+  Value flags = Core::_build_rlm_flags(options);
+  Value primitives_list = Core::_render_actor_primitives_list(Value("executor"), flags);
+  Value language = Core::get(contract, Value("language"), Value("JavaScript"));
+  Value code_field_title = Core::get(contract, Value("code_field_title"), Value("Javascript Code"));
+  Value code_fence_language = Core::get(contract, Value("code_fence_language"), Value("js"));
+  Value is_javascript = Core::get(contract, Value("is_javascript"), Value(true));
+  Value usage_instructions = Core::get(contract, Value("usage_instructions"), Value(""));
+  Value discovery_mode = Core::get(flags, Value("discoveryMode"), Value(false));
+  Value skills_mode = Core::get(flags, Value("skillsMode"), Value(false));
+  Value memories_mode = Core::get(flags, Value("memoriesMode"), Value(false));
+  Value status_callback = Core::get(flags, Value("hasAgentStatusCallback"), Value(false));
+  Value memory_usage_camel = Core::get(options, Value("memoryUsageMode"), Value(false));
+  Value memory_usage_mode = Core::get(options, Value("memory_usage_mode"), memory_usage_camel);
+  Value skill_usage_camel = Core::get(options, Value("skillUsageMode"), Value(false));
+  Value skill_usage_mode = Core::get(options, Value("skill_usage_mode"), skill_usage_camel);
+  Value vars = Value::object();
+  Core::set(vars, Value("runtimeLanguageName"), language);
+  Core::set(vars, Value("runtimeCodeFieldTitle"), code_field_title);
+  Core::set(vars, Value("runtimeCodeFenceLanguage"), code_fence_language);
+  Core::set(vars, Value("isJavaScriptRuntime"), is_javascript);
+  Core::set(vars, Value("runtimeUsageInstructions"), usage_instructions);
+  Core::set(vars, Value("primitivesList"), primitives_list);
+  Core::set(vars, Value("functionsList"), Value(""));
+  Core::set(vars, Value("modulesList"), Value(""));
+  Core::set(vars, Value("discoveryMode"), discovery_mode);
+  Core::set(vars, Value("hasModules"), Value(false));
+  Core::set(vars, Value("hasDiscoveredDocs"), discovery_mode);
+  Core::set(vars, Value("hasSkills"), skills_mode);
+  Core::set(vars, Value("skillUsageMode"), skill_usage_mode);
+  Core::set(vars, Value("memoriesMode"), memories_mode);
+  Core::set(vars, Value("memoryUsageMode"), memory_usage_mode);
+  Core::set(vars, Value("hasAgentStatusCallback"), status_callback);
+  Value data = Core::json_parse(Value("{\"schema_version\":\"axir-rlm-prompts-v1\",\"executor_template\":\"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller stage produced two extra inputs:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.\\n\\nRead `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"responder_template\":\"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\"distiller_template\":\"## Distiller\\n\\nYou (`distiller`) read the available context and forward an actionable request to the downstream **executor** stage, which owns any available tools/functions and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete; put exact inputs (paths, ids, selected records, constraints) in `evidence`, or `{}` if context has nothing to narrow. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of tools or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration when context has nothing to narrow** (direct action request, or schema is already known) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"primitives\":[{\"id\":\"llmQuery\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask focused questions about the narrowed context you pass in.\",\"signatures\":[{\"code\":\"await llmQuery([{ query: string, context: any }, ...]): string[]\"}]},{\"id\":\"final\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\"signatures\":[{\"code\":\"await final(task: string, context?: object)\"}]},{\"id\":\"askClarification\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\"signatures\":[{\"code\":\"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"}]},{\"id\":\"reportSuccess\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportSuccess(message: string)\"}]},{\"id\":\"reportFailure\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportFailure(message: string)\"}]},{\"id\":\"inspectRuntime\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"hasInspectRuntime\",\"description\":\"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\"signatures\":[{\"code\":\"await inspectRuntime(): string\"}]},{\"id\":\"discover\",\"stages\":[\"executor\"],\"enabledByAny\":[\"discoveryMode\",\"skillsMode\"],\"description\":\"Load tool docs and skill guides into the next turn. Use one batched call.\",\"signatures\":[{\"code\":\"await discover(item: string): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(items: string[]): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { skills: string | string[] }): void\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}],\"examples\":[{\"code\":\"await discover('db');\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(['db', 'db.search']);\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ skills: ['release checklist'] });\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ tools: ['db'], skills: ['release checklist'] });\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}]},{\"id\":\"recall\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"memoriesMode\",\"description\":\"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\"signatures\":[{\"code\":\"await recall(searches: string[]): void\"}]},{\"id\":\"used\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"usageTrackingMode\",\"description\":\"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\"signatures\":[{\"code\":\"await used(id: string, reason?: string): void\"}]}]}"));
+  Value template_ = Core::get(data, Value("executor_template"), Value(""));
+  Value out = Core::_rlm_render_template(template_, vars, Value("rlm/executor.md"));
+  return out;
+}
+
+Value Core::_render_rlm_responder_description(Value state, Value options) {
+  axir_coverage_mark("_render_rlm_responder_description");
+  Value empty_list = Value::array();
+  Value context_fields = Core::get(state, Value("context_fields"), empty_list);
+  Value summary = Core::_rlm_context_var_summary(context_fields);
+  Value vars = Value::object();
+  Core::set(vars, Value("contextVarSummary"), summary);
+  Core::set(vars, Value("hasAgentIdentity"), Value(false));
+  Core::set(vars, Value("agentIdentityText"), Value(""));
+  Value data = Core::json_parse(Value("{\"schema_version\":\"axir-rlm-prompts-v1\",\"executor_template\":\"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller stage produced two extra inputs:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.\\n\\nRead `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"responder_template\":\"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\"distiller_template\":\"## Distiller\\n\\nYou (`distiller`) read the available context and forward an actionable request to the downstream **executor** stage, which owns any available tools/functions and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete; put exact inputs (paths, ids, selected records, constraints) in `evidence`, or `{}` if context has nothing to narrow. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of tools or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration when context has nothing to narrow** (direct action request, or schema is already known) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"primitives\":[{\"id\":\"llmQuery\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask focused questions about the narrowed context you pass in.\",\"signatures\":[{\"code\":\"await llmQuery([{ query: string, context: any }, ...]): string[]\"}]},{\"id\":\"final\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\"signatures\":[{\"code\":\"await final(task: string, context?: object)\"}]},{\"id\":\"askClarification\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\"signatures\":[{\"code\":\"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"}]},{\"id\":\"reportSuccess\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportSuccess(message: string)\"}]},{\"id\":\"reportFailure\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportFailure(message: string)\"}]},{\"id\":\"inspectRuntime\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"hasInspectRuntime\",\"description\":\"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\"signatures\":[{\"code\":\"await inspectRuntime(): string\"}]},{\"id\":\"discover\",\"stages\":[\"executor\"],\"enabledByAny\":[\"discoveryMode\",\"skillsMode\"],\"description\":\"Load tool docs and skill guides into the next turn. Use one batched call.\",\"signatures\":[{\"code\":\"await discover(item: string): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(items: string[]): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { skills: string | string[] }): void\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}],\"examples\":[{\"code\":\"await discover('db');\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(['db', 'db.search']);\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ skills: ['release checklist'] });\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ tools: ['db'], skills: ['release checklist'] });\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}]},{\"id\":\"recall\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"memoriesMode\",\"description\":\"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\"signatures\":[{\"code\":\"await recall(searches: string[]): void\"}]},{\"id\":\"used\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"usageTrackingMode\",\"description\":\"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\"signatures\":[{\"code\":\"await used(id: string, reason?: string): void\"}]}]}"));
+  Value template_ = Core::get(data, Value("responder_template"), Value(""));
+  Value out = Core::_rlm_render_template(template_, vars, Value("rlm/responder.md"));
+  return out;
+}
+
+Value Core::_render_rlm_distiller_description(Value state, Value options) {
+  axir_coverage_mark("_render_rlm_distiller_description");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value contract = Core::get(state, Value("runtime_contract"), empty_map);
+  Value flags = Core::_build_rlm_flags(options);
+  Value primitives_list = Core::_render_actor_primitives_list(Value("distiller"), flags);
+  Value context_fields = Core::get(state, Value("context_fields"), empty_list);
+  Value context_var_list = Core::_rlm_context_var_list(context_fields);
+  Value language = Core::get(contract, Value("language"), Value("JavaScript"));
+  Value code_field_title = Core::get(contract, Value("code_field_title"), Value("Javascript Code"));
+  Value code_fence_language = Core::get(contract, Value("code_fence_language"), Value("js"));
+  Value is_javascript = Core::get(contract, Value("is_javascript"), Value(true));
+  Value usage_instructions = Core::get(contract, Value("usage_instructions"), Value(""));
+  Value memories_mode = Core::get(flags, Value("memoriesMode"), Value(false));
+  Value memory_usage_camel = Core::get(options, Value("memoryUsageMode"), Value(false));
+  Value memory_usage_mode = Core::get(options, Value("memory_usage_mode"), memory_usage_camel);
+  Value cm_state = Core::get(state, Value("context_map"), Value());
+  Value cm_text = Core::get(cm_state, Value("text"), Value(""));
+  Value cm_has = Core::ne(cm_text, Value(""));
+  Value vars = Value::object();
+  Core::set(vars, Value("contextVarList"), context_var_list);
+  Core::set(vars, Value("hasContextMap"), cm_has);
+  Core::set(vars, Value("contextMapText"), cm_text);
+  Core::set(vars, Value("isJavaScriptRuntime"), is_javascript);
+  Core::set(vars, Value("memoriesMode"), memories_mode);
+  Core::set(vars, Value("memoryUsageMode"), memory_usage_mode);
+  Core::set(vars, Value("primitivesList"), primitives_list);
+  Core::set(vars, Value("runtimeCodeFenceLanguage"), code_fence_language);
+  Core::set(vars, Value("runtimeCodeFieldTitle"), code_field_title);
+  Core::set(vars, Value("runtimeLanguageName"), language);
+  Core::set(vars, Value("runtimeUsageInstructions"), usage_instructions);
+  Value data = Core::json_parse(Value("{\"schema_version\":\"axir-rlm-prompts-v1\",\"executor_template\":\"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller stage produced two extra inputs:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.\\n\\nRead `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"responder_template\":\"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\"distiller_template\":\"## Distiller\\n\\nYou (`distiller`) read the available context and forward an actionable request to the downstream **executor** stage, which owns any available tools/functions and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete; put exact inputs (paths, ids, selected records, constraints) in `evidence`, or `{}` if context has nothing to narrow. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of tools or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration when context has nothing to narrow** (direct action request, or schema is already known) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"primitives\":[{\"id\":\"llmQuery\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask focused questions about the narrowed context you pass in.\",\"signatures\":[{\"code\":\"await llmQuery([{ query: string, context: any }, ...]): string[]\"}]},{\"id\":\"final\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\"signatures\":[{\"code\":\"await final(task: string, context?: object)\"}]},{\"id\":\"askClarification\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\"signatures\":[{\"code\":\"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"}]},{\"id\":\"reportSuccess\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportSuccess(message: string)\"}]},{\"id\":\"reportFailure\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportFailure(message: string)\"}]},{\"id\":\"inspectRuntime\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"hasInspectRuntime\",\"description\":\"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\"signatures\":[{\"code\":\"await inspectRuntime(): string\"}]},{\"id\":\"discover\",\"stages\":[\"executor\"],\"enabledByAny\":[\"discoveryMode\",\"skillsMode\"],\"description\":\"Load tool docs and skill guides into the next turn. Use one batched call.\",\"signatures\":[{\"code\":\"await discover(item: string): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(items: string[]): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { skills: string | string[] }): void\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}],\"examples\":[{\"code\":\"await discover('db');\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(['db', 'db.search']);\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ skills: ['release checklist'] });\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ tools: ['db'], skills: ['release checklist'] });\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}]},{\"id\":\"recall\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"memoriesMode\",\"description\":\"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\"signatures\":[{\"code\":\"await recall(searches: string[]): void\"}]},{\"id\":\"used\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"usageTrackingMode\",\"description\":\"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\"signatures\":[{\"code\":\"await used(id: string, reason?: string): void\"}]}]}"));
+  Value template_ = Core::get(data, Value("distiller_template"), Value(""));
+  Value out = Core::_rlm_render_template(template_, vars, Value("rlm/distiller.md"));
   return out;
 }
 
@@ -9737,7 +10646,8 @@ Value Core::_resolve_agent_context_policy(Value options) {
   Core::set(out, Value("hindsightEvaluation"), hindsight);
   Core::set(out, Value("pruneRank"), prune_rank);
   Core::set(out, Value("rankPruneGraceTurns"), Value(2));
-  Core::set(out, Value("tombstoning"), none_value);
+  Value tombstoning_opt = Core::get(options, Value("tombstoning"), none_value);
+  Core::set(out, Value("tombstoning"), tombstoning_opt);
   Core::set(out, Value("stateSummary"), state_summary);
   Core::set(out, Value("stateInspection"), state_inspection);
   Core::set(out, Value("checkpoints"), checkpoints);
@@ -10228,6 +11138,18 @@ Value Core::_agent_render_full_action_entry(Value state, Value entry) {
   }
   Value code = Core::get(entry, Value("code"), Value(""));
   Value output = Core::get(entry, Value("output"), Value(""));
+  Value full_is_error = Core::get(entry, Value("is_error"), Value(false));
+  if (Core::truthy(full_is_error)) {
+    Value full_error = Core::get(entry, Value("error"), Value(""));
+    Value full_err_text = Core::string_format(Value("[runtime error] {}"), full_error);
+    Value full_output_has = Core::ne(output, Value(""));
+    if (Core::truthy(full_output_has)) {
+      output = Core::string_format(Value("{}\n{}"), output, full_err_text);
+    }
+    if (!Core::truthy(full_output_has)) {
+      output = full_err_text;
+    }
+  }
   Value text = Core::string_format(Value("```{}\n{}\n```\nResult:\n{}"), fence, code, output);
   return text;
 }
@@ -10237,6 +11159,11 @@ Value Core::_agent_render_compact_action_entry(Value entry, Value turn, Value re
   Value kind = Core::get(entry, Value("kind"), Value("result"));
   Value state_delta = Core::get(entry, Value("stateDelta"), Value("No durable runtime state update"));
   Value output = Core::get(entry, Value("output"), Value(""));
+  Value compact_is_error = Core::get(entry, Value("is_error"), Value(false));
+  if (Core::truthy(compact_is_error)) {
+    Value compact_error = Core::get(entry, Value("error"), Value(""));
+    output = Core::string_format(Value("[runtime error] {}"), compact_error);
+  }
   Value callables = Core::_agent_entry_callables_text(entry);
   Value distilled = Core::_agent_distill_structured_action_output(output);
   Value has_distilled = Core::ne(distilled, Value(""));
@@ -10378,6 +11305,17 @@ Value Core::_agent_apply_context_management(Value state) {
           Value summary_chars = Core::len(tombstone);
           Core::set(event, Value("summaryChars"), summary_chars);
           Core::_agent_record_context_event(state, event);
+          Value tomb_is_true = Core::eq(tombstoning, Value(true));
+          Value tomb_is_obj = Core::type_is(tombstoning, Value("object"));
+          Value want_llm = Core::or_(tomb_is_true, tomb_is_obj);
+          if (Core::truthy(want_llm)) {
+            Core::set(prev, Value("tombstone_llm_pending"), Value(true));
+            Value err_code = Core::get(prev, Value("code"), Value(""));
+            Value err_output = Core::get(prev, Value("output"), Value(""));
+            Value res_code = Core::get(entry, Value("code"), Value(""));
+            Value llm_input = Core::string_format(Value("errorCode:\n{}\n\nerrorOutput:\n{}\n\nresolutionCode:\n{}"), err_code, err_output, res_code);
+            Core::set(prev, Value("tombstone_llm_input"), llm_input);
+          }
         }
       }
     }
@@ -10386,6 +11324,36 @@ Value Core::_agent_apply_context_management(Value state) {
   }
   Core::set(state, Value("action_log"), entries);
   return entries;
+}
+
+Value Core::_agent_apply_llm_tombstone_summary(Value state, Value client, Value options) {
+  axir_coverage_mark("_agent_apply_llm_tombstone_summary");
+  Value empty_list = Value::array();
+  Value entries = Core::get(state, Value("action_log"), empty_list);
+  for (auto entry : Core::iter(entries)) {
+    Value pending = Core::get(entry, Value("tombstone_llm_pending"), Value(false));
+    if (Core::truthy(pending)) {
+      Value llm_input = Core::get(entry, Value("tombstone_llm_input"), Value(""));
+      Value instruction = Value("You are an internal AxAgent tombstone summarizer.\n\nWrite the output as exactly one concise line.\n- Start with [TOMBSTONE]:\n- Summarize the resolved error and the successful fix.\n- Mention one failed approach to avoid when possible.\n- Do not include code fences, bullet points, or extra prose.\n- Keep it roughly 20-40 tokens.");
+      Value tombstone = Core::_context_map_complete(client, instruction, llm_input);
+      Value has_text = Core::ne(tombstone, Value(""));
+      if (Core::truthy(has_text)) {
+        Core::set(entry, Value("tombstone"), tombstone);
+        Core::set(entry, Value("tombstone_source"), Value("model"));
+        Core::set(entry, Value("tombstone_llm_pending"), Value(false));
+        Value event = Value::object();
+        Value kind = Core::_agent_context_event_name(Value("tombstone_created"));
+        Core::set(event, Value("kind"), kind);
+        Core::set(event, Value("stage"), Value("executor"));
+        Core::set(event, Value("source"), Value("model"));
+        Value summary_chars = Core::len(tombstone);
+        Core::set(event, Value("summaryChars"), summary_chars);
+        Core::_agent_record_context_event(state, event);
+      }
+    }
+  }
+  Core::set(state, Value("action_log"), entries);
+  return state;
 }
 
 Value Core::_agent_working_code_state(Value entries, Value turns) {
@@ -10575,6 +11543,14 @@ Value Core::_agent_refresh_checkpoint_state(Value state) {
   Core::set(checkpoint, Value("fingerprint"), fingerprint);
   Core::set(checkpoint, Value("summary"), summary);
   Core::set(checkpoint, Value("turns"), covered_turns);
+  Value cp_empty = Value::object();
+  Value cp_context_policy = Core::get(state, Value("context_policy"), cp_empty);
+  Value cp_summarizer_opts = Core::get(cp_context_policy, Value("summarizerOptions"), Value());
+  Value cp_want_llm = Core::is_not_none(cp_summarizer_opts);
+  if (Core::truthy(cp_want_llm)) {
+    Core::set(checkpoint, Value("llm_pending"), Value(true));
+    Core::set(checkpoint, Value("llm_input"), summary);
+  }
   Core::set(state, Value("checkpoint_state"), checkpoint);
   Value event = Value::object();
   Value created_kind = Core::_agent_context_event_name(Value("checkpoint_created"));
@@ -11214,6 +12190,11 @@ Value Core::_agent_sanitize_action_log_entries(Value entries) {
     Value has_tombstone = Core::ne(tombstone, Value(""));
     if (Core::truthy(has_tombstone)) {
       Core::set(clean, Value("tombstone"), tombstone);
+      Value tombstone_source = Core::get(entry, Value("tombstone_source"), Value(""));
+      Value has_tombstone_source = Core::ne(tombstone_source, Value(""));
+      if (Core::truthy(has_tombstone_source)) {
+        Core::set(clean, Value("tombstone_source"), tombstone_source);
+      }
     }
     Core::append(out, clean);
   }
@@ -12294,6 +13275,7 @@ Value Core::_agent_export_runtime_state(Value state) {
   Value context_policy = Core::get(state, Value("context_policy"), empty_map);
   Value context_events = Core::get(state, Value("context_events"), empty_list);
   Value checkpoint_state = Core::get(state, Value("checkpoint_state"), Value());
+  Value context_map = Core::get(state, Value("context_map"), Value());
   Value runtime_state_summary = Core::get(state, Value("runtime_state_summary"), Value(""));
   Value actor_model_state = Core::get(state, Value("actor_model_state"), empty_map);
   Value provenance = Core::get(state, Value("provenance"), empty_map);
@@ -12319,6 +13301,7 @@ Value Core::_agent_export_runtime_state(Value state) {
   Core::set(out, Value("context_policy"), context_policy);
   Core::set(out, Value("context_events"), context_events);
   Core::set(out, Value("checkpoint_state"), checkpoint_state);
+  Core::set(out, Value("context_map"), context_map);
   Core::set(out, Value("runtime_state_summary"), runtime_state_summary);
   Core::set(out, Value("actor_model_state"), actor_model_state);
   Core::set(out, Value("provenance"), provenance);
@@ -12348,6 +13331,7 @@ Value Core::_agent_restore_runtime_state(Value state, Value snapshot) {
   Value run_trace = Core::get(snapshot, Value("trace"), Value());
   Value context_events = Core::get(snapshot, Value("context_events"), empty_list);
   Value checkpoint_state = Core::get(snapshot, Value("checkpoint_state"), Value());
+  Value context_map = Core::get(snapshot, Value("context_map"), Value());
   Value runtime_state_summary = Core::get(snapshot, Value("runtime_state_summary"), Value(""));
   Value actor_model_state = Core::get(snapshot, Value("actor_model_state"), empty_map);
   Value provenance = Core::get(snapshot, Value("provenance"), empty_map);
@@ -12368,6 +13352,7 @@ Value Core::_agent_restore_runtime_state(Value state, Value snapshot) {
   Core::set(state, Value("runtime_globals"), runtime_globals);
   Core::set(state, Value("context_events"), context_events);
   Core::set(state, Value("checkpoint_state"), checkpoint_state);
+  Core::set(state, Value("context_map"), context_map);
   Core::set(state, Value("runtime_state_summary"), runtime_state_summary);
   Core::set(state, Value("actor_model_state"), actor_model_state);
   Core::set(state, Value("provenance"), provenance);
@@ -12555,6 +13540,15 @@ Value Core::_normalize_agent_runtime_step_result(Value raw, Value code) {
     is_error = Core::get(raw, Value("is_error"), Value(false));
     result = Core::get(raw, Value("result"), raw);
     output = Core::get(raw, Value("output"), Value(""));
+    Value output_is_empty = Core::eq(output, Value(""));
+    if (Core::truthy(output_is_empty)) {
+      Value raw_logs = Core::get(raw, Value("logs"), Value());
+      Value raw_logs_is_list = Core::type_is(raw_logs, Value("list"));
+      if (Core::truthy(raw_logs_is_list)) {
+        Value joined_logs = Core::string_join(Value("\n"), raw_logs);
+        output = joined_logs;
+      }
+    }
     error_message = Core::get(raw, Value("error"), Value(""));
     error_category = Core::get(raw, Value("error_category"), Value(""));
     completion_payload = Core::get(raw, Value("completion_payload"), Value());
@@ -12797,6 +13791,23 @@ Value Core::_agent_runtime_export_session_state(Value state, Value session, Valu
   return snapshot;
 }
 
+Value Core::_agent_runtime_refresh_state_summary(Value state, Value session, Value options) {
+  axir_coverage_mark("_agent_runtime_refresh_state_summary");
+  Value empty_map = Value::object();
+  Value none = Core::none();
+  Value policy = Core::get(state, Value("context_policy"), Value());
+  Value state_summary = Core::get(policy, Value("stateSummary"), empty_map);
+  Value enabled = Core::get(state_summary, Value("enabled"), Value(false));
+  if (Core::truthy(enabled)) {
+    Value runtime_options = Core::_agent_runtime_execution_options(state, options);
+    Value raw_snapshot = Core::agent_runtime_export_state(session, runtime_options);
+    Value snapshot = Core::_normalize_agent_runtime_snapshot(raw_snapshot);
+    Core::set(state, Value("runtime_session_state"), snapshot);
+    return snapshot;
+  }
+  return none;
+}
+
 Value Core::_agent_runtime_restore_session_state(Value state, Value session, Value snapshot, Value options) {
   axir_coverage_mark("_agent_runtime_restore_session_state");
   Value normalized_snapshot = Core::_normalize_agent_runtime_snapshot(snapshot);
@@ -12870,9 +13881,35 @@ Value Core::_build_distiller_inputs(Value state, Value values) {
   Value empty_map = Value::object();
   Value split = Core::_split_context_values(state, values);
   Value context = Core::get(split, Value("context"), empty_map);
+  Value non_ctx = Core::get(split, Value("values"), empty_map);
+  Value cm_state = Core::get(state, Value("context_map"), Value());
+  Value cm_text = Core::get(cm_state, Value("text"), Value(""));
+  Value cm_has = Core::ne(cm_text, Value(""));
+  Value ctx_out = Value::object();
+  for (auto ck : Core::iter(context)) {
+    Value cv = Core::get(context, ck, Value());
+    Value cv_str = Core::string_format(Value("{}"), cv);
+    Value cv_len = Core::len(cv_str);
+    Value meta_note = Core::string_format(Value("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents"), ck, cv_len);
+    Core::set(ctx_out, ck, meta_note);
+  }
+  if (Core::truthy(cm_has)) {
+    Core::set(ctx_out, Value("contextMap"), cm_text);
+  }
   Value out = Value::object();
-  Core::set(out, Value("input"), values);
-  Core::set(out, Value("context"), context);
+  Core::set(out, Value("input"), non_ctx);
+  Core::set(out, Value("context"), ctx_out);
+  Value actor_context = Core::_agent_prepare_actor_context(state);
+  Value guidance_text = Core::get(actor_context, Value("guidanceLog"), Value("[]"));
+  Value action_text = Core::get(actor_context, Value("actionLog"), Value("(no actions yet)"));
+  Value summary_text = Core::get(actor_context, Value("summarizedActorLog"), Value(""));
+  Value runtime_text = Core::get(actor_context, Value("liveRuntimeState"), Value(""));
+  Value pressure_text = Core::get(actor_context, Value("contextPressure"), Value(""));
+  Core::set(out, Value("summarizedActorLog"), summary_text);
+  Core::set(out, Value("guidanceLog"), guidance_text);
+  Core::set(out, Value("actionLog"), action_text);
+  Core::set(out, Value("liveRuntimeState"), runtime_text);
+  Core::set(out, Value("contextPressure"), pressure_text);
   return out;
 }
 
@@ -12886,7 +13923,16 @@ Value Core::_build_executor_inputs(Value state, Value values, Value distiller_pa
   Value out = Core::map_merge(non_ctx, empty);
   Value args = Core::get(distiller_payload, Value("args"), empty_list);
   Value fallback_request = Core::json_stringify(non_ctx);
-  Value executor_request = Core::list_get(args, Value(0), fallback_request);
+  Value executor_request_raw = Core::list_get(args, Value(0), fallback_request);
+  Value request_is_string = Core::type_is(executor_request_raw, Value("string"));
+  Value executor_request = executor_request_raw;
+  if (Core::truthy(request_is_string)) {
+    // empty
+  }
+  if (!Core::truthy(request_is_string)) {
+    Value executor_request_coerced = Core::string_format(Value("{}"), executor_request_raw);
+    executor_request = executor_request_coerced;
+  }
   Value distilled_context = Core::list_get(args, Value(1), empty_map);
   Core::set(out, Value("input"), non_ctx);
   Core::set(out, Value("executorRequest"), executor_request);
@@ -12929,6 +13975,10 @@ Value Core::_build_responder_inputs(Value state, Value values, Value executor_pa
   Value args = Core::get(executor_payload, Value("args"), empty_list);
   Value task = Core::list_get(args, Value(0), Value(""));
   Value context = Core::list_get(args, Value(1), empty_map);
+  Value context_data = Value::object();
+  Core::set(context_data, Value("task"), task);
+  Core::set(context_data, Value("evidence"), context);
+  Core::set(out, Value("contextData"), context_data);
   Core::set(out, Value("agentTask"), task);
   Core::set(out, Value("agentContext"), context);
   Core::set(out, Value("executorResult"), executor_payload);
@@ -12938,6 +13988,110 @@ Value Core::_build_responder_inputs(Value state, Value values, Value executor_pa
     Core::map_delete(non_ctx, key);
   }
   return out;
+}
+
+Value Core::_agent_render_field_token(Value field) {
+  axir_coverage_mark("_agent_render_field_token");
+  Value empty_list = Value::array();
+  Value name = Core::get(field, Value("name"), Value(""));
+  Value parts = Value::array();
+  Core::append(parts, name);
+  Value is_optional = Core::get(field, Value("is_optional"), Value(false));
+  if (Core::truthy(is_optional)) {
+    Core::append(parts, Value("?"));
+  }
+  Value is_internal = Core::get(field, Value("is_internal"), Value(false));
+  if (Core::truthy(is_internal)) {
+    Core::append(parts, Value("!"));
+  }
+  Value ftype = Core::get(field, Value("type"), Value());
+  Value tname = Value("");
+  Value has_type = Core::is_not_none(ftype);
+  if (Core::truthy(has_type)) {
+    tname = Core::get(ftype, Value("name"), Value(""));
+    Core::append(parts, Value(":"));
+    Core::append(parts, tname);
+    Value is_array = Core::get(ftype, Value("is_array"), Value(false));
+    if (Core::truthy(is_array)) {
+      Core::append(parts, Value("[]"));
+    }
+    Value is_class = Core::eq(tname, Value("class"));
+    if (Core::truthy(is_class)) {
+      Value options = Core::get(ftype, Value("options"), empty_list);
+      Value opt_count = Core::len(options);
+      Value has_opts = Core::ne(opt_count, Value(0));
+      if (Core::truthy(has_opts)) {
+        Value opts_joined = Core::string_join(Value(" | "), options);
+        Core::append(parts, Value(" \""));
+        Core::append(parts, opts_joined);
+        Core::append(parts, Value("\""));
+      }
+    }
+  }
+  Value description = Core::get(field, Value("description"), Value(""));
+  Value desc_none = Core::is_none(description);
+  if (Core::truthy(desc_none)) {
+    description = Value("");
+  }
+  Value has_desc = Core::ne(description, Value(""));
+  Value is_class_desc = Core::eq(tname, Value("class"));
+  Value not_class = Core::not_(is_class_desc);
+  Value render_desc = Core::and_(has_desc, not_class);
+  if (Core::truthy(render_desc)) {
+    Core::append(parts, Value(" \""));
+    Core::append(parts, description);
+    Core::append(parts, Value("\""));
+  }
+  Value result = Core::string_join(Value(""), parts);
+  return result;
+}
+
+Value Core::_build_responder_signature(Value sig, Value context_fields) {
+  axir_coverage_mark("_build_responder_signature");
+  Value empty_list = Value::array();
+  Value input_fields = Core::get(sig, Value("input_fields"), empty_list);
+  Value output_fields = Core::get(sig, Value("output_fields"), empty_list);
+  Value description = Core::get(sig, Value("description"), Value(""));
+  Value desc_none = Core::is_none(description);
+  if (Core::truthy(desc_none)) {
+    description = Value("");
+  }
+  Value input_tokens = Value::array();
+  for (auto field : Core::iter(input_fields)) {
+    Value fname = Core::get(field, Value("name"), Value(""));
+    Value is_context = Core::contains(context_fields, fname);
+    Value not_context = Core::not_(is_context);
+    if (Core::truthy(not_context)) {
+      Value tok = Core::_agent_render_field_token(field);
+      Core::append(input_tokens, tok);
+    }
+  }
+  Value ctx_field = Value::object();
+  Core::set(ctx_field, Value("name"), Value("contextData"));
+  Value ctx_type = Value::object();
+  Core::set(ctx_type, Value("name"), Value("json"));
+  Core::set(ctx_field, Value("type"), ctx_type);
+  Value ctx_tok = Core::_agent_render_field_token(ctx_field);
+  Core::append(input_tokens, ctx_tok);
+  Value output_tokens = Value::array();
+  for (auto ofield : Core::iter(output_fields)) {
+    Value otok = Core::_agent_render_field_token(ofield);
+    Core::append(output_tokens, otok);
+  }
+  Value inputs_joined = Core::string_join(Value(", "), input_tokens);
+  Value outputs_joined = Core::string_join(Value(", "), output_tokens);
+  Value body_parts = Value::array();
+  Value has_desc = Core::ne(description, Value(""));
+  if (Core::truthy(has_desc)) {
+    Core::append(body_parts, Value("\""));
+    Core::append(body_parts, description);
+    Core::append(body_parts, Value("\" "));
+  }
+  Core::append(body_parts, inputs_joined);
+  Core::append(body_parts, Value(" -> "));
+  Core::append(body_parts, outputs_joined);
+  Value sig_string = Core::string_join(Value(""), body_parts);
+  return sig_string;
 }
 
 Value Core::_normalize_agent_completion_payload(Value output) {
@@ -12950,7 +14104,7 @@ Value Core::_normalize_agent_completion_payload(Value output) {
   Value valid = Core::or_(is_final, is_clarification);
   Value invalid = Core::not_(valid);
   if (Core::truthy(invalid)) {
-    Value message = Core::string_format(Value("agent stage did not return a completion payload: {}"), payload);
+    Value message = Core::string_format(Value("agent stage did not return a completion payload (a live model returns prose, but this stage expects a structured completion): pass options.runtime with a code engine so the executor runs model-generated code that calls final(...), or use a client that returns a structured final/askClarification completion. got: {}"), payload);
     Value error = Core::runtime_error(message);
     throw Core::as_error(error);
   }
@@ -13079,9 +14233,509 @@ Value Core::_extract_agent_runtime_code(Value state, Value executor_output) {
   return code;
 }
 
+Value Core::_agent_apply_llm_checkpoint_summary(Value state, Value client, Value options) {
+  axir_coverage_mark("_agent_apply_llm_checkpoint_summary");
+  Value empty_map = Value::object();
+  Value checkpoint = Core::get(state, Value("checkpoint_state"), Value());
+  Value has_checkpoint = Core::is_not_none(checkpoint);
+  if (Core::truthy(has_checkpoint)) {
+    Value pending = Core::get(checkpoint, Value("llm_pending"), Value(false));
+    if (Core::truthy(pending)) {
+      Value llm_input = Core::get(checkpoint, Value("llm_input"), Value(""));
+      Value instruction = Value("You are an internal AxAgent trajectory summarizer. Compress the execution history into a concise ledger with exactly these labels in order: Objective:, Current state and artifacts:, Exact callables and formats:, Evidence:, User constraints and preferences:, Failures to avoid:, Next step:. Use 'none' when a section is empty. Be concise and factual.");
+      Value messages = Value::array();
+      Value sys = Value::object();
+      Core::set(sys, Value("role"), Value("system"));
+      Core::set(sys, Value("content"), instruction);
+      Core::append(messages, sys);
+      Value usr = Value::object();
+      Core::set(usr, Value("role"), Value("user"));
+      Core::set(usr, Value("content"), llm_input);
+      Core::append(messages, usr);
+      Value request = Value::object();
+      Core::set(request, Value("chat_prompt"), messages);
+      Value response = Core::ai_complete_once(client, request);
+      Value text = Core::get(response, Value("content"), Value(""));
+      Value has_text = Core::ne(text, Value(""));
+      if (Core::truthy(has_text)) {
+        Value updated = Core::map_merge(empty_map, checkpoint);
+        Core::set(updated, Value("summary"), text);
+        Core::set(updated, Value("summary_source"), Value("model"));
+        Core::set(updated, Value("llm_pending"), Value(false));
+        Core::set(state, Value("checkpoint_state"), updated);
+      }
+    }
+  }
+  return state;
+}
+
+Value Core::_context_map_sections() {
+  axir_coverage_mark("_context_map_sections");
+  Value sections = Value::array();
+  Value s1 = Value::object();
+  Core::set(s1, Value("name"), Value("context_roadmap"));
+  Core::set(s1, Value("title"), Value("CONTEXT ROADMAP"));
+  Core::set(s1, Value("slug"), Value("cr"));
+  Core::append(sections, s1);
+  Value s2 = Value::object();
+  Core::set(s2, Value("name"), Value("context_understanding"));
+  Core::set(s2, Value("title"), Value("CONTEXT UNDERSTANDING"));
+  Core::set(s2, Value("slug"), Value("cu"));
+  Core::append(sections, s2);
+  Value s3 = Value::object();
+  Core::set(s3, Value("name"), Value("domain_constants"));
+  Core::set(s3, Value("title"), Value("DOMAIN CONSTANTS"));
+  Core::set(s3, Value("slug"), Value("dc"));
+  Core::append(sections, s3);
+  Value s4 = Value::object();
+  Core::set(s4, Value("name"), Value("parsing_schema"));
+  Core::set(s4, Value("title"), Value("PARSING SCHEMA"));
+  Core::set(s4, Value("slug"), Value("ps"));
+  Core::append(sections, s4);
+  Value s5 = Value::object();
+  Core::set(s5, Value("name"), Value("reusable_results"));
+  Core::set(s5, Value("title"), Value("REUSABLE RESULTS"));
+  Core::set(s5, Value("slug"), Value("rr"));
+  Core::append(sections, s5);
+  Value s6 = Value::object();
+  Core::set(s6, Value("name"), Value("error_patterns"));
+  Core::set(s6, Value("title"), Value("ERROR PATTERNS"));
+  Core::set(s6, Value("slug"), Value("ep"));
+  Core::append(sections, s6);
+  return sections;
+}
+
+Value Core::_context_map_parse_items(Value text) {
+  axir_coverage_mark("_context_map_parse_items");
+  Value sections = Core::_context_map_sections();
+  Value items = Value::array();
+  Value lines = Core::string_split_trim_nonempty(text, Value("\n"));
+  Value current = Value("context_understanding");
+  for (auto line : Core::iter(lines)) {
+    Value is_header = Core::string_starts_with(line, Value("##"));
+    if (Core::truthy(is_header)) {
+      Value title_raw = Core::string_replace(line, Value("#"), Value(""));
+      Value title = Core::string_trim(title_raw);
+      for (auto sec : Core::iter(sections)) {
+        Value sec_title = Core::get(sec, Value("title"), Value());
+        Value match = Core::eq(sec_title, title);
+        if (Core::truthy(match)) {
+          Value sec_name = Core::get(sec, Value("name"), Value());
+          current = sec_name;
+        }
+      }
+    }
+    if (!Core::truthy(is_header)) {
+      Value is_item = Core::string_starts_with(line, Value("["));
+      if (Core::truthy(is_item)) {
+        Value parts = Core::string_split_once(line, Value("]"));
+        Value left = Core::get(parts, Value("left"), Value(""));
+        Value right = Core::get(parts, Value("right"), Value(""));
+        Value id_raw = Core::string_replace(left, Value("["), Value(""));
+        Value id = Core::string_trim(id_raw);
+        Value content = Core::string_trim(right);
+        Value id_ok = Core::ne(id, Value(""));
+        Value content_ok = Core::ne(content, Value(""));
+        Value valid = Core::and_(id_ok, content_ok);
+        if (Core::truthy(valid)) {
+          Value item = Value::object();
+          Core::set(item, Value("id"), id);
+          Core::set(item, Value("section"), current);
+          Core::set(item, Value("content"), content);
+          Core::append(items, item);
+        }
+      }
+    }
+  }
+  return items;
+}
+
+Value Core::_context_map_render_items(Value items) {
+  axir_coverage_mark("_context_map_render_items");
+  Value sections = Core::_context_map_sections();
+  Value parts = Value::array();
+  for (auto sec : Core::iter(sections)) {
+    Value sec_name = Core::get(sec, Value("name"), Value());
+    Value sec_title = Core::get(sec, Value("title"), Value());
+    Value header = Core::string_format(Value("## {}"), sec_title);
+    Core::append(parts, header);
+    for (auto item : Core::iter(items)) {
+      Value item_sec = Core::get(item, Value("section"), Value());
+      Value in_sec = Core::eq(item_sec, sec_name);
+      if (Core::truthy(in_sec)) {
+        Value id = Core::get(item, Value("id"), Value());
+        Value content = Core::get(item, Value("content"), Value());
+        Value line = Core::string_format(Value("[{}] {}"), id, content);
+        Core::append(parts, line);
+      }
+    }
+  }
+  Value text = Core::string_join(Value("\n"), parts);
+  return text;
+}
+
+Value Core::_context_map_update_scores(Value scores, Value item_tags) {
+  axir_coverage_mark("_context_map_update_scores");
+  Value empty_map = Value::object();
+  Value out = Core::map_merge(empty_map, scores);
+  Value is_obj = Core::type_is(item_tags, Value("object"));
+  if (Core::truthy(is_obj)) {
+    for (auto id : Core::iter(item_tags)) {
+      Value tag = Core::get(item_tags, id, Value());
+      Value cur = Core::get(out, id, Value(0));
+      Value is_helpful = Core::eq(tag, Value("helpful"));
+      if (Core::truthy(is_helpful)) {
+        Value up = Core::add(cur, Value(1));
+        Core::set(out, id, up);
+      }
+      Value is_harmful = Core::eq(tag, Value("harmful"));
+      if (Core::truthy(is_harmful)) {
+        Value down = Core::add(cur, Value(-1));
+        Core::set(out, id, down);
+      }
+      Value is_stale = Core::eq(tag, Value("stale"));
+      if (Core::truthy(is_stale)) {
+        Value down2 = Core::add(cur, Value(-1));
+        Core::set(out, id, down2);
+      }
+    }
+  }
+  return out;
+}
+
+Value Core::_context_map_apply_operations(Value items, Value operations, Value next_id) {
+  axir_coverage_mark("_context_map_apply_operations");
+  Value sections = Core::_context_map_sections();
+  Value deletes = Value::object();
+  Value replaces = Value::object();
+  Value raw_adds = Value::array();
+  Value is_list = Core::type_is(operations, Value("list"));
+  if (Core::truthy(is_list)) {
+    for (auto op : Core::iter(operations)) {
+      Value type = Core::get(op, Value("type"), Value(""));
+      Value is_delete = Core::eq(type, Value("DELETE"));
+      if (Core::truthy(is_delete)) {
+        Value del_a = Core::get(op, Value("item_id"), Value(""));
+        Value del_id = Core::get(op, Value("itemId"), del_a);
+        Core::set(deletes, del_id, Value(true));
+      }
+      Value is_replace = Core::eq(type, Value("REPLACE"));
+      if (Core::truthy(is_replace)) {
+        Value rep_a = Core::get(op, Value("item_id"), Value(""));
+        Value rep_id = Core::get(op, Value("itemId"), rep_a);
+        Value rep_content = Core::get(op, Value("content"), Value(""));
+        Core::set(replaces, rep_id, rep_content);
+      }
+      Value is_add = Core::eq(type, Value("ADD"));
+      if (Core::truthy(is_add)) {
+        Value add_section = Core::get(op, Value("section"), Value("context_understanding"));
+        Value add_content = Core::get(op, Value("content"), Value(""));
+        Value content_ok = Core::ne(add_content, Value(""));
+        if (Core::truthy(content_ok)) {
+          Value raw = Value::object();
+          Core::set(raw, Value("section"), add_section);
+          Core::set(raw, Value("content"), add_content);
+          Core::append(raw_adds, raw);
+        }
+      }
+    }
+  }
+  Value result_items = Value::array();
+  for (auto item : Core::iter(items)) {
+    Value id = Core::get(item, Value("id"), Value());
+    Value deleted = Core::get(deletes, id, Value(false));
+    Value keep = Core::not_(deleted);
+    if (Core::truthy(keep)) {
+      Value kept = Value::object();
+      Core::set(kept, Value("id"), id);
+      Value sec = Core::get(item, Value("section"), Value());
+      Core::set(kept, Value("section"), sec);
+      Value new_content = Core::get(replaces, id, Value());
+      Value has_replace = Core::is_not_none(new_content);
+      if (Core::truthy(has_replace)) {
+        Core::set(kept, Value("content"), new_content);
+      }
+      if (!Core::truthy(has_replace)) {
+        Value old_content = Core::get(item, Value("content"), Value());
+        Core::set(kept, Value("content"), old_content);
+      }
+      Core::append(result_items, kept);
+    }
+  }
+  Value counter = next_id;
+  for (auto radd : Core::iter(raw_adds)) {
+    Value radd_section = Core::get(radd, Value("section"), Value());
+    Value radd_content = Core::get(radd, Value("content"), Value());
+    Value slug = Value("cu");
+    for (auto sec : Core::iter(sections)) {
+      Value sname = Core::get(sec, Value("name"), Value());
+      Value smatch = Core::eq(sname, radd_section);
+      if (Core::truthy(smatch)) {
+        Value sslug = Core::get(sec, Value("slug"), Value());
+        slug = sslug;
+      }
+    }
+    Value new_id = Core::string_format(Value("{}-{}"), slug, counter);
+    Value inc = Core::add(counter, Value(1));
+    counter = inc;
+    Value add_item = Value::object();
+    Core::set(add_item, Value("id"), new_id);
+    Core::set(add_item, Value("section"), radd_section);
+    Core::set(add_item, Value("content"), radd_content);
+    Core::append(result_items, add_item);
+  }
+  Value out = Value::object();
+  Core::set(out, Value("items"), result_items);
+  Core::set(out, Value("next_id"), counter);
+  return out;
+}
+
+Value Core::_context_map_evict_to_budget(Value items, Value scores, Value max_chars) {
+  axir_coverage_mark("_context_map_evict_to_budget");
+  Value current = items;
+  while (true) {
+    Value text = Core::_context_map_render_items(current);
+    Value len = Core::len(text);
+    Value over = Core::gt(len, max_chars);
+    Value not_over = Core::not_(over);
+    if (Core::truthy(not_over)) {
+      break;
+    }
+    Value count = Core::len(current);
+    Value empty = Core::eq(count, Value(0));
+    if (Core::truthy(empty)) {
+      break;
+    }
+    Value min_id = Value("");
+    Value min_score = Value(0);
+    Value have_min = Value(false);
+    for (auto item : Core::iter(current)) {
+      Value iid = Core::get(item, Value("id"), Value());
+      Value iscore = Core::get(scores, iid, Value(0));
+      Value first = Core::not_(have_min);
+      Value lower = Core::lt(iscore, min_score);
+      Value take = Core::or_(first, lower);
+      if (Core::truthy(take)) {
+        min_id = iid;
+        min_score = iscore;
+        have_min = Value(true);
+      }
+    }
+    Value next_items = Value::array();
+    for (auto item : Core::iter(current)) {
+      Value iid = Core::get(item, Value("id"), Value());
+      Value is_min = Core::eq(iid, min_id);
+      Value keep = Core::not_(is_min);
+      if (Core::truthy(keep)) {
+        Core::append(next_items, item);
+      }
+    }
+    current = next_items;
+  }
+  return current;
+}
+
+Value Core::_format_context_map_trajectory(Value state) {
+  axir_coverage_mark("_format_context_map_trajectory");
+  Value empty_list = Value::array();
+  Value action_log = Core::get(state, Value("action_log"), empty_list);
+  Value action_text = Core::json_stable_stringify(action_log);
+  Value status_log = Core::get(state, Value("status_log"), empty_list);
+  Value status_text = Core::json_stable_stringify(status_log);
+  Value out = Core::string_format(Value("## Executor Action Log\n{}\n\n## Status Log\n{}"), action_text, status_text);
+  return out;
+}
+
+Value Core::_context_map_complete(Value client, Value system, Value user) {
+  axir_coverage_mark("_context_map_complete");
+  Value messages = Value::array();
+  Value sys = Value::object();
+  Core::set(sys, Value("role"), Value("system"));
+  Core::set(sys, Value("content"), system);
+  Core::append(messages, sys);
+  Value usr = Value::object();
+  Core::set(usr, Value("role"), Value("user"));
+  Core::set(usr, Value("content"), user);
+  Core::append(messages, usr);
+  Value request = Value::object();
+  Core::set(request, Value("chat_prompt"), messages);
+  Value response = Core::ai_complete_once(client, request);
+  Value content = Core::get(response, Value("content"), Value(""));
+  return content;
+}
+
+Value Core::_context_map_parse_json(Value content) {
+  axir_coverage_mark("_context_map_parse_json");
+  Value empty_map = Value::object();
+  Value trimmed = Core::string_trim(content);
+  Value is_empty = Core::eq(trimmed, Value(""));
+  if (Core::truthy(is_empty)) {
+    return empty_map;
+  }
+  Value looks_object = Core::string_starts_with(trimmed, Value("{"));
+  Value not_object = Core::not_(looks_object);
+  if (Core::truthy(not_object)) {
+    return empty_map;
+  }
+  Value parsed = Core::json_parse(trimmed);
+  Value is_obj = Core::type_is(parsed, Value("object"));
+  if (Core::truthy(is_obj)) {
+    return parsed;
+  }
+  return empty_map;
+}
+
+Value Core::_agent_evolve_context_map(Value state, Value client, Value options) {
+  axir_coverage_mark("_agent_evolve_context_map");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value cm = Core::get(state, Value("context_map"), Value());
+  Value has_cm = Core::is_not_none(cm);
+  Value infinite = Core::get(cm, Value("infiniteEvolve"), Value(false));
+  Value steps = Core::get(cm, Value("steps"), Value(0));
+  Value evolve_steps = Core::get(cm, Value("evolveSteps"), Value(0));
+  Value under_budget = Core::lt(steps, evolve_steps);
+  Value evolve_ok = Core::or_(infinite, under_budget);
+  Value should_evolve = Core::and_(has_cm, evolve_ok);
+  if (Core::truthy(should_evolve)) {
+    Value current_text = Core::get(cm, Value("text"), Value(""));
+    Value scores = Core::get(cm, Value("scores"), empty_map);
+    Value max_chars = Core::get(cm, Value("maxChars"), Value(4000));
+    Value next_id = Core::get(cm, Value("next_id"), Value(1));
+    Value task = Core::get(state, Value("task_description"), Value(""));
+    Value trajectory = Core::_format_context_map_trajectory(state);
+    Value distiller_sys = Value("You are the context-map Distiller for a recurring external context used by an AxAgent RLM loop.\n\nYour job is to read the completed trajectory and identify reusable orientation knowledge about the external context. The context map is a persistent cache of understanding, not a transcript summary, task playbook, or answer cache.\n\nCache only orientation work: would a future agent asking a completely different question about the same context benefit from knowing this?\n\nReview every existing context-map item before proposing new knowledge. Tag each existing item ID as exactly one of helpful, harmful, neutral, or stale. Treat unused-but-correct domain knowledge as neutral, not harmful.\n\nReturn:\n- diagnosis: concise analysis of orientation work vs. question-specific work.\n- itemTags: object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\n- cacheCandidates: JSON array of objects with section, value, transferability, and rationale.");
+    Value distiller_user = Core::string_format(Value("task: {}\n\ncontextMap:\n{}\n\ntrajectory:\n{}"), task, current_text, trajectory);
+    Value distiller_resp = Core::_context_map_complete(client, distiller_sys, distiller_user);
+    Value distiller_parsed = Core::_context_map_parse_json(distiller_resp);
+    Value item_tags = Core::get(distiller_parsed, Value("itemTags"), empty_map);
+    Value reflection = Core::json_stringify(distiller_parsed);
+    Value current_chars = Core::len(current_text);
+    Value carto_sys = Value("You are the context-map Cartographer for a recurring external context used by an AxAgent RLM loop.\n\nTranslate the Distiller reflection into a small set of concrete context-map edits. Maintain a concise, high-value context map that stores shared understanding of the external context, not answers to individual questions.\n\nPrefer REPLACE over ADD when an existing item can be made more correct, compact, or general. DELETE stale, misleading, redundant, low-value, verbose, or question-specific items. ADD only transferable context understanding. When the map is near or over budget, remove or rewrite low-value entries first. If nothing is worth keeping, return an empty operations list.\n\nReturn operations as JSON objects under the key operations:\n- {\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"...\"}\n- {\"type\":\"DELETE\",\"item_id\":\"cu-1\"}\n- {\"type\":\"REPLACE\",\"item_id\":\"cu-1\",\"content\":\"...\"}");
+    Value carto_user_head = Core::string_format(Value("task: {}\n\ncontextMap:\n{}\n\ndistillerReflection:\n{}"), task, current_text, reflection);
+    Value carto_user = Core::string_format(Value("{}\n\ncurrentChars: {}\nmaxChars: {}"), carto_user_head, current_chars, max_chars);
+    Value carto_resp = Core::_context_map_complete(client, carto_sys, carto_user);
+    Value carto_parsed = Core::_context_map_parse_json(carto_resp);
+    Value operations = Core::get(carto_parsed, Value("operations"), empty_list);
+    Value items = Core::_context_map_parse_items(current_text);
+    Value new_scores = Core::_context_map_update_scores(scores, item_tags);
+    Value applied = Core::_context_map_apply_operations(items, operations, next_id);
+    Value new_items = Core::get(applied, Value("items"), empty_list);
+    Value new_next_id = Core::get(applied, Value("next_id"), next_id);
+    Value evicted = Core::_context_map_evict_to_budget(new_items, new_scores, max_chars);
+    Value new_text = Core::_context_map_render_items(evicted);
+    Value new_steps = Core::add(steps, Value(1));
+    Value updated = Core::map_merge(empty_map, cm);
+    Core::set(updated, Value("text"), new_text);
+    Core::set(updated, Value("scores"), new_scores);
+    Core::set(updated, Value("steps"), new_steps);
+    Core::set(updated, Value("next_id"), new_next_id);
+    Core::set(state, Value("context_map"), updated);
+  }
+  return state;
+}
+
+Value Core::_agent_transcribe_one_audio(Value client, Value audio, Value transcribe_opts, Value options) {
+  axir_coverage_mark("_agent_transcribe_one_audio");
+  Value empty_map = Value::object();
+  Value is_object = Core::type_is(audio, Value("object"));
+  if (Core::truthy(is_object)) {
+    Value has_data = Core::map_contains(audio, Value("data"));
+    if (Core::truthy(has_data)) {
+      Value request = Core::map_merge(empty_map, transcribe_opts);
+      Core::set(request, Value("audio"), audio);
+      Value response = Core::agent_transcribe(client, request, options);
+      Value text = Core::get(response, Value("text"), Value(""));
+      return text;
+    }
+  }
+  return audio;
+}
+
+Value Core::_agent_transcribe_audio_inputs(Value state, Value client, Value values, Value options) {
+  axir_coverage_mark("_agent_transcribe_audio_inputs");
+  Value empty_list = Value::array();
+  Value empty_map = Value::object();
+  Value sig = Core::get(state, Value("signature"), empty_map);
+  Value input_fields = Core::get(sig, Value("input_fields"), empty_list);
+  Value speech = Core::get(options, Value("speech"), empty_map);
+  Value transcribe_opts = Core::get(speech, Value("transcribe"), empty_map);
+  Value result = Core::map_merge(empty_map, values);
+  for (auto field : Core::iter(input_fields)) {
+    Value ftype = Core::get(field, Value("type"), empty_map);
+    Value tname = Core::get(ftype, Value("name"), Value(""));
+    Value is_audio = Core::eq(tname, Value("audio"));
+    if (Core::truthy(is_audio)) {
+      Value fname = Core::get(field, Value("name"), Value());
+      Value has = Core::map_contains(result, fname);
+      if (Core::truthy(has)) {
+        Value value = Core::get(result, fname, Value());
+        Value is_string = Core::type_is(value, Value("string"));
+        Value is_list = Core::type_is(value, Value("list"));
+        if (Core::truthy(is_list)) {
+          Value transcribed = Value::array();
+          for (auto item : Core::iter(value)) {
+            Value item_text = Core::_agent_transcribe_one_audio(client, item, transcribe_opts, options);
+            Core::append(transcribed, item_text);
+          }
+          Core::set(result, fname, transcribed);
+        }
+        if (!Core::truthy(is_list)) {
+          Value do_single = Core::not_(is_string);
+          if (Core::truthy(do_single)) {
+            Value text = Core::_agent_transcribe_one_audio(client, value, transcribe_opts, options);
+            Core::set(result, fname, text);
+          }
+        }
+      }
+    }
+  }
+  return result;
+}
+
+Value Core::_agent_run_llm_query_one(Value sub_gen, Value client, Value item) {
+  axir_coverage_mark("_agent_run_llm_query_one");
+  Value empty_map = Value::object();
+  Value query = Value("");
+  Value context = empty_map;
+  Value item_is_string = Core::type_is(item, Value("string"));
+  if (Core::truthy(item_is_string)) {
+    query = item;
+  }
+  if (!Core::truthy(item_is_string)) {
+    query = Core::get(item, Value("query"), Value(""));
+    context = Core::get(item, Value("context"), empty_map);
+  }
+  Value values = Value::object();
+  Core::set(values, Value("task"), query);
+  Core::set(values, Value("context"), context);
+  Value sub_options = Value::object();
+  Value output = Core::agent_stage_forward(sub_gen, client, values, sub_options);
+  Value answer = Core::get(output, Value("answer"), Value(""));
+  return answer;
+}
+
+Value Core::_agent_run_llm_query(Value sub_gen, Value client, Value params) {
+  axir_coverage_mark("_agent_run_llm_query");
+  Value params_is_list = Core::type_is(params, Value("list"));
+  if (Core::truthy(params_is_list)) {
+    Value answers = Value::array();
+    for (auto item : Core::iter(params)) {
+      Value one = Core::_agent_run_llm_query_one(sub_gen, client, item);
+      Core::append(answers, one);
+    }
+    return answers;
+  }
+  Value single = Core::_agent_run_llm_query_one(sub_gen, client, params);
+  return single;
+}
+
 Value Core::_agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options) {
   axir_coverage_mark("_agent_forward");
+  Value transcribed_values = Core::_agent_transcribe_audio_inputs(state, client, values, options);
+  values = transcribed_values;
   Core::_agent_begin_trace(state, values);
+  Core::_agent_apply_llm_checkpoint_summary(state, client, options);
   Value state_options = Core::get(state, Value("options"), Value());
   Value runtime_from_state = Core::get(state_options, Value("runtime"), Value());
   Value runtime_from_options = Core::get(options, Value("runtime"), runtime_from_state);
@@ -13089,23 +14743,100 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
   Value distiller_options = Core::_agent_stage_options(state, Value("distiller"), options);
   Value executor_options = Core::_agent_stage_options(state, Value("executor"), options);
   Value responder_options = Core::_agent_stage_options(state, Value("responder"), options);
-  Value distiller_values = Core::_build_distiller_inputs(state, values);
-  Value distiller_request_event = Value::object();
-  Core::set(distiller_request_event, Value("stage"), Value("distiller"));
-  Core::set(distiller_request_event, Value("values"), distiller_values);
-  Core::set(distiller_request_event, Value("component_id"), Value("agent.stage.distiller"));
-  Core::_agent_record_trace_event(state, Value("stage_request"), distiller_request_event);
-  Value distiller_output = Core::agent_stage_forward(distiller, client, distiller_values, distiller_options);
-  Value distiller_response_event = Value::object();
-  Core::set(distiller_response_event, Value("stage"), Value("distiller"));
-  Core::set(distiller_response_event, Value("output"), distiller_output);
-  Core::set(distiller_response_event, Value("component_id"), Value("agent.stage.distiller"));
-  Core::_agent_record_trace_event(state, Value("stage_response"), distiller_response_event);
-  Value distiller_payload = Core::_normalize_agent_completion_payload(distiller_output);
+  Value distiller_payload = Core::none();
+  if (Core::truthy(runtime_enabled)) {
+    Value distiller_empty_log = Value::array();
+    Value distiller_saved_action_log = Core::get(state, Value("action_log"), distiller_empty_log);
+    Value distiller_globals = Core::_agent_runtime_build_globals(state, values);
+    Value distiller_session = Core::none();
+    Value distiller_max_steps = Core::get(options, Value("max_actor_steps"), Value(4));
+    Value distiller_step = Value(0);
+    while (true) {
+      Value distiller_too_many = Core::gte(distiller_step, distiller_max_steps);
+      if (Core::truthy(distiller_too_many)) {
+        Value distiller_error_event = Value::object();
+        Core::set(distiller_error_event, Value("error"), Value("agent distiller loop exceeded max steps"));
+        Core::set(distiller_error_event, Value("stage"), Value("distiller"));
+        Core::_agent_record_trace_event(state, Value("error"), distiller_error_event);
+        Value distiller_error = Core::runtime_error(Value("agent distiller loop exceeded max steps"));
+        throw Core::as_error(distiller_error);
+      }
+      Value distiller_values = Core::_build_distiller_inputs(state, values);
+      Value distiller_request_event = Value::object();
+      Core::set(distiller_request_event, Value("stage"), Value("distiller"));
+      Core::set(distiller_request_event, Value("step"), distiller_step);
+      Core::set(distiller_request_event, Value("values"), distiller_values);
+      Core::set(distiller_request_event, Value("component_id"), Value("agent.stage.distiller"));
+      Core::_agent_record_trace_event(state, Value("stage_request"), distiller_request_event);
+      Value distiller_output = Core::agent_stage_forward(distiller, client, distiller_values, distiller_options);
+      Value distiller_response_event = Value::object();
+      Core::set(distiller_response_event, Value("stage"), Value("distiller"));
+      Core::set(distiller_response_event, Value("step"), distiller_step);
+      Core::set(distiller_response_event, Value("output"), distiller_output);
+      Core::set(distiller_response_event, Value("component_id"), Value("agent.stage.distiller"));
+      Core::_agent_record_trace_event(state, Value("stage_response"), distiller_response_event);
+      Value distiller_code = Core::_extract_agent_runtime_code(state, distiller_output);
+      Value distiller_runtime_step = Core::_agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options);
+      distiller_session = Core::get(state, Value("runtime_session"), distiller_session);
+      Value distiller_step_error = Core::get(distiller_runtime_step, Value("is_error"), Value(false));
+      Value distiller_step_ok = Core::not_(distiller_step_error);
+      if (Core::truthy(distiller_step_ok)) {
+        Core::_agent_runtime_refresh_state_summary(state, distiller_session, options);
+      }
+      Value distiller_completion = Core::get(distiller_runtime_step, Value("completion_payload"), Value());
+      Value distiller_has_completion = Core::type_is(distiller_completion, Value("object"));
+      if (Core::truthy(distiller_has_completion)) {
+        distiller_payload = distiller_completion;
+        break;
+      }
+      distiller_step = Core::add(distiller_step, Value(1));
+    }
+    Value distiller_session_reset = Core::none();
+    Core::set(state, Value("runtime_session"), distiller_session_reset);
+    Core::set(state, Value("action_log"), distiller_saved_action_log);
+    Value distiller_state_reset = Value::object();
+    Core::set(state, Value("runtime_session_state"), distiller_state_reset);
+  }
+  if (!Core::truthy(runtime_enabled)) {
+    Value distiller_values = Core::_build_distiller_inputs(state, values);
+    Value distiller_request_event = Value::object();
+    Core::set(distiller_request_event, Value("stage"), Value("distiller"));
+    Core::set(distiller_request_event, Value("values"), distiller_values);
+    Core::set(distiller_request_event, Value("component_id"), Value("agent.stage.distiller"));
+    Core::_agent_record_trace_event(state, Value("stage_request"), distiller_request_event);
+    Value distiller_output = Core::agent_stage_forward(distiller, client, distiller_values, distiller_options);
+    Value distiller_response_event = Value::object();
+    Core::set(distiller_response_event, Value("stage"), Value("distiller"));
+    Core::set(distiller_response_event, Value("output"), distiller_output);
+    Core::set(distiller_response_event, Value("component_id"), Value("agent.stage.distiller"));
+    Core::_agent_record_trace_event(state, Value("stage_response"), distiller_response_event);
+    distiller_payload = Core::_normalize_agent_completion_payload(distiller_output);
+  }
   Core::_throw_agent_clarification(distiller_payload, state);
   Value executor_payload = Core::none();
   if (Core::truthy(runtime_enabled)) {
-    Value globals = Core::_agent_runtime_build_globals(state, values);
+    Value exec_empty_map = Value::object();
+    Value exec_empty_list = Value::array();
+    Value exec_args = Core::get(distiller_payload, Value("args"), exec_empty_list);
+    Value exec_non_ctx_split = Core::_split_context_values(state, values);
+    Value exec_non_ctx = Core::get(exec_non_ctx_split, Value("values"), exec_empty_map);
+    Value exec_fallback_req = Core::json_stringify(exec_non_ctx);
+    Value exec_req_raw = Core::list_get(exec_args, Value(0), exec_fallback_req);
+    Value exec_req_is_string = Core::type_is(exec_req_raw, Value("string"));
+    Value exec_req = exec_req_raw;
+    if (Core::truthy(exec_req_is_string)) {
+      // empty
+    }
+    if (!Core::truthy(exec_req_is_string)) {
+      Value exec_req_coerced = Core::string_format(Value("{}"), exec_req_raw);
+      exec_req = exec_req_coerced;
+    }
+    Value exec_distilled = Core::list_get(exec_args, Value(1), exec_empty_map);
+    Value exec_extras = Value::object();
+    Core::set(exec_extras, Value("executorRequest"), exec_req);
+    Core::set(exec_extras, Value("distilledContext"), exec_distilled);
+    Value exec_runtime_values = Core::map_merge(values, exec_extras);
+    Value globals = Core::_agent_runtime_build_globals(state, exec_runtime_values);
     Value session = Core::get(state, Value("runtime_session"), Value());
     Value max_steps = Core::get(options, Value("max_actor_steps"), Value(4));
     Value step = Value(0);
@@ -13136,6 +14867,11 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
       Value code = Core::_extract_agent_runtime_code(state, executor_output);
       Value runtime_step = Core::_agent_runtime_execute_step(state, runtime_from_options, session, code, options);
       session = Core::get(state, Value("runtime_session"), session);
+      Value exec_step_error = Core::get(runtime_step, Value("is_error"), Value(false));
+      Value exec_step_ok = Core::not_(exec_step_error);
+      if (Core::truthy(exec_step_ok)) {
+        Core::_agent_runtime_refresh_state_summary(state, session, options);
+      }
       Value completion_payload = Core::get(runtime_step, Value("completion_payload"), Value());
       Value has_completion = Core::type_is(completion_payload, Value("object"));
       if (Core::truthy(has_completion)) {
@@ -13162,6 +14898,10 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
     executor_payload = Core::_normalize_agent_completion_payload(executor_output);
     Core::_throw_agent_clarification(executor_payload, state);
   }
+  Core::_agent_apply_llm_checkpoint_summary(state, client, options);
+  Core::_agent_apply_context_management(state);
+  Core::_agent_apply_llm_tombstone_summary(state, client, options);
+  Core::_agent_evolve_context_map(state, client, options);
   Value responder_values = Core::_build_responder_inputs(state, values, executor_payload);
   Value responder_request_event = Value::object();
   Core::set(responder_request_event, Value("stage"), Value("responder"));
@@ -13726,10 +15466,6 @@ Value Core::_flow_execute_program_node(Value flow, Value step, Value client, Val
   Value out = Core::map_merge(state, empty_map);
   Value result_key = Core::string_format(Value("{}Result"), name);
   Core::set(out, result_key, result);
-  Value is_derive = Core::eq(kind, Value("derive"));
-  if (Core::truthy(is_derive)) {
-    Core::set(out, name, result);
-  }
   out = Core::map_update(out, result);
   Core::_flow_record_child_chat_log(flow, name, program);
   Core::_flow_record_child_usage(flow, name, program);
@@ -13891,6 +15627,37 @@ Value Core::_flow_execute_step(Value flow, Value step, Value plan_step, Value cl
     Value none = Core::none();
     Core::set(out, Value("_parallelResults"), none);
     Core::set(out, name, merge_output);
+    return out;
+  }
+  Value is_derive = Core::eq(kind, Value("derive"));
+  if (Core::truthy(is_derive)) {
+    Value empty_list = Value::array();
+    Value program = Core::get(step, Value("program"), Value());
+    Value reads = Core::get(step, Value("reads"), empty_list);
+    Value writes = Core::get(step, Value("writes"), empty_list);
+    Value input_field = Core::list_get(reads, Value(0), Value(""));
+    Value output_field = Core::list_get(writes, Value(0), name);
+    Value input_value = Core::get(state, input_field, Value());
+    Value out = Core::map_merge(state, empty_map);
+    Value input_is_list = Core::type_is(input_value, Value("list"));
+    if (Core::truthy(input_is_list)) {
+      Value results = Value::array();
+      for (auto item : Core::iter(input_value)) {
+        Value item_state = Core::map_merge(state, empty_map);
+        Core::set(item_state, Value("__item"), item);
+        Value res_state = Core::object_call_method(program, Value("call"), item_state);
+        Value derived = Core::get(res_state, Value("__derived"), Value());
+        Core::append(results, derived);
+      }
+      Core::set(out, output_field, results);
+    }
+    if (!Core::truthy(input_is_list)) {
+      Value item_state = Core::map_merge(state, empty_map);
+      Core::set(item_state, Value("__item"), input_value);
+      Value res_state = Core::object_call_method(program, Value("call"), item_state);
+      Value derived = Core::get(res_state, Value("__derived"), Value());
+      Core::set(out, output_field, derived);
+    }
     return out;
   }
   Value program_out = Core::_flow_execute_program_node(flow, step, client, state, options);
@@ -14339,6 +16106,34 @@ Value parse_json(const std::string& source) {
         expect(',');
       }
     }
+    static unsigned read_hex4(const std::string& s, size_t& pos) {
+      unsigned value = 0;
+      for (int i = 0; i < 4 && pos < s.size(); ++i) {
+        char h = s[pos++];
+        value <<= 4;
+        if (h >= '0' && h <= '9') value |= static_cast<unsigned>(h - '0');
+        else if (h >= 'a' && h <= 'f') value |= static_cast<unsigned>(h - 'a' + 10);
+        else if (h >= 'A' && h <= 'F') value |= static_cast<unsigned>(h - 'A' + 10);
+      }
+      return value;
+    }
+    static void append_utf8(std::string& out, unsigned cp) {
+      if (cp <= 0x7F) {
+        out.push_back(static_cast<char>(cp));
+      } else if (cp <= 0x7FF) {
+        out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+      } else if (cp <= 0xFFFF) {
+        out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+      } else {
+        out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+      }
+    }
     Value string() {
       expect('"');
       std::string out;
@@ -14347,10 +16142,26 @@ Value parse_json(const std::string& source) {
         if (c == '"') break;
         if (c == '\\' && pos < s.size()) {
           char e = s[pos++];
-          if (e == 'n') c = '\n';
-          else if (e == 't') c = '\t';
-          else if (e == 'r') c = '\r';
-          else c = e;
+          if (e == 'n') { out.push_back('\n'); continue; }
+          if (e == 't') { out.push_back('\t'); continue; }
+          if (e == 'r') { out.push_back('\r'); continue; }
+          if (e == 'b') { out.push_back('\b'); continue; }
+          if (e == 'f') { out.push_back('\f'); continue; }
+          if (e == 'u') {
+            unsigned cp = read_hex4(s, pos);
+            // Combine UTF-16 surrogate pairs into a single code point.
+            if (cp >= 0xD800 && cp <= 0xDBFF && pos + 1 < s.size() && s[pos] == '\\' && s[pos + 1] == 'u') {
+              pos += 2;
+              unsigned low = read_hex4(s, pos);
+              if (low >= 0xDC00 && low <= 0xDFFF) {
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+              }
+            }
+            append_utf8(out, cp);
+            continue;
+          }
+          out.push_back(e);
+          continue;
         }
         out.push_back(c);
       }
@@ -14362,7 +16173,15 @@ Value parse_json(const std::string& source) {
       while (pos < s.size() && std::isdigit(static_cast<unsigned char>(s[pos]))) ++pos;
       if (pos < s.size() && s[pos] == '.') { ++pos; while (pos < s.size() && std::isdigit(static_cast<unsigned char>(s[pos]))) ++pos; }
       if (pos < s.size() && (s[pos] == 'e' || s[pos] == 'E')) { ++pos; if (pos < s.size() && (s[pos] == '+' || s[pos] == '-')) ++pos; while (pos < s.size() && std::isdigit(static_cast<unsigned char>(s[pos]))) ++pos; }
-      return Value(std::stod(s.substr(start, pos - start)));
+      std::string token = s.substr(start, pos - start);
+      // Tolerate malformed/empty numeric tokens (e.g. a model emitting a bare `-` or an
+      // empty value for a number field) instead of throwing std::stod's "no conversion".
+      try {
+        return Value(std::stod(token));
+      } catch (const std::exception&) {
+        if (pos == start && pos < s.size()) ++pos;  // ensure forward progress
+        return Value();
+      }
     }
   };
   Parser p(source);
@@ -14596,7 +16415,7 @@ AnthropicClient::AnthropicClient(Value options, Transport* transport)
     : OpenAICompatibleClient("anthropic", "anthropic", [&]() {
         Value out = std::move(options);
         if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("ANTHROPIC_API_KEY", ""));
-        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1"));
+        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com"));
         return out;
       }(), transport, "claude-3-7-sonnet-latest", "") {}
 
@@ -14669,7 +16488,12 @@ GrokClient::GrokClient(Value options, Transport* transport)
         return out;
       }(), transport, "grok-4.3", "") {}
 
-Value OpenAICompatibleClient::do_chat(Value request, Value) {
+Value OpenAICompatibleClient::do_chat(Value request, Value options) {
+  Value realtime_model = Core::coalesce(Core::get(request, "model"), Value(model_));
+  if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request))) {
+    return realtime_chat(request, nullptr);
+  }
+  (void)options;
   Value payload = Core::provider_build_chat_request(profile_, request);
   bool stream = Core::truthy(Core::get(payload, "stream"));
   if (stream) {
@@ -14703,11 +16527,33 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
   Core::set(req, "model_config", config);
   Value payload = Core::provider_build_chat_request(profile_, req);
   Value model = Core::get(req, "model", Core::get(payload, "model", model_));
-  Value raw = request_json(operation_path("stream_chat", model), payload, true);
-  Value state = Value::object();
-  std::vector<Value> out;
-  for (const auto& event : iter_sse_json(raw)) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
-  return out;
+  Value retry_cfg = Core::resolve_stream_retry(options_);
+  int max_retries = static_cast<int>(num(Core::get(retry_cfg, "max_retries", 3)));
+  double initial_delay = num(Core::get(retry_cfg, "initial_delay_ms", 1000));
+  double max_delay = num(Core::get(retry_cfg, "max_delay_ms", 60000));
+  double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
+  int attempt = 0;
+  while (true) {
+    Value raw = request_json(operation_path("stream_chat", model), payload, true);
+    std::vector<Value> events = iter_sse_json(raw);
+    // Pre-content streaming retry: peek the first raw SSE event before any stateful normalize
+    // runs (so peeking has no side effects); if the provider classifies it as a retryable
+    // transient status (e.g. Anthropic's HTTP-200 overloaded_error event), re-issue with the
+    // same exponential backoff apiCall uses for a 529 before surfacing.
+    if (!events.empty()) {
+      Value status = Core::provider_classify_stream_error_status(profile_, events[0]);
+      if (!status.is_null() && Core::truthy(Core::is_retryable_status(status)) && attempt < max_retries) {
+        attempt++;
+        double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
+        if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(delay)));
+        continue;
+      }
+    }
+    Value state = Value::object();
+    std::vector<Value> out;
+    for (const auto& event : events) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
+    return out;
+  }
 }
 
 Value OpenAICompatibleClient::transcribe(Value request) {
@@ -14721,8 +16567,12 @@ Value OpenAICompatibleClient::transcribe(Value request) {
 Value OpenAICompatibleClient::speak(Value request) {
   Value payload = Core::provider_build_speak_request(profile_, request);
   Value model = Core::get(request, "model", model_);
-  std::string body_key = str(Core::get(Core::provider_operation_descriptor(profile_, "speak"), "body", "json")) == "multipart" ? "data" : "json";
-  Value raw = request_json(operation_path("speak", model), payload, false, body_key);
+  Value descriptor = Core::provider_operation_descriptor(profile_, "speak");
+  std::string body_key = str(Core::get(descriptor, "body", "json")) == "multipart" ? "data" : "json";
+  // OpenAI /audio/speech returns raw binary audio (mp3); the transport returns
+  // it as base64 instead of JSON-parsing, and the normalizer reads raw["audio"].
+  bool binary = str(Core::get(descriptor, "response", Value(""))) == "binary";
+  Value raw = request_json(operation_path("speak", model), payload, false, body_key, binary);
   return Core::provider_normalize_speak_response(profile_, raw, request);
 }
 
@@ -14741,6 +16591,188 @@ Value OpenAICompatibleClient::realtime_audio_input(Value request) {
   return Core::provider_build_realtime_audio_input(profile_, request);
 }
 
+namespace {
+
+bool realtime_event_is_ready(const Value& event) {
+  std::string type = str(Core::get(event, "type", Value("")));
+  if (type == "session.created" || type == "session.updated" || type == "transcription_session.created" || type == "transcription_session.updated") return true;
+  return !Core::get(event, "setupComplete").is_null();
+}
+
+bool realtime_event_is_done(const Value& event) {
+  std::string type = str(Core::get(event, "type", Value("")));
+  if (type == "response.done" || type == "response.completed") return true;
+  Value server_content = Core::get(event, "serverContent");
+  return !server_content.is_null() && Core::truthy(Core::get(server_content, "turnComplete", Value(false)));
+}
+
+struct RealtimeWsTarget {
+  std::string url;
+  std::vector<std::pair<std::string, std::string>> headers;
+};
+
+RealtimeWsTarget realtime_ws_target(const std::string& profile, const std::string& api_key, const std::string& model) {
+  // Grammar-specific URL + auth construction lives in Core so the client stays
+  // provider-agnostic.
+  Value result = Core::provider_realtime_ws_url(Value(profile), Value(model), Value(api_key));
+  RealtimeWsTarget target;
+  target.url = str(Core::get(result, "url", Value("")));
+  Value headers = Core::get(result, "headers");
+  for (const auto& key : array_ref(Core::map_keys(headers))) {
+    target.headers.push_back({str(key), str(Core::get(headers, key, Value("")))});
+  }
+  return target;
+}
+
+#if defined(AXLLM_ENABLE_REALTIME)
+// Live transport over IXWebSocket: the on-message callback fires on a background
+// thread and enqueues whole text frames; recv() drains the queue on the calling
+// thread (mirrors the Transport/HTTP split, gated by AXLLM_ENABLE_REALTIME).
+class WsRealtimeTransport : public RealtimeTransport {
+ public:
+  WsRealtimeTransport(const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers) {
+    socket_.setUrl(url);
+    ix::WebSocketHttpHeaders ws_headers;
+    for (const auto& header : headers) ws_headers[header.first] = header.second;
+    socket_.setExtraHeaders(ws_headers);
+    socket_.disableAutomaticReconnection();
+    socket_.setOnMessageCallback([this](const ix::WebSocketMessagePtr& message) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (message->type == ix::WebSocketMessageType::Message) queue_.push_back(message->str);
+      else if (message->type == ix::WebSocketMessageType::Close || message->type == ix::WebSocketMessageType::Error) closed_ = true;
+      cv_.notify_one();
+    });
+    socket_.start();
+  }
+  void send(const Value& event) override { socket_.send(str(Core::json_stringify(event))); }
+  bool recv(Value& out) override {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (!cv_.wait_for(lock, std::chrono::seconds(30), [this] { return !queue_.empty() || closed_; })) return false;
+    if (queue_.empty()) return false;
+    std::string raw = queue_.front();
+    queue_.pop_front();
+    lock.unlock();
+    out = parse_json(raw);
+    return true;
+  }
+  void close() override { socket_.stop(); }
+
+ private:
+  ix::WebSocket socket_;
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  std::deque<std::string> queue_;
+  bool closed_ = false;
+};
+#endif
+
+}  // namespace
+
+ScriptedRealtimeTransport::ScriptedRealtimeTransport(std::vector<Value> inbound) : inbound_(std::move(inbound)) {}
+void ScriptedRealtimeTransport::send(const Value& event) { sent.push_back(event); }
+bool ScriptedRealtimeTransport::recv(Value& out) {
+  if (index_ >= inbound_.size()) return false;
+  out = inbound_[index_++];
+  return true;
+}
+
+Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* transport) {
+  std::string model = str(Core::get(request, "model", Value(model_)));
+  Value setup = Core::provider_build_realtime_audio_setup(profile_, request);
+  Value inputs = Core::provider_build_realtime_audio_input(profile_, request);
+  std::unique_ptr<RealtimeTransport> owned;
+  if (transport == nullptr) {
+#if defined(AXLLM_ENABLE_REALTIME)
+    RealtimeWsTarget target = realtime_ws_target(profile_, api_key_, model);
+    owned = std::make_unique<WsRealtimeTransport>(target.url, target.headers);
+    transport = owned.get();
+#else
+    throw Core::as_error(Core::ai_error_unsupported("C++ realtime audio requires the built-in IXWebSocket transport. Build with CMake and AXLLM_ENABLE_REALTIME=ON, or pass a custom RealtimeTransport."));
+#endif
+  }
+  std::vector<Value> events;
+  Value event;
+  bool input_sent = false;
+  try {
+    transport->send(setup);
+    while (transport->recv(event)) {
+      if (str(Core::get(event, "type", Value(""))) == "error") {
+        Value error = Core::get(event, "error");
+        std::string message = error.is_null() ? "realtime error" : str(Core::get(error, "message", Value("realtime error")));
+        throw Core::as_error(Core::ai_error_response(message));
+      }
+      if (realtime_event_is_ready(event)) {
+        if (!input_sent) {
+          input_sent = true;
+          for (const auto& item : array_ref(inputs)) transport->send(item);
+        }
+        continue;
+      }
+      bool done = realtime_event_is_done(event);
+      events.push_back(event);
+      if (done) break;
+    }
+  } catch (...) {
+    if (owned) transport->close();
+    throw;
+  }
+  if (owned) transport->close();
+
+  Value state = Value::object();
+  std::string content;
+  std::string audio_bytes;
+  bool has_audio = false;
+  Value function_calls = Value::array();
+  std::string response_id;
+  std::string finish_reason;
+  Value model_usage;
+  for (const auto& folded_event : events) {
+    Value normalized = Core::provider_normalize_realtime_event(profile_, folded_event, state, name_, model);
+    Array results = array_ref(Core::get(normalized, "results", Value::array()));
+    if (results.empty()) continue;
+    Value result_value = results[0];
+    Value content_value = Core::get(result_value, "content");
+    if (!content_value.is_null()) content += str(content_value);
+    Value audio = Core::get(result_value, "audio");
+    if (!audio.is_null()) {
+      std::string data = str(Core::get(audio, "data", Value("")));
+      if (!data.empty()) {
+        audio_bytes += axir_base64_decode(data);
+        has_audio = true;
+      }
+    }
+    for (const auto& call : array_ref(Core::get(result_value, "function_calls", Value::array()))) Core::append(function_calls, call);
+    Value finish_value = Core::get(result_value, "finish_reason");
+    if (!finish_value.is_null() && !str(finish_value).empty()) finish_reason = str(finish_value);
+    Value remote_id = Core::get(normalized, "remote_id", Core::get(result_value, "id"));
+    if (!remote_id.is_null() && !str(remote_id).empty() && str(remote_id) != "0") response_id = str(remote_id);
+    Value usage = Core::get(normalized, "model_usage");
+    if (!usage.is_null()) model_usage = usage;
+  }
+  if (response_id.empty()) response_id = "realtime";
+  if (finish_reason.empty()) finish_reason = "stop";
+  Value result = Value::object();
+  Core::set(result, "index", Value(0));
+  Core::set(result, "id", Value(response_id));
+  Core::set(result, "content", Value(content));
+  Core::set(result, "function_calls", function_calls);
+  Core::set(result, "finish_reason", Value(finish_reason));
+  if (has_audio) {
+    Value audio_map = Value::object();
+    Core::set(audio_map, "data", Value(axir_base64_encode(audio_bytes)));
+    Core::set(audio_map, "format", Value("pcm16"));
+    Core::set(audio_map, "transcript", Value(content));
+    Core::set(result, "audio", audio_map);
+  }
+  Value response = Value::object();
+  Value results_array = Value::array();
+  Core::append(results_array, result);
+  Core::set(response, "results", results_array);
+  Core::set(response, "remote_id", Value(response_id));
+  Core::set(response, "model_usage", model_usage);
+  return response;
+}
+
 Value OpenAICompatibleClient::headers() const {
   Value headers = Value::object();
   Core::set(headers, "Content-Type", "application/json");
@@ -14754,16 +16786,22 @@ Value OpenAICompatibleClient::headers() const {
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream) {
-  return request_json(endpoint, std::move(payload), stream, "json");
+  return request_json(endpoint, std::move(payload), stream, "json", false);
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key) {
+  return request_json(endpoint, std::move(payload), stream, body_key, false);
+}
+
+Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response) {
   Value call = Value::object();
   Core::set(call, "method", "POST");
   Core::set(call, "url", base_url_ + endpoint);
   Core::set(call, "headers", headers());
   Core::set(call, body_key.empty() ? "json" : body_key, payload);
   Core::set(call, "stream", stream);
+  // Signals the transport to return the raw body as base64 instead of JSON.
+  if (binary_response) Core::set(call, "binary", Value(true));
   Core::set(call, "timeout", timeout_seconds_);
   if (api_key_.empty() || api_key_ == "null") throw Core::as_error(Core::ai_error_auth("OPENAI_API_KEY is required", Value(), Value(), Value(), call));
   if (transport_ != nullptr) return transport_result(transport_->call(call), call);
@@ -14810,16 +16848,48 @@ std::vector<Value> OpenAICompatibleClient::iter_sse_json(Value raw) {
     for (const auto& item : array_ref(raw)) if (display(item) != "[DONE]") out.push_back(item);
     return out;
   }
-  std::istringstream lines(display(raw));
+  // Mirror src/ax/util/sse.ts: normalize CRLF/CR, then fold the data: lines of
+  // each event (events are blank-line separated) into a single payload before
+  // parsing. A spec-legal SSE event may split one JSON value across several
+  // data: lines, joined with "\n"; parsing each line on its own would choke.
+  std::string text = display(raw);
+  std::string normalized;
+  normalized.reserve(text.size());
+  for (size_t i = 0; i < text.size(); ++i) {
+    if (text[i] == '\r') {
+      normalized.push_back('\n');
+      if (i + 1 < text.size() && text[i + 1] == '\n') ++i;  // collapse CRLF
+    } else {
+      normalized.push_back(text[i]);
+    }
+  }
+  std::string buffer;
+  auto flush = [&]() {
+    std::string payload = display(Core::string_trim(buffer));
+    buffer.clear();
+    if (payload.empty() || payload == "[DONE]") return;
+    out.push_back(parse_json(payload));
+  };
+  std::istringstream lines(normalized);
   std::string line;
   while (std::getline(lines, line)) {
-    Value trimmed = Core::string_trim(line);
-    std::string text = display(trimmed);
-    if (text.rfind("data:", 0) != 0) continue;
-    std::string data = display(Core::string_trim(text.substr(5)));
-    if (data.empty() || data == "[DONE]") continue;
-    out.push_back(parse_json(data));
+    if (line.empty()) {
+      flush();
+      continue;
+    }
+    if (line[0] == ':') continue;  // comment line
+    std::string value;
+    std::string::size_type colon = line.find(':');
+    if (colon != std::string::npos) {
+      if (display(Core::string_trim(line.substr(0, colon))) != "data") continue;  // not a data: line
+      value = display(Core::string_trim(line.substr(colon + 1)));
+    } else {
+      value = display(Core::string_trim(line));
+    }
+    if (!buffer.empty() && buffer.back() != '\n') buffer.push_back('\n');
+    buffer += value;
   }
+  flush();
   return out;
 }
 
@@ -15892,12 +17962,32 @@ AxFlow& AxFlow::add_step(Value kind, Value name, Value program, Value options) {
 
 AxAgent::AxAgent(Value signature, Value options) {
   state_ = Core::_agent_factory(std::move(signature), options);
-  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}}));
-  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}}));
-  responder_ = std::make_unique<AxGen>(Core::get(state_, "signature"), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}}));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
+  llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
 }
 
 Value AxAgent::forward(AIClient& client, Value values, Value options) {
+  // Wire the built-in llmQuery primitive onto the runtime carried in agent
+  // options (the same runtime the actor loop will create sessions on),
+  // mirroring the Go/Python/Rust/Java wrappers. The logic lives in the
+  // AxIR-generated helper; this only registers the host callable.
+  Value runtime_ref = Core::get(options, "runtime", Value());
+  if (runtime_ref.is_null()) {
+    runtime_ref = Core::get(Core::get(state_, "options", Value::object()), "runtime", Value());
+  }
+  std::string runtime_id = str(Core::get(runtime_ref, "__code_runtime_id", Value("")));
+  if (!runtime_id.empty()) {
+    auto it = code_runtime_registry().find(runtime_id);
+    if (it != code_runtime_registry().end() && it->second != nullptr) {
+      AxGen* sub = llm_query_.get();
+      AIClient* client_ptr = &client;
+      it->second->register_host_callable("llmQuery", [sub, client_ptr](Value params) -> Value {
+        return Core::_agent_run_llm_query(Core::agent_stage_ref(*sub), Core::client_ref(*client_ptr), std::move(params));
+      });
+    }
+  }
   return Core::_agent_forward(
       state_,
       Core::agent_stage_ref(*distiller_),
@@ -16445,7 +18535,7 @@ bool AxBalancer::retryable(const AxError& error) const {
   if (error.category != "ai") return false;
   if (error.type == "AxAIServiceAuthenticationError") return false;
   if (error.type == "AxAIServiceStatusError") {
-    return error.status == 408 || error.status == 429 || error.status == 500 || error.status == 502 || error.status == 503 || error.status == 504;
+    return error.status == 408 || error.status == 429 || error.status == 500 || error.status == 502 || error.status == 503 || error.status == 504 || error.status == 529;
   }
   return error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceResponseError" || error.type == "AxAIServiceStreamTerminatedError" || error.type == "AxAIServiceTimeoutError";
 }

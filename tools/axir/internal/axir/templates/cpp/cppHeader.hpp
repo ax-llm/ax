@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <thread>
 #include <cctype>
 #include <cstdlib>
 #include <cstdint>
@@ -210,6 +212,7 @@ struct Core {
   static Value agent_runtime_close(Value session);
   static Value agent_memory_search(Value state, Value searches, Value already_loaded);
   static Value agent_skill_search(Value state, Value searches);
+  static Value agent_transcribe(Value client, Value request, Value options);
   static Value agent_callable_invoke(Value state, Value request, Value options);
   static Value stream_event_content_parts(Value event);
   static Value openai_normalize_chat_response(Value raw);
@@ -224,6 +227,13 @@ class AIClient {
   virtual ~AIClient() = default;
   virtual Value complete(Value request) = 0;
   virtual Value chat(Value request);
+  // Default so intrinsic.agent.transcribe can call transcribe through an AIClient* (the agent's
+  // scripted client extends the base AIClient). AxAIService and the scripted client override it.
+  virtual Value transcribe(Value request, Value options) {
+    (void)request;
+    (void)options;
+    return Value::object();
+  }
 };
 
 class AxAIService : public AIClient {
@@ -404,6 +414,29 @@ class HttpTransport : public Transport {
   Value call(Value request) override;
 };
 
+// Transport seam for the realtime turn driver: ScriptedRealtimeTransport for
+// deterministic offline turns, plus a WebSocket-backed transport (compiled only
+// when AXLLM_ENABLE_REALTIME is defined) for live turns.
+class RealtimeTransport {
+ public:
+  virtual ~RealtimeTransport() = default;
+  virtual void send(const Value& event) = 0;
+  virtual bool recv(Value& out) = 0;
+  virtual void close() {}
+};
+
+class ScriptedRealtimeTransport : public RealtimeTransport {
+ public:
+  explicit ScriptedRealtimeTransport(std::vector<Value> inbound);
+  void send(const Value& event) override;
+  bool recv(Value& out) override;
+  std::vector<Value> sent;
+
+ private:
+  std::vector<Value> inbound_;
+  std::size_t index_ = 0;
+};
+
 class OpenAICompatibleClient : public AxBaseAI {
  public:
   explicit OpenAICompatibleClient(Value options = Value::object(), Transport* transport = nullptr);
@@ -413,6 +446,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   std::vector<Value> realtime(Value events);
   Value realtime_audio_setup(Value request);
   Value realtime_audio_input(Value request);
+  Value realtime_chat(Value request, RealtimeTransport* transport = nullptr);
 
  protected:
   OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model);
@@ -430,6 +464,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   Transport* transport_;
   Value request_json(const std::string& endpoint, Value payload, bool stream);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key);
+  Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response);
   std::string operation_path(const std::string& operation) const;
   std::string operation_path(const std::string& operation, Value model) const;
   Value headers() const;
@@ -626,6 +661,10 @@ class AxCodeRuntime {
   virtual std::string language() const { return "JavaScript"; }
   virtual std::string usage_instructions() const { return ""; }
   virtual AxCodeSession* create_session(Value globals, Value options = Value::object()) = 0;
+  // Register a host callable under `name`. Default no-op so runtimes that do
+  // not host callables are unaffected; the embedded JS engines override it so
+  // the agent wrapper can wire the built-in `llmQuery` primitive.
+  virtual void register_host_callable(std::string /*name*/, std::function<Value(Value)> /*callable*/) {}
 };
 
 struct RuntimeCapabilities {
@@ -776,6 +815,7 @@ class AxAgent : public AxProgram {
   std::unique_ptr<AxGen> distiller_;
   std::unique_ptr<AxGen> executor_;
   std::unique_ptr<AxGen> responder_;
+  std::unique_ptr<AxGen> llm_query_;
 };
 
 std::string stringify(const Value& value);
@@ -792,6 +832,12 @@ AxGen ax(Value signature, Value options = Value::object());
 AxAgent agent(const std::string& signature, Value options = Value::object());
 AxAgent agent(const char* signature, Value options = Value::object());
 AxAgent agent(Value signature, Value options = Value::object());
+// Register a native host search callback and return a marker to place in the agent options
+// under "onMemoriesSearch"/"onSkillsSearch". The callbacks run host-side when the actor calls
+// recall()/discover(); their presence auto-enables the memory/skill subsystems. Callbacks take
+// and return Value: memories (searches, alreadyLoaded) -> results, skills (searches) -> results.
+Value register_memories_search(std::function<Value(Value, Value)> fn);
+Value register_skills_search(std::function<Value(Value)> fn);
 AxFlow flow(Value options = Value::object());
 Value optimize(AxGen& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxFlow& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);

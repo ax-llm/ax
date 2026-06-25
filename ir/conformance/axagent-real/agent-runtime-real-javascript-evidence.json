@@ -1,0 +1,33 @@
+{
+  "kind": "agent_runtime_real",
+  "name": "agent-runtime-real-javascript-evidence",
+  "runtime_engine": "javascript",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Use runtime"
+  },
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"go\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Synthesize from the gathered evidence\\\", { gatheredValue: 'rlm-evidence-marker-7' })\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 3,
+  "expected_request_contains": [
+    "Synthesize from the gathered evidence",
+    "rlm-evidence-marker-7"
+  ]
+}

@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.",
       "url": "ax-flow/SKILL.md",
-      "digest": "sha256:3f896fed98d0670948c87a1035b4295f79e89bdb219fee08f7eec145c04ec84d"
+      "digest": "sha256:5ecb04883d244db23bb91e68dceaf4cf0a6bb7161e484162f014a9f362e7e6c3"
     },
     {
       "name": "ax-agent",
@@ -55,14 +55,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent RLM/runtime code using @ax-llm/ax. Use when the user asks about RLM code execution, AxJSRuntime, contextFields, contextPolicy, liveRuntimeState, promptLevel, stage prompt controls, executorModelPolicy, maxRuntimeChars, agent.test(...), llmQuery(...), recursionOptions, or long-running agent runtime behavior.",
       "url": "ax-agent-rlm/SKILL.md",
-      "digest": "sha256:8e8ca1571a68fe36f20ec79258120a7b44cb4278e952faf017fd9d1706e728ad"
+      "digest": "sha256:92b7083306fd4e2a1d64449dfcd4601f1dde177b87dab39c2a4b3b42a8567f5d"
     },
     {
       "name": "ax-agent-memory-skills",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent memory retrieval, context-map, and dynamic skill-loading code using @ax-llm/ax. Use when the user asks about contextMap, AxAgentContextMap, onMemoriesSearch, recall(...), inputs.memories, onLoadedMemories, onUsedMemories, onSkillsSearch, discover({ skills }), onLoadedSkills, onUsedSkills, preloaded skills, loaded memory/skill IDs, or carrying memories across forward() calls.",
       "url": "ax-agent-memory-skills/SKILL.md",
-      "digest": "sha256:227c620c73a6bb163b59a1e4c54de998c0854bd509f48e87aeda967659c347ab"
+      "digest": "sha256:4e44092c3facd405c317c1d61d80eca2c6436739c53b51fb902288b24aabaa43"
     },
     {
       "name": "ax-agent-observability",

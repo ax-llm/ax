@@ -96,52 +96,6 @@ assert response["results"][0]["content"] == "hello from scripted transport", res
 print("python-axai-ok")
 `
 
-const pyAxAgentPipelineExample = `from axllm import AxCodeRuntime, AxCodeSession, agent
-
-
-class ScriptedService:
-    def __init__(self):
-        self.responses = [
-            {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"},
-            {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"},
-            {"content": "{\"answer\":\"Paris\"}"},
-        ]
-
-    def chat(self, request):
-        if not self.responses:
-            raise RuntimeError("scripted service exhausted")
-        raw = self.responses.pop(0)
-        return {"results": [{"content": raw["content"], "function_calls": []}]}
-
-
-class ScriptedSession(AxCodeSession):
-    def execute(self, code, options=None):
-        return {"type": "final", "args": [{"answer": "runtime"}]}
-
-    def inspect_globals(self, options=None):
-        return {}
-
-    def export_state(self, options=None):
-        return {"globals": {}}
-
-    def restore_state(self, snapshot, options=None):
-        return snapshot
-
-
-class ScriptedRuntime(AxCodeRuntime):
-    def create_session(self, globals, options=None):
-        return ScriptedSession()
-
-
-qa = agent("question:string -> answer:string", {"contextFields": []})
-out = qa.forward(ScriptedService(), {"question": "Capital of France?"})
-assert out == {"answer": "Paris"}, out
-assert qa.get_chat_log()[-1]["name"] == "responder"
-runtime_out = qa.test(ScriptedRuntime(), "final({answer: 'runtime'})", {"question": "runtime?"})
-assert runtime_out["kind"] == "final", runtime_out
-print("python-axagent-ok")
-`
-
 const pyAxFlowProgramGraphExample = `from axllm import ax, flow
 
 
@@ -383,51 +337,6 @@ public final class ProviderMappingNoKeyExample {
       throw new RuntimeException("bad response: " + response);
     }
     System.out.println("java-axai-ok");
-  }
-}
-`
-
-const javaAxAgentPipelineExample = `import dev.axllm.ax.*;
-import java.util.*;
-
-public final class AxAgentPipelineExample {
-  static final class ScriptedService implements AiClient {
-    final List<Map<String, Object>> responses = new ArrayList<>(List.of(
-      Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"),
-      Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"),
-      Map.of("content", "{\"answer\":\"Paris\"}")
-    ));
-
-    public Map<String, Object> complete(Map<String, Object> request) {
-      if (responses.isEmpty()) throw new RuntimeException("scripted service exhausted");
-      return responses.remove(0);
-    }
-  }
-
-  static final class ScriptedRuntime implements AxCodeRuntime {
-    public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
-      return new ScriptedSession();
-    }
-  }
-
-  static final class ScriptedSession implements AxCodeSession {
-    public Object execute(String code, Map<String, Object> options) {
-      return Map.of("type", "final", "args", List.of(Map.of("answer", "runtime")));
-    }
-    public Object inspectGlobals(Map<String, Object> options) { return Map.of(); }
-    public Object exportState(Map<String, Object> options) { return Map.of("globals", Map.of()); }
-    public Object restoreState(Object snapshot, Map<String, Object> options) { return snapshot; }
-    public Object close() { return Map.of("closed", true); }
-  }
-
-  public static void main(String[] args) {
-    AxAgent qa = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of()));
-    Map<String, Object> out = qa.forward(new ScriptedService(), Map.of("question", "Capital of France?"));
-    if (!"Paris".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
-    if (!"responder".equals(((Map<?, ?>) qa.getChatLog().get(qa.getChatLog().size() - 1)).get("name"))) throw new RuntimeException("bad chat log");
-    Map<String, Object> runtimeOut = qa.test(new ScriptedRuntime(), "final({answer:'runtime'})");
-    if (!"final".equals(runtimeOut.get("kind"))) throw new RuntimeException("bad runtime output: " + runtimeOut);
-    System.out.println("java-axagent-ok");
   }
 }
 `
@@ -710,53 +619,6 @@ int main() {
 }
 `
 
-const cppAxAgentPipelineExample = `#include "axllm/axllm.hpp"
-#include <iostream>
-
-struct ScriptedService : axllm::AIClient {
-  axllm::Array responses = {
-    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"}}),
-    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"}}),
-    axllm::object({{"content", "{\"answer\":\"Paris\"}"}})
-  };
-
-  axllm::Value complete(axllm::Value) override {
-    if (responses.empty()) throw axllm::AxError("fixture", "scripted service exhausted");
-    axllm::Value out = responses.front();
-    responses.erase(responses.begin());
-    return out;
-  }
-};
-
-struct ScriptedSession : axllm::AxCodeSession {
-  axllm::Value execute(axllm::Value, axllm::Value = axllm::Value::object()) override {
-    return axllm::object({{"type", "final"}, {"args", axllm::array({axllm::object({{"answer", "runtime"}})})}});
-  }
-  axllm::Value inspect(axllm::Value = axllm::Value::object()) override { return axllm::Value::object(); }
-  axllm::Value export_state(axllm::Value = axllm::Value::object()) override { return axllm::object({{"globals", axllm::Value::object()}}); }
-  axllm::Value restore_state(axllm::Value snapshot, axllm::Value = axllm::Value::object()) override { return snapshot; }
-  axllm::Value close() override { return axllm::object({{"closed", true}}); }
-};
-
-struct ScriptedRuntime : axllm::AxCodeRuntime {
-  ScriptedSession session;
-  axllm::AxCodeSession* create_session(axllm::Value, axllm::Value = axllm::Value::object()) override { return &session; }
-};
-
-int main() {
-  auto qa = axllm::agent("question:string -> answer:string", axllm::object({{"contextFields", axllm::array({})}}));
-  ScriptedService service;
-  axllm::Value out = qa.forward(service, axllm::object({{"question", "Capital of France?"}}));
-  if (!axllm::equal(axllm::Core::get(out, "answer"), "Paris")) return 1;
-  axllm::Value last = axllm::Core::get(qa.get_chat_log(), 2);
-  if (!axllm::equal(axllm::Core::get(last, "name"), "responder")) return 2;
-  ScriptedRuntime runtime;
-  axllm::Value runtime_out = qa.test(runtime, "final({answer:'runtime'})");
-  if (!axllm::equal(axllm::Core::get(runtime_out, "kind"), "final")) return 3;
-  std::cout << "cpp-axagent-ok\n";
-}
-`
-
 const cppAxFlowProgramGraphExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
@@ -962,67 +824,6 @@ assert text == "hello", events
 print("python-provider-stream-no-key", text)
 `
 
-const pyAxAgentOpenAIExample = `import json
-import os
-
-from axllm import OpenAICompatibleClient, agent
-
-
-api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
-if not api_key:
-    raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.")
-
-client = OpenAICompatibleClient(
-    api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-4.1-mini"),
-    model_config={"temperature": 0},
-)
-
-
-class ProviderAgentClient:
-    def __init__(self, inner):
-        self.inner = inner
-        self.raw_model_answer = None
-        self.calls = 0
-
-    def complete(self, _request):
-        self.calls += 1
-        if self.raw_model_answer is None:
-            response = self.inner.complete(
-                {
-                    "chat_prompt": [
-                        {
-                            "role": "user",
-                            "content": "In one sentence, explain what Ax helps developers build.",
-                        }
-                    ]
-                }
-            )
-            self.raw_model_answer = response["content"]
-        if self.calls == 1:
-            payload = {"completion": {"type": "final", "args": ["Answer", {}]}}
-        elif self.calls == 2:
-            payload = {
-                "completion": {
-                    "type": "final",
-                    "args": ["Answer", {"answer": self.raw_model_answer}],
-                }
-            }
-        else:
-            payload = {"answer": self.raw_model_answer}
-        return {"content": json.dumps(payload)}
-
-
-assistant = agent("question:string -> answer:string", {"contextFields": []})
-stage_client = ProviderAgentClient(client)
-output = assistant.forward(
-    stage_client,
-    {"question": "In one sentence, explain what Ax helps developers build."},
-)
-
-print(json.dumps({"agentOutput": output, "rawModelAnswer": stage_client.raw_model_answer}, indent=2, sort_keys=True))
-`
-
 const pyAxFlowOpenAIExample = `import json
 import os
 
@@ -1082,6 +883,229 @@ print("normalized output:")
 print(json.dumps({"speak": speech, "transcribe": transcript}, indent=2, sort_keys=True))
 print("transport requests:")
 print(json.dumps(transport_requests, indent=2, sort_keys=True))
+`
+
+const pyAudioHTTPRoundtripExample = `"""Drive transcribe()/speak() through the REAL urllib transport against an
+in-process loopback server, exercising the wire-level encoders the conformance
+ScriptedTransport bypasses: the multipart/form-data request body (transcribe)
+and binary (non-UTF8) response handling (speak). Exits non-zero on any mismatch
+so ` + "`axir verify`" + ` fails if either regresses."""
+
+import base64
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from axllm import OpenAIResponsesClient
+
+# Deliberately non-UTF8 bytes so a UTF-8/JSON decode regression on the binary
+# path corrupts them detectably.
+audio_bytes = bytes([0, 1, 2, 255, 254, 16, 127])
+audio_b64 = base64.b64encode(audio_bytes).decode()
+speech_bytes = bytes([255, 216, 255, 0, 17, 34, 254])
+want_audio = base64.b64encode(speech_bytes).decode()
+
+state = {"saw_multipart": False, "file_bytes": b""}
+
+
+def extract_file_bytes(body, content_type):
+    boundary = content_type.split("boundary=", 1)[1].encode()
+    delimiter = b"--" + boundary
+    for segment in body.split(delimiter):
+        if b'name="file"' in segment:
+            sep = segment.find(b"\r\n\r\n")
+            if sep >= 0:
+                content = segment[sep + 4 :]
+                if content.endswith(b"\r\n"):
+                    content = content[:-2]
+                return content
+    return b""
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(length)
+        if "transcriptions" in self.path:
+            content_type = self.headers.get("Content-Type", "")
+            if not content_type.startswith("multipart/form-data; boundary="):
+                raise RuntimeError(f"transcribe request was not multipart: {content_type}")
+            state["saw_multipart"] = True
+            state["file_bytes"] = extract_file_bytes(body, content_type)
+            payload = json.dumps(
+                {"text": "hello world", "language": "en", "duration": 1.25}
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+        elif "speech" in self.path:
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Content-Length", str(len(speech_bytes)))
+            self.end_headers()
+            self.wfile.write(speech_bytes)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+port = server.server_address[1]
+thread = threading.Thread(target=server.serve_forever, daemon=True)
+thread.start()
+
+try:
+    client = OpenAIResponsesClient(api_key="test-key", base_url=f"http://127.0.0.1:{port}")
+    transcript = client.transcribe(
+        {"audio": audio_b64, "language": "en", "model": "gpt-4o-mini-transcribe", "format": "json"}
+    )
+    assert state["saw_multipart"], "loopback server never received a multipart transcribe request"
+    assert base64.b64encode(state["file_bytes"]).decode() == audio_b64, (
+        f"multipart file bytes mismatch: {state['file_bytes']!r}"
+    )
+    assert transcript["text"] == "hello world", transcript
+
+    speech = client.speak(
+        {"text": "hello", "voice": "alloy", "format": "mp3", "model": "gpt-4o-mini-tts"}
+    )
+    assert speech["audio"] == want_audio, f"speak binary base64 mismatch: {speech}"
+finally:
+    server.shutdown()
+
+print("audio-http-roundtrip-ok")
+`
+
+const pyMCPSseRoundtripExample = `"""Drive AxMCPStreamableHTTPTransport.send() through the REAL urllib transport
+against an in-process loopback server that answers the JSON-RPC POST with
+Content-Type: text/event-stream -- the MCP Streamable HTTP SSE path the
+ScriptedTransport conformance fixtures bypass. The SSE body interleaves a
+notification ahead of the id-matched response, so a transport that ignored the
+Content-Type (json.loads on the raw stream) or returned the first data frame
+would fail. Exits non-zero on any mismatch so axir verify fails if the SSE
+branch regresses."""
+
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from axllm import AxMCPStreamableHTTPTransport
+
+SSE_BODY = (
+    ": keepalive\n"
+    "event: message\n"
+    'data: {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info"}}\n'
+    "\n"
+    "event: message\n"
+    'data: {"jsonrpc":"2.0","id":"ax-sse-1","result":{"ok":true,"protocolVersion":"2025-11-25"}}\n'
+    "\n"
+)
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(length)
+        payload = SSE_BODY.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+port = server.server_address[1]
+thread = threading.Thread(target=server.serve_forever, daemon=True)
+thread.start()
+
+try:
+    transport = AxMCPStreamableHTTPTransport(
+        f"http://127.0.0.1:{port}/mcp",
+        {"ssrfProtection": {"requireHttps": False, "allowLocalhost": True, "allowPrivateNetworks": True}},
+    )
+    response = transport.send(
+        {"jsonrpc": "2.0", "id": "ax-sse-1", "method": "tools/call", "params": {"name": "noop"}}
+    )
+    assert response.get("id") == "ax-sse-1", f"SSE selector returned wrong message: {response}"
+    assert response.get("result", {}).get("ok") is True, f"SSE result not decoded: {response}"
+finally:
+    server.shutdown()
+
+print("mcp-sse-roundtrip-ok")
+`
+
+const pyStreamHTTPRoundtripExample = `"""Drive a streaming chat through the REAL urllib transport against an
+in-process loopback server that returns a spec-legal text/event-stream body
+with a MULTI-LINE data: event and CRLF line endings. The conformance
+ScriptedTransport only ever feeds single-line data: JSON, so this is the only
+end-to-end coverage for the SSE line-folding that src/ax/util/sse.ts performs.
+Exits non-zero on any mismatch so ` + "`axir verify`" + ` fails if it regresses."""
+
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from axllm import OpenAICompatibleClient
+
+# One logical chat-completion delta whose JSON is split across two data: lines
+# (folded with "\n" into ...,"delta":\n{"content":"Hello "}}), then a normal
+# single-line delta, then [DONE]. Every line uses CRLF.
+EVENT1A = '{"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":'
+EVENT1B = '{"content":"Hello "}}]}'
+EVENT2 = '{"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}'
+SSE_BODY = (
+    "data: " + EVENT1A + "\r\n"
+    + "data: " + EVENT1B + "\r\n"
+    + "\r\n"
+    + "data: " + EVENT2 + "\r\n"
+    + "\r\n"
+    + "data: [DONE]\r\n"
+    + "\r\n"
+).encode()
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(length)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Content-Length", str(len(SSE_BODY)))
+        self.end_headers()
+        self.wfile.write(SSE_BODY)
+
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+port = server.server_address[1]
+thread = threading.Thread(target=server.serve_forever, daemon=True)
+thread.start()
+
+try:
+    client = OpenAICompatibleClient(
+        api_key="test-key", base_url=f"http://127.0.0.1:{port}", model="gpt-4.1-mini"
+    )
+    deltas = [
+        (event.get("results") or [{}])[0].get("content")
+        for event in client.stream({"chat_prompt": [{"role": "user", "content": "stream"}]})
+    ]
+    deltas = [delta for delta in deltas if delta]
+    assert deltas[:1] == ["Hello "], (
+        f"multi-line data: event was not folded into one JSON value: {deltas}"
+    )
+    assert "".join(deltas) == "Hello world", f"bad stream fold: {deltas}"
+finally:
+    server.shutdown()
+
+print("stream-http-roundtrip-ok")
 `
 
 const pyRealtimeAudioEventsExample = `import json
@@ -1167,6 +1191,58 @@ print("gemini normalized events:")
 print(json.dumps(gemini_normalized, indent=2, sort_keys=True))
 `
 
+const pyRealtimeAudioTurnExample = `"""Drive a realtime audio TURN through the productized realtime_chat() driver
+using ScriptedRealtimeTransport: the deterministic, credential-free path that
+exercises the full send-setup -> send-input -> fold-events -> merge loop without
+a live socket (the live socket path is verified separately against the real API).
+Exits non-zero on any mismatch so ` + "`axir verify`" + ` fails if the driver regresses."""
+
+import json
+
+from axllm import OpenAIResponsesClient
+from axllm.ai import ScriptedRealtimeTransport
+
+client = OpenAIResponsesClient(model="gpt-realtime-2", api_key="test-key")
+request = {
+    "model": "gpt-realtime-2",
+    "chat_prompt": [
+        {"role": "system", "content": "You are a concise voice agent."},
+        {"role": "user", "content": "Say hello."},
+    ],
+    "audio": {"output": {"voice": "alloy"}},
+}
+
+# Canned server frames: session handshake, two transcript deltas, an audio delta,
+# then the terminal response.done.
+inbound = [
+    {"type": "session.created"},
+    {"type": "session.updated"},
+    {"type": "response.output_audio_transcript.delta", "response_id": "rt", "delta": "hel"},
+    {"type": "response.output_audio_transcript.delta", "response_id": "rt", "delta": "lo"},
+    {"type": "response.output_audio.delta", "response_id": "rt", "delta": "AQI="},
+    {
+        "type": "response.done",
+        "response": {"id": "rt", "usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}},
+    },
+]
+
+transport = ScriptedRealtimeTransport(inbound)
+final = client.realtime_chat(request, transport=transport)
+result = final["results"][0]
+
+sent_types = [event.get("type") for event in transport.sent]
+print("driver sent:", json.dumps(sent_types))
+print("merged result:", json.dumps(result, sort_keys=True))
+
+# The driver must send the Core-built session.update first, then the input events.
+assert sent_types == ["session.update", "conversation.item.create", "response.create"], sent_types
+# Transcript deltas concatenated, audio chunk surfaced, turn finished.
+assert result["content"] == "hello", result
+assert result["finish_reason"] == "stop", result
+assert result.get("audio", {}).get("data") == "AQI=", result
+print("realtime-audio-turn-ok")
+`
+
 const pyGEPALocalOptimizerExample = `import json
 
 from axllm import AxGEPA, OptimizerEvaluator
@@ -1243,71 +1319,6 @@ public final class ProviderStreamNoKeyExample {
 }
 `
 
-const javaAgentOpenAIExample = `import dev.axllm.ax.*;
-import java.util.*;
-
-public final class AgentOpenAIExample {
-  static final class ProviderAgentClient implements AiClient {
-    final OpenAICompatibleClient inner;
-    String rawModelAnswer;
-    int calls = 0;
-
-    ProviderAgentClient(OpenAICompatibleClient inner) {
-      this.inner = inner;
-    }
-
-    public Map<String, Object> complete(Map<String, Object> request) throws Exception {
-      calls += 1;
-      if (rawModelAnswer == null) {
-        Map<String, Object> response =
-            inner.complete(
-                Map.of(
-                    "chat_prompt",
-                    List.of(
-                        Map.of(
-                            "role",
-                            "user",
-                            "content",
-                            "In one sentence, explain what Ax helps developers build."))));
-        rawModelAnswer = String.valueOf(response.get("content"));
-      }
-      Map<String, Object> payload;
-      if (calls == 1) {
-        payload = Map.of("completion", Map.of("type", "final", "args", List.of("Answer", Map.of())));
-      } else if (calls == 2) {
-        payload =
-            Map.of(
-                "completion",
-                Map.of("type", "final", "args", List.of("Answer", Map.of("answer", rawModelAnswer))));
-      } else {
-        payload = Map.of("answer", rawModelAnswer);
-      }
-      return Map.of("content", Json.stringify(payload));
-    }
-  }
-
-  public static void main(String[] args) throws Exception {
-    String apiKey = System.getenv("OPENAI_API_KEY");
-    if (apiKey == null || apiKey.isBlank()) apiKey = System.getenv("OPENAI_APIKEY");
-    if (apiKey == null || apiKey.isBlank()) {
-      throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.");
-    }
-    String model = System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini");
-    OpenAICompatibleClient client =
-        new OpenAICompatibleClient(
-            Map.of("api_key", apiKey, "model", model, "model_config", Map.of("temperature", 0.0)));
-
-    AxAgent assistant = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of()));
-    ProviderAgentClient stageClient = new ProviderAgentClient(client);
-    Map<String, Object> output =
-        assistant.forward(
-            stageClient,
-            Map.of("question", "In one sentence, explain what Ax helps developers build."));
-    System.out.println(Json.stringify(Map.of("agentOutput", output, "rawModelAnswer", stageClient.rawModelAnswer)));
-  }
-}
-`
-
 const javaFlowOpenAIExample = `import dev.axllm.ax.*;
 import java.util.*;
 
@@ -1375,6 +1386,243 @@ public final class AudioResponsesMappingExample {
     System.out.println(Json.stringify(Map.of("speak", speech, "transcribe", transcript)));
     System.out.println("transport requests:");
     System.out.println(Json.stringify(transportRequests));
+  }
+}
+`
+
+const javaAudioHTTPRoundtripExample = `import com.sun.net.httpserver.HttpServer;
+import dev.axllm.ax.*;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+// Drive transcribe()/speak() through the REAL HttpClient transport against an
+// in-process com.sun.net.httpserver loopback, exercising the wire-level encoders
+// the conformance ScriptedTransport bypasses: the multipart/form-data request
+// body (transcribe) and binary (non-UTF8) response handling (speak). Exits
+// non-zero on any mismatch so ` + "`axir verify`" + ` fails if either regresses.
+public final class AudioHTTPRoundtripExample {
+  public static void main(String[] args) throws Exception {
+    // Deliberately non-UTF8 bytes so a UTF-8/JSON decode regression corrupts them.
+    byte[] audioBytes = {0, 1, 2, (byte) 0xff, (byte) 0xfe, 16, 127};
+    String audioB64 = Base64.getEncoder().encodeToString(audioBytes);
+    byte[] speechBytes = {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0, 17, 34, (byte) 0xfe};
+    String wantAudio = Base64.getEncoder().encodeToString(speechBytes);
+
+    AtomicBoolean sawMultipart = new AtomicBoolean(false);
+    AtomicBoolean fileBytesPresent = new AtomicBoolean(false);
+
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/",
+        exchange -> {
+          String path = exchange.getRequestURI().getPath();
+          byte[] body = exchange.getRequestBody().readAllBytes();
+          if (path.contains("transcriptions")) {
+            String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+            sawMultipart.set(
+                contentType != null && contentType.startsWith("multipart/form-data; boundary="));
+            fileBytesPresent.set(containsBytes(body, audioBytes));
+            byte[] resp =
+                "{\"text\":\"hello world\",\"language\":\"en\",\"duration\":1.25}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+              os.write(resp);
+            }
+          } else if (path.contains("speech")) {
+            exchange.getResponseHeaders().set("Content-Type", "audio/mpeg");
+            exchange.sendResponseHeaders(200, speechBytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+              os.write(speechBytes);
+            }
+          } else {
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+          }
+        });
+    server.start();
+    int port = server.getAddress().getPort();
+
+    try {
+      OpenAIResponsesClient client =
+          new OpenAIResponsesClient(
+              Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + port));
+      Map<String, Object> transcript =
+          client.transcribe(
+              Map.of(
+                  "audio", audioB64, "language", "en", "model", "gpt-4o-mini-transcribe", "format",
+                  "json"));
+      if (!sawMultipart.get())
+        throw new RuntimeException("loopback server never received a multipart transcribe request");
+      if (!fileBytesPresent.get())
+        throw new RuntimeException("multipart body did not contain the decoded file bytes");
+      if (!"hello world".equals(transcript.get("text")))
+        throw new RuntimeException("transcribe response not normalized: " + transcript);
+
+      Map<String, Object> speech =
+          client.speak(
+              Map.of("text", "hello", "voice", "alloy", "format", "mp3", "model", "gpt-4o-mini-tts"));
+      if (!wantAudio.equals(speech.get("audio")))
+        throw new RuntimeException("speak binary response not base64-encoded as expected: " + speech);
+    } finally {
+      server.stop(0);
+    }
+    System.out.println("audio-http-roundtrip-ok");
+  }
+
+  private static boolean containsBytes(byte[] haystack, byte[] needle) {
+    if (needle.length == 0) return true;
+    outer:
+    for (int i = 0; i + needle.length <= haystack.length; i++) {
+      for (int j = 0; j < needle.length; j++) {
+        if (haystack[i + j] != needle[j]) continue outer;
+      }
+      return true;
+    }
+    return false;
+  }
+}
+`
+
+const javaMCPSseRoundtripExample = `import com.sun.net.httpserver.HttpServer;
+import dev.axllm.ax.*;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+
+// Drive AxMCPStreamableHTTPTransport.send() through the REAL HttpClient transport
+// against an in-process com.sun.net.httpserver loopback that answers the JSON-RPC
+// POST with Content-Type: text/event-stream -- the MCP Streamable HTTP SSE path
+// the ScriptedTransport conformance fixtures bypass. The SSE body interleaves a
+// notification ahead of the id-matched response, so a transport that ignored the
+// Content-Type (JSON-decoding the raw stream) or returned the first data frame
+// would fail. Exits non-zero on any mismatch so axir verify fails if the SSE
+// branch regresses.
+public final class AxMCPSseRoundtripExample {
+  public static void main(String[] args) throws Exception {
+    String sseBody =
+        ": keepalive\n"
+            + "event: message\n"
+            + "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/message\",\"params\":{\"level\":\"info\"}}\n"
+            + "\n"
+            + "event: message\n"
+            + "data: {\"jsonrpc\":\"2.0\",\"id\":\"ax-sse-1\",\"result\":{\"ok\":true,\"protocolVersion\":\"2025-11-25\"}}\n"
+            + "\n";
+
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/",
+        exchange -> {
+          exchange.getRequestBody().readAllBytes();
+          byte[] resp = sseBody.getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+          exchange.sendResponseHeaders(200, resp.length);
+          try (OutputStream os = exchange.getResponseBody()) {
+            os.write(resp);
+          }
+        });
+    server.start();
+    int port = server.getAddress().getPort();
+
+    try {
+      AxMCPStreamableHTTPTransport transport =
+          new AxMCPStreamableHTTPTransport(
+              "http://127.0.0.1:" + port + "/mcp",
+              Map.of(
+                  "ssrfProtection",
+                  Map.of(
+                      "requireHttps", false, "allowLocalhost", true, "allowPrivateNetworks", true)));
+      Map<String, Object> response =
+          transport.send(
+              Map.of(
+                  "jsonrpc", "2.0", "id", "ax-sse-1", "method", "tools/call", "params",
+                  Map.of("name", "noop")));
+      if (!"ax-sse-1".equals(response.get("id")))
+        throw new RuntimeException("SSE selector returned wrong message: " + response);
+      Object result = response.get("result");
+      boolean ok = result instanceof Map && Boolean.TRUE.equals(((Map<?, ?>) result).get("ok"));
+      if (!ok)
+        throw new RuntimeException(
+            "SSE result not decoded from text/event-stream body: " + response);
+    } finally {
+      server.stop(0);
+    }
+    System.out.println("mcp-sse-roundtrip-ok");
+  }
+}
+`
+
+const javaStreamHTTPRoundtripExample = `import com.sun.net.httpserver.HttpServer;
+import dev.axllm.ax.*;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+
+// Drive a streaming stream() through the REAL HttpClient transport against an
+// in-process com.sun.net.httpserver loopback that returns a spec-legal
+// text/event-stream body with a MULTI-LINE data: event and CRLF line endings.
+// The conformance ScriptedTransport only ever feeds single-line data: JSON, so
+// this is the only end-to-end coverage for the SSE line-folding that
+// src/ax/util/sse.ts performs. Exits non-zero on any mismatch so ` + "`axir verify`" + `
+// fails if the folding regresses.
+public final class StreamHTTPRoundtripExample {
+  public static void main(String[] args) throws Exception {
+    // One logical delta whose JSON is split across two data: lines (folded with
+    // "\n"), then a single-line delta, then [DONE]. Every line uses CRLF.
+    String event1a = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":";
+    String event1b = "{\"content\":\"Hello \"}}]}";
+    String event2 = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
+    String sseBody =
+        "data: " + event1a + "\r\n"
+            + "data: " + event1b + "\r\n"
+            + "\r\n"
+            + "data: " + event2 + "\r\n"
+            + "\r\n"
+            + "data: [DONE]\r\n"
+            + "\r\n";
+    byte[] sseBytes = sseBody.getBytes(StandardCharsets.UTF_8);
+
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/",
+        exchange -> {
+          exchange.getRequestBody().readAllBytes();
+          exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+          exchange.sendResponseHeaders(200, sseBytes.length);
+          try (OutputStream os = exchange.getResponseBody()) {
+            os.write(sseBytes);
+          }
+        });
+    server.start();
+    int port = server.getAddress().getPort();
+
+    try {
+      OpenAICompatibleClient client =
+          new OpenAICompatibleClient(
+              Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + port, "model", "gpt-4.1-mini"));
+      List<String> deltas = new ArrayList<>();
+      for (Map<String, Object> event :
+          client.stream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "stream"))))) {
+        Object results = event.get("results");
+        if (results instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {
+          Object content = first.get("content");
+          if (content instanceof String s && !s.isEmpty()) deltas.add(s);
+        }
+      }
+      if (deltas.isEmpty() || !"Hello ".equals(deltas.get(0)))
+        throw new RuntimeException("multi-line data: event was not folded into one JSON value: " + deltas);
+      if (!"Hello world".equals(String.join("", deltas)))
+        throw new RuntimeException("bad stream fold: " + deltas);
+    } finally {
+      server.stop(0);
+    }
+    System.out.println("stream-http-roundtrip-ok");
   }
 }
 `
@@ -1466,6 +1714,71 @@ public final class RealtimeAudioEventsExample {
     System.out.println(Json.stringify(gemini.realtimeAudioInput(geminiRequest)));
     System.out.println("gemini normalized events:");
     System.out.println(Json.stringify(gemini.realtime(geminiEvents)));
+  }
+}
+`
+
+const javaRealtimeAudioTurnExample = `import dev.axllm.ax.*;
+import java.util.*;
+
+// Drive a realtime audio TURN through the productized realtimeChat driver using
+// ScriptedRealtimeTransport: the deterministic, credential-free path that
+// exercises the full send-setup -> send-input -> fold -> merge loop without a
+// live socket (the live socket path is verified separately against the real
+// API). Exits non-zero on any mismatch so ` + "`axir verify`" + ` fails if it regresses.
+public final class RealtimeAudioTurnExample {
+  public static void main(String[] args) {
+    GrokClient client =
+        new GrokClient(Map.of("model", "grok-voice-think-fast-1.0", "api_key", "test-key"));
+    Map<String, Object> request =
+        Map.of(
+            "model", "grok-voice-think-fast-1.0",
+            "chat_prompt",
+            List.of(
+                Map.of("role", "system", "content", "You are a concise voice agent."),
+                Map.of("role", "user", "content", "Say hello.")),
+            "audio", Map.of("output", Map.of("voice", "eve")));
+    // Canned server frames: session handshake, two transcript deltas, an audio
+    // delta, then the terminal response.done.
+    List<Object> inbound =
+        List.of(
+            Map.of("type", "session.created"),
+            Map.of("type", "session.updated"),
+            Map.of("type", "response.output_audio_transcript.delta", "response_id", "rt", "delta", "hel"),
+            Map.of("type", "response.output_audio_transcript.delta", "response_id", "rt", "delta", "lo"),
+            Map.of("type", "response.output_audio.delta", "response_id", "rt", "delta", "AQI="),
+            Map.of("type", "response.done", "response", Map.of("id", "rt", "usage", Map.of("input_tokens", 3, "output_tokens", 2, "total_tokens", 5))));
+
+    OpenAICompatibleClient.ScriptedRealtimeTransport transport =
+        new OpenAICompatibleClient.ScriptedRealtimeTransport(inbound);
+    Map<String, Object> finalResponse = client.realtimeChat(request, transport);
+    @SuppressWarnings("unchecked")
+    List<Object> results = (List<Object>) finalResponse.get("results");
+    @SuppressWarnings("unchecked")
+    Map<String, Object> result = (Map<String, Object>) results.get(0);
+
+    List<Object> sentTypes = new ArrayList<>();
+    for (Map<String, Object> event : transport.sent) sentTypes.add(event.get("type"));
+    System.out.println("driver sent: " + sentTypes);
+    System.out.println("merged result: " + finalResponse);
+
+    // The driver must send the Core-built session.update first, then the inputs.
+    if (!List.of("session.update", "conversation.item.create", "response.create").equals(sentTypes)) {
+      fail("unexpected sent event order", finalResponse);
+    }
+    // Transcript deltas concatenated, audio chunk surfaced, turn finished.
+    if (!"hello".equals(result.get("content"))) fail("transcript not concatenated", finalResponse);
+    if (!"stop".equals(result.get("finish_reason"))) fail("turn did not finish", finalResponse);
+    Object audio = result.get("audio");
+    if (!(audio instanceof Map) || !"AQI=".equals(((Map<?, ?>) audio).get("data"))) {
+      fail("audio chunk not surfaced", finalResponse);
+    }
+    System.out.println("realtime-audio-turn-ok");
+  }
+
+  private static void fail(String message, Object detail) {
+    System.out.println("realtime-audio-turn FAIL: " + message + " " + detail);
+    System.exit(1);
   }
 }
 `
@@ -1563,75 +1876,462 @@ int main() {
 }
 `
 
-const cppAgentOpenAIExample = `#include "axllm/axllm.hpp"
+const cppAudioHTTPRoundtripExample = `#include "axllm/axllm.hpp"
 
-#include <cstdlib>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <cctype>
+#include <cstring>
 #include <iostream>
+#include <string>
+#include <thread>
 
-struct ProviderAgentClient : axllm::AIClient {
-  axllm::OpenAICompatibleClient& inner;
-  axllm::Value raw_model_answer;
-  int calls = 0;
+// Drive transcribe()/speak() through the REAL libcurl HttpTransport against an
+// in-process loopback server, exercising the wire-level encoders the conformance
+// ScriptedTransport bypasses: the multipart/form-data request body (transcribe)
+// and binary (non-UTF8) response handling (speak). Returns non-zero on any
+// mismatch so axir verify fails if either regresses. Requires libcurl
+// (AXLLM_ENABLE_CURL); axir verify skips it when libcurl is unavailable.
 
-  explicit ProviderAgentClient(axllm::OpenAICompatibleClient& inner_) : inner(inner_) {}
+namespace {
 
-  axllm::Value complete(axllm::Value) override {
-    calls += 1;
-    if (raw_model_answer.is_null()) {
-      axllm::Value response = inner.complete(axllm::object({
-          {"chat_prompt",
-           axllm::array({
-               axllm::object({
-                   {"role", "user"},
-                   {"content", "In one sentence, explain what Ax helps developers build."},
-               }),
-           })},
-      }));
-      raw_model_answer = axllm::Core::get(response, "content");
-    }
-    axllm::Value payload;
-    if (calls == 1) {
-      payload = axllm::object({
-          {"completion", axllm::object({{"type", "final"}, {"args", axllm::array({"Answer", axllm::Value::object()})}})},
-      });
-    } else if (calls == 2) {
-      payload = axllm::object({
-          {"completion",
-           axllm::object({
-               {"type", "final"},
-               {"args", axllm::array({"Answer", axllm::object({{"answer", raw_model_answer}})})},
-           })},
-      });
-    } else {
-      payload = axllm::object({{"answer", raw_model_answer}});
-    }
-    return axllm::object({{"content", axllm::stringify(payload)}});
-  }
+struct Request {
+  std::string line;
+  std::string content_type;
+  std::string body;
 };
 
+Request read_request(int fd) {
+  Request req;
+  std::string buf;
+  char tmp[4096];
+  size_t header_end = 0;
+  while (true) {
+    size_t pos = buf.find("\r\n\r\n");
+    if (pos != std::string::npos) {
+      header_end = pos + 4;
+      break;
+    }
+    ssize_t n = recv(fd, tmp, sizeof(tmp), 0);
+    if (n <= 0) {
+      header_end = buf.size();
+      break;
+    }
+    buf.append(tmp, static_cast<size_t>(n));
+  }
+  std::string headers = buf.substr(0, header_end);
+  size_t eol = headers.find("\r\n");
+  req.line = headers.substr(0, eol == std::string::npos ? headers.size() : eol);
+  size_t content_length = 0;
+  size_t start = (eol == std::string::npos) ? headers.size() : eol + 2;
+  while (start < headers.size()) {
+    size_t next = headers.find("\r\n", start);
+    std::string line =
+        headers.substr(start, (next == std::string::npos ? headers.size() : next) - start);
+    std::string lower = line;
+    for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower.rfind("content-type:", 0) == 0) {
+      req.content_type = line.substr(line.find(':') + 1);
+      while (!req.content_type.empty() && req.content_type.front() == ' ') {
+        req.content_type.erase(req.content_type.begin());
+      }
+    } else if (lower.rfind("content-length:", 0) == 0) {
+      content_length = std::stoul(line.substr(line.find(':') + 1));
+    }
+    if (next == std::string::npos) break;
+    start = next + 2;
+  }
+  req.body = buf.substr(header_end);
+  while (req.body.size() < content_length) {
+    ssize_t n = recv(fd, tmp, sizeof(tmp), 0);
+    if (n <= 0) break;
+    req.body.append(tmp, static_cast<size_t>(n));
+  }
+  return req;
+}
+
+void write_response(int fd, const std::string& content_type, const std::string& body) {
+  std::string out = "HTTP/1.1 200 OK\r\nContent-Type: " + content_type +
+                    "\r\nContent-Length: " + std::to_string(body.size()) +
+                    "\r\nConnection: close\r\n\r\n" + body;
+  size_t off = 0;
+  while (off < out.size()) {
+    ssize_t n = send(fd, out.data() + off, out.size() - off, 0);
+    if (n <= 0) break;
+    off += static_cast<size_t>(n);
+  }
+}
+
+}  // namespace
+
 int main() {
-  const char* key = std::getenv("OPENAI_API_KEY");
-  if (key == nullptr || std::string(key).empty()) key = std::getenv("OPENAI_APIKEY");
-  if (key == nullptr || std::string(key).empty()) {
-    std::cerr << "Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.\n";
-    return 2;
+  // Deliberately non-UTF8 bytes so a UTF-8/JSON decode regression corrupts them.
+  const char audio_raw[] = {0x00, 0x01, 0x02, static_cast<char>(0xff),
+                            static_cast<char>(0xfe), 0x10, 0x7f};
+  const std::string audio_bytes(audio_raw, sizeof(audio_raw));
+  const std::string audio_b64 = "AAEC//4Qfw==";
+  const char speech_raw[] = {static_cast<char>(0xff), static_cast<char>(0xd8),
+                             static_cast<char>(0xff), 0x00, 0x11, 0x22, static_cast<char>(0xfe)};
+  const std::string speech_bytes(speech_raw, sizeof(speech_raw));
+  const std::string want_audio = "/9j/ABEi/g==";
+
+  int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (server_fd < 0) {
+    std::cerr << "socket failed\n";
+    return 1;
+  }
+  int opt = 1;
+  setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = 0;
+  if (bind(server_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+    std::cerr << "bind failed\n";
+    return 1;
+  }
+  if (listen(server_fd, 4) < 0) {
+    std::cerr << "listen failed\n";
+    return 1;
+  }
+  socklen_t alen = sizeof(addr);
+  getsockname(server_fd, reinterpret_cast<sockaddr*>(&addr), &alen);
+  int port = ntohs(addr.sin_port);
+
+  bool saw_multipart = false;
+  bool file_present = false;
+  std::thread server([&]() {
+    for (int handled = 0; handled < 2; ++handled) {
+      int fd = accept(server_fd, nullptr, nullptr);
+      if (fd < 0) break;
+      Request req = read_request(fd);
+      if (req.line.find("/audio/transcriptions") != std::string::npos) {
+        saw_multipart = req.content_type.rfind("multipart/form-data; boundary=", 0) == 0;
+        file_present = req.body.find(audio_bytes) != std::string::npos;
+        write_response(fd, "application/json",
+                       "{\"text\":\"hello world\",\"language\":\"en\",\"duration\":1.25}");
+      } else if (req.line.find("/audio/speech") != std::string::npos) {
+        write_response(fd, "audio/mpeg", speech_bytes);
+      } else {
+        write_response(fd, "text/plain", "");
+      }
+      close(fd);
+    }
+  });
+
+  axllm::OpenAIResponsesClient client(
+      axllm::object({{"api_key", "test-key"},
+                     {"base_url", std::string("http://127.0.0.1:") + std::to_string(port)}}),
+      nullptr);
+  axllm::Value transcript = client.transcribe(axllm::object({{"audio", audio_b64},
+                                                             {"language", "en"},
+                                                             {"model", "gpt-4o-mini-transcribe"},
+                                                             {"format", "json"}}));
+  axllm::Value speech = client.speak(axllm::object(
+      {{"text", "hello"}, {"voice", "alloy"}, {"format", "mp3"}, {"model", "gpt-4o-mini-tts"}}));
+
+  server.join();
+  close(server_fd);
+
+  if (!saw_multipart) {
+    std::cerr << "loopback server never received a multipart transcribe request\n";
+    return 1;
+  }
+  if (!file_present) {
+    std::cerr << "multipart body did not contain the decoded file bytes\n";
+    return 1;
+  }
+  if (!axllm::equal(axllm::Core::get(transcript, "text"), "hello world")) {
+    std::cerr << "transcribe response not normalized: " << axllm::stringify(transcript) << "\n";
+    return 1;
+  }
+  if (!axllm::equal(axllm::Core::get(speech, "audio"), want_audio)) {
+    std::cerr << "speak binary response not base64-encoded as expected: "
+              << axllm::stringify(speech) << "\n";
+    return 1;
+  }
+  std::cout << "audio-http-roundtrip-ok\n";
+  return 0;
+}
+`
+
+const cppMCPSseRoundtripExample = `#include "axllm/axllm.hpp"
+#include "axllm/mcp.hpp"
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <cctype>
+#include <iostream>
+#include <string>
+#include <thread>
+
+// Drive AxMCPStreamableHTTPTransport::send() through the REAL libcurl
+// HttpTransport against an in-process loopback server that answers the JSON-RPC
+// POST with Content-Type: text/event-stream -- the MCP Streamable HTTP SSE path
+// the ScriptedTransport conformance fixtures bypass. The SSE body interleaves a
+// notification ahead of the id-matched response, so a transport that ignored the
+// Content-Type (JSON-decoding the raw stream) or returned the first data frame
+// would fail. Returns non-zero on any mismatch so axir verify fails if the SSE
+// branch regresses. Requires libcurl (AXLLM_ENABLE_CURL); axir verify skips it
+// when libcurl is unavailable.
+
+namespace {
+
+void drain_request(int fd) {
+  std::string buf;
+  char tmp[4096];
+  size_t header_end = std::string::npos;
+  size_t content_length = 0;
+  while (true) {
+    size_t pos = buf.find("\r\n\r\n");
+    if (pos != std::string::npos) {
+      header_end = pos + 4;
+      break;
+    }
+    ssize_t n = recv(fd, tmp, sizeof(tmp), 0);
+    if (n <= 0) return;
+    buf.append(tmp, static_cast<size_t>(n));
+  }
+  std::string lower = buf.substr(0, header_end);
+  for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  size_t cl = lower.find("content-length:");
+  if (cl != std::string::npos) content_length = std::stoul(lower.substr(cl + 15));
+  while (buf.size() - header_end < content_length) {
+    ssize_t n = recv(fd, tmp, sizeof(tmp), 0);
+    if (n <= 0) break;
+    buf.append(tmp, static_cast<size_t>(n));
+  }
+}
+
+void write_response(int fd, const std::string& content_type, const std::string& body) {
+  std::string out = "HTTP/1.1 200 OK\r\nContent-Type: " + content_type +
+                    "\r\nContent-Length: " + std::to_string(body.size()) +
+                    "\r\nConnection: close\r\n\r\n" + body;
+  size_t off = 0;
+  while (off < out.size()) {
+    ssize_t n = send(fd, out.data() + off, out.size() - off, 0);
+    if (n <= 0) break;
+    off += static_cast<size_t>(n);
+  }
+}
+
+}  // namespace
+
+int main() {
+  const std::string sse_body =
+      ": keepalive\n"
+      "event: message\n"
+      "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/message\",\"params\":{\"level\":\"info\"}}\n"
+      "\n"
+      "event: message\n"
+      "data: {\"jsonrpc\":\"2.0\",\"id\":\"ax-sse-1\",\"result\":{\"ok\":true,\"protocolVersion\":\"2025-11-25\"}}\n"
+      "\n";
+
+  int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (server_fd < 0) {
+    std::cerr << "socket failed\n";
+    return 1;
+  }
+  int opt = 1;
+  setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = 0;
+  if (bind(server_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+    std::cerr << "bind failed\n";
+    return 1;
+  }
+  if (listen(server_fd, 4) < 0) {
+    std::cerr << "listen failed\n";
+    return 1;
+  }
+  socklen_t alen = sizeof(addr);
+  getsockname(server_fd, reinterpret_cast<sockaddr*>(&addr), &alen);
+  int port = ntohs(addr.sin_port);
+
+  std::thread server([&]() {
+    int fd = accept(server_fd, nullptr, nullptr);
+    if (fd < 0) return;
+    drain_request(fd);
+    write_response(fd, "text/event-stream", sse_body);
+    close(fd);
+  });
+
+  axllm::AxMCPStreamableHTTPTransport transport(
+      std::string("http://127.0.0.1:") + std::to_string(port) + "/mcp",
+      axllm::object({{"ssrfProtection", axllm::object({{"requireHttps", false}, {"allowLocalhost", true}, {"allowPrivateNetworks", true}})}}));
+  axllm::Value response = transport.send(axllm::object({{"jsonrpc", "2.0"},
+                                                        {"id", "ax-sse-1"},
+                                                        {"method", "tools/call"},
+                                                        {"params", axllm::object({{"name", "noop"}})}}));
+
+  server.join();
+  close(server_fd);
+
+  if (!axllm::equal(axllm::Core::get(response, "id"), std::string("ax-sse-1"))) {
+    std::cerr << "SSE selector returned wrong message: " << axllm::stringify(response) << "\n";
+    return 1;
+  }
+  if (!axllm::Core::truthy(axllm::Core::get(axllm::Core::get(response, "result"), "ok"))) {
+    std::cerr << "SSE result not decoded from text/event-stream body: " << axllm::stringify(response)
+              << "\n";
+    return 1;
+  }
+  std::cout << "mcp-sse-roundtrip-ok\n";
+  return 0;
+}
+`
+
+const cppStreamHTTPRoundtripExample = `#include "axllm/axllm.hpp"
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <iostream>
+#include <string>
+#include <thread>
+#include <vector>
+
+// Drive a streaming stream() through the REAL libcurl HttpTransport against an
+// in-process loopback server that returns a spec-legal text/event-stream body
+// with a MULTI-LINE data: event and CRLF line endings. The conformance
+// ScriptedTransport only ever feeds single-line data: JSON, so this is the only
+// end-to-end coverage for the SSE line-folding that src/ax/util/sse.ts performs.
+// Returns non-zero on any mismatch so axir verify fails if the folding
+// regresses. Requires libcurl (AXLLM_ENABLE_CURL); axir verify skips it when
+// libcurl is unavailable.
+
+namespace {
+
+// Read the full request (headers + Content-Length body) so libcurl can then
+// read the response without the connection being reset mid-write.
+void drain_request(int fd) {
+  std::string buf;
+  char tmp[4096];
+  size_t header_end = std::string::npos;
+  size_t content_length = 0;
+  while (true) {
+    if (header_end == std::string::npos) {
+      size_t pos = buf.find("\r\n\r\n");
+      if (pos != std::string::npos) {
+        header_end = pos + 4;
+        std::string headers = buf.substr(0, pos);
+        size_t start = 0;
+        while (start < headers.size()) {
+          size_t next = headers.find("\r\n", start);
+          std::string line =
+              headers.substr(start, (next == std::string::npos ? headers.size() : next) - start);
+          std::string lower = line;
+          for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+          if (lower.rfind("content-length:", 0) == 0) {
+            content_length = std::stoul(line.substr(line.find(':') + 1));
+          }
+          if (next == std::string::npos) break;
+          start = next + 2;
+        }
+      }
+    }
+    if (header_end != std::string::npos && buf.size() >= header_end + content_length) break;
+    ssize_t n = recv(fd, tmp, sizeof(tmp), 0);
+    if (n <= 0) break;
+    buf.append(tmp, static_cast<size_t>(n));
+  }
+}
+
+void write_response(int fd, const std::string& content_type, const std::string& body) {
+  std::string out = "HTTP/1.1 200 OK\r\nContent-Type: " + content_type +
+                    "\r\nContent-Length: " + std::to_string(body.size()) +
+                    "\r\nConnection: close\r\n\r\n" + body;
+  size_t off = 0;
+  while (off < out.size()) {
+    ssize_t n = send(fd, out.data() + off, out.size() - off, 0);
+    if (n <= 0) break;
+    off += static_cast<size_t>(n);
+  }
+}
+
+}  // namespace
+
+int main() {
+  // One logical delta whose JSON is split across two data: lines (folded with
+  // "\n"), then a single-line delta, then [DONE]. Every line uses CRLF.
+  const std::string event1a =
+      "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":";
+  const std::string event1b = "{\"content\":\"Hello \"}}]}";
+  const std::string event2 =
+      "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
+  const std::string sse_body = "data: " + event1a + "\r\n" + "data: " + event1b + "\r\n" + "\r\n" +
+                               "data: " + event2 + "\r\n" + "\r\n" + "data: [DONE]\r\n" + "\r\n";
+
+  int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (server_fd < 0) {
+    std::cerr << "socket failed\n";
+    return 1;
+  }
+  int opt = 1;
+  setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = 0;
+  if (bind(server_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+    std::cerr << "bind failed\n";
+    return 1;
+  }
+  if (listen(server_fd, 4) < 0) {
+    std::cerr << "listen failed\n";
+    return 1;
+  }
+  socklen_t alen = sizeof(addr);
+  getsockname(server_fd, reinterpret_cast<sockaddr*>(&addr), &alen);
+  int port = ntohs(addr.sin_port);
+
+  std::thread server([&]() {
+    int fd = accept(server_fd, nullptr, nullptr);
+    if (fd < 0) return;
+    drain_request(fd);
+    write_response(fd, "text/event-stream", sse_body);
+    close(fd);
+  });
+
+  axllm::OpenAICompatibleClient client(
+      axllm::object({{"api_key", "test-key"},
+                     {"base_url", std::string("http://127.0.0.1:") + std::to_string(port)},
+                     {"model", "gpt-4.1-mini"}}),
+      nullptr);
+  std::vector<std::string> deltas;
+  for (const auto& event : client.stream(axllm::object(
+           {{"chat_prompt",
+             axllm::array({axllm::object({{"role", "user"}, {"content", "stream"}})})}}))) {
+    std::string content = axllm::display(
+        axllm::Core::get(axllm::Core::get(axllm::Core::get(event, "results"), 0), "content", ""));
+    if (!content.empty()) deltas.push_back(content);
   }
 
-  const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
-      {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-4.1-mini" : model},
-      {"model_config", axllm::object({{"temperature", 0}})},
-  }));
-  auto assistant = axllm::agent(
-      "question:string -> answer:string",
-      axllm::object({{"contextFields", axllm::array({})}}));
-  ProviderAgentClient stage_client(client);
-  axllm::Value output = assistant.forward(
-      stage_client,
-      axllm::object({{"question", "In one sentence, explain what Ax helps developers build."}}));
-  std::cout << axllm::stringify(axllm::object({{"agentOutput", output}, {"rawModelAnswer", stage_client.raw_model_answer}}))
-            << "\n";
+  server.join();
+  close(server_fd);
+
+  if (deltas.empty() || deltas.front() != "Hello ") {
+    std::cerr << "multi-line data: event was not folded into one JSON value\n";
+    return 1;
+  }
+  std::string text;
+  for (const auto& d : deltas) text += d;
+  if (text != "Hello world") {
+    std::cerr << "bad stream fold: " << text << "\n";
+    return 1;
+  }
+  std::cout << "stream-http-roundtrip-ok\n";
+  return 0;
 }
 `
 
@@ -1802,6 +2502,79 @@ int main() {
   std::cout << "gemini setup:\n" << axllm::stringify(gemini.realtime_audio_setup(gemini_request)) << "\n";
   std::cout << "gemini input messages:\n" << axllm::stringify(gemini.realtime_audio_input(gemini_request)) << "\n";
   std::cout << "gemini normalized events:\n" << axllm::stringify(axllm::Value(gemini.realtime(gemini_events))) << "\n";
+}
+`
+
+const cppRealtimeAudioTurnExample = `#include "axllm/axllm.hpp"
+
+#include <cstdlib>
+#include <iostream>
+#include <string>
+#include <vector>
+
+// Drive a realtime audio TURN through the productized realtime_chat driver using
+// ScriptedRealtimeTransport: the deterministic, credential-free path that
+// exercises the full send-setup -> send-input -> fold -> merge loop without a
+// live socket (the live socket path is verified separately against the real
+// API). Exits non-zero on any mismatch so ` + "`axir verify`" + ` fails if it regresses.
+namespace {
+[[noreturn]] void fail(const std::string& message, const axllm::Value& detail) {
+  std::cout << "realtime-audio-turn FAIL: " << message << " " << axllm::stringify(detail) << "\n";
+  std::exit(1);
+}
+}  // namespace
+
+int main() {
+  axllm::GrokClient client(axllm::object({
+      {"model", "grok-voice-think-fast-1.0"},
+      {"api_key", "test-key"},
+  }));
+  axllm::Value request = axllm::object({
+      {"model", "grok-voice-think-fast-1.0"},
+      {"chat_prompt",
+       axllm::array({
+           axllm::object({{"role", "system"}, {"content", "You are a concise voice agent."}}),
+           axllm::object({{"role", "user"}, {"content", "Say hello."}}),
+       })},
+      {"audio", axllm::object({{"output", axllm::object({{"voice", "eve"}})}})},
+  });
+  // Canned server frames: session handshake, two transcript deltas, an audio
+  // delta, then the terminal response.done.
+  std::vector<axllm::Value> inbound = {
+      axllm::object({{"type", "session.created"}}),
+      axllm::object({{"type", "session.updated"}}),
+      axllm::object({{"type", "response.output_audio_transcript.delta"}, {"response_id", "rt"}, {"delta", "hel"}}),
+      axllm::object({{"type", "response.output_audio_transcript.delta"}, {"response_id", "rt"}, {"delta", "lo"}}),
+      axllm::object({{"type", "response.output_audio.delta"}, {"response_id", "rt"}, {"delta", "AQI="}}),
+      axllm::object({{"type", "response.done"}, {"response", axllm::object({{"id", "rt"}, {"usage", axllm::object({{"input_tokens", 3}, {"output_tokens", 2}, {"total_tokens", 5}})}})}}),
+  };
+
+  axllm::ScriptedRealtimeTransport transport(inbound);
+  axllm::Value final_response = client.realtime_chat(request, &transport);
+
+  std::string sent;
+  for (const auto& event : transport.sent) sent += axllm::stringify(axllm::Core::get(event, "type")) + " ";
+  std::cout << "driver sent: " << sent << "\n";
+  std::cout << "merged result: " << axllm::stringify(final_response) << "\n";
+
+  axllm::Value result;
+  for (const auto& entry : axllm::Core::iter(axllm::Core::get(final_response, "results"))) {
+    result = entry;
+    break;
+  }
+
+  // The driver must send the Core-built session.update first, then the inputs.
+  if (sent != "\"session.update\" \"conversation.item.create\" \"response.create\" ") {
+    fail("unexpected sent event order", final_response);
+  }
+  // Transcript deltas concatenated, audio chunk surfaced, turn finished.
+  if (axllm::stringify(axllm::Core::get(result, "content")) != "\"hello\"") fail("transcript not concatenated", final_response);
+  if (axllm::stringify(axllm::Core::get(result, "finish_reason")) != "\"stop\"") fail("turn did not finish", final_response);
+  if (axllm::stringify(axllm::Core::get(axllm::Core::get(result, "audio"), "data")) != "\"AQI=\"") {
+    fail("audio chunk not surfaced", final_response);
+  }
+  std::cout << "realtime-audio-turn-ok\n";
+  return 0;
 }
 `
 

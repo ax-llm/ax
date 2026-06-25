@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>dev.axllm</groupId>
   <artifactId>ax</artifactId>
-  <version>22.0.3</version>
+  <version>22.0.7</version>
   <name>Ax</name>
   <url>https://axllm.dev</url>
   <licenses>
@@ -16,8 +16,17 @@
   <scm>
     <url>https://github.com/ax-llm/ax</url>
     <connection>scm:git:https://github.com/ax-llm/ax.git</connection>
+    <developerConnection>scm:git:https://github.com/ax-llm/ax.git</developerConnection>
   </scm>
   <description>Generated Ax runtime library.</description>
+
+  <developers>
+    <developer>
+      <id>ax-llm</id>
+      <name>Ax</name>
+      <url>https://github.com/ax-llm/ax</url>
+    </developer>
+  </developers>
 
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
@@ -53,4 +62,94 @@
       </plugin>
     </plugins>
   </build>
+
+  <!--
+    `release` profile: builds the sources + javadoc jars, GPG-signs every
+    artifact, and publishes to the Maven Central Portal. Kept out of the default
+    build so a plain `mvn install` (repo runner / local consumer) needs no GPG key.
+    CI activates it with `mvn -Prelease deploy` (see .github/workflows/package-publish.yml).
+  -->
+  <profiles>
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>3.3.1</version>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <includes>
+                <include>dev/axllm/ax/**</include>
+              </includes>
+              <excludes>
+                <exclude>dev/axllm/ax/runtime/quickjs/**</exclude>
+              </excludes>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>3.6.3</version>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <quiet>true</quiet>
+              <doclint>none</doclint>
+              <failOnError>false</failOnError>
+              <sourcepath>${project.basedir}</sourcepath>
+              <sourceFileIncludes>
+                <include>dev/axllm/ax/*.java</include>
+              </sourceFileIncludes>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.4</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <gpgArguments>
+                <arg>--pinentry-mode</arg>
+                <arg>loopback</arg>
+              </gpgArguments>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.11.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>true</autoPublish>
+              <waitUntil>published</waitUntil>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

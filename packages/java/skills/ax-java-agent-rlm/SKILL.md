@@ -1,7 +1,7 @@
 ---
 name: "ax-java-agent-rlm"
 description: "Use when writing Java code with `dev.axllm:ax` for RLM executor loops, AxCodeRuntime sessions, runtime envelopes, process runtimes, and optional runtime profiles."
-version: "22.0.3"
+version: "22.0.7"
 ---
 # AxAgent RLM Runtime For Java
 

@@ -8,7 +8,8 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 - `axir-2026-06-16-match-gepa-best-candidate-tie-break-to-prefer-the-accepted-evolu` [axoptimize] Match GEPA best-candidate tie-break to prefer the accepted evolution
   - Status: open
-  - Source commit: `2029aa0ff0756c7ecb10ac0196fa25917121b74f`
+  - Source PR: #546
+  - Source commit: `d7570019ba945edb4a733345cc63a080463fdc3a`
   - TS paths: `src/ax/dsp/optimizers/gepa.ts`, `src/ax/dsp/optimizers/gepa.test.ts`
   - Impact: GEPA compile() now breaks a scalarized-score tie on the Pareto front toward the later-discovered candidate, so an accepted evolution that only ties the seed surfaces in componentMap instead of the seed text. Generated Python/Java/C++/Go/Rust AxGEPA selection still breaks ties toward the earlier candidate (the seed) and can return the original instruction, drifting from the TS optimizer.
   - Suggested AxIR work: Update the AxGEPA candidate-selection lowering so a scalarized-score tie selects the later candidate.; Add a TS-derived axoptimize conformance fixture for a tie between the seed and an accepted evolution.; Run npm run axir:conformance:check and npm run test:axir.
@@ -22,5 +23,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Impact: Generated Python, Java, C++, Go, and Rust packages do not yet expose the modern MCP client, transports, OAuth discovery, or SSRF guard behavior.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-06-07
+  - Completed by: `working-tree`
+  - Verification: `npm run test:axir`
+- `axir-2026-06-24-port-anthropic-transient-error-classification-streaming-retry-fa` [axai] Port Anthropic transient-error classification + streaming retry/failover
+  - Status: done
+  - Source PR: #556
+  - Source commit: `2d1a5f96f033640bf4e892e866fde99bc92e8268`
+  - TS paths: `src/ax/ai`
+  - Impact: Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording — so transient Anthropic errors hard-fail there with no retry or failover.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-06-25
   - Completed by: `working-tree`
   - Verification: `npm run test:axir`

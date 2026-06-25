@@ -1,0 +1,29 @@
+{
+  "name": "anthropic-stream-error-overloaded",
+  "kind": "ai_error",
+  "method": "stream",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "stream"
+      }
+    ],
+    "model_config": {
+      "stream": true
+    }
+  },
+  "options": {
+    "stream": true,
+    "retry": {
+      "maxRetries": 0
+    }
+  },
+  "transport_responses": [
+    "data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Stream overloaded\"}}\n\n"
+  ],
+  "expected_error_type": "AxAIServiceStatusError",
+  "expected_error_contains": "Stream overloaded",
+  "expected_status": 529
+}

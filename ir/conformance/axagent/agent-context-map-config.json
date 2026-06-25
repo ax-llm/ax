@@ -1,0 +1,48 @@
+{
+  "expected_exported_state_subset": {
+    "context_map": {
+      "next_id": 3,
+      "scores": {
+        "dc-1": 1
+      },
+      "steps": 1,
+      "text": "## CONTEXT ROADMAP\n## CONTEXT UNDERSTANDING\n[cu-2] France resolves to Paris\n## DOMAIN CONSTANTS\n[dc-1] official capitals preferred\n## PARSING SCHEMA\n## REUSABLE RESULTS\n## ERROR PATTERNS"
+    }
+  },
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_contains": ["context-map Cartographer"],
+  "input": {
+    "question": "Capital of France?"
+  },
+  "kind": "agent_forward",
+  "name": "agent-context-map-config",
+  "options": {
+    "contextFields": [],
+    "contextMap": {
+      "infiniteEvolve": true,
+      "map": "## DOMAIN CONSTANTS\n[dc-1] official capitals preferred",
+      "maxChars": 4000,
+      "next_id": 2
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
+    },
+    {
+      "content": "{\"itemTags\":{\"dc-1\":\"helpful\"}}"
+    },
+    {
+      "content": "{\"operations\":[{\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"France resolves to Paris\"}]}"
+    },
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

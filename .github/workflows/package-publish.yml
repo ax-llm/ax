@@ -63,3 +63,37 @@ jobs:
         with:
           packages-dir: packages/python/dist
           skip-existing: true
+
+  java-maven-central:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+      # Configures ~/.m2/settings.xml with the `central` server (Portal token) and
+      # imports the GPG signing key the `release` profile in packages/java/pom.xml uses.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      # Dry run builds + GPG-signs the jars (verify) but stops before upload; a real
+      # release runs `deploy`, which the central-publishing plugin uploads and publishes.
+      - name: Publish dev.axllm:ax to Maven Central
+        working-directory: packages/java
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          GOAL="deploy"
+          if [ "$DRY_RUN" = "true" ]; then
+            GOAL="verify"
+          fi
+          mvn -B -ntp -Prelease -DskipTests "$GOAL"

@@ -111,7 +111,7 @@ int main() {
     })
   );
   ProfileAIClient forward_client({
-    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"}}),
+    axllm::object({{"content", "{\"pythonCode\":\"final('Run actor', {})\"}"}}),
     axllm::object({{"content", "{\"pythonCode\":\"discover({'tools': ['search']})\"}"}}),
     axllm::object({{"content", "{\"pythonCode\":\"recall('docs')\"}"}}),
     axllm::object({{"content", "{\"pythonCode\":\"hit = search({'query': inputs['question']})\\nfinal('Answer', {'answer': hit['title']})\"}"}}),
@@ -136,7 +136,7 @@ int main() {
 
   auto guide_agent = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "Python"}})}}));
   ProfileAIClient guide_client({
-    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide\",{}]}}"}}),
+    axllm::object({{"content", "{\"pythonCode\":\"final('Guide', {})\"}"}}),
     axllm::object({{"content", "{\"pythonCode\":\"guideAgent('Prefer concise final.')\"}"}}),
     axllm::object({{"content", "{\"pythonCode\":\"final('Answer', {'answer': 'Concise'})\"}"}}),
     axllm::object({{"content", "{\"answer\":\"Concise\"}"}}),
@@ -152,7 +152,7 @@ int main() {
 
   auto clarification_agent = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "Python"}})}}));
   ProfileAIClient clarification_client({
-    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Ask\",{}]}}"}}),
+    axllm::object({{"content", "{\"pythonCode\":\"final('Ask', {})\"}"}}),
     axllm::object({{"content", "{\"pythonCode\":\"askClarification('Need detail?')\"}"}}),
   });
   bool saw_clarification = false;

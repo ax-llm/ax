@@ -80,7 +80,7 @@ export const defaultRetryConfig: RetryConfig = {
   initialDelayMs: 1000,
   maxDelayMs: 60000,
   backoffFactor: 2,
-  retryableStatusCodes: [500, 408, 429, 502, 503, 504],
+  retryableStatusCodes: [500, 408, 429, 502, 503, 504, 529],
 };
 
 const textDecoderStream =

@@ -79,7 +79,7 @@ async function runWithContextCache() {
     name: 'google-gemini',
     apiKey: process.env.GOOGLE_APIKEY,
     config: {
-      model: AxAIGoogleGeminiModel.Gemini25Flash,
+      model: AxAIGoogleGeminiModel.Gemini35Flash,
     },
   });
 
@@ -183,7 +183,7 @@ async function runWithExplicitCacheManagement() {
     name: 'google-gemini',
     apiKey: process.env.GOOGLE_APIKEY,
     config: {
-      model: AxAIGoogleGeminiModel.Gemini25Flash,
+      model: AxAIGoogleGeminiModel.Gemini35Flash,
     },
   });
 

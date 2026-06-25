@@ -65,7 +65,19 @@ func buildPythonCoreModule(model AxRuntimeModel, module, template, marker string
 	if err != nil {
 		return "", err
 	}
-	return mustInject(out, "# AXIR_CORE_IMPORTS\n", renderPythonCoreImports(st.imports, template), "python "+module)
+	final, err := mustInject(out, "# AXIR_CORE_IMPORTS\n", renderPythonCoreImports(st.imports, template), "python "+module)
+	if err != nil {
+		return "", err
+	}
+	// Python is the only target without compile-time reference checking, so a
+	// helper an emitted op calls but that the module never defines (or imports)
+	// would otherwise surface only as a runtime NameError. Fail generation
+	// loudly instead. TestPythonModulesSelfContained applies the same audit
+	// across every generated module.
+	if missing := pythonModuleMissingHelpers(final); len(missing) > 0 {
+		return "", fmt.Errorf("python %q module calls undefined helper(s) %s; define them in the module template or import them from a sibling", module, strings.Join(missing, ", "))
+	}
+	return final, nil
 }
 
 // renderPythonCoreImports renders the generated cross-module imports,
@@ -121,6 +133,49 @@ func pythonTemplateImports(template string) map[string]map[string]bool {
 	for _, m := range pythonImportBlockRe.FindAllStringSubmatch(template, -1) {
 		add(m[1], m[2])
 	}
+	return out
+}
+
+var (
+	pythonHelperDefRe  = regexp.MustCompile(`(?m)^\s*def (_[a-z0-9_]+)\(`)
+	pythonHelperBindRe = regexp.MustCompile(`(?m)^\s*(_[a-z0-9_]+) = `)
+	pythonHelperCallRe = regexp.MustCompile(`[^.\w](_[a-z0-9_]+)\(`)
+)
+
+// pythonModuleMissingHelpers returns the sorted, unique underscore helpers that
+// a fully assembled generated Python module calls but never defines, binds at
+// module scope, or imports from a sibling. Because every helper body is part of
+// the scanned text, transitive references (a helper that calls another helper,
+// e.g. _core_fields_from_map -> _nested_field) are covered too.
+func pythonModuleMissingHelpers(text string) []string {
+	allowed := map[string]bool{}
+	for _, m := range pythonHelperDefRe.FindAllStringSubmatch(text, -1) {
+		allowed[m[1]] = true
+	}
+	for _, m := range pythonHelperBindRe.FindAllStringSubmatch(text, -1) {
+		allowed[m[1]] = true
+	}
+	for _, re := range []*regexp.Regexp{pythonImportBlockRe, pythonImportLineRe} {
+		for _, m := range re.FindAllStringSubmatch(text, -1) {
+			for _, name := range pythonImportNameRe.FindAllString(m[2], -1) {
+				allowed[name] = true
+			}
+		}
+	}
+	missing := map[string]bool{}
+	for _, m := range pythonHelperCallRe.FindAllStringSubmatch(text, -1) {
+		if !allowed[m[1]] {
+			missing[m[1]] = true
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(missing))
+	for name := range missing {
+		out = append(out, name)
+	}
+	sort.Strings(out)
 	return out
 }
 

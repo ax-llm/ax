@@ -3,11 +3,8 @@
   "label": "Go",
   "shortLabel": "Go",
   "fence": "go",
-  "packageName": "github.com/ax-llm/ax/go",
-  "install": [
-    "git clone https://github.com/ax-llm/ax && cd ax/packages/go",
-    "go run ./examples/signature_schema"
-  ],
+  "packageName": "github.com/ax-llm/ax/packages/go",
+  "install": ["go get github.com/ax-llm/ax/packages/go"],
   "exampleRoot": "packages/go/examples",
   "apiKind": "axir",
   "optimizeName": "AxGEPA",
@@ -21,8 +18,17 @@
     "optimize": ["Optimizers"]
   },
   "snippets": {
+    "ai": {
+      "audio": [
+        "// Realtime audio over WebSocket — needs Go 1.23+",
+        "client := ax.NewOpenAIResponsesClient(map[string]ax.Value{\"model\": \"gpt-realtime-2\", \"api_key\": os.Getenv(\"OPENAI_APIKEY\")})",
+        "request := map[string]ax.Value{\"model\": \"gpt-realtime-2\", \"chat_prompt\": ax.Array(ax.Object(\"role\", \"user\", \"content\", \"Say hello.\")), \"audio\": ax.Object(\"output\", ax.Object(\"voice\", \"alloy\"))}",
+        "final, _ := client.RealtimeChat(context.Background(), request, nil, nil)  // one merged turn: transcript + base64 PCM audio",
+        "// Realtime models also route transparently through Chat(); Chat() accepts input_audio parts; Transcribe()/Speak() do batch STT/TTS."
+      ]
+    },
     "quickStart": [
-      "import axllm \"github.com/ax-llm/ax/go\"",
+      "import axllm \"github.com/ax-llm/ax/packages/go\"",
       "",
       "client := axllm.NewAI(\"openai\", map[string]axllm.Value{\"apiKey\": os.Getenv(\"OPENAI_API_KEY\")})",
       "classify := axllm.NewAx(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\", nil)"

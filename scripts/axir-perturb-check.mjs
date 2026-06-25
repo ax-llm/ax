@@ -17,16 +17,23 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(scriptDir, '..');
-const conformanceRoot = path.join(repoRoot, 'ir', 'conformance');
+export const repoRoot = path.resolve(scriptDir, '..');
+export const conformanceRoot = path.join(repoRoot, 'ir', 'conformance');
 
 export const DEFAULT_TARGETS = ['python', 'go', 'rust', 'java', 'cpp'];
+
+// Engine-required suites: their fixtures need an optional in-process engine
+// (goja/quickjs) that the default conformance runner here does NOT load, so they
+// run in dedicated engine lanes (the axir-agent-antidote CI job + G1 fixtures),
+// not in this harness. Mirrors conformanceSuitePaths, which also omits them.
+export const ENGINE_ONLY_SUITES = new Set(['axagent-real']);
 
 // One representative fixture per suite: the alphabetically first .json file.
 export function sampleFixtures(root = conformanceRoot) {
   const suites = readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
+    .filter((name) => !ENGINE_ONLY_SUITES.has(name))
     .sort();
   const sample = [];
   for (const suite of suites) {
@@ -98,7 +105,7 @@ function run(command, args, options = {}) {
   });
 }
 
-function compileTarget(target, outDir) {
+export function compileTarget(target, outDir) {
   execFileSync(
     'node',
     [
@@ -116,7 +123,7 @@ function compileTarget(target, outDir) {
 
 // Build each target's conformance runner once; return a function that runs
 // it against a suite directory and reports pass/fail.
-function buildRunner(target, outDir) {
+export function buildRunner(target, outDir) {
   switch (target) {
     case 'python':
       return (suiteDir) =>
@@ -149,7 +156,13 @@ function buildRunner(target, outDir) {
       if (build.status !== 0) {
         throw new Error(`cargo build failed:\n${build.stdout}${build.stderr}`);
       }
-      const bin = path.join(outDir, 'target', 'debug', 'axllm-conformance');
+      // cargo honors CARGO_TARGET_DIR (CI sets it for build caching); resolve the
+      // binary from the same dir cargo built into rather than assuming outDir/target.
+      const targetDir = path.resolve(
+        outDir,
+        process.env.CARGO_TARGET_DIR || 'target'
+      );
+      const bin = path.join(targetDir, 'debug', 'axllm-conformance');
       return (suiteDir) => run(bin, [suiteDir], { cwd: outDir });
     }
     case 'java': {

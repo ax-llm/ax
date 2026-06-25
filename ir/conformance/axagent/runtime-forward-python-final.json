@@ -10,6 +10,7 @@
     }
   ],
   "expected_executed": [
+    "final(\"Execute runtime code\", {})",
     "final(\"Answer\", {\"answer\": \"from runtime\"})"
   ],
   "expected_output": {
@@ -35,7 +36,7 @@
   },
   "responses": [
     {
-      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Execute runtime code\",{}]}}"
+      "content": "{\"pythonCode\": \"final(\\\"Execute runtime code\\\", {})\"}"
     },
     {
       "content": "{\"pythonCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"from runtime\\\"})\"}"
@@ -45,6 +46,13 @@
     }
   ],
   "runtime_script": [
+    {
+      "expected_code": "final(\"Execute runtime code\", {})",
+      "result": {
+        "args": ["Execute runtime code", {}],
+        "type": "final"
+      }
+    },
     {
       "expected_code": "final(\"Answer\", {\"answer\": \"from runtime\"})",
       "result": {

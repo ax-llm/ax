@@ -10,12 +10,18 @@
     }
   ],
   "expected_executed": [
+    "final(\"Execute runtime code\", {})",
     "final(\"Answer\", {\"answer\": \"from runtime\"})"
   ],
   "expected_output": {
     "answer": "from runtime"
   },
   "expected_request_count": 3,
+  "expected_request_contains": [
+    "## Executor",
+    "await final(task: string, context?: object)",
+    "Answer Synthesis Agent"
+  ],
   "expected_runtime_contract_subset": {
     "code_fence_language": "js",
     "code_field_name": "javascriptCode",
@@ -35,7 +41,7 @@
   },
   "responses": [
     {
-      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Execute runtime code\",{}]}}"
+      "content": "{\"javascriptCode\": \"final(\\\"Execute runtime code\\\", {})\"}"
     },
     {
       "content": "{\"javascriptCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"from runtime\\\"})\"}"
@@ -45,6 +51,13 @@
     }
   ],
   "runtime_script": [
+    {
+      "expected_code": "final(\"Execute runtime code\", {})",
+      "result": {
+        "args": ["Execute runtime code", {}],
+        "type": "final"
+      }
+    },
     {
       "expected_code": "final(\"Answer\", {\"answer\": \"from runtime\"})",
       "result": {

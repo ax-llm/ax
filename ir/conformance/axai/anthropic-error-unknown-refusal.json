@@ -1,0 +1,27 @@
+{
+  "name": "anthropic-error-unknown-refusal",
+  "kind": "ai_error",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "type": "error",
+        "error": {
+          "type": "billing_error",
+          "message": "Account suspended"
+        }
+      }
+    }
+  ],
+  "expected_error_type": "AxAIRefusalError",
+  "expected_error_contains": "Account suspended"
+}

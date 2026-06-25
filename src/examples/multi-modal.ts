@@ -11,7 +11,7 @@ const image = fs
 const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
-  config: { model: AxAIOpenAIModel.GPT4O },
+  config: { model: AxAIOpenAIModel.GPT54 },
   options: { debug: true },
 });
 

@@ -54,7 +54,7 @@ result = program.forward(client, inputs)
 - Prefer provider factories over direct provider classes in new code.
 - Use model catalog and provider-scoring helpers when choosing between providers.
 - Use routers/balancers when a workflow can fall back or split traffic.
-- Keep provider-api examples separate from no-key examples.
+- Keep public provider examples separate from internal conformance fixtures.
 - Trace provider requests, token usage, estimated cost, and routing decisions in production.
 
 See [ai() API]({{langRoot}}/api/ai/).

@@ -909,6 +909,118 @@ writeFixture('balancer-input-order-retry', {
   },
 });
 
+const overload529PrimarySpec = {
+  name: 'Overload529Primary',
+  id: 'Overload529Primary-id',
+  features: routerFeatures(),
+  metrics: balancerMetrics(100),
+  responses: [
+    { error: { type: 'status', status: 529, message: 'overloaded' } },
+    { error: { type: 'status', status: 529, message: 'overloaded' } },
+  ],
+};
+const overload529BackupSpec = {
+  name: 'Overload529Backup',
+  id: 'Overload529Backup-id',
+  features: routerFeatures(),
+  metrics: balancerMetrics(300),
+};
+const balancerOverload529Services = [
+  new FixtureAIService(overload529PrimarySpec),
+  new FixtureAIService(overload529BackupSpec),
+];
+const balancerOverload529 = new AxBalancer(balancerOverload529Services as any, {
+  comparator: AxBalancer.inputOrderComparator,
+  debug: false,
+  maxRetries: 2,
+});
+const balancerOverload529Chat = await balancerOverload529.chat(
+  {
+    model: 'overload-model',
+    chatPrompt: [{ role: 'user', content: 'overload' }],
+  } as any,
+  { trace: 'overload' } as any
+);
+writeFixture('balancer-status-529-failover', {
+  kind: 'ai_balancer',
+  services: [overload529PrimarySpec, overload529BackupSpec],
+  options: { strategy: 'input_order', debug: false, maxRetries: 2 },
+  operations: [
+    {
+      name: 'chat',
+      request: {
+        model: 'overload-model',
+        chatPrompt: [{ role: 'user', content: 'overload' }],
+      },
+      options: { trace: 'overload' },
+    },
+  ],
+  expected_output: {
+    outputs: { chat: balancerOverload529Chat as any },
+    lastChat: balancerOverload529.getLastUsedChatModel() as Json,
+    serviceCalls: balancerOverload529Services
+      .map((service) => normalizeFixtureServiceCalls(service.requests))
+      .filter((calls) => calls.length > 0),
+  },
+});
+
+// Proves balancer failover on the STREAMING path: a stream() call whose primary hits a
+// retryable 529 must fail over to the healthy backup, same as chat(). The ports route
+// balancer.stream() through the chat() failover loop, so the streamed deltas come from the
+// backup. TS AxBalancer has no separate stream(), so the expected single-result delta is the
+// failover chat result wrapped as one stream chunk (every port's stream wrapper collapses a
+// single-result response to [{ results: [result] }]). serviceCalls are not asserted because
+// the stream wrapper adds `stream: true` to the recorded options.
+const overload529StreamPrimarySpec = {
+  name: 'Overload529StreamPrimary',
+  id: 'Overload529StreamPrimary-id',
+  features: routerFeatures(),
+  metrics: balancerMetrics(100),
+  responses: [
+    { error: { type: 'status', status: 529, message: 'overloaded' } },
+    { error: { type: 'status', status: 529, message: 'overloaded' } },
+  ],
+};
+const overload529StreamBackupSpec = {
+  name: 'Overload529StreamBackup',
+  id: 'Overload529StreamBackup-id',
+  features: routerFeatures(),
+  metrics: balancerMetrics(300),
+};
+const balancerOverload529StreamServices = [
+  new FixtureAIService(overload529StreamPrimarySpec),
+  new FixtureAIService(overload529StreamBackupSpec),
+];
+const balancerOverload529Stream = new AxBalancer(
+  balancerOverload529StreamServices as any,
+  { comparator: AxBalancer.inputOrderComparator, debug: false, maxRetries: 2 }
+);
+const balancerOverload529StreamChat = await balancerOverload529Stream.chat(
+  {
+    model: 'overload-model',
+    chatPrompt: [{ role: 'user', content: 'overload' }],
+  } as any,
+  { trace: 'overload' } as any
+);
+writeFixture('balancer-status-529-stream-failover', {
+  kind: 'ai_balancer',
+  services: [overload529StreamPrimarySpec, overload529StreamBackupSpec],
+  options: { strategy: 'input_order', debug: false, maxRetries: 2 },
+  operations: [
+    {
+      name: 'stream',
+      request: {
+        model: 'overload-model',
+        chatPrompt: [{ role: 'user', content: 'overload' }],
+      },
+      options: { trace: 'overload' },
+    },
+  ],
+  expected_output: {
+    outputs: { stream: [balancerOverload529StreamChat as any] },
+  },
+});
+
 const textOnlyBalancerSpec = {
   name: 'TextBalancer',
   id: 'TextBalancer-id',
@@ -1123,16 +1235,21 @@ writeFixture('anthropic-provider-descriptor', {
     name: 'anthropic',
     defaultModel: anthropicDefaultModel,
     auth: 'anthropic_key',
-    baseUrl: 'https://api.anthropic.com/v1',
+    baseUrl: 'https://api.anthropic.com',
     headers: {
       'anthropic-version': '2023-06-01',
       'anthropic-beta': 'structured-outputs-2025-11-13, web-search-2025-03-05',
     },
     operations: {
-      chat: { method: 'POST', path: '/messages', body: 'json', stream: false },
+      chat: {
+        method: 'POST',
+        path: '/v1/messages',
+        body: 'json',
+        stream: false,
+      },
       stream_chat: {
         method: 'POST',
-        path: '/messages',
+        path: '/v1/messages',
         body: 'json',
         stream: true,
       },
@@ -2007,13 +2124,13 @@ writeFixture('responses-realtime-audio-grammar-reuse', {
   expected_setup: {
     type: 'session.update',
     session: {
-      voice: 'alloy',
-      turn_detection: null,
+      type: 'realtime',
+      model: responsesDefaultModel,
+      output_modalities: ['audio'],
       audio: {
         input: { format: { type: 'audio/pcm', rate: 24000 } },
-        output: { format: { type: 'audio/pcm', rate: 24000 } },
+        output: { format: { type: 'audio/pcm', rate: 24000 }, voice: 'alloy' },
       },
-      modalities: ['audio'],
       instructions: 'Speak briefly.',
     },
   },
@@ -2026,7 +2143,7 @@ writeFixture('responses-realtime-audio-grammar-reuse', {
         content: [{ type: 'input_text', text: 'Say hi.' }],
       },
     },
-    { type: 'response.create', response: { modalities: ['audio'] } },
+    { type: 'response.create', response: { output_modalities: ['audio'] } },
   ],
   events: [],
   expected_output: [],
@@ -2050,13 +2167,13 @@ writeFixture('grok-realtime-audio-session-and-events', {
   expected_setup: {
     type: 'session.update',
     session: {
-      voice: 'eve',
-      turn_detection: null,
+      type: 'realtime',
+      model: grokVoiceDefaultModel,
+      output_modalities: ['audio'],
       audio: {
         input: { format: { type: 'audio/pcm', rate: 24000 } },
-        output: { format: { type: 'audio/pcm', rate: 24000 } },
+        output: { format: { type: 'audio/pcm', rate: 24000 }, voice: 'eve' },
       },
-      modalities: ['audio'],
       instructions: 'You are a concise voice agent.',
     },
   },
@@ -2069,7 +2186,7 @@ writeFixture('grok-realtime-audio-session-and-events', {
         content: [{ type: 'input_text', text: 'Say hello.' }],
       },
     },
-    { type: 'response.create', response: { modalities: ['audio'] } },
+    { type: 'response.create', response: { output_modalities: ['audio'] } },
   ],
   events: [
     {

@@ -1,11 +1,11 @@
 ---
 name: "ax-go-audio"
-description: "Use when writing Go code with `github.com/ax-llm/ax/go` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples."
-version: "22.0.3"
+description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples."
+version: "22.0.7"
 ---
 # Ax Audio And Realtime For Go
 
-This skill helps an agent write Go code with the generated Ax package `github.com/ax-llm/ax/go`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
+This skill helps an agent write Go code with the generated Ax package `github.com/ax-llm/ax/packages/go`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
 
 ## When To Use
 
@@ -16,7 +16,7 @@ This skill helps an agent write Go code with the generated Ax package `github.co
 ## Package Facts
 
 - Language: Go.
-- Package: `github.com/ax-llm/ax/go`.
+- Package: `github.com/ax-llm/ax/packages/go`.
 - Package API docs: `API.md` and `axir-api.json`.
 - Capability manifest: `axir-capabilities.json`.
 - Runnable examples: `examples/`.
@@ -27,7 +27,7 @@ This skill helps an agent write Go code with the generated Ax package `github.co
 ## Core Pattern
 
 ```go
-import ax "github.com/ax-llm/ax/go"
+import ax "github.com/ax-llm/ax/packages/go"
 
 llm := ax.NewAI("openai", map[string]ax.Value{"apiKey": os.Getenv("OPENAI_API_KEY")})
 ```

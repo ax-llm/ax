@@ -1,0 +1,45 @@
+{
+  "expected_exported_state_subset": {
+    "checkpoint_state": {
+      "summary": "Objective: answer the question\nNext step: respond with Paris",
+      "summary_source": "model"
+    }
+  },
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_contains": ["AxAgent trajectory summarizer"],
+  "input": {
+    "question": "Capital of France?"
+  },
+  "kind": "agent_forward",
+  "name": "agent-checkpoint-llm-summary",
+  "options": {
+    "contextFields": [],
+    "summarizerOptions": {}
+  },
+  "restore_runtime_state": {
+    "checkpoint_state": {
+      "fingerprint": "fp-1",
+      "summary": "deterministic fallback",
+      "turns": [1],
+      "llm_pending": true,
+      "llm_input": "Objective: answer the question. Evidence: capital lookup."
+    }
+  },
+  "responses": [
+    {
+      "content": "Objective: answer the question\nNext step: respond with Paris"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
+    },
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

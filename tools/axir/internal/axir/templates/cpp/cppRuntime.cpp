@@ -1,5 +1,6 @@
 #include "axllm.hpp"
 
+#include <array>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -8,6 +9,12 @@
 
 #if defined(AXLLM_ENABLE_CURL)
 #include <curl/curl.h>
+#endif
+
+#if defined(AXLLM_ENABLE_REALTIME)
+#include <condition_variable>
+#include <deque>
+#include <ixwebsocket/IXWebSocket.h>
 #endif
 
 namespace axllm {
@@ -59,6 +66,31 @@ static std::map<std::string, AxCodeRuntime*>& code_runtime_registry() {
 static std::map<std::string, AxCodeSession*>& code_session_registry() {
   static std::map<std::string, AxCodeSession*> sessions;
   return sessions;
+}
+
+// Native host search callbacks: Value cannot hold a closure, so the closures live in
+// a process-lifetime registry keyed by id, and a small marker object ({"__*_search_id": id})
+// is placed in the agent options under "onMemoriesSearch"/"onSkillsSearch". The agent loop
+// (Core::agent_memory_search / agent_skill_search) reads the marker and dispatches here.
+static std::map<std::string, std::function<Value(Value, Value)>>& memories_search_registry() {
+  static std::map<std::string, std::function<Value(Value, Value)>> registry;
+  return registry;
+}
+static std::map<std::string, std::function<Value(Value)>>& skills_search_registry() {
+  static std::map<std::string, std::function<Value(Value)>> registry;
+  return registry;
+}
+Value register_memories_search(std::function<Value(Value, Value)> fn) {
+  static int counter = 0;
+  std::string id = "__mem_search_" + std::to_string(++counter);
+  memories_search_registry()[id] = std::move(fn);
+  return object({{"__memories_search_id", id}});
+}
+Value register_skills_search(std::function<Value(Value)> fn) {
+  static int counter = 0;
+  std::string id = "__skill_search_" + std::to_string(++counter);
+  skills_search_registry()[id] = std::move(fn);
+  return object({{"__skills_search_id", id}});
 }
 
 static std::map<std::string, std::function<Value(Value)>>& tool_registry() {
@@ -196,6 +228,126 @@ static bool has_key(const Value& object, const std::string& key) {
   return alias != aliases.end() && obj.count(alias->second) > 0;
 }
 
+// Decode a standard / URL-safe base64 string into raw bytes. Whitespace and
+// padding are tolerated; invalid characters terminate decoding. Used to turn
+// the base64 audio payload of a multipart `file` field back into raw bytes.
+static std::string axir_base64_decode(const std::string& input) {
+  // Build the reverse lookup table once (standard + URL-safe alphabet).
+  static const std::array<int8_t, 256> lookup = []() {
+    std::array<int8_t, 256> t{};
+    t.fill(-1);
+    const std::string alphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for (size_t i = 0; i < alphabet.size(); ++i) t[static_cast<unsigned char>(alphabet[i])] = static_cast<int8_t>(i);
+    // Accept URL-safe variants.
+    t[static_cast<unsigned char>('-')] = t[static_cast<unsigned char>('+')];
+    t[static_cast<unsigned char>('_')] = t[static_cast<unsigned char>('/')];
+    return t;
+  }();
+  std::string out;
+  out.reserve(input.size() / 4 * 3 + 3);
+  uint32_t buffer = 0;
+  int bits = 0;
+  for (unsigned char ch : input) {
+    if (ch == '=' || ch == '\r' || ch == '\n' || ch == ' ' || ch == '\t') continue;
+    int8_t value = lookup[ch];
+    if (value < 0) continue;
+    buffer = (buffer << 6) | static_cast<uint32_t>(value);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push_back(static_cast<char>((buffer >> bits) & 0xFF));
+    }
+  }
+  return out;
+}
+
+// Encode raw bytes as a standard (RFC 4648) base64 string. Used to return the
+// raw body of a binary response (e.g. OpenAI /audio/speech mp3 bytes) as a
+// string without UTF-8 / JSON handling. The input is a std::string whose length
+// comes from .size() so embedded NUL bytes are preserved.
+static std::string axir_base64_encode(const std::string& input) {
+  static const char alphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string out;
+  out.reserve((input.size() + 2) / 3 * 4);
+  size_t i = 0;
+  const size_t n = input.size();
+  while (i + 3 <= n) {
+    uint32_t triple = (static_cast<uint8_t>(input[i]) << 16) |
+                      (static_cast<uint8_t>(input[i + 1]) << 8) |
+                      static_cast<uint8_t>(input[i + 2]);
+    out.push_back(alphabet[(triple >> 18) & 0x3F]);
+    out.push_back(alphabet[(triple >> 12) & 0x3F]);
+    out.push_back(alphabet[(triple >> 6) & 0x3F]);
+    out.push_back(alphabet[triple & 0x3F]);
+    i += 3;
+  }
+  const size_t remaining = n - i;
+  if (remaining == 1) {
+    uint32_t triple = static_cast<uint8_t>(input[i]) << 16;
+    out.push_back(alphabet[(triple >> 18) & 0x3F]);
+    out.push_back(alphabet[(triple >> 12) & 0x3F]);
+    out.push_back('=');
+    out.push_back('=');
+  } else if (remaining == 2) {
+    uint32_t triple = (static_cast<uint8_t>(input[i]) << 16) |
+                      (static_cast<uint8_t>(input[i + 1]) << 8);
+    out.push_back(alphabet[(triple >> 18) & 0x3F]);
+    out.push_back(alphabet[(triple >> 12) & 0x3F]);
+    out.push_back(alphabet[(triple >> 6) & 0x3F]);
+    out.push_back('=');
+  }
+  return out;
+}
+
+// Encode a request payload as multipart/form-data. Multipart operations (e.g.
+// OpenAI /audio/transcriptions) carry the audio as a binary `file` part; every
+// other field is a plain form field. The `file` value is a base64 string
+// (optionally a data: URL) or an object {data, mimeType?, filename?}. Returns
+// the raw (binary-safe) body and the matching Content-Type header value.
+static std::pair<std::string, std::string> axir_encode_multipart(const Value& payload) {
+  const std::string boundary = "----axllmFormBoundaryAx7LlmMultipartBoundary";
+  const std::string crlf = "\r\n";
+  std::string body;
+  for (const auto& field : entries(payload)) {
+    const std::string& key = field.first;
+    const Value& value = field.second;
+    if (value.is_null()) continue;
+    if (key == "file") {
+      std::string data;
+      std::string filename = "audio.wav";
+      std::string content_type = "audio/wav";
+      if (value.is_object()) {
+        data = str(Core::get(value, "data", Value("")));
+        std::string fn = str(Core::get(value, "filename", Value("")));
+        if (!fn.empty()) filename = fn;
+        std::string mt = str(Core::get(value, "mimeType", Core::get(value, "mime_type", Value(""))));
+        if (!mt.empty()) content_type = mt;
+      } else {
+        data = str(value);
+      }
+      // Strip an optional `data:<mime>;base64,` URL prefix.
+      if (data.rfind("data:", 0) == 0) {
+        auto comma = data.find(',');
+        if (comma != std::string::npos) data = data.substr(comma + 1);
+      }
+      std::string file_bytes = axir_base64_decode(data);
+      if (file_bytes.empty() && !data.empty()) file_bytes = data;  // not base64 -> send raw
+      body += "--" + boundary + crlf;
+      body += "Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"" + crlf;
+      body += "Content-Type: " + content_type + crlf + crlf;
+      body += file_bytes + crlf;
+    } else {
+      body += "--" + boundary + crlf;
+      body += "Content-Disposition: form-data; name=\"" + key + "\"" + crlf + crlf;
+      body += str(value) + crlf;
+    }
+  }
+  body += "--" + boundary + "--" + crlf;
+  return {body, "multipart/form-data; boundary=" + boundary};
+}
+
 Value HttpTransport::call(Value request) {
 #if !defined(AXLLM_ENABLE_CURL)
   (void)request;
@@ -214,18 +366,42 @@ Value HttpTransport::call(Value request) {
 
   std::string response;
   char error_buffer[CURL_ERROR_SIZE] = {0};
+
+  // Build the request body. Normal operations carry a JSON payload under "json";
+  // multipart operations (e.g. OpenAI /audio/transcriptions) carry the payload
+  // under "data" and must be encoded as multipart/form-data with the audio sent
+  // as raw bytes. The body string is binary-safe (length comes from .size()).
+  bool multipart = !has_key(request, "json") && has_key(request, "data");
+  std::string payload;
+  std::string multipart_content_type;
+  if (multipart) {
+    auto encoded = axir_encode_multipart(Core::get(request, "data", Value::object()));
+    payload = std::move(encoded.first);
+    multipart_content_type = std::move(encoded.second);
+  } else {
+    Value body = Core::get(request, "json", Core::get(request, "data", Value::object()));
+    payload = stringify(body);
+  }
+
   struct curl_slist* headers = nullptr;
   for (const auto& entry : object_ref(Core::get(request, "headers", Value::object()))) {
     if (entry.first == "__order") continue;
+    // Override the JSON Content-Type for multipart requests.
+    if (multipart && (entry.first == "Content-Type" || entry.first == "content-type")) continue;
     std::string header = entry.first + ": " + str(entry.second);
     headers = curl_slist_append(headers, header.c_str());
   }
+  if (multipart) {
+    std::string ct_header = "Content-Type: " + multipart_content_type;
+    headers = curl_slist_append(headers, ct_header.c_str());
+  }
 
-  Value body = Core::get(request, "json", Core::get(request, "data", Value::object()));
-  std::string payload = stringify(body);
   std::string method = str(Core::get(request, "method", "POST"));
   std::string url = str(Core::get(request, "url"));
   bool stream = Core::truthy(Core::get(request, "stream", false));
+  // Binary operations (e.g. OpenAI /audio/speech) return raw bytes (mp3) that
+  // must not be JSON-parsed or UTF-8 handled; they are returned as base64.
+  bool binary_response = Core::truthy(Core::get(request, "binary", false));
   double timeout = num(Core::get(request, "timeout", 0));
 
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -240,7 +416,10 @@ Value HttpTransport::call(Value request) {
   if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
   if (method == "POST") {
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
+    // POSTFIELDSIZE makes the body binary-safe: curl sends exactly this many
+    // bytes from the buffer rather than scanning for a NUL terminator, which is
+    // required for the raw audio bytes embedded in a multipart body.
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
   } else {
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
@@ -249,6 +428,11 @@ Value HttpTransport::call(Value request) {
   CURLcode rc = curl_easy_perform(curl);
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+  // Capture the response Content-Type before cleanup so callers (e.g. the MCP
+  // Streamable HTTP transport) can branch on text/event-stream vs JSON.
+  char* response_content_type = nullptr;
+  curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &response_content_type);
+  std::string content_type = response_content_type != nullptr ? std::string(response_content_type) : std::string();
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
 
@@ -262,7 +446,12 @@ Value HttpTransport::call(Value request) {
 
   Value out = Value::object();
   Core::set(out, "status", static_cast<double>(status));
-  if (stream) {
+  Core::set(out, "contentType", content_type);
+  if (binary_response) {
+    // Base64-encode the full (binary-safe) body; response may contain NULs, so
+    // axir_base64_encode reads its whole .size() rather than a c_str().
+    Core::set(out, "body", Value(axir_base64_encode(response)));
+  } else if (stream) {
     Core::set(out, "body", response);
   } else {
     Core::set(out, "json", Core::json_parse(response));
@@ -787,6 +976,14 @@ Value Core::ai_complete_once(Value client, Value request) {
   if (it == client_registry().end() || it->second == nullptr) throw AxError("runtime", "client does not implement AIClient");
   return chat_response_to_completion(it->second->chat(request));
 }
+Value Core::agent_transcribe(Value client, Value request, Value options) {
+  // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
+  // text before the agent loop (the client passes through @agent_forward as a real client).
+  std::string id = str(get_key(client, "__client_id"));
+  auto it = client_registry().find(id);
+  if (it == client_registry().end() || it->second == nullptr) return object({{"text", std::string("")}});
+  return it->second->transcribe(request, options);
+}
 Value Core::retry_sleep(Value) { return Value(); }
 Value Core::tool_invoke(Value fn, Value params) {
   Value args = get_key(fn, "args", Value::array());
@@ -895,6 +1092,20 @@ Value Core::agent_runtime_close(Value session) {
 }
 Value Core::agent_memory_search(Value state, Value searches, Value already_loaded) {
   Value options = get_key(state, "options", Value::object());
+  // Native host callback: a closure registered via register_memories_search, referenced by a
+  // marker under "onMemoriesSearch" -- receives the actor's recall() searches + already-loaded ids.
+  Value callback = get_key(options, "on_memories_search", get_key(options, "onMemoriesSearch", Value()));
+  if (callback.is_object()) {
+    std::string mid = str(get_key(callback, "__memories_search_id", Value("")));
+    if (!mid.empty()) {
+      auto& reg = memories_search_registry();
+      auto it = reg.find(mid);
+      if (it != reg.end() && it->second) {
+        Value r = it->second(searches, already_loaded);
+        return r.is_null() ? Value::array() : r;
+      }
+    }
+  }
   Value scripted = get_key(options, "memory_search_results", get_key(options, "memorySearchResults", Value::object()));
   if (scripted.is_object()) {
     std::vector<std::string> parts;
@@ -917,6 +1128,20 @@ Value Core::agent_memory_search(Value state, Value searches, Value already_loade
 }
 Value Core::agent_skill_search(Value state, Value searches) {
   Value options = get_key(state, "options", Value::object());
+  // Native host callback: a closure registered via register_skills_search, referenced by a
+  // marker under "onSkillsSearch" -- receives the actor's discover() searches.
+  Value callback = get_key(options, "on_skills_search", get_key(options, "onSkillsSearch", Value()));
+  if (callback.is_object()) {
+    std::string mid = str(get_key(callback, "__skills_search_id", Value("")));
+    if (!mid.empty()) {
+      auto& reg = skills_search_registry();
+      auto it = reg.find(mid);
+      if (it != reg.end() && it->second) {
+        Value r = it->second(searches);
+        return r.is_null() ? Value::array() : r;
+      }
+    }
+  }
   Value scripted = get_key(options, "skill_search_results", get_key(options, "skillSearchResults", Value::object()));
   if (scripted.is_object()) {
     std::vector<std::string> parts;
@@ -1715,6 +1940,34 @@ Value parse_json(const std::string& source) {
         expect(',');
       }
     }
+    static unsigned read_hex4(const std::string& s, size_t& pos) {
+      unsigned value = 0;
+      for (int i = 0; i < 4 && pos < s.size(); ++i) {
+        char h = s[pos++];
+        value <<= 4;
+        if (h >= '0' && h <= '9') value |= static_cast<unsigned>(h - '0');
+        else if (h >= 'a' && h <= 'f') value |= static_cast<unsigned>(h - 'a' + 10);
+        else if (h >= 'A' && h <= 'F') value |= static_cast<unsigned>(h - 'A' + 10);
+      }
+      return value;
+    }
+    static void append_utf8(std::string& out, unsigned cp) {
+      if (cp <= 0x7F) {
+        out.push_back(static_cast<char>(cp));
+      } else if (cp <= 0x7FF) {
+        out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+      } else if (cp <= 0xFFFF) {
+        out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+      } else {
+        out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+      }
+    }
     Value string() {
       expect('"');
       std::string out;
@@ -1723,10 +1976,26 @@ Value parse_json(const std::string& source) {
         if (c == '"') break;
         if (c == '\\' && pos < s.size()) {
           char e = s[pos++];
-          if (e == 'n') c = '\n';
-          else if (e == 't') c = '\t';
-          else if (e == 'r') c = '\r';
-          else c = e;
+          if (e == 'n') { out.push_back('\n'); continue; }
+          if (e == 't') { out.push_back('\t'); continue; }
+          if (e == 'r') { out.push_back('\r'); continue; }
+          if (e == 'b') { out.push_back('\b'); continue; }
+          if (e == 'f') { out.push_back('\f'); continue; }
+          if (e == 'u') {
+            unsigned cp = read_hex4(s, pos);
+            // Combine UTF-16 surrogate pairs into a single code point.
+            if (cp >= 0xD800 && cp <= 0xDBFF && pos + 1 < s.size() && s[pos] == '\\' && s[pos + 1] == 'u') {
+              pos += 2;
+              unsigned low = read_hex4(s, pos);
+              if (low >= 0xDC00 && low <= 0xDFFF) {
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+              }
+            }
+            append_utf8(out, cp);
+            continue;
+          }
+          out.push_back(e);
+          continue;
         }
         out.push_back(c);
       }
@@ -1738,7 +2007,15 @@ Value parse_json(const std::string& source) {
       while (pos < s.size() && std::isdigit(static_cast<unsigned char>(s[pos]))) ++pos;
       if (pos < s.size() && s[pos] == '.') { ++pos; while (pos < s.size() && std::isdigit(static_cast<unsigned char>(s[pos]))) ++pos; }
       if (pos < s.size() && (s[pos] == 'e' || s[pos] == 'E')) { ++pos; if (pos < s.size() && (s[pos] == '+' || s[pos] == '-')) ++pos; while (pos < s.size() && std::isdigit(static_cast<unsigned char>(s[pos]))) ++pos; }
-      return Value(std::stod(s.substr(start, pos - start)));
+      std::string token = s.substr(start, pos - start);
+      // Tolerate malformed/empty numeric tokens (e.g. a model emitting a bare `-` or an
+      // empty value for a number field) instead of throwing std::stod's "no conversion".
+      try {
+        return Value(std::stod(token));
+      } catch (const std::exception&) {
+        if (pos == start && pos < s.size()) ++pos;  // ensure forward progress
+        return Value();
+      }
     }
   };
   Parser p(source);
@@ -1972,7 +2249,7 @@ AnthropicClient::AnthropicClient(Value options, Transport* transport)
     : OpenAICompatibleClient("anthropic", "anthropic", [&]() {
         Value out = std::move(options);
         if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("ANTHROPIC_API_KEY", ""));
-        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1"));
+        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com"));
         return out;
       }(), transport, "claude-3-7-sonnet-latest", "") {}
 
@@ -2045,7 +2322,12 @@ GrokClient::GrokClient(Value options, Transport* transport)
         return out;
       }(), transport, "grok-4.3", "") {}
 
-Value OpenAICompatibleClient::do_chat(Value request, Value) {
+Value OpenAICompatibleClient::do_chat(Value request, Value options) {
+  Value realtime_model = Core::coalesce(Core::get(request, "model"), Value(model_));
+  if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request))) {
+    return realtime_chat(request, nullptr);
+  }
+  (void)options;
   Value payload = Core::provider_build_chat_request(profile_, request);
   bool stream = Core::truthy(Core::get(payload, "stream"));
   if (stream) {
@@ -2079,11 +2361,33 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
   Core::set(req, "model_config", config);
   Value payload = Core::provider_build_chat_request(profile_, req);
   Value model = Core::get(req, "model", Core::get(payload, "model", model_));
-  Value raw = request_json(operation_path("stream_chat", model), payload, true);
-  Value state = Value::object();
-  std::vector<Value> out;
-  for (const auto& event : iter_sse_json(raw)) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
-  return out;
+  Value retry_cfg = Core::resolve_stream_retry(options_);
+  int max_retries = static_cast<int>(num(Core::get(retry_cfg, "max_retries", 3)));
+  double initial_delay = num(Core::get(retry_cfg, "initial_delay_ms", 1000));
+  double max_delay = num(Core::get(retry_cfg, "max_delay_ms", 60000));
+  double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
+  int attempt = 0;
+  while (true) {
+    Value raw = request_json(operation_path("stream_chat", model), payload, true);
+    std::vector<Value> events = iter_sse_json(raw);
+    // Pre-content streaming retry: peek the first raw SSE event before any stateful normalize
+    // runs (so peeking has no side effects); if the provider classifies it as a retryable
+    // transient status (e.g. Anthropic's HTTP-200 overloaded_error event), re-issue with the
+    // same exponential backoff apiCall uses for a 529 before surfacing.
+    if (!events.empty()) {
+      Value status = Core::provider_classify_stream_error_status(profile_, events[0]);
+      if (!status.is_null() && Core::truthy(Core::is_retryable_status(status)) && attempt < max_retries) {
+        attempt++;
+        double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
+        if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(delay)));
+        continue;
+      }
+    }
+    Value state = Value::object();
+    std::vector<Value> out;
+    for (const auto& event : events) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
+    return out;
+  }
 }
 
 Value OpenAICompatibleClient::transcribe(Value request) {
@@ -2097,8 +2401,12 @@ Value OpenAICompatibleClient::transcribe(Value request) {
 Value OpenAICompatibleClient::speak(Value request) {
   Value payload = Core::provider_build_speak_request(profile_, request);
   Value model = Core::get(request, "model", model_);
-  std::string body_key = str(Core::get(Core::provider_operation_descriptor(profile_, "speak"), "body", "json")) == "multipart" ? "data" : "json";
-  Value raw = request_json(operation_path("speak", model), payload, false, body_key);
+  Value descriptor = Core::provider_operation_descriptor(profile_, "speak");
+  std::string body_key = str(Core::get(descriptor, "body", "json")) == "multipart" ? "data" : "json";
+  // OpenAI /audio/speech returns raw binary audio (mp3); the transport returns
+  // it as base64 instead of JSON-parsing, and the normalizer reads raw["audio"].
+  bool binary = str(Core::get(descriptor, "response", Value(""))) == "binary";
+  Value raw = request_json(operation_path("speak", model), payload, false, body_key, binary);
   return Core::provider_normalize_speak_response(profile_, raw, request);
 }
 
@@ -2117,6 +2425,188 @@ Value OpenAICompatibleClient::realtime_audio_input(Value request) {
   return Core::provider_build_realtime_audio_input(profile_, request);
 }
 
+namespace {
+
+bool realtime_event_is_ready(const Value& event) {
+  std::string type = str(Core::get(event, "type", Value("")));
+  if (type == "session.created" || type == "session.updated" || type == "transcription_session.created" || type == "transcription_session.updated") return true;
+  return !Core::get(event, "setupComplete").is_null();
+}
+
+bool realtime_event_is_done(const Value& event) {
+  std::string type = str(Core::get(event, "type", Value("")));
+  if (type == "response.done" || type == "response.completed") return true;
+  Value server_content = Core::get(event, "serverContent");
+  return !server_content.is_null() && Core::truthy(Core::get(server_content, "turnComplete", Value(false)));
+}
+
+struct RealtimeWsTarget {
+  std::string url;
+  std::vector<std::pair<std::string, std::string>> headers;
+};
+
+RealtimeWsTarget realtime_ws_target(const std::string& profile, const std::string& api_key, const std::string& model) {
+  // Grammar-specific URL + auth construction lives in Core so the client stays
+  // provider-agnostic.
+  Value result = Core::provider_realtime_ws_url(Value(profile), Value(model), Value(api_key));
+  RealtimeWsTarget target;
+  target.url = str(Core::get(result, "url", Value("")));
+  Value headers = Core::get(result, "headers");
+  for (const auto& key : array_ref(Core::map_keys(headers))) {
+    target.headers.push_back({str(key), str(Core::get(headers, key, Value("")))});
+  }
+  return target;
+}
+
+#if defined(AXLLM_ENABLE_REALTIME)
+// Live transport over IXWebSocket: the on-message callback fires on a background
+// thread and enqueues whole text frames; recv() drains the queue on the calling
+// thread (mirrors the Transport/HTTP split, gated by AXLLM_ENABLE_REALTIME).
+class WsRealtimeTransport : public RealtimeTransport {
+ public:
+  WsRealtimeTransport(const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers) {
+    socket_.setUrl(url);
+    ix::WebSocketHttpHeaders ws_headers;
+    for (const auto& header : headers) ws_headers[header.first] = header.second;
+    socket_.setExtraHeaders(ws_headers);
+    socket_.disableAutomaticReconnection();
+    socket_.setOnMessageCallback([this](const ix::WebSocketMessagePtr& message) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (message->type == ix::WebSocketMessageType::Message) queue_.push_back(message->str);
+      else if (message->type == ix::WebSocketMessageType::Close || message->type == ix::WebSocketMessageType::Error) closed_ = true;
+      cv_.notify_one();
+    });
+    socket_.start();
+  }
+  void send(const Value& event) override { socket_.send(str(Core::json_stringify(event))); }
+  bool recv(Value& out) override {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (!cv_.wait_for(lock, std::chrono::seconds(30), [this] { return !queue_.empty() || closed_; })) return false;
+    if (queue_.empty()) return false;
+    std::string raw = queue_.front();
+    queue_.pop_front();
+    lock.unlock();
+    out = parse_json(raw);
+    return true;
+  }
+  void close() override { socket_.stop(); }
+
+ private:
+  ix::WebSocket socket_;
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  std::deque<std::string> queue_;
+  bool closed_ = false;
+};
+#endif
+
+}  // namespace
+
+ScriptedRealtimeTransport::ScriptedRealtimeTransport(std::vector<Value> inbound) : inbound_(std::move(inbound)) {}
+void ScriptedRealtimeTransport::send(const Value& event) { sent.push_back(event); }
+bool ScriptedRealtimeTransport::recv(Value& out) {
+  if (index_ >= inbound_.size()) return false;
+  out = inbound_[index_++];
+  return true;
+}
+
+Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* transport) {
+  std::string model = str(Core::get(request, "model", Value(model_)));
+  Value setup = Core::provider_build_realtime_audio_setup(profile_, request);
+  Value inputs = Core::provider_build_realtime_audio_input(profile_, request);
+  std::unique_ptr<RealtimeTransport> owned;
+  if (transport == nullptr) {
+#if defined(AXLLM_ENABLE_REALTIME)
+    RealtimeWsTarget target = realtime_ws_target(profile_, api_key_, model);
+    owned = std::make_unique<WsRealtimeTransport>(target.url, target.headers);
+    transport = owned.get();
+#else
+    throw Core::as_error(Core::ai_error_unsupported("C++ realtime audio requires the built-in IXWebSocket transport. Build with CMake and AXLLM_ENABLE_REALTIME=ON, or pass a custom RealtimeTransport."));
+#endif
+  }
+  std::vector<Value> events;
+  Value event;
+  bool input_sent = false;
+  try {
+    transport->send(setup);
+    while (transport->recv(event)) {
+      if (str(Core::get(event, "type", Value(""))) == "error") {
+        Value error = Core::get(event, "error");
+        std::string message = error.is_null() ? "realtime error" : str(Core::get(error, "message", Value("realtime error")));
+        throw Core::as_error(Core::ai_error_response(message));
+      }
+      if (realtime_event_is_ready(event)) {
+        if (!input_sent) {
+          input_sent = true;
+          for (const auto& item : array_ref(inputs)) transport->send(item);
+        }
+        continue;
+      }
+      bool done = realtime_event_is_done(event);
+      events.push_back(event);
+      if (done) break;
+    }
+  } catch (...) {
+    if (owned) transport->close();
+    throw;
+  }
+  if (owned) transport->close();
+
+  Value state = Value::object();
+  std::string content;
+  std::string audio_bytes;
+  bool has_audio = false;
+  Value function_calls = Value::array();
+  std::string response_id;
+  std::string finish_reason;
+  Value model_usage;
+  for (const auto& folded_event : events) {
+    Value normalized = Core::provider_normalize_realtime_event(profile_, folded_event, state, name_, model);
+    Array results = array_ref(Core::get(normalized, "results", Value::array()));
+    if (results.empty()) continue;
+    Value result_value = results[0];
+    Value content_value = Core::get(result_value, "content");
+    if (!content_value.is_null()) content += str(content_value);
+    Value audio = Core::get(result_value, "audio");
+    if (!audio.is_null()) {
+      std::string data = str(Core::get(audio, "data", Value("")));
+      if (!data.empty()) {
+        audio_bytes += axir_base64_decode(data);
+        has_audio = true;
+      }
+    }
+    for (const auto& call : array_ref(Core::get(result_value, "function_calls", Value::array()))) Core::append(function_calls, call);
+    Value finish_value = Core::get(result_value, "finish_reason");
+    if (!finish_value.is_null() && !str(finish_value).empty()) finish_reason = str(finish_value);
+    Value remote_id = Core::get(normalized, "remote_id", Core::get(result_value, "id"));
+    if (!remote_id.is_null() && !str(remote_id).empty() && str(remote_id) != "0") response_id = str(remote_id);
+    Value usage = Core::get(normalized, "model_usage");
+    if (!usage.is_null()) model_usage = usage;
+  }
+  if (response_id.empty()) response_id = "realtime";
+  if (finish_reason.empty()) finish_reason = "stop";
+  Value result = Value::object();
+  Core::set(result, "index", Value(0));
+  Core::set(result, "id", Value(response_id));
+  Core::set(result, "content", Value(content));
+  Core::set(result, "function_calls", function_calls);
+  Core::set(result, "finish_reason", Value(finish_reason));
+  if (has_audio) {
+    Value audio_map = Value::object();
+    Core::set(audio_map, "data", Value(axir_base64_encode(audio_bytes)));
+    Core::set(audio_map, "format", Value("pcm16"));
+    Core::set(audio_map, "transcript", Value(content));
+    Core::set(result, "audio", audio_map);
+  }
+  Value response = Value::object();
+  Value results_array = Value::array();
+  Core::append(results_array, result);
+  Core::set(response, "results", results_array);
+  Core::set(response, "remote_id", Value(response_id));
+  Core::set(response, "model_usage", model_usage);
+  return response;
+}
+
 Value OpenAICompatibleClient::headers() const {
   Value headers = Value::object();
   Core::set(headers, "Content-Type", "application/json");
@@ -2130,16 +2620,22 @@ Value OpenAICompatibleClient::headers() const {
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream) {
-  return request_json(endpoint, std::move(payload), stream, "json");
+  return request_json(endpoint, std::move(payload), stream, "json", false);
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key) {
+  return request_json(endpoint, std::move(payload), stream, body_key, false);
+}
+
+Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response) {
   Value call = Value::object();
   Core::set(call, "method", "POST");
   Core::set(call, "url", base_url_ + endpoint);
   Core::set(call, "headers", headers());
   Core::set(call, body_key.empty() ? "json" : body_key, payload);
   Core::set(call, "stream", stream);
+  // Signals the transport to return the raw body as base64 instead of JSON.
+  if (binary_response) Core::set(call, "binary", Value(true));
   Core::set(call, "timeout", timeout_seconds_);
   if (api_key_.empty() || api_key_ == "null") throw Core::as_error(Core::ai_error_auth("OPENAI_API_KEY is required", Value(), Value(), Value(), call));
   if (transport_ != nullptr) return transport_result(transport_->call(call), call);
@@ -2186,16 +2682,48 @@ std::vector<Value> OpenAICompatibleClient::iter_sse_json(Value raw) {
     for (const auto& item : array_ref(raw)) if (display(item) != "[DONE]") out.push_back(item);
     return out;
   }
-  std::istringstream lines(display(raw));
+  // Mirror src/ax/util/sse.ts: normalize CRLF/CR, then fold the data: lines of
+  // each event (events are blank-line separated) into a single payload before
+  // parsing. A spec-legal SSE event may split one JSON value across several
+  // data: lines, joined with "\n"; parsing each line on its own would choke.
+  std::string text = display(raw);
+  std::string normalized;
+  normalized.reserve(text.size());
+  for (size_t i = 0; i < text.size(); ++i) {
+    if (text[i] == '\r') {
+      normalized.push_back('\n');
+      if (i + 1 < text.size() && text[i + 1] == '\n') ++i;  // collapse CRLF
+    } else {
+      normalized.push_back(text[i]);
+    }
+  }
+  std::string buffer;
+  auto flush = [&]() {
+    std::string payload = display(Core::string_trim(buffer));
+    buffer.clear();
+    if (payload.empty() || payload == "[DONE]") return;
+    out.push_back(parse_json(payload));
+  };
+  std::istringstream lines(normalized);
   std::string line;
   while (std::getline(lines, line)) {
-    Value trimmed = Core::string_trim(line);
-    std::string text = display(trimmed);
-    if (text.rfind("data:", 0) != 0) continue;
-    std::string data = display(Core::string_trim(text.substr(5)));
-    if (data.empty() || data == "[DONE]") continue;
-    out.push_back(parse_json(data));
+    if (line.empty()) {
+      flush();
+      continue;
+    }
+    if (line[0] == ':') continue;  // comment line
+    std::string value;
+    std::string::size_type colon = line.find(':');
+    if (colon != std::string::npos) {
+      if (display(Core::string_trim(line.substr(0, colon))) != "data") continue;  // not a data: line
+      value = display(Core::string_trim(line.substr(colon + 1)));
+    } else {
+      value = display(Core::string_trim(line));
+    }
+    if (!buffer.empty() && buffer.back() != '\n') buffer.push_back('\n');
+    buffer += value;
   }
+  flush();
   return out;
 }
 
@@ -3268,12 +3796,32 @@ AxFlow& AxFlow::add_step(Value kind, Value name, Value program, Value options) {
 
 AxAgent::AxAgent(Value signature, Value options) {
   state_ = Core::_agent_factory(std::move(signature), options);
-  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}}));
-  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}}));
-  responder_ = std::make_unique<AxGen>(Core::get(state_, "signature"), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}}));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
+  llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
 }
 
 Value AxAgent::forward(AIClient& client, Value values, Value options) {
+  // Wire the built-in llmQuery primitive onto the runtime carried in agent
+  // options (the same runtime the actor loop will create sessions on),
+  // mirroring the Go/Python/Rust/Java wrappers. The logic lives in the
+  // AxIR-generated helper; this only registers the host callable.
+  Value runtime_ref = Core::get(options, "runtime", Value());
+  if (runtime_ref.is_null()) {
+    runtime_ref = Core::get(Core::get(state_, "options", Value::object()), "runtime", Value());
+  }
+  std::string runtime_id = str(Core::get(runtime_ref, "__code_runtime_id", Value("")));
+  if (!runtime_id.empty()) {
+    auto it = code_runtime_registry().find(runtime_id);
+    if (it != code_runtime_registry().end() && it->second != nullptr) {
+      AxGen* sub = llm_query_.get();
+      AIClient* client_ptr = &client;
+      it->second->register_host_callable("llmQuery", [sub, client_ptr](Value params) -> Value {
+        return Core::_agent_run_llm_query(Core::agent_stage_ref(*sub), Core::client_ref(*client_ptr), std::move(params));
+      });
+    }
+  }
   return Core::_agent_forward(
       state_,
       Core::agent_stage_ref(*distiller_),
@@ -3821,7 +4369,7 @@ bool AxBalancer::retryable(const AxError& error) const {
   if (error.category != "ai") return false;
   if (error.type == "AxAIServiceAuthenticationError") return false;
   if (error.type == "AxAIServiceStatusError") {
-    return error.status == 408 || error.status == 429 || error.status == 500 || error.status == 502 || error.status == 503 || error.status == 504;
+    return error.status == 408 || error.status == 429 || error.status == 500 || error.status == 502 || error.status == 503 || error.status == 504 || error.status == 529;
   }
   return error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceResponseError" || error.type == "AxAIServiceStreamTerminatedError" || error.type == "AxAIServiceTimeoutError";
 }

@@ -13,10 +13,14 @@ yarn.lock
 audio
 !src/ax/ai/audio/
 !src/ax/ai/audio/*.ts
+!src/examples/*/audio/
+!src/examples/*/audio/*
 .env
 .env.*
 .data
 demos.json
+# Scratch consumer demos used to verify package-manager install flows (holds a local .env)
+/demo/
 site/dist
 website/.generated/
 website/public/
@@ -63,3 +67,6 @@ packages/**/*.so
 packages/**/*.dylib
 packages/**/*.exe
 !packages/cpp/CMakeLists.txt
+
+# Rust build artifacts (packages/rust is axir-generated; Cargo.lock is a build artifact)
+packages/rust/Cargo.lock

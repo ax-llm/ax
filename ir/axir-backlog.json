@@ -25,8 +25,8 @@
       "status": "open",
       "title": "Match GEPA best-candidate tie-break to prefer the accepted evolution",
       "createdAt": "2026-06-16",
-      "sourcePR": null,
-      "sourceCommit": "2029aa0ff0756c7ecb10ac0196fa25917121b74f",
+      "sourcePR": 546,
+      "sourceCommit": "d7570019ba945edb4a733345cc63a080463fdc3a",
       "tsPaths": [
         "src/ax/dsp/optimizers/gepa.ts",
         "src/ax/dsp/optimizers/gepa.test.ts"
@@ -41,6 +41,25 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-06-24-port-anthropic-transient-error-classification-streaming-retry-fa",
+      "status": "done",
+      "title": "Port Anthropic transient-error classification + streaming retry/failover",
+      "createdAt": "2026-06-24",
+      "sourcePR": 556,
+      "sourceCommit": "2d1a5f96f033640bf4e892e866fde99bc92e8268",
+      "tsPaths": ["src/ax/ai"],
+      "portableSurface": "axai",
+      "impact": "Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording — so transient Anthropic errors hard-fail there with no retry or failover.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-06-25",
+      "completedByCommit": "working-tree",
+      "verification": "npm run test:axir"
     }
   ]
 }

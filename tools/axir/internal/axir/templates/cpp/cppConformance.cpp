@@ -1,5 +1,8 @@
 #include "axllm/axllm.hpp"
 #include "axllm/mcp.hpp"
+#ifdef AX_CONFORMANCE_QUICKJS
+#include "axllm/runtime/quickjs/quickjs_runtime.hpp"
+#endif
 
 #include <algorithm>
 #include <fstream>
@@ -19,6 +22,7 @@ static Object as_object(Value value) {
 
 struct ConformanceScriptedAI : AIClient {
   Array responses;
+  Array transcribe_responses;
   std::vector<Value> requests;
   int chat_calls = 0;
 
@@ -35,6 +39,17 @@ struct ConformanceScriptedAI : AIClient {
   Value chat(Value request) override {
     ++chat_calls;
     return Core::legacy_response_to_chat_response(complete(request));
+  }
+
+  Value transcribe(Value request, Value options) override {
+    requests.push_back(request);
+    (void)options;
+    if (!transcribe_responses.empty()) {
+      Value out = transcribe_responses.front();
+      transcribe_responses.erase(transcribe_responses.begin());
+      return out;
+    }
+    return object({{"text", std::string("")}});
   }
 };
 
@@ -1097,8 +1112,34 @@ static Value verification_instruments_summary() {
 
 static void assert_agent_trace(AxAgent& ag, Value fixture);
 
+// Prompt-parity gate (G3): build a real agent and assert the RLM stage instructions
+// were rendered into agent state. A hollow agent has empty description keys, so this
+// fails -- catching the defect that slipped a non-functional agent() past every gate.
+static void run_agent_prompt(Value fixture) {
+  // Read the RAW factory state (get_state() returns the curated runtime_state which omits
+  // the rendered stage descriptions); the constructor builds state the same way.
+  Value state = Core::_agent_factory(Core::get(fixture, "signature", "question:string -> answer:string"), Core::get(fixture, "options", Value::object()));
+  Object st = as_object(state);
+  Value expects = Core::get(fixture, "expected_description_contains", Value::object());
+  for (const auto& kv : conf_entries(expects)) {
+    if (kv.first == "__order") continue;
+    auto it = st.find(kv.first);
+    std::string desc = (it != st.end()) ? display(it->second) : "";
+    if (desc.find_first_not_of(" \t\r\n") == std::string::npos) {
+      throw AxError("fixture", "agent stage description " + kv.first + " is empty; RLM prompt was not rendered into agent state");
+    }
+    for (const auto& needle_val : Core::iter(kv.second)) {
+      std::string needle = display(needle_val);
+      if (desc.find(needle) == std::string::npos) {
+        throw AxError("fixture", "agent stage description " + kv.first + " missing \"" + needle + "\": " + desc);
+      }
+    }
+  }
+}
+
 static void run_agent_forward(Value fixture) {
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
+  client.transcribe_responses = as_array(Core::get(fixture, "transcribe_responses", Value::array()));
   Value agent_options = Core::get(fixture, "options", Value::object());
   std::unique_ptr<ScriptedCodeRuntime> runtime;
   if (!Core::get(fixture, "runtime_script").is_null()) {
@@ -1109,10 +1150,22 @@ static void run_agent_forward(Value fixture) {
         display(Core::get(runtime_config, "usageInstructions", Core::get(runtime_config, "usage_instructions", ""))));
     Core::set(agent_options, "runtime", Core::code_runtime_ref(*runtime));
   }
+#ifdef AX_CONFORMANCE_QUICKJS
+  std::unique_ptr<axllm::runtime::quickjs::QuickJsCodeRuntime> real_runtime;
+  if (!Core::get(fixture, "runtime_engine").is_null()) {
+    real_runtime = std::make_unique<axllm::runtime::quickjs::QuickJsCodeRuntime>();
+    Core::set(agent_options, "runtime", Core::code_runtime_ref(*real_runtime));
+  }
+#else
+  if (!Core::get(fixture, "runtime_engine").is_null()) {
+    throw AxError("fixture", "agent_runtime_real requires building conformance with -DAX_CONFORMANCE_QUICKJS and the quickjs runtime");
+  }
+#endif
   std::unique_ptr<AxAgent> ag;
   try {
     ag = std::make_unique<AxAgent>(Core::get(fixture, "signature"), agent_options);
     if (!Core::get(fixture, "set_state").is_null()) ag->set_state(Core::get(fixture, "set_state"));
+    if (!Core::get(fixture, "restore_runtime_state").is_null()) ag->restore_runtime_state(Core::get(fixture, "restore_runtime_state"));
     Value output = ag->forward(client, Core::get(fixture, "input", Value::object()), Core::get(fixture, "forward_options", Value::object()));
     if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected agent forward to fail");
     if (!Core::get(fixture, "expected_output").is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "agent output");
@@ -1594,6 +1647,7 @@ struct ClientFixture {
     Core::set(out, "embed_model", Core::get(fixture, "embed_model", default_embed_model));
     Core::set(out, "api_key", "test-key");
     Core::set(out, "model_config", Core::get(fixture, "model_config", Value::object()));
+    Core::set(out, "options", Core::get(fixture, "options", Value::object()));
     for (const std::string& key : {"base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version"}) {
       Value value = Core::get(fixture, key);
       if (!value.is_null()) Core::set(out, key, value);
@@ -1821,6 +1875,11 @@ static void run_ai_balancer(Value fixture) {
       Value request = Core::get(raw, "request", Value::object());
       Value options = Core::get(raw, "options", Value::object());
       if (name == "chat") Core::set(outputs, name, balancer.chat(request, options));
+      else if (name == "stream") {
+        Value deltas = Value::array();
+        for (const auto& delta : balancer.stream(request)) Core::append(deltas, delta);
+        Core::set(outputs, name, deltas);
+      }
       else if (name == "embed") Core::set(outputs, name, balancer.embed(request, options));
       else if (name == "transcribe") Core::set(outputs, name, balancer.transcribe(request, options));
       else if (name == "speak") Core::set(outputs, name, balancer.speak(request, options));
@@ -1925,6 +1984,10 @@ static Value flow_mapper_from_spec(Value spec) {
       Core::set(out, field, values);
     } else if (op == "copy") {
       Core::set(out, Core::get(spec, "to"), flow_state_value(out, Core::get(spec, "from")));
+    } else if (op == "upper") {
+      std::string s = display(flow_state_value(out, Core::get(spec, "from", Value("__item")), Value("")));
+      for (auto& ch : s) { if (ch >= 'a' && ch <= 'z') ch = static_cast<char>(ch - 'a' + 'A'); }
+      Core::set(out, Core::get(spec, "to", Value("__derived")), Value(s));
     } else {
       out = Core::map_update(out, Core::get(spec, "values", Value::object()));
     }
@@ -1936,11 +1999,11 @@ static Value build_flow_step(Value step, Value fixture, std::vector<std::unique_
   std::string kind = display(Core::get(step, "kind", Value("execute")));
   std::string name = display(Core::get(step, "name"));
   Value options = Core::get(step, "options", Value::object());
-  if (kind == "map") {
+  if (kind == "map" || kind == "derive") {
     Value mapper = Core::get(step, "mapper").is_null()
       ? flow_callback([output = Core::get(step, "output", Value::object())](Value) { return output; })
       : flow_mapper_from_spec(Core::get(step, "mapper"));
-    return Core::_flow_step(Value("map"), Value(name), mapper, options);
+    return Core::_flow_step(Value(kind), Value(name), mapper, options);
   }
   if (kind == "branch") {
     Core::set(options, "predicate", flow_condition_from_spec(Core::get(step, "predicate", Core::get(options, "predicate", Value::object()))));
@@ -2124,6 +2187,10 @@ static void run(Value fixture) {
   } else if (kind == "forward") {
     run_forward(fixture);
   } else if (kind == "agent_forward") {
+    run_agent_forward(fixture);
+  } else if (kind == "agent_prompt") {
+    run_agent_prompt(fixture);
+  } else if (kind == "agent_runtime_real") {
     run_agent_forward(fixture);
   } else if (kind == "agent_runtime_policy") {
     run_agent_runtime_policy(fixture);

@@ -1,4 +1,3 @@
-// docs:start provider-axgen
 #include "axllm/axllm.hpp"
 #include <cstdlib>
 #include <iostream>
@@ -22,4 +21,3 @@ int main() {
   }));
   std::cout << axllm::stringify(out) << "\n";
 }
-// docs:end provider-axgen

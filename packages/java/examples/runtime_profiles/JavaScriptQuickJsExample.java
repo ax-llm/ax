@@ -47,7 +47,7 @@ public final class JavaScriptQuickJsExample {
         "functions", List.of(Map.of("name", "search", "description", "Search docs"))
       ));
       ScriptedAI forwardClient = new ScriptedAI(List.of(
-        Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"),
+        Map.of("content", "{\"javascriptCode\":\"final('Run actor', {})\"}"),
         Map.of("content", "{\"javascriptCode\":\"counter = 41; discover({tools:['search']})\"}"),
         Map.of("content", "{\"javascriptCode\":\"recall('prefs')\"}"),
         Map.of("content", "{\"javascriptCode\":\"const hit = search({query: inputs.question}); final('Answer', {answer: hit.title})\"}"),
@@ -75,7 +75,7 @@ public final class JavaScriptQuickJsExample {
 
       AxAgent guideAgent = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "JavaScript")));
       ScriptedAI guideClient = new ScriptedAI(List.of(
-        Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide\",{}]}}"),
+        Map.of("content", "{\"javascriptCode\":\"final('Guide', {})\"}"),
         Map.of("content", "{\"javascriptCode\":\"guideAgent('Prefer concise final.')\"}"),
         Map.of("content", "{\"javascriptCode\":\"final('Answer', {answer: 'Concise'})\"}"),
         Map.of("content", "{\"answer\":\"Concise\"}")
@@ -91,7 +91,7 @@ public final class JavaScriptQuickJsExample {
 
       AxAgent clarificationAgent = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "JavaScript")));
       ScriptedAI clarificationClient = new ScriptedAI(List.of(
-        Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Ask\",{}]}}"),
+        Map.of("content", "{\"javascriptCode\":\"final('Ask', {})\"}"),
         Map.of("content", "{\"javascriptCode\":\"askClarification('Need detail?')\"}")
       ));
       try {

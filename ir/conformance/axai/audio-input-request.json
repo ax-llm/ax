@@ -1,0 +1,65 @@
+{
+  "name": "audio-input-request",
+  "kind": "ai_chat",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Answer this recording."
+          },
+          {
+            "type": "audio",
+            "data": "UklGRg==",
+            "format": "wav"
+          }
+        ]
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "id": "chatcmpl_audio",
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "content": "spoken answer"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Answer this recording."
+            },
+            {
+              "type": "input_audio",
+              "input_audio": {
+                "data": "UklGRg==",
+                "format": "wav"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

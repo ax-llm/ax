@@ -21,6 +21,7 @@ canonifyURLs = false
 [params]
   description = "Markdown-first documentation for Ax across TypeScript, Python, Java, C++, Go, and Rust."
   github = "https://github.com/ax-llm/ax"
+  x = "https://x.com/intent/follow?screen_name=dosco"
   playground = "https://ax-llm.github.io/ax/playground/"
 
 [[module.mounts]]

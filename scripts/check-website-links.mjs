@@ -556,9 +556,18 @@ function collectQualityFailures(rel, html, failures) {
   }
 
   if (rel.endsWith('/examples/index.html') && html.includes('example-card')) {
-    if (!hasClass(html, 'p', 'example-command')) {
-      failures.push(`${rel}: example cards missing command rows`);
-    }
+    failures.push(`${rel}: examples landing must use plain markdown lists`);
+  }
+  if (rel.endsWith('/examples/index.html') && /archive/i.test(html)) {
+    failures.push(`${rel}: examples landing must not use archive wording`);
+  }
+  if (
+    /\/examples\/(?:generation|short-agents|flows|optimization|audio)\/index\.html$/.test(
+      rel
+    ) &&
+    !html.includes('Level:')
+  ) {
+    failures.push(`${rel}: generated example group page missing levels`);
   }
 
   if (
@@ -1069,7 +1078,7 @@ function isApiPage(rel) {
 }
 
 function isTocExpectedPage(rel) {
-  return /^(?:typescript|python|java|cpp|go|rust)\/(?:quick-start|examples|concepts\/[^/]+|subsystems\/[^/]+)\/index\.html$/.test(
+  return /^(?:typescript|python|java|cpp|go|rust)\/(?:quick-start|advanced-start|examples(?:\/[^/]+)?|concepts\/[^/]+|subsystems\/[^/]+)\/index\.html$/.test(
     rel
   );
 }

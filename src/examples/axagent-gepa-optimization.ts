@@ -194,7 +194,7 @@ const studentAI = ai({
   name: 'google-gemini',
   apiKey: googleApiKey,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini25Flash,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
     temperature: 0.2,
     maxTokens: 700,
   },

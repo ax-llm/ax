@@ -1,0 +1,134 @@
+{
+  "expected_output": [
+    {
+      "model_usage": {
+        "ai": "anthropic",
+        "model": "claude-3-7-sonnet-latest",
+        "tokens": {
+          "cache_read_tokens": 1,
+          "completion_tokens": 0,
+          "prompt_tokens": 4,
+          "total_tokens": 5
+        }
+      },
+      "remote_id": "msg_stream_a",
+      "results": [
+        {
+          "content": "",
+          "id": "msg_stream_a",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_stream_a",
+      "results": [
+        {
+          "content": "hel",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_stream_a",
+      "results": [
+        {
+          "function_calls": [
+            {
+              "function": {
+                "name": "search",
+                "params": ""
+              },
+              "id": "toolu_stream",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_stream_a",
+      "results": [
+        {
+          "function_calls": [
+            {
+              "function": {
+                "name": "search",
+                "params": "{\"query\":\"Ax\"}"
+              },
+              "id": "toolu_stream",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_stream_a",
+      "results": [
+        {
+          "index": 0,
+          "thought": "plan",
+          "thought_blocks": [
+            {
+              "data": "plan",
+              "encrypted": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "anthropic",
+        "model": "claude-3-7-sonnet-latest",
+        "tokens": {
+          "cache_creation_tokens": 0,
+          "cache_read_tokens": 1,
+          "completion_tokens": 3,
+          "prompt_tokens": 4,
+          "total_tokens": 8
+        }
+      },
+      "remote_id": "msg_stream_a",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "kind": "ai_stream",
+  "name": "anthropic-stream-retry-overloaded",
+  "options": {
+    "retry": {
+      "initialDelayMs": 0,
+      "maxDelayMs": 0,
+      "maxRetries": 3
+    },
+    "stream": true
+  },
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "stream",
+        "role": "user"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Stream overloaded\"}}\n\n",
+      "status": 200
+    },
+    {
+      "body": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_stream_a\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-3-7-sonnet-latest\",\"stop_reason\":null,\"usage\":{\"input_tokens\":4,\"output_tokens\":0,\"cache_read_input_tokens\":1}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hel\"}}\n\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_stream\",\"name\":\"search\",\"input\":{}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\":\\\"Ax\\\"}\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"plan\"}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":3}}\n\n",
+      "status": 200
+    }
+  ]
+}

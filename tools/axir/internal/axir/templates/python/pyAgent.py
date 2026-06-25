@@ -10,6 +10,7 @@ from typing import Any
 
 from .gen import (
     AxGen,
+    _core_ai_complete_once,
     _adjust_optimization_score_for_actions,
     _build_optimization_eval_result,
     _build_optimization_eval_row,
@@ -641,11 +642,21 @@ class AxAgent:
         self.options = dict(options or {})
         self.state = _agent_factory(signature, self.options)
         self.signature = _core_get(self.state, "signature")
-        self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": 0, "id": "ctx.root.actor"})
-        self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": 0, "id": "task.root.actor"})
-        self.responder = AxGen(self.signature, {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder"})
+        self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": 0, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", "")})
+        self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": 0, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
+        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
+        self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
 
     def forward(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
+        options = options or {}
+        runtime = options.get("runtime")
+        if runtime is None:
+            runtime = self.options.get("runtime")
+        # Wire the built-in llmQuery primitive: a focused sub-query the model can
+        # await inside the runtime. The logic lives in the AxIR-generated helper;
+        # this wrapper only registers the host callable that closes over this client.
+        if runtime is not None and hasattr(runtime, "register_callable"):
+            runtime.register_callable("llmQuery", lambda params: _agent_run_llm_query(self.llm_query, client, params))
         return _agent_forward(
             self.state,
             self.distiller,
@@ -653,7 +664,7 @@ class AxAgent:
             self.responder,
             client,
             values or {},
-            options or {},
+            options,
         )
 
     def test(self, runtime: AxCodeRuntime, code: str, context_field_values: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
@@ -1037,6 +1048,18 @@ def _core_string_split_trim_nonempty(value, sep):
     return [part.strip() for part in str(value).split(str(sep)) if part.strip()]
 
 
+def _core_string_replace(value, old, new):
+    return str(value).replace(str(old), str(new))
+
+
+def _core_string_split_once(value, sep):
+    text = str(value)
+    if sep in text:
+        left, right = text.split(sep, 1)
+        return {"left": left, "right": right, "found": True}
+    return {"left": text, "right": "", "found": False}
+
+
 def _core_string_starts_with(value, prefix):
     return str(value).startswith(str(prefix))
 
@@ -1175,6 +1198,15 @@ def _core_agent_memory_search(state, searches, already_loaded):
     if isinstance(scripted, list):
         return copy.deepcopy(scripted)
     return []
+
+
+def _core_agent_transcribe(client, request, options):
+    # Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
+    # text before the agent loop. Any client exposing transcribe satisfies it (real providers +
+    # the scripted conformance client), mirroring the other host AI boundary calls.
+    if client is None or not hasattr(client, "transcribe"):
+        return {"text": ""}
+    return client.transcribe(request, options or {})
 
 
 def _core_agent_skill_search(state, searches):

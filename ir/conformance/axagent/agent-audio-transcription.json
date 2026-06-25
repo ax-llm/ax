@@ -1,0 +1,33 @@
+{
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_contains": ["spoken question from audio"],
+  "input": {
+    "clip": {
+      "data": "base64-audio-bytes"
+    }
+  },
+  "kind": "agent_forward",
+  "name": "agent-audio-transcription",
+  "options": {
+    "contextFields": []
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
+    },
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    }
+  ],
+  "signature": "clip:audio -> answer:string",
+  "transcribe_responses": [
+    {
+      "text": "spoken question from audio"
+    }
+  ]
+}

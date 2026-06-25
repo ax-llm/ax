@@ -2,7 +2,7 @@
   "schema_version": "axir-api-v1",
   "axir_version": "0.1",
   "target": "go",
-  "package_name": "github.com/ax-llm/ax/go",
+  "package_name": "github.com/ax-llm/ax/packages/go",
   "sections": [
     {
       "id": "signatures",

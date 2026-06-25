@@ -3,6 +3,9 @@
   "expected_trace_event_kinds": [
     "stage_request",
     "stage_response",
+    "runtime_lifecycle",
+    "runtime_execute",
+    "final",
     "stage_request",
     "stage_response",
     "runtime_lifecycle",
@@ -26,13 +29,20 @@
   "replay_trace": true,
   "responses": [
     {
-      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Try runtime\",{}]}}"
+      "content": "{\"pythonCode\": \"final(\\\"Try runtime\\\", {})\"}"
     },
     {
       "content": "{\"pythonCode\":\"reportSuccess(\\\"still working\\\")\"}"
     }
   ],
   "runtime_script": [
+    {
+      "expected_code": "final(\"Try runtime\", {})",
+      "result": {
+        "args": ["Try runtime", {}],
+        "type": "final"
+      }
+    },
     {
       "expected_code": "reportSuccess(\"still working\")",
       "result": {

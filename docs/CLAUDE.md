@@ -45,6 +45,15 @@ npm i react --workspace=@ax-llm/ax-docs
 **DO NOT** run `npm install` in individual sub-directories. Always use workspace
 commands from the root.
 
+## Model Selection
+
+When you name a model anywhere (examples, defaults, tests), use a **current** generation —
+newer beats biggest. The provider enums are the source of truth for what's current:
+`src/ax/ai/openai/chat_types.ts`, `src/ax/ai/google-gemini/types.ts`,
+`src/ax/ai/anthropic/types.ts`. Prefer a newer small/cheap model (e.g. `gpt-5.4-mini`,
+`gemini-3.5-flash`) over an old flagship (`gpt-4o`, `gemini-2.x`); never pin a dated
+`-preview` when a stable newer one exists. (See also `AGENTS.md`.)
+
 # 🧪 TESTING GUIDE
 
 ## Test Framework & Overview

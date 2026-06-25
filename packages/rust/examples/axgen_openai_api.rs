@@ -1,4 +1,3 @@
-// docs:start provider-axgen
 use axllm::{ax, AxResult, OpenAICompatibleClient};
 use serde_json::json;
 use std::env;
@@ -22,4 +21,3 @@ fn main() -> AxResult<()> {
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }
-// docs:end provider-axgen

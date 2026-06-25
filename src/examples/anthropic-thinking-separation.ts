@@ -13,7 +13,7 @@ const llmWithThoughts = ai({
   name: 'anthropic',
   apiKey: process.env.ANTHROPIC_APIKEY!,
   config: {
-    model: AxAIAnthropicModel.Claude4Sonnet,
+    model: AxAIAnthropicModel.Claude46Sonnet,
     stream: false,
     temperature: 0.1,
   },

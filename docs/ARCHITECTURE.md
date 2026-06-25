@@ -182,7 +182,7 @@ source-to-source transpiler. The compiler emits:
 - Python package `axllm`
 - Java package `dev.axllm.ax`
 - C++ namespace `axllm` and CMake target `axllm::axllm`
-- Go module `github.com/ax-llm/ax/go` and package `axllm`
+- Go module `github.com/ax-llm/ax/packages/go` and package `axllm`
 - Rust crate `axllm`
 
 Generated libraries include package metadata, examples, capability manifests,

@@ -25,6 +25,168 @@ func repoRootPath() string {
 	return filepath.Join("..", "..", "..", "..")
 }
 
+// TestAgentCrossLanguageParity is the cross-language drift guard (G8). The agent is emitted
+// from a single IR (ir/axcore/agent.axir), so the emitted ops are parity by construction and
+// the coverage audit already proves 365/365 cross-target. The drift risk lives in the HOST GLUE
+// that the IR cannot reach: the per-language intrinsic bindings and the conformance-runner kind
+// dispatch. A new agent feature (a new intrinsic or a new conformance kind) added to one language
+// but not the others compiles fine per-language yet makes the agents behave differently. This gate
+// makes that impossible: a future omission fails the build.
+func TestAgentCrossLanguageParity(t *testing.T) {
+	// 1. Agent intrinsic binding parity. All four languages with an explicit intrinsic->host map
+	//    (Python, Rust, C++, Java; Go derives `_core_*` by convention) must bind the SAME set of
+	//    `intrinsic.agent.*`. A new agent intrinsic added to some maps but not others is the most
+	//    common silent drift -- it compiles per-language while the agents behave differently.
+	//    Scoped to agent intrinsics (the parity guarantee this gate owns); non-agent asymmetries
+	//    between the maps are a separate concern.
+	isAgent := func(i CoreIntrinsic) bool { return strings.HasPrefix(string(i), "intrinsic.agent.") }
+	intrinsicMaps := map[string]map[CoreIntrinsic]string{
+		"Python": coreIntrinsicPython,
+		"Rust":   coreIntrinsicRust,
+		"Cpp":    coreIntrinsicCpp,
+		"Java":   coreIntrinsicJava,
+	}
+	agentIntrinsics := map[CoreIntrinsic]bool{}
+	for _, m := range intrinsicMaps {
+		for intr := range m {
+			if isAgent(intr) {
+				agentIntrinsics[intr] = true
+			}
+		}
+	}
+	for intr := range agentIntrinsics {
+		for lang, m := range intrinsicMaps {
+			if _, ok := m[intr]; !ok {
+				t.Errorf("DRIFT: agent intrinsic %q is bound in some languages but missing from coreIntrinsic%s", intr, lang)
+			}
+		}
+	}
+
+	// (Host-impl existence is enforced by compilation: when agent.axir uses an intrinsic,
+	// codegen emits a call to its host function, and a missing function fails that language's
+	// build during verify/go-test. So map-key parity above + compilation together guarantee an
+	// implementation exists in every language; we do not re-grep per-language host names, whose
+	// spelling differs (Go/Python `_core_*`, Rust `core_*`, Java/C++ methods).)
+
+	// 2. Conformance-kind dispatch parity. Every agent_* fixture kind dispatched in one runner
+	//    must be dispatched in all five (anchored on each language's dispatch syntax so
+	//    error-category string literals like rust's "agent_clarification" are not matched).
+	dispatch := map[string]*regexp.Regexp{
+		"go":     regexp.MustCompile(`case\s+"(agent_[a-z_]+)"`),
+		"cpp":    regexp.MustCompile(`(?:kind\s*==\s*|case\s+)"(agent_[a-z_]+)"`),
+		"java":   regexp.MustCompile(`case\s+"(agent_[a-z_]+)"`),
+		"rust":   regexp.MustCompile(`"(agent_[a-z_]+)"\s*=>`),
+		"python": regexp.MustCompile(`==\s*"(agent_[a-z_]+)"`),
+	}
+	sources := map[string]string{"go": goRuntime + goConformance, "cpp": cppConformance, "java": javaConformance, "rust": rustLib, "python": pyConformance}
+	kindsByLang := map[string]map[string]bool{}
+	union := map[string]bool{}
+	for lang, re := range dispatch {
+		set := map[string]bool{}
+		for _, m := range re.FindAllStringSubmatch(sources[lang], -1) {
+			set[m[1]] = true
+			union[m[1]] = true
+		}
+		kindsByLang[lang] = set
+	}
+	for kind := range union {
+		for lang, set := range kindsByLang {
+			if !set[kind] {
+				t.Errorf("DRIFT: conformance kind %q is dispatched in some languages but NOT %s", kind, lang)
+			}
+		}
+	}
+}
+
+// TestG4AgentCapabilityBackedByRealRunner is the G4 gate: capability-backed-by-real-run.
+//
+// The non-functional agent() shipped in five languages because "claiming the axagent
+// capability" and "really running an agent" were independent facts -- a package exported
+// agent()/AxAgent and listed axagent in supported_suites while no test required a real
+// model-prose -> real-engine -> real final() -> completion loop. This test fuses the two:
+// every language claims axagent (it is in SupportedSuites for all targets), so every
+// language's conformance runner MUST carry the real-execution proof handlers. If a future
+// change guts the real-engine path (drops the agent_runtime_real handler) or the
+// prompt-parity path (agent_prompt), or deletes a real fixture, or drops a target from the
+// behavioral-parity ledger, the claim is no longer backed and this fails. See
+// docs/AXIR_GATES.md (G4).
+func TestG4AgentCapabilityBackedByRealRunner(t *testing.T) {
+	has := func(xs []string, want string) bool {
+		for _, x := range xs {
+			if x == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Each language that claims axagent -> the conformance runner template(s) that must
+	// carry the real-execution proof.
+	runners := map[string][]string{
+		"go":     {goRuntime, goConformance},
+		"python": {pyConformance},
+		"rust":   {rustLib},
+		"java":   {javaConformance},
+		"cpp":    {cppConformance},
+	}
+	for lang, templates := range runners {
+		joined := strings.Join(templates, "\n")
+		// G1 backing: the runner dispatches the real-engine fixture kind.
+		if !strings.Contains(joined, "agent_runtime_real") {
+			t.Errorf("%s claims axagent but its conformance runner has no agent_runtime_real handler (G4: real-engine proof missing)", lang)
+		}
+		// G3 backing: the runner asserts the RLM prompt was rendered into agent state.
+		if !strings.Contains(joined, "agent_prompt") {
+			t.Errorf("%s claims axagent but its conformance runner has no agent_prompt handler (G4: prompt-parity proof missing)", lang)
+		}
+	}
+	// Go injects the real engine via a registration hook (it cannot import a concrete engine
+	// from package ax without an import cycle); without the hook the real fixture cannot run.
+	if !strings.Contains(goConformance, "RegisterConformanceRealRuntime") {
+		t.Error("go conformance binary must register a real runtime via RegisterConformanceRealRuntime (G4)")
+	}
+
+	// The real-run + prompt fixtures the runners dispatch must exist on disk.
+	for _, rel := range []string{
+		"ir/conformance/axagent-real/agent-runtime-real-javascript-final.json",
+		"ir/conformance/axagent/agent-prompt-executor-rlm-protocol.json",
+	} {
+		if _, err := os.Stat(filepath.Join(repoRootPath(), filepath.FromSlash(rel))); err != nil {
+			t.Errorf("G4: required real-execution fixture missing: %s (%v)", rel, err)
+		}
+	}
+
+	// The behavioral-parity ledger must record real execution as verified for all five.
+	data, err := os.ReadFile(filepath.Join(repoRootPath(), "ir", "behavioral-parity-ledger.json"))
+	if err != nil {
+		t.Fatalf("G4: cannot read behavioral-parity ledger: %v", err)
+	}
+	var ledger struct {
+		Entries []struct {
+			Capability      string   `json:"capability"`
+			VerifiedTargets []string `json:"verified_targets"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(data, &ledger); err != nil {
+		t.Fatalf("G4: cannot parse behavioral-parity ledger: %v", err)
+	}
+	foundRealExec := false
+	for _, e := range ledger.Entries {
+		if e.Capability != "agent.rlm.real_execution" {
+			continue
+		}
+		foundRealExec = true
+		for _, lang := range []string{"go", "rust", "cpp", "python", "java"} {
+			if !has(e.VerifiedTargets, lang) {
+				t.Errorf("G4: ledger agent.rlm.real_execution does not list %s as a verified target", lang)
+			}
+		}
+	}
+	if !foundRealExec {
+		t.Error("G4: behavioral-parity ledger has no agent.rlm.real_execution entry")
+	}
+}
+
 func TestPublicGeneratedSurfaceHygiene(t *testing.T) {
 	repoRoot := repoRootPath()
 	for _, relRoot := range []string{
@@ -288,7 +450,6 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axgen_trace",
 		"axgen_stop_functions",
 		"cache_aware_prompt_inputs",
-		"axagent_pipeline",
 		"axagent_context_fields",
 		"axagent_clarification",
 		"axagent_chat_log",
@@ -540,6 +701,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"axllm/ai.py",
 				"axllm/agent.py",
 				"axllm/runtime.py",
+				"axllm/runtime_quickjs.py",
 				"axllm/flow.py",
 				"axllm/gen.py",
 				"axllm/conformance.py",
@@ -548,8 +710,6 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_openai_api.py",
 				"examples/provider_mapping_no_key.py",
 				"examples/provider_stream_no_key.py",
-				"examples/axagent_pipeline.py",
-				"examples/agent_openai_api.py",
 				"examples/runtime_adapter.py",
 				"examples/runtime_protocol.py",
 				"examples/runtime_profiles/javascript_quickjs.py",
@@ -561,10 +721,14 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axflow_program_graph.py",
 				"examples/flow_openai_api.py",
 				"examples/audio_responses_mapping.py",
+				"examples/audio_http_roundtrip.py",
+				"examples/stream_http_roundtrip.py",
 				"examples/realtime_audio_events.py",
+				"examples/realtime_audio_turn.py",
 				"examples/optimizer_artifact.py",
 				"examples/gepa_local_optimizer.py",
 				"examples/mcp_scripted_tools.py",
+				"examples/mcp_sse_roundtrip.py",
 			},
 			wantReadme: "Ax for Python",
 		},
@@ -617,8 +781,6 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/AxGenOpenAIExample.java",
 				"examples/ProviderMappingNoKeyExample.java",
 				"examples/ProviderStreamNoKeyExample.java",
-				"examples/AxAgentPipelineExample.java",
-				"examples/AgentOpenAIExample.java",
 				"examples/RuntimeAdapterExample.java",
 				"examples/RuntimeProtocolExample.java",
 				"examples/runtime_profiles/JavaScriptQuickJsExample.java",
@@ -634,10 +796,14 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/AxFlowProgramGraphExample.java",
 				"examples/FlowOpenAIExample.java",
 				"examples/AudioResponsesMappingExample.java",
+				"examples/AudioHTTPRoundtripExample.java",
+				"examples/StreamHTTPRoundtripExample.java",
 				"examples/RealtimeAudioEventsExample.java",
+				"examples/RealtimeAudioTurnExample.java",
 				"examples/OptimizerArtifactExample.java",
 				"examples/GEPALocalOptimizerExample.java",
 				"examples/AxMCPScriptedToolsExample.java",
+				"examples/AxMCPSseRoundtripExample.java",
 			},
 			wantReadme: "Ax for Java",
 		},
@@ -659,8 +825,6 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_openai_api.cpp",
 				"examples/provider_mapping_no_key.cpp",
 				"examples/provider_stream_no_key.cpp",
-				"examples/axagent_pipeline.cpp",
-				"examples/agent_openai_api.cpp",
 				"examples/runtime_adapter.cpp",
 				"examples/runtime_protocol.cpp",
 				"axllm/runtime/quickjs/quickjs_runtime.hpp",
@@ -673,10 +837,14 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axflow_program_graph.cpp",
 				"examples/flow_openai_api.cpp",
 				"examples/audio_responses_mapping.cpp",
+				"examples/audio_http_roundtrip.cpp",
+				"examples/stream_http_roundtrip.cpp",
 				"examples/realtime_audio_events.cpp",
+				"examples/realtime_audio_turn.cpp",
 				"examples/optimizer_artifact.cpp",
 				"examples/gepa_local_optimizer.cpp",
 				"examples/mcp_scripted_tools.cpp",
+				"examples/mcp_sse_roundtrip.cpp",
 			},
 			wantReadme: "Ax for C++",
 		},
@@ -698,18 +866,20 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_openai_api/main.go",
 				"examples/provider_mapping_no_key/main.go",
 				"examples/provider_stream_no_key/main.go",
-				"examples/axagent_pipeline/main.go",
-				"examples/agent_openai_api/main.go",
 				"examples/runtime_adapter/main.go",
 				"examples/runtime_protocol/main.go",
 				"examples/runtime_profiles/javascript_goja/main.go",
 				"examples/axflow_program_graph/main.go",
 				"examples/flow_openai_api/main.go",
 				"examples/audio_responses_mapping/main.go",
+				"examples/audio_http_roundtrip/main.go",
+				"examples/stream_http_roundtrip/main.go",
 				"examples/realtime_audio_events/main.go",
+				"examples/realtime_audio_turn/main.go",
 				"examples/optimizer_artifact/main.go",
 				"examples/gepa_local_optimizer/main.go",
 				"examples/mcp_scripted_tools/main.go",
+				"examples/mcp_sse_roundtrip/main.go",
 			},
 			wantReadme: "Ax for Go",
 		},
@@ -730,8 +900,6 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/provider_stream_no_key.rs",
 				"examples/axgen_scripted_client_tool.rs",
 				"examples/axgen_openai_api.rs",
-				"examples/axagent_pipeline.rs",
-				"examples/agent_openai_api.rs",
 				"examples/runtime_adapter.rs",
 				"examples/runtime_protocol.rs",
 				"examples/runtime_profiles/javascript_quickjs.rs",
@@ -739,10 +907,14 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axflow_program_graph.rs",
 				"examples/flow_openai_api.rs",
 				"examples/audio_responses_mapping.rs",
+				"examples/audio_http_roundtrip.rs",
+				"examples/stream_http_roundtrip.rs",
 				"examples/realtime_audio_events.rs",
+				"examples/realtime_audio_turn.rs",
 				"examples/optimizer_artifact.rs",
 				"examples/gepa_local_optimizer.rs",
 				"examples/mcp_scripted_tools.rs",
+				"examples/mcp_sse_roundtrip.rs",
 			},
 			wantReadme: "Ax for Rust",
 		},
@@ -807,7 +979,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("%s manifest should not claim runtime profile %q: %#v", tc.target, profileID, manifest.RuntimeProfiles)
 				}
 			}
-			wantPackage := map[string]string{"python": "axllm", "java": "dev.axllm:ax", "cpp": "axllm", "go": "github.com/ax-llm/ax/go", "rust": "axllm"}[tc.target]
+			wantPackage := map[string]string{"python": "axllm", "java": "dev.axllm:ax", "cpp": "axllm", "go": "github.com/ax-llm/ax/packages/go", "rust": "axllm"}[tc.target]
 			if manifest.PackageName != wantPackage {
 				t.Fatalf("bad package name for %s: got %q want %q", tc.target, manifest.PackageName, wantPackage)
 			}
@@ -913,18 +1085,18 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "pom.xml", "<groupId>dev.axllm</groupId>", "<artifactId>ax</artifactId>", "dev/axllm/ax/*.java")
 				checkGeneratedFileContains(t, dir, "build.gradle", "java-library", "dev/axllm/ax/*.java")
 			case "cpp":
-				checkGeneratedFileContains(t, dir, "CMakeLists.txt", "add_library(axllm axllm/axllm.cpp axllm/mcp.cpp)", "add_library(axllm::axllm ALIAS axllm)", "AX_BUILD_QUICKJS_PROFILE", "AX_QUICKJS_CFLAGS", "AX_QUICKJS_LDFLAGS", "add_library(axllm_quickjs", "find_package(CURL QUIET)", "AXLLM_ENABLE_CURL", "AXLLM_ENABLE_MCP_STDIO_BOOST", "provider_stream_no_key", "agent_openai_api", "flow_openai_api", "audio_responses_mapping", "realtime_audio_events", "gepa_local_optimizer", "mcp_scripted_tools")
+				checkGeneratedFileContains(t, dir, "CMakeLists.txt", "add_library(axllm axllm/axllm.cpp axllm/mcp.cpp)", "add_library(axllm::axllm ALIAS axllm)", "AX_BUILD_QUICKJS_PROFILE", "AX_QUICKJS_CFLAGS", "AX_QUICKJS_LDFLAGS", "add_library(axllm_quickjs", "find_package(CURL QUIET)", "AXLLM_ENABLE_CURL", "AXLLM_ENABLE_MCP_STDIO_BOOST", "AXLLM_ENABLE_REALTIME", "provider_stream_no_key", "flow_openai_api", "audio_responses_mapping", "realtime_audio_events", "gepa_local_optimizer", "mcp_scripted_tools")
 				checkGeneratedFileContains(t, dir, "axllm/axllm.hpp", "class HttpTransport", "std::unique_ptr<Transport> owned_transport_")
 				checkGeneratedFileContains(t, dir, "axllm/mcp.hpp", "class AxMCPClient", "class AxMCPStreamableHTTPTransport", "class AxMCPStdioTransport")
 				checkGeneratedFileContains(t, dir, "axllm/axllm.cpp", "HttpTransport::call", "curl_easy_perform")
 				checkGeneratedFileContains(t, dir, "cmake/axllmConfig.cmake.in", "find_dependency(OpenSSL)", "axllmTargets.cmake")
 			case "go":
-				checkGeneratedFileContains(t, dir, "go.mod", "module github.com/ax-llm/ax/go", "go 1.22", "github.com/dop251/goja")
+				checkGeneratedFileContains(t, dir, "go.mod", "module github.com/ax-llm/ax/packages/go", "go 1.23", "github.com/dop251/goja", "github.com/coder/websocket")
 				checkGeneratedFileContains(t, dir, "axllm.go", "package axllm", "type Value = any", "func NewSignature", "type HTTPTransport struct")
 				checkGeneratedFileContains(t, dir, "runtime/goja/goja.go", "package goja", "func NewRuntime(options ...Option) *Runtime", "func (r *Runtime) RegisterCallable", "gojavm.New")
 				checkGeneratedFileContains(t, dir, "examples/runtime_profiles/javascript_goja/main.go", "go-javascript-goja-profile-ok", "ax.NewAgent", "agent.Test(runtime", "while (true) {}")
 			case "rust":
-				checkGeneratedFileContains(t, dir, "Cargo.toml", `name = "axllm"`, "reqwest", "rustls-tls", "rquickjs", "runtime-quickjs", `required-features = ["runtime-quickjs"]`)
+				checkGeneratedFileContains(t, dir, "Cargo.toml", `name = "axllm"`, "reqwest", "rustls-tls", "rquickjs", "runtime-quickjs", `required-features = ["runtime-quickjs"]`, "tungstenite", `realtime = ["dep:tungstenite"]`)
 				checkGeneratedFileContains(t, dir, "src/lib.rs", "pub fn s(", "pub fn ax(", "pub fn agent(", "pub fn flow(", "pub fn ai(", "pub fn tool(", "pub trait AxCodeRuntime", "pub struct ProcessCodeRuntime", "pub mod runtime")
 				checkGeneratedFileContains(t, dir, "src/lib.rs", "BEGIN AXIR CORE EMITTED FUNCTIONS", "fn parse_signature(args: &[CoreValue])", "fn _schema_flexible_json_as_string_impl(args: &[CoreValue])", "enum CoreValue")
 				checkGeneratedFileContains(t, dir, "src/lib.rs", "fn provider_normalize_chat_response(args: &[CoreValue])", "fn _build_agent_actor_prompt_policy(args: &[CoreValue])")
@@ -1088,7 +1260,7 @@ func TestDocsCoverCompilerAndArchitecture(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := readRepoFile(t, root, "docs", "RELEASE.md")
-	for _, want := range []string{"@ax-llm/ax", "axllm", "dev.axllm:ax", "axllm::axllm", "github.com/ax-llm/ax/go", "javascript-goja", "runtime/goja", "crates.io"} {
+	for _, want := range []string{"@ax-llm/ax", "axllm", "dev.axllm:ax", "axllm::axllm", "github.com/ax-llm/ax/packages/go", "javascript-goja", "runtime/goja", "crates.io"} {
 		if !strings.Contains(release, want) {
 			t.Fatalf("docs/RELEASE.md missing %q", want)
 		}
@@ -1673,6 +1845,52 @@ func generatedCorePlaceholderLine(target, line string) bool {
 		return line == "return" || line == "return nil" || line == "return nil, nil" || line == "ret = nil"
 	default:
 		return false
+	}
+}
+
+// TestActorRuntimeSurfacesAsyncRejections guards the QuickJS async-rejection error_category bug.
+//
+// Commit a59eb9e4 wrapped RLM actor code in an async IIFE so the model's top-level
+// `await final(...)` is legal. But an async IIFE turns a synchronous `throw` into a *rejected
+// promise*: an engine that runs the IIFE without awaiting it or draining the job queue never
+// observes the rejection, so session.execute("throw ...") silently loses its
+// error_category=runtime. That break surfaces only in the runtime-profile examples, and the
+// java/python QuickJS4J profiles are skipped unless AXIR_QUICKJS4J_* is set, so it slipped past
+// CI. Each engine that wraps actor code in an async IIFE must surface rejections: libquickjs,
+// py-quickjs, and rquickjs attach a rejection handler that records __ax_error and drain the job
+// queue; goja attaches the same handler and relies on RunString draining the promise job queue on
+// return; quickjs4j awaits the IIFE so the host resolves its promise (propagating the rejection).
+// Lock those markers in so the await/drain cannot be silently dropped again.
+//
+// The goja (Go) and rquickjs (Rust) profiles run only under an explicit --runtime-profiles pass,
+// so the default suite does not exercise their error paths at runtime; these markers are the
+// regression guard that keeps their rejection handling in place.
+func TestActorRuntimeSurfacesAsyncRejections(t *testing.T) {
+	cases := []struct {
+		engine  string
+		rel     string
+		markers []string
+	}{
+		{"quickjs4j", "quickjs/javaQuickJSCodeSession.java", []string{"await (async function"}},
+		{"libquickjs", "quickjs/cppQuickJSRuntimeSource.cpp", []string{"JS_ExecutePendingJob", "__ax_error"}},
+		{"py-quickjs", "runtime/pyRuntimeQuickjs.py", []string{"execute_pending_job", "__ax_error"}},
+		{"rquickjs", "rust_quickjs/rustQuickJSRuntime.rs", []string{"execute_pending_job", "__ax_error"}},
+		{"goja", "goja/goGojaRuntime.go.txt", []string{".then(function(){}, function(e)", "__ax_error"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.engine, func(t *testing.T) {
+			path := filepath.Join(repoRootPath(), "tools", "axir", "internal", "axir", "templates", filepath.FromSlash(tc.rel))
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read actor runtime template %s: %v", tc.rel, err)
+			}
+			text := string(data)
+			for _, marker := range tc.markers {
+				if !strings.Contains(text, marker) {
+					t.Fatalf("%s runtime %s is missing rejection-surfacing marker %q: a synchronous throw in actor code would become an unhandled rejected promise and error_category=runtime would be lost (see commit a59eb9e4)", tc.engine, tc.rel, marker)
+				}
+			}
+		})
 	}
 }
 
@@ -2572,6 +2790,13 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 					}
 				}
 			}
+		case "agent_prompt":
+			if _, ok := fixture["signature"]; !ok {
+				t.Fatalf("%s missing signature", file)
+			}
+			if _, ok := fixture["expected_description_contains"]; !ok {
+				t.Fatalf("%s missing expected_description_contains", file)
+			}
 		default:
 			t.Fatalf("%s has unknown axagent kind %v", file, fixture["kind"])
 		}
@@ -2917,6 +3142,146 @@ print('python-ok')
 	}
 	if !strings.Contains(string(out), "python-ok") {
 		t.Fatalf("unexpected python output: %s", out)
+	}
+}
+
+// TestResponsePerturbationGate runs the anti-hardcode gate: for every fixture
+// whose assertions depend on a scripted model response, mutating that response
+// must make the run fail. A passing-on-mutation fixture asserts a hardcoded or
+// unwired value. The standard test lane runs the fast `go` target; CI runs all
+// five via `npm run axir:gate:response-perturb` with AXIR_PERTURB_ALL=1.
+func TestResponsePerturbationGate(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not available")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not available")
+	}
+	script := filepath.Join(repoRootPath(), "scripts", "axir-response-perturb-check.mjs")
+	cmd := exec.Command("node", script, "go")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("response-perturbation gate failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "model-dependent assertion") {
+		t.Fatalf("unexpected gate output: %s", out)
+	}
+}
+
+// TestRLMStagesSymmetric guards the class of bug where one RLM actor stage runs
+// the real runtime loop while its sibling is left as a one-shot that demands a
+// structured completion. Scripted fixtures hide it by hand-feeding the one-shot
+// stage a completion; a live model returns RLM code and the stage throws
+// "Required field is missing: Completion". Every actor stage must (a) switch to a
+// code-output signature under runtime and (b) drive the engine via
+// @agent_runtime_execute_step in an actor loop. This is exactly the distiller bug
+// a real-model run surfaced that all scripted conformance + the G1 antidote missed.
+func TestRLMStagesSymmetric(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRootPath(), "ir", "axcore", "agent.axir"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, stage := range []string{"distiller", "executor"} {
+		sigVar := "%runtime_" + stage + "_signature"
+		if !strings.Contains(text, sigVar+" = core.call intrinsic.string.format(") {
+			t.Fatalf("RLM stage %q has no runtime code signature %s; a one-shot stage will throw 'Required field is missing: Completion' on a live model", stage, sigVar)
+		}
+		if !strings.Contains(text, "%"+stage+"_signature = core.let "+sigVar) {
+			t.Fatalf("RLM stage %q does not switch to its code signature under runtime", stage)
+		}
+	}
+	// Both stages must build a code-output runtime signature and run the engine.
+	if c := strings.Count(text, "-> {}:code"); c < 2 {
+		t.Fatalf("expected distiller AND executor code-output runtime signatures (-> {}:code), found %d", c)
+	}
+	if !strings.Contains(text, "agent distiller loop exceeded max steps") {
+		t.Fatal("distiller has no runtime actor loop (missing its loop guard); it cannot execute model-authored code through the engine")
+	}
+	if !strings.Contains(text, "agent actor loop exceeded max steps") {
+		t.Fatal("executor has no runtime actor loop guard")
+	}
+	if n := strings.Count(text, "@agent_runtime_execute_step("); n < 2 {
+		t.Fatalf("expected >= 2 @agent_runtime_execute_step call sites (distiller + executor actor loops), found %d", n)
+	}
+}
+
+// TestCodeStageUsesStructuredOutput guards the second half of the live-model fix:
+// a code-emitting stage (RLM distiller/executor, `-> {}:code`) must request a strict
+// json_schema response_format that forces the output field name, NOT a generic
+// json_object. With json_object a live model picks its own keys and answers directly
+// (e.g. {"answer":"Paris"}) instead of emitting the javascriptCode field, so the stage
+// throws "Required field is missing: 'Javascript Code'". The behavioral guard is the
+// agent-runtime-real-javascript-await fixture (asserts json_schema+javascriptCode in the
+// request across all five engines); this is the fast-lane structural backstop.
+func TestCodeStageUsesStructuredOutput(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRootPath(), "ir", "axcore", "gen.axir"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `intrinsic.eq(%of_type_name, "code")`) {
+		t.Fatal("@build_gen_chat_request no longer detects a code-type output field; code stages will fall back to generic json_object and a live model will answer directly instead of emitting code")
+	}
+	if !strings.Contains(text, `@schema_to_json_schema_impl(`) {
+		t.Fatal("@build_gen_chat_request does not build a json_schema from the output fields for code stages")
+	}
+	if !strings.Contains(text, "strictStructuredOutputs") {
+		t.Fatal("code-stage json_schema is not strict; without strict mode the output field name is not forced")
+	}
+	if !strings.Contains(text, `"json_schema"`) {
+		t.Fatal("@build_gen_chat_request never sets a json_schema response_format")
+	}
+}
+
+// TestRealEngineFixturesRunCode guards the verification gap that let the distiller
+// bug ship: a real-engine (axagent-real) fixture must execute MODEL-AUTHORED CODE
+// through the engine for every actor stage. A hand-fed {"completion":...} at an
+// actor position bypasses the engine and masks a one-shot stage -- which is exactly
+// how the G1 antidote fed the distiller a completion and never ran distiller code.
+// This is the closest mechanical proxy for "run it against a real model" that works
+// without an API key (the in-process engine actually executes the code).
+func TestRealEngineFixturesRunCode(t *testing.T) {
+	dir := filepath.Join(repoRootPath(), "ir", "conformance", "axagent-real")
+	files, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no axagent-real fixtures: the real-engine path is unverified")
+	}
+	sawDistillerCode := false
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fx struct {
+			Kind      string `json:"kind"`
+			Responses []struct {
+				Content string `json:"content"`
+			} `json:"responses"`
+		}
+		if err := json.Unmarshal(raw, &fx); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		if fx.Kind != "agent_runtime_real" {
+			continue
+		}
+		for i, r := range fx.Responses {
+			isResponder := i == len(fx.Responses)-1 // last response is the structured answer
+			if !isResponder && strings.Contains(r.Content, "\"completion\"") {
+				t.Fatalf("%s response[%d] hand-feeds a {\"completion\":...} to an actor stage; a real-engine fixture must run model-authored code through the engine, not a scripted completion (this is exactly what masked the distiller bug)", filepath.Base(f), i)
+			}
+		}
+		if len(fx.Responses) > 0 &&
+			strings.Contains(fx.Responses[0].Content, "final(") &&
+			strings.Contains(fx.Responses[0].Content, "Code") {
+			sawDistillerCode = true
+		}
+	}
+	if !sawDistillerCode {
+		t.Fatal("no axagent-real fixture runs DISTILLER-authored code through the engine; the distiller path is unverified against a real engine (the gap that let the one-shot distiller ship)")
 	}
 }
 
@@ -3421,13 +3786,10 @@ func TestPythonModulesSelfContained(t *testing.T) {
 	// bound at module scope, or imported from a sibling. Guards against
 	// emit-list drift (missing gemini/grok audio functions) and callee naming
 	// mismatches (pythonCallee underscore-prefixing public core functions).
-	defRe := regexp.MustCompile(`(?m)^\s*def (_[a-z0-9_]+)\(`)
-	bindRe := regexp.MustCompile(`(?m)^\s*(_[a-z0-9_]+) = `)
-	callRe := regexp.MustCompile(`[^.\w](_[a-z0-9_]+)\(`)
-	multiImportRe := regexp.MustCompile(`(?s)from \.[a-z_]+ import \(([^)]*)\)`)
-	singleImportRe := regexp.MustCompile(`(?m)^from \.[a-z_]+ import ([^(\n]+)$`)
-	nameRe := regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
-	totalCalls := 0
+	// buildPythonCoreModule applies the same audit (pythonModuleMissingHelpers)
+	// at codegen time so a missing helper fails generation rather than surfacing
+	// as a runtime NameError; this test extends the sweep to every module.
+	sawCalls := false
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".py") {
 			continue
@@ -3437,28 +3799,14 @@ func TestPythonModulesSelfContained(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(raw)
-		allowed := map[string]bool{}
-		for _, match := range defRe.FindAllStringSubmatch(text, -1) {
-			allowed[match[1]] = true
+		if pythonHelperCallRe.MatchString(text) {
+			sawCalls = true
 		}
-		for _, match := range bindRe.FindAllStringSubmatch(text, -1) {
-			allowed[match[1]] = true
-		}
-		for _, re := range []*regexp.Regexp{multiImportRe, singleImportRe} {
-			for _, match := range re.FindAllStringSubmatch(text, -1) {
-				for _, name := range nameRe.FindAllString(match[1], -1) {
-					allowed[name] = true
-				}
-			}
-		}
-		for _, match := range callRe.FindAllStringSubmatch(text, -1) {
-			totalCalls++
-			if !allowed[match[1]] {
-				t.Errorf("%s calls %s but never defines or imports it", entry.Name(), match[1])
-			}
+		for _, missing := range pythonModuleMissingHelpers(text) {
+			t.Errorf("%s calls %s but never defines or imports it", entry.Name(), missing)
 		}
 	}
-	if totalCalls == 0 {
+	if !sawCalls {
 		t.Fatal("no underscore helper references found in generated Python; audit regexes are stale")
 	}
 	aiFile, err := os.ReadFile(filepath.Join(moduleDir, "ai.py"))

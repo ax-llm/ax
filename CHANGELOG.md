@@ -1,5 +1,62 @@
 # Changelog
 
+## [22.0.7](https://github.com/ax-llm/ax/compare/22.0.5...22.0.6) (2026-06-24)
+
+### Features
+
+* **axir:** productized realtime_chat WebSocket driver for the C++ port ([a11f9c7](https://github.com/ax-llm/ax/commit/a11f9c7fcbdd2399bc2af89e06c73b7c7facb0e5))
+* **axir:** productized realtime_chat WebSocket driver for the Go port ([72b881c](https://github.com/ax-llm/ax/commit/72b881cd6cff1a5c6aca1c9b27ec5203a366561d))
+* **axir:** productized realtime_chat WebSocket driver for the Java port ([27e23f5](https://github.com/ax-llm/ax/commit/27e23f517dbd8e63589ba07f714debffcc686b35))
+* **axir:** productized realtime_chat WebSocket driver for the Python port ([faabf69](https://github.com/ax-llm/ax/commit/faabf69ebaa1f35e4cf7f3441fe504e773fa603e))
+* **axir:** productized realtime_chat WebSocket driver for the Rust port ([81af022](https://github.com/ax-llm/ax/commit/81af0227fe17f303e034527399aa71cdc8718f6d))
+* **axir:** support audio content parts in OpenAI-compatible chat() across ports ([9119cef](https://github.com/ax-llm/ax/commit/9119cef49109ab1f02eda990e8830adea4ef8446))
+* **axir:** transparently route realtime models through chat() across ports ([ba6e38a](https://github.com/ax-llm/ax/commit/ba6e38a2de77943e7b0fd1fa781da5e273164e0a))
+
+### Bug Fixes
+
+* **anthropic:** retry and fail over on transient errors (overload, rate limits, server errors) ([#556](https://github.com/ax-llm/ax/issues/556)) ([36c7808](https://github.com/ax-llm/ax/commit/36c7808f1ecd647539da33fd19c4484ce687c0ff))
+* **axir:** align OpenAI realtime session.update with the current protocol ([cfac419](https://github.com/ax-llm/ax/commit/cfac41973da31be598c5d6c9e2ef7a30a00e16c8))
+* **axir:** correct Gemini Live turn + move realtime WS-URL into Core ([1fa204e](https://github.com/ax-llm/ax/commit/1fa204ed26828c6981315b8e52583f33fdb56880))
+* **axir:** fail codegen loud when a generated Python module lacks a helper def ([7566c74](https://github.com/ax-llm/ax/commit/7566c7470f26b2441440c2cc3ccb6e7400f75d41))
+* **axir:** honor base_url for Rust audio transcribe()/speak() ([ba4ea67](https://github.com/ax-llm/ax/commit/ba4ea675d577a4ad7849b2b051a921579e7091b5))
+* **axir:** make MCP Streamable HTTP transport SSE-aware in all 5 ports ([ed37627](https://github.com/ax-llm/ax/commit/ed3762769cf617193545d53d64fcabfb6b13075e))
+
+## [22.0.6](https://github.com/ax-llm/ax/compare/22.0.5...22.0.6) (2026-06-21)
+
+### Bug Fixes
+
+* **axir:** handle binary speak()/TTS responses across the non-TS ports ([5068c65](https://github.com/ax-llm/ax/commit/5068c65efda7558590fc42f188c3fa63648f44d2))
+* **axir:** implement multipart/form-data in the non-TS port HTTP layers ([57009ce](https://github.com/ax-llm/ax/commit/57009ceeeabfa4a2e9bc83e955c4cf85042d45d6))
+* **axir:** populate freeform json[] output fields in the language ports ([bd3a4eb](https://github.com/ax-llm/ax/commit/bd3a4ebacb3e5471cddabe013b72460882905a3d))
+* **axir:** recurse into nested object/object[] flexible-json output leaves ([aa1e64a](https://github.com/ax-llm/ax/commit/aa1e64a51f1d0cc89969971a3cc41bffb3982c32))
+
+## [22.0.6](https://github.com/ax-llm/ax/compare/22.0.4...22.0.5) (2026-06-21)
+
+### Bug Fixes
+
+* **axir:** handle binary speak()/TTS responses across the non-TS ports ([5068c65](https://github.com/ax-llm/ax/commit/5068c65efda7558590fc42f188c3fa63648f44d2))
+* **axir:** implement multipart/form-data in the non-TS port HTTP layers ([57009ce](https://github.com/ax-llm/ax/commit/57009ceeeabfa4a2e9bc83e955c4cf85042d45d6))
+* **axir:** populate freeform json[] output fields in the language ports ([bd3a4eb](https://github.com/ax-llm/ax/commit/bd3a4ebacb3e5471cddabe013b72460882905a3d))
+* **axir:** recurse into nested object/object[] flexible-json output leaves ([aa1e64a](https://github.com/ax-llm/ax/commit/aa1e64a51f1d0cc89969971a3cc41bffb3982c32))
+
+## [22.0.5](https://github.com/ax-llm/ax/compare/22.0.4...22.0.5) (2026-06-20)
+
+### Bug Fixes
+
+* **maven:** bump central-publishing-maven-plugin 0.7.0 -> 0.11.0 ([#554](https://github.com/ax-llm/ax/issues/554)) ([2e0b667](https://github.com/ax-llm/ax/commit/2e0b667832554d3f299244d421c41ccfd1f945f8))
+
+## [22.0.5](https://github.com/ax-llm/ax/compare/22.0.3...22.0.4) (2026-06-20)
+
+### Bug Fixes
+
+* **maven:** bump central-publishing-maven-plugin 0.7.0 -> 0.11.0 ([#554](https://github.com/ax-llm/ax/issues/554)) ([2e0b667](https://github.com/ax-llm/ax/commit/2e0b667832554d3f299244d421c41ccfd1f945f8))
+
+## [22.0.4](https://github.com/ax-llm/ax/compare/22.0.3...22.0.4) (2026-06-20)
+
+## [22.0.4](https://github.com/ax-llm/ax/compare/22.0.2...22.0.3) (2026-06-20)
+
+## [22.0.3](https://github.com/ax-llm/ax/compare/22.0.2...22.0.3) (2026-06-08)
+
 ## [22.0.3](https://github.com/ax-llm/ax/compare/22.0.1...22.0.2) (2026-06-08)
 
 ## [22.0.2](https://github.com/ax-llm/ax/compare/22.0.1...22.0.2) (2026-06-05)

@@ -59,6 +59,9 @@ public final class AxGen implements AxProgram {
       (String) this.options.getOrDefault("structured_output_function_name", this.options.get("structuredOutputFunctionName")),
       (String) this.options.getOrDefault("custom_template", this.options.get("customTemplate"))
     );
+    if (!this.instruction.isEmpty()) {
+      this.promptTemplate.setInstruction(this.instruction);
+    }
   }
 
   public AxGen addTool(Tool tool) {

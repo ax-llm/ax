@@ -27,7 +27,7 @@ module @ax.provider version "0.1" {
 
   op ax.provider.class @AnthropicClient {
     attr core_kind = "record"
-    attr default_base_url = "https://api.anthropic.com/v1"
+    attr default_base_url = "https://api.anthropic.com"
     attr public = true
     ref interface = @AxAIService
     tag "anthropic"
@@ -310,6 +310,27 @@ module @ax.provider version "0.1" {
         core.set %out["type"] = "image_url"
         core.set %out["image_url"] = %image_url
         core.return %out
+      }
+      %is_audio = core.call intrinsic.eq(%type, "audio")
+      core.if %is_audio {
+        %audio_alt = core.get %part["audio"]
+        %data = core.get %part["data"] default %audio_alt
+        %format = core.get %part["format"]
+        %is_wav = core.call intrinsic.eq(%format, "wav")
+        %is_mp3 = core.call intrinsic.eq(%format, "mp3")
+        %format_ok = core.call intrinsic.or(%is_wav, %is_mp3)
+        core.if %format_ok {
+          %out = core.map
+          core.set %out["type"] = "input_audio"
+          %input_audio = core.map
+          core.set %input_audio["data"] = %data
+          core.set %input_audio["format"] = %format
+          core.set %out["input_audio"] = %input_audio
+          core.return %out
+        }
+        %audio_message = core.call intrinsic.string.format("OpenAI audio chat input supports only wav and mp3 audio, received {}", %format)
+        %audio_error = core.call intrinsic.ai.error.unsupported(%audio_message)
+        core.raise %audio_error
       }
       %message = core.call intrinsic.string.format("OpenAI-compatible beta does not support content part type: {}", %type)
       %error = core.call intrinsic.ai.error.unsupported(%message)
@@ -716,10 +737,12 @@ module @ax.provider version "0.1" {
       %is_500 = core.call intrinsic.eq(%status, 500)
       %is_502 = core.call intrinsic.eq(%status, 502)
       %is_503 = core.call intrinsic.eq(%status, 503)
+      %is_529 = core.call intrinsic.eq(%status, 529)
       %retry_left = core.call intrinsic.or(%is_429, %is_500)
       %retry_right = core.call intrinsic.or(%is_502, %is_503)
       %retry_some = core.call intrinsic.or(%retry_left, %retry_right)
-      %retryable = core.call intrinsic.or(%retry_some, %is_504)
+      %retry_more = core.call intrinsic.or(%retry_some, %is_504)
+      %retryable = core.call intrinsic.or(%retry_more, %is_529)
       %error = core.call intrinsic.ai.error.status(%message, %status, %code, %body, %request, %retryable)
       core.return %error
     }
@@ -1512,7 +1535,7 @@ module @ax.provider version "0.1" {
       core.if %is_openai_family {
         %family_operations = core.get %openai_family_descriptor["operations"]
         %family_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
-        %family_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}")
+        %family_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")
         core.set %family_operations["transcribe"] = %family_transcribe
         core.set %family_operations["speak"] = %family_speak
         %is_grok_family = core.call intrinsic.eq(%provider_id, "grok")
@@ -1559,9 +1582,9 @@ module @ax.provider version "0.1" {
         %responses_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":true}")
         %responses_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")
         %responses_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
-        %responses_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}")
+        %responses_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")
         %responses_realtime = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}")
-        %responses_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")
+        %responses_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"url\":\"wss://api.openai.com/v1/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")
         core.set %operations["chat"] = %responses_chat
         core.set %operations["stream_chat"] = %responses_stream
         core.set %operations["embed"] = %responses_embed
@@ -1588,7 +1611,7 @@ module @ax.provider version "0.1" {
           %gemini_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:batchEmbedContents\",\"body\":\"json\",\"stream\":false}")
           %gemini_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")
           %gemini_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")
-          %gemini_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}")
+          %gemini_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}")
           core.set %operations["chat"] = %gemini_chat
           core.set %operations["stream_chat"] = %gemini_stream
           core.set %operations["embed"] = %gemini_embed
@@ -1614,15 +1637,15 @@ module @ax.provider version "0.1" {
           core.set %features["thinking"] = true
         } else {
           core.if %is_anthropic {
-            core.set %descriptor["baseUrl"] = "https://api.anthropic.com/v1"
+            core.set %descriptor["baseUrl"] = "https://api.anthropic.com"
             core.set %descriptor["auth"] = "anthropic_key"
             core.set %descriptor["id"] = "anthropic"
             core.set %descriptor["name"] = "anthropic"
             core.set %descriptor["defaultModel"] = "claude-3-7-sonnet-latest"
             %extra_headers = core.call intrinsic.json.parse("{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"}")
             core.set %descriptor["headers"] = %extra_headers
-            %anthropic_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":false}")
-            %anthropic_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":true}")
+            %anthropic_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":false}")
+            %anthropic_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":true}")
             core.set %operations["chat"] = %anthropic_chat
             core.set %operations["stream_chat"] = %anthropic_stream
             %anthropic_images = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"]}")
@@ -1646,7 +1669,7 @@ module @ax.provider version "0.1" {
             %compatible_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}")
             %compatible_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")
             %compatible_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
-            %compatible_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}")
+            %compatible_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")
             core.set %operations["chat"] = %compatible_chat
             core.set %operations["stream_chat"] = %compatible_stream
             core.set %operations["embed"] = %compatible_embed
@@ -1719,6 +1742,73 @@ module @ax.provider version "0.1" {
     body @entry(%profile: string) {
       %descriptor = core.call @provider_operation_descriptor(%profile, "realtime_audio")
       core.return %descriptor
+    }
+  }
+
+  // Build the realtime WebSocket URL + auth headers for the provider's grammar so
+  // the per-language drivers stay grammar-agnostic: gemini_live_bidi authenticates
+  // with ?key= in the URL, the openai-compatible grammars use a Bearer header and
+  // a ?model= query.
+  op ax.provider.semantic @provider_realtime_ws_url {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "provider-realtime-audio-operation"
+    type signature = "(profile:string, model:string, api_key:string) -> json throws"
+    body @entry(%profile: string, %model: string, %api_key: string) {
+      %descriptor = core.call @provider_realtime_audio_descriptor(%profile)
+      %grammar = core.get %descriptor["grammar"] default "openai_realtime_compatible"
+      %base = core.get %descriptor["url"] default ""
+      %out = core.map
+      %headers = core.map
+      %is_gemini = core.call intrinsic.eq(%grammar, "gemini_live_bidi")
+      core.if %is_gemini {
+        %gemini_url = core.call intrinsic.string.format("{}?key={}", %base, %api_key)
+        core.set %out["url"] = %gemini_url
+        core.set %out["headers"] = %headers
+        core.return %out
+      }
+      %openai_url = core.call intrinsic.string.format("{}?model={}", %base, %model)
+      %auth = core.call intrinsic.string.format("Bearer {}", %api_key)
+      core.set %headers["Authorization"] = %auth
+      core.set %out["url"] = %openai_url
+      core.set %out["headers"] = %headers
+      core.return %out
+    }
+  }
+
+  // Decide whether a chat() request should be served over the realtime WebSocket
+  // transport: true when the provider exposes a realtime_audio operation, the
+  // model is a realtime/live audio model, and audio output is not explicitly
+  // disabled. Lets chat()/stream() route realtime models transparently.
+  op ax.provider.semantic @provider_should_use_realtime {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "provider-realtime-audio-operation"
+    type signature = "(profile:string, model:string, request:json) -> bool throws"
+    body @entry(%profile: string, %model: string, %request: json) {
+      %descriptor = core.call @provider_descriptor(%profile)
+      %operations = core.get %descriptor["operations"]
+      %realtime_op = core.get %operations["realtime_audio"]
+      %has_realtime = core.call intrinsic.is_not_none(%realtime_op)
+      %is_gpt_realtime = core.call intrinsic.string.starts_with(%model, "gpt-realtime")
+      %is_grok_voice = core.call intrinsic.string.starts_with(%model, "grok-voice")
+      %is_native_audio = core.call intrinsic.contains(%model, "native-audio")
+      %is_dash_live = core.call intrinsic.contains(%model, "-live-")
+      %is_gemini_live = core.call intrinsic.string.starts_with(%model, "gemini-live")
+      %pattern_a = core.call intrinsic.or(%is_gpt_realtime, %is_grok_voice)
+      %pattern_b = core.call intrinsic.or(%is_native_audio, %is_dash_live)
+      %pattern_ab = core.call intrinsic.or(%pattern_a, %pattern_b)
+      %is_realtime_model = core.call intrinsic.or(%pattern_ab, %is_gemini_live)
+      %audio = core.get %request["audio"]
+      %output = core.get %audio["output"]
+      %enabled = core.get %output["enabled"]
+      %explicitly_disabled = core.call intrinsic.eq(%enabled, false)
+      %audio_ok = core.call intrinsic.not(%explicitly_disabled)
+      %model_and_realtime = core.call intrinsic.and(%has_realtime, %is_realtime_model)
+      %result = core.call intrinsic.and(%model_and_realtime, %audio_ok)
+      core.return %result
     }
   }
 
@@ -1795,9 +1885,12 @@ module @ax.provider version "0.1" {
         %input_sample_rate = core.let %default_input_rate
       }
       %session = core.map
-      core.set %session["voice"] = %voice_id
-      %turn_detection_none = core.call intrinsic.none()
-      core.set %session["turn_detection"] = %turn_detection_none
+      core.set %session["type"] = "realtime"
+      %default_model = core.get %descriptor["defaultModel"]
+      %model = core.get %request["model"] default %default_model
+      core.set %session["model"] = %model
+      %output_modalities = core.call intrinsic.json.parse("[\"audio\"]")
+      core.set %session["output_modalities"] = %output_modalities
       %audio = core.map
       %input = core.map
       %input_format = core.map
@@ -1810,10 +1903,9 @@ module @ax.provider version "0.1" {
       core.set %output_format["type"] = "audio/pcm"
       core.set %output_format["rate"] = %output_sample_rate
       core.set %output["format"] = %output_format
+      core.set %output["voice"] = %voice_id
       core.set %audio["output"] = %output
       core.set %session["audio"] = %audio
-      %modalities = core.call intrinsic.json.parse("[\"audio\"]")
-      core.set %session["modalities"] = %modalities
       %instructions = core.call @realtime_request_system_instruction_impl(%request)
       %has_instructions = core.call intrinsic.truthy(%instructions)
       core.if %has_instructions {
@@ -1849,7 +1941,7 @@ module @ax.provider version "0.1" {
       }
       %response = core.map
       %response_modalities = core.call intrinsic.json.parse("[\"audio\"]")
-      core.set %response["modalities"] = %response_modalities
+      core.set %response["output_modalities"] = %response_modalities
       %response_event = core.map
       core.set %response_event["type"] = "response.create"
       core.set %response_event["response"] = %response
@@ -1984,6 +2076,8 @@ module @ax.provider version "0.1" {
           core.set %text_part["text"] = %content
           core.append %text_parts, %text_part
         }
+        %audio_count = core.call intrinsic.len(%audio_events)
+        %msg_has_audio = core.call intrinsic.gt(%audio_count, 0)
         %text_count = core.call intrinsic.len(%text_parts)
         %has_text = core.call intrinsic.gt(%text_count, 0)
         core.if %has_text {
@@ -1994,7 +2088,10 @@ module @ax.provider version "0.1" {
           core.append %turns, %turn
           %client_content = core.map
           core.set %client_content["turns"] = %turns
-          core.set %client_content["turnComplete"] = false
+          // turnComplete is true for a text-only turn (tells Gemini to respond now);
+          // an audio turn stays open and is closed by the audioStreamEnd below.
+          %turn_complete = core.call intrinsic.not(%msg_has_audio)
+          core.set %client_content["turnComplete"] = %turn_complete
           %content_event = core.map
           core.set %content_event["clientContent"] = %client_content
           core.append %events, %content_event
@@ -2002,12 +2099,14 @@ module @ax.provider version "0.1" {
         core.for %audio_event in %audio_events {
           core.append %events, %audio_event
         }
+        core.if %msg_has_audio {
+          %stream_end = core.map
+          core.set %stream_end["audioStreamEnd"] = true
+          %end_event = core.map
+          core.set %end_event["realtimeInput"] = %stream_end
+          core.append %events, %end_event
+        }
       }
-      %stream_end = core.map
-      core.set %stream_end["audioStreamEnd"] = true
-      %end_event = core.map
-      core.set %end_event["realtimeInput"] = %stream_end
-      core.append %events, %end_event
       core.return %events
     }
   }
@@ -2501,6 +2600,116 @@ module @ax.provider version "0.1" {
         }
       }
       core.return %response
+    }
+  }
+
+  op ax.provider.semantic @provider_classify_stream_error_status {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/anthropic/api.ts"
+    type signature = "(profile:string, json) -> json"
+    body @entry(%profile: string, %event: json) {
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %none = core.call intrinsic.none()
+      %status = core.let %none
+      %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
+      core.if %is_anthropic {
+        %event_is_object = core.type_is %event type "object"
+        core.if %event_is_object {
+          %type = core.get %event["type"] default ""
+          %is_error = core.call intrinsic.eq(%type, "error")
+          core.if %is_error {
+            %error_body = core.get %event["error"]
+            %error_type = core.get %error_body["type"] default ""
+            %mapped = core.call @anthropic_error_type_to_status(%error_type)
+            %status = core.let %mapped
+          }
+        }
+      }
+      core.return %status
+    }
+  }
+
+  op ax.provider.semantic @is_retryable_status {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/util/apicall.ts"
+    type signature = "(i64) -> bool"
+    body @entry(%status: i64) {
+      %is_408 = core.call intrinsic.eq(%status, 408)
+      %is_429 = core.call intrinsic.eq(%status, 429)
+      %is_500 = core.call intrinsic.eq(%status, 500)
+      %is_502 = core.call intrinsic.eq(%status, 502)
+      %is_503 = core.call intrinsic.eq(%status, 503)
+      %is_504 = core.call intrinsic.eq(%status, 504)
+      %is_529 = core.call intrinsic.eq(%status, 529)
+      %r1 = core.call intrinsic.or(%is_408, %is_429)
+      %r2 = core.call intrinsic.or(%is_500, %is_502)
+      %r3 = core.call intrinsic.or(%is_503, %is_504)
+      %r4 = core.call intrinsic.or(%r1, %r2)
+      %r5 = core.call intrinsic.or(%r3, %is_529)
+      %retryable = core.call intrinsic.or(%r4, %r5)
+      core.return %retryable
+    }
+  }
+
+  op ax.provider.semantic @default_retry_config {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/util/apicall.ts"
+    type signature = "() -> json"
+    body @entry {
+      %config = core.map
+      core.set %config["max_retries"] = 3
+      core.set %config["initial_delay_ms"] = 1000
+      core.set %config["max_delay_ms"] = 60000
+      core.set %config["backoff_factor"] = 2
+      core.return %config
+    }
+  }
+
+  op ax.provider.semantic @retry_opt_value {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/util/apicall.ts"
+    type signature = "(json, string, string, json) -> json"
+    body @entry(%map: json, %camel: string, %snake: string, %fallback: json) {
+      %camel_val = core.get %map[%camel]
+      %has_camel = core.call intrinsic.is_not_none(%camel_val)
+      core.if %has_camel {
+        core.return %camel_val
+      }
+      %snake_val = core.get %map[%snake]
+      %has_snake = core.call intrinsic.is_not_none(%snake_val)
+      core.if %has_snake {
+        core.return %snake_val
+      }
+      core.return %fallback
+    }
+  }
+
+  op ax.provider.semantic @resolve_stream_retry {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/util/apicall.ts"
+    type signature = "(json) -> json"
+    body @entry(%options: json) {
+      %cfg = core.call @default_retry_config()
+      %def_max = core.get %cfg["max_retries"]
+      %def_initial = core.get %cfg["initial_delay_ms"]
+      %def_max_delay = core.get %cfg["max_delay_ms"]
+      %def_backoff = core.get %cfg["backoff_factor"]
+      %retry = core.get %options["retry"]
+      %max_retries = core.call @retry_opt_value(%retry, "maxRetries", "max_retries", %def_max)
+      %initial = core.call @retry_opt_value(%retry, "initialDelayMs", "initial_delay_ms", %def_initial)
+      %max_delay = core.call @retry_opt_value(%retry, "maxDelayMs", "max_delay_ms", %def_max_delay)
+      %backoff = core.call @retry_opt_value(%retry, "backoffFactor", "backoff_factor", %def_backoff)
+      %out = core.map
+      core.set %out["max_retries"] = %max_retries
+      core.set %out["initial_delay_ms"] = %initial
+      core.set %out["max_delay_ms"] = %max_delay
+      core.set %out["backoff_factor"] = %backoff
+      core.return %out
     }
   }
 
@@ -4668,6 +4877,79 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @anthropic_error_type_to_status {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/anthropic/api.ts"
+    type signature = "(string) -> json"
+    body @entry(%type: string) {
+      %none = core.call intrinsic.none()
+      %status = core.let %none
+      %is_overloaded = core.call intrinsic.eq(%type, "overloaded_error")
+      core.if %is_overloaded {
+        %status = core.let 529
+      }
+      %is_api = core.call intrinsic.eq(%type, "api_error")
+      core.if %is_api {
+        %status = core.let 500
+      }
+      %is_rate = core.call intrinsic.eq(%type, "rate_limit_error")
+      core.if %is_rate {
+        %status = core.let 429
+      }
+      %is_invalid = core.call intrinsic.eq(%type, "invalid_request_error")
+      core.if %is_invalid {
+        %status = core.let 400
+      }
+      %is_permission = core.call intrinsic.eq(%type, "permission_error")
+      core.if %is_permission {
+        %status = core.let 403
+      }
+      %is_not_found = core.call intrinsic.eq(%type, "not_found_error")
+      core.if %is_not_found {
+        %status = core.let 404
+      }
+      %is_too_large = core.call intrinsic.eq(%type, "request_too_large")
+      core.if %is_too_large {
+        %status = core.let 413
+      }
+      core.return %status
+    }
+  }
+
+  op ax.provider.semantic @anthropic_map_error_event {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/anthropic/api.ts"
+    type signature = "(json, json) -> AxAIServiceError throws"
+    body @entry(%error: json, %raw: json) {
+      %type = core.get %error["type"] default ""
+      %message = core.get %error["message"] default "Anthropic API error"
+      %none = core.call intrinsic.none()
+      %is_auth = core.call intrinsic.eq(%type, "authentication_error")
+      core.if %is_auth {
+        %auth_error = core.call intrinsic.ai.error.auth(%message, %none, %type, %raw, %none)
+        core.return %auth_error
+      }
+      %status = core.call @anthropic_error_type_to_status(%type)
+      %has_status = core.call intrinsic.is_not_none(%status)
+      core.if %has_status {
+        %is_429 = core.call intrinsic.eq(%status, 429)
+        %is_500 = core.call intrinsic.eq(%status, 500)
+        %is_529 = core.call intrinsic.eq(%status, 529)
+        %retry_left = core.call intrinsic.or(%is_429, %is_500)
+        %retryable = core.call intrinsic.or(%retry_left, %is_529)
+        %status_error = core.call intrinsic.ai.error.status(%message, %status, %type, %raw, %none, %retryable)
+        core.return %status_error
+      }
+      %refusal = core.call intrinsic.ai.error.refusal(%message, %raw)
+      core.return %refusal
+    }
+  }
+
   op ax.provider.semantic @anthropic_normalize_chat_response {
     attr core_kind = "func"
     attr effect = "throws"
@@ -4680,8 +4962,7 @@ module @ax.provider version "0.1" {
       %is_error = core.call intrinsic.eq(%type, "error")
       core.if %is_error {
         %error_body = core.get %raw["error"]
-        %message = core.get %error_body["message"] default "Anthropic API error"
-        %error = core.call intrinsic.ai.error.refusal(%message, %raw)
+        %error = core.call @anthropic_map_error_event(%error_body, %raw)
         core.raise %error
       }
       %stop_reason = core.get %raw["stop_reason"]
@@ -4918,8 +5199,7 @@ module @ax.provider version "0.1" {
       %is_error = core.call intrinsic.eq(%type, "error")
       core.if %is_error {
         %error_body = core.get %event["error"]
-        %message = core.get %error_body["message"] default "Anthropic stream error"
-        %error = core.call intrinsic.ai.error.refusal(%message, %event)
+        %error = core.call @anthropic_map_error_event(%error_body, %event)
         core.raise %error
       }
       %index = core.let 0

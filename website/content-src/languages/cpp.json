@@ -5,9 +5,10 @@
   "fence": "cpp",
   "packageName": "axllm",
   "install": [
-    "git clone https://github.com/ax-llm/ax && cmake -S ax/packages/cpp -B build",
-    "cmake --build build",
-    "./build/signature_schema"
+    "include(FetchContent)",
+    "FetchContent_Declare(axllm GIT_REPOSITORY https://github.com/ax-llm/ax GIT_TAG main SOURCE_SUBDIR packages/cpp)",
+    "FetchContent_MakeAvailable(axllm)",
+    "target_link_libraries(your_app PRIVATE axllm::axllm)"
   ],
   "exampleRoot": "packages/cpp/examples",
   "apiKind": "axir",
@@ -22,6 +23,15 @@
     "optimize": ["Optimizers"]
   },
   "snippets": {
+    "ai": {
+      "audio": [
+        "// Realtime audio over WebSocket — build with -DAXLLM_ENABLE_REALTIME=ON",
+        "axllm::OpenAIResponsesClient client(axllm::object({{\"model\", \"gpt-realtime-2\"}, {\"api_key\", std::getenv(\"OPENAI_APIKEY\")}}));",
+        "axllm::Value request = axllm::object({{\"model\", \"gpt-realtime-2\"}, {\"chat_prompt\", axllm::array({axllm::object({{\"role\", \"user\"}, {\"content\", \"Say hello.\"}})})}, {\"audio\", axllm::object({{\"output\", axllm::object({{\"voice\", \"alloy\"}})}})}});",
+        "axllm::Value result = client.realtime_chat(request, nullptr);  // one merged turn: transcript + base64 PCM audio",
+        "// Realtime models also route transparently through chat(); chat() accepts input_audio parts; transcribe()/speak() do batch STT/TTS."
+      ]
+    },
     "quickStart": [
       "#include <axllm/axllm.hpp>",
       "",

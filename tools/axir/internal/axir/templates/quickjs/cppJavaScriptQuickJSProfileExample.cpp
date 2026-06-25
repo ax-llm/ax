@@ -51,7 +51,7 @@ int main() {
     })
   );
   ProfileAIClient forward_client({
-    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"}}),
+    axllm::object({{"content", "{\"javascriptCode\":\"final('Run actor', {})\"}"}}),
     axllm::object({{"content", "{\"javascriptCode\":\"counter = 41; discover({tools:['search']})\"}"}}),
     axllm::object({{"content", "{\"javascriptCode\":\"recall('prefs')\"}"}}),
     axllm::object({{"content", "{\"javascriptCode\":\"const hit = search({query: inputs.question}); final('Answer', {answer: hit.title})\"}"}}),
@@ -76,7 +76,7 @@ int main() {
 
   auto guide_agent = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "JavaScript"}})}}));
   ProfileAIClient guide_client({
-    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide\",{}]}}"}}),
+    axllm::object({{"content", "{\"javascriptCode\":\"final('Guide', {})\"}"}}),
     axllm::object({{"content", "{\"javascriptCode\":\"guideAgent('Prefer concise final.')\"}"}}),
     axllm::object({{"content", "{\"javascriptCode\":\"final('Answer', {answer: 'Concise'})\"}"}}),
     axllm::object({{"content", "{\"answer\":\"Concise\"}"}}),
@@ -92,7 +92,7 @@ int main() {
 
   auto clarification_agent = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "JavaScript"}})}}));
   ProfileAIClient clarification_client({
-    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Ask\",{}]}}"}}),
+    axllm::object({{"content", "{\"javascriptCode\":\"final('Ask', {})\"}"}}),
     axllm::object({{"content", "{\"javascriptCode\":\"askClarification('Need detail?')\"}"}}),
   });
   bool saw_clarification = false;

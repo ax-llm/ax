@@ -1,5 +1,6 @@
 package dev.axllm.ax;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -9,14 +10,18 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class OpenAICompatibleClient extends AxBaseAI {
   public interface Transport {
     Object call(Map<String, Object> request) throws Exception;
   }
+
+  private static final String MULTIPART_BOUNDARY = "----axllmFormBoundary" + UUID.randomUUID().toString().replace("-", "");
 
   protected final String profile;
   private final Map<String, Object> descriptor;
@@ -55,16 +60,15 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    Object realtimeModel = request.getOrDefault("model", model);
+    if (Boolean.TRUE.equals(Core.provider_should_use_realtime(profile, String.valueOf(realtimeModel), request))) {
+      return realtimeChat(request, null);
+    }
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, request));
     Object stream = payload.get("stream");
     if (Boolean.TRUE.equals(stream)) {
-      List<Map<String, Object>> out = new ArrayList<>();
-      Map<String, Object> state = new LinkedHashMap<>();
       Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
-      for (Object event : iterSseJson(requestJson(operationPath("stream_chat", modelName), payload, true))) {
-        out.add(Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName)));
-      }
-      return Map.of("results", out);
+      return Map.of("results", streamEvents(payload, modelName));
     }
     Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
     Object raw = requestJson(operationPath("chat", modelName), payload, false);
@@ -78,6 +82,36 @@ public class OpenAICompatibleClient extends AxBaseAI {
     return Core.asMap(Core.provider_normalize_embed_response(profile, raw, name, modelName));
   }
 
+  protected List<Map<String, Object>> streamEvents(Map<String, Object> payload, Object modelName) throws Exception {
+    Map<String, Object> retryCfg = Core.asMap(Core.resolve_stream_retry(options));
+    int maxRetries = Core.asInt(retryCfg.getOrDefault("max_retries", 3));
+    double initialDelay = Core.asDouble(retryCfg.getOrDefault("initial_delay_ms", 1000));
+    double maxDelay = Core.asDouble(retryCfg.getOrDefault("max_delay_ms", 60000));
+    double backoff = Core.asDouble(retryCfg.getOrDefault("backoff_factor", 2));
+    int attempt = 0;
+    while (true) {
+      List<Object> events = new ArrayList<>();
+      for (Object event : iterSseJson(requestJson(operationPath("stream_chat", modelName), payload, true))) events.add(event);
+      // Pre-content streaming retry: peek the first raw SSE event before any stateful normalize
+      // runs (so peeking has no side effects); if the provider classifies it as a retryable
+      // transient status (e.g. Anthropic's HTTP-200 overloaded_error event), re-issue with the
+      // same exponential backoff apiCall uses for a 529 before surfacing.
+      if (!events.isEmpty()) {
+        Object status = Core.provider_classify_stream_error_status(profile, events.get(0));
+        if (status != null && Core.truthy(Core.is_retryable_status(status)) && attempt < maxRetries) {
+          attempt++;
+          double delay = Math.min(initialDelay * Math.pow(backoff, attempt - 1), maxDelay);
+          if (delay > 0) Thread.sleep((long) delay);
+          continue;
+        }
+      }
+      Map<String, Object> state = new LinkedHashMap<>();
+      List<Map<String, Object>> out = new ArrayList<>();
+      for (Object event : events) out.add(Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName)));
+      return out;
+    }
+  }
+
   public Iterable<Map<String, Object>> stream(Map<String, Object> request) throws Exception {
     Map<String, Object> req = Core.coerceChatRequest(request);
     Core.validate_chat_request(req);
@@ -87,11 +121,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     req.put("model_config", modelConfig);
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, req));
     Object modelName = req.getOrDefault("model", payload.getOrDefault("model", model));
-    Object raw = requestJson(operationPath("stream_chat", modelName), payload, true);
-    Map<String, Object> state = new LinkedHashMap<>();
-    List<Map<String, Object>> out = new ArrayList<>();
-    for (Object event : iterSseJson(raw)) out.add(Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName)));
-    return out;
+    return streamEvents(payload, modelName);
   }
 
   public Map<String, Object> transcribe(Map<String, Object> request) throws Exception {
@@ -108,7 +138,8 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Object modelName = request.getOrDefault("model", model);
     Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "speak"));
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
-    Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey);
+    boolean binary = "binary".equals(String.valueOf(descriptor.get("response")));
+    Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey, binary);
     return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request));
   }
 
@@ -127,33 +158,298 @@ public class OpenAICompatibleClient extends AxBaseAI {
     return Core.asList(Core.provider_build_realtime_audio_input(profile, request));
   }
 
+  /** Transport seam for the realtime turn driver: a ScriptedRealtimeTransport for
+   * deterministic offline turns, the JDK-WebSocket-backed transport for live ones. */
+  public interface RealtimeTransport {
+    void send(Map<String, Object> event);
+    Map<String, Object> recv();
+    void close();
+  }
+
+  public static final class ScriptedRealtimeTransport implements RealtimeTransport {
+    private final java.util.Deque<Map<String, Object>> inbound = new java.util.ArrayDeque<>();
+    public final List<Map<String, Object>> sent = new ArrayList<>();
+    public ScriptedRealtimeTransport(List<?> inbound) {
+      for (Object event : inbound) this.inbound.add(Core.asMap(event));
+    }
+    public void send(Map<String, Object> event) { sent.add(event); }
+    public Map<String, Object> recv() { return inbound.poll(); }
+    public void close() {}
+  }
+
+  // Bridges the JDK WebSocket's async, fragment-delivering listener to a blocking
+  // recv(): onText reassembles fragments and enqueues whole messages; recv() polls
+  // the queue. request(1) drives the one-at-a-time backpressure the JDK API needs.
+  static final class WebSocketRealtimeTransport implements RealtimeTransport {
+    private static final Object CLOSED = new Object();
+    private final java.net.http.WebSocket ws;
+    private final java.util.concurrent.BlockingQueue<Object> queue = new java.util.concurrent.LinkedBlockingQueue<>();
+    private final StringBuilder buffer = new StringBuilder();
+
+    WebSocketRealtimeTransport(String url, Map<String, String> headers) {
+      java.net.http.WebSocket.Builder builder = HttpClient.newHttpClient().newWebSocketBuilder();
+      for (Map.Entry<String, String> header : headers.entrySet()) builder.header(header.getKey(), header.getValue());
+      this.ws = builder.buildAsync(URI.create(url), new java.net.http.WebSocket.Listener() {
+        @Override public java.util.concurrent.CompletionStage<?> onText(java.net.http.WebSocket socket, CharSequence data, boolean last) {
+          buffer.append(data);
+          if (last) { queue.offer(buffer.toString()); buffer.setLength(0); }
+          socket.request(1);
+          return null;
+        }
+        @Override public void onError(java.net.http.WebSocket socket, Throwable error) { queue.offer(CLOSED); }
+        @Override public java.util.concurrent.CompletionStage<?> onClose(java.net.http.WebSocket socket, int statusCode, String reason) { queue.offer(CLOSED); return null; }
+      }).join();
+      this.ws.request(1);
+    }
+    public void send(Map<String, Object> event) { ws.sendText(Json.stringify(event), true).join(); }
+    public Map<String, Object> recv() {
+      try {
+        Object item = queue.poll(30, java.util.concurrent.TimeUnit.SECONDS);
+        if (item == null || item == CLOSED) return null;
+        return Core.asMap(Json.parse((String) item));
+      } catch (InterruptedException e) { Thread.currentThread().interrupt(); return null; }
+    }
+    public void close() { try { ws.sendClose(java.net.http.WebSocket.NORMAL_CLOSURE, ""); } catch (Exception ignored) {} }
+  }
+
+  /** Drive a realtime audio turn over a WebSocket transport: send the Core-built
+   * setup + input events, fold the inbound stream through the shared realtime
+   * codec, and merge the per-delta results into one turn response (transcript
+   * concatenated, audio chunks base64-joined). Pass a ScriptedRealtimeTransport
+   * to exercise the loop offline without a socket. */
+  public Map<String, Object> realtimeChat(Map<String, Object> request, RealtimeTransport transport) {
+    Object model = request.getOrDefault("model", this.model);
+    Map<String, Object> setup = realtimeAudioSetup(request);
+    List<Object> inputs = realtimeAudioInput(request);
+    boolean ownTransport = transport == null;
+    if (ownTransport) {
+      Object[] target = realtimeWsTarget(String.valueOf(model));
+      @SuppressWarnings("unchecked")
+      Map<String, String> wsHeaders = (Map<String, String>) target[1];
+      transport = new WebSocketRealtimeTransport((String) target[0], wsHeaders);
+    }
+    try {
+      transport.send(setup);
+      boolean inputSent = false;
+      List<Object> events = new ArrayList<>();
+      while (true) {
+        Map<String, Object> event = transport.recv();
+        if (event == null) break;
+        if ("error".equals(String.valueOf(event.get("type")))) {
+          Map<String, Object> err = Core.asMap(event.get("error"));
+          throw new AxAIServiceError(String.valueOf(err.getOrDefault("message", "realtime error")));
+        }
+        if (realtimeEventIsReady(event)) {
+          if (!inputSent) { inputSent = true; for (Object item : inputs) transport.send(Core.asMap(item)); }
+          continue;
+        }
+        boolean done = realtimeEventIsDone(event);
+        events.add(event);
+        if (done) break;
+      }
+      Map<String, Object> state = new LinkedHashMap<>();
+      StringBuilder content = new StringBuilder();
+      ByteArrayOutputStream audio = new ByteArrayOutputStream();
+      boolean hasAudio = false;
+      List<Object> functionCalls = new ArrayList<>();
+      String responseId = "";
+      String finishReason = "";
+      Object modelUsage = null;
+      for (Object eventObj : events) {
+        Map<String, Object> out = Core.asMap(Core.provider_normalize_realtime_event(profile, eventObj, state, name, model));
+        List<Object> results = Core.asList(out.get("results"));
+        if (results.isEmpty()) continue;
+        Map<String, Object> result = Core.asMap(results.get(0));
+        Object contentObj = result.get("content");
+        if (contentObj != null) content.append(contentObj);
+        Object audioObj = result.get("audio");
+        if (audioObj instanceof Map) {
+          Object data = ((Map<?, ?>) audioObj).get("data");
+          if (data != null && !String.valueOf(data).isEmpty()) { audio.writeBytes(Base64.getDecoder().decode(String.valueOf(data))); hasAudio = true; }
+        }
+        Object fcObj = result.get("function_calls");
+        if (fcObj instanceof List) functionCalls.addAll((List<Object>) fcObj);
+        Object fr = result.get("finish_reason");
+        if (fr != null && !String.valueOf(fr).isEmpty()) finishReason = String.valueOf(fr);
+        Object rid = out.getOrDefault("remote_id", result.get("id"));
+        if (rid != null && !String.valueOf(rid).isEmpty() && !"0".equals(String.valueOf(rid))) responseId = String.valueOf(rid);
+        Object usage = out.get("model_usage");
+        if (usage != null) modelUsage = usage;
+      }
+      if (responseId.isEmpty()) responseId = "realtime";
+      if (finishReason.isEmpty()) finishReason = "stop";
+      Map<String, Object> result = new LinkedHashMap<>();
+      result.put("index", 0);
+      result.put("id", responseId);
+      result.put("content", content.toString());
+      result.put("function_calls", functionCalls);
+      result.put("finish_reason", finishReason);
+      if (hasAudio) {
+        Map<String, Object> audioMap = new LinkedHashMap<>();
+        audioMap.put("data", Base64.getEncoder().encodeToString(audio.toByteArray()));
+        audioMap.put("format", "pcm16");
+        audioMap.put("transcript", content.toString());
+        result.put("audio", audioMap);
+      }
+      Map<String, Object> response = new LinkedHashMap<>();
+      response.put("results", List.of(result));
+      response.put("remote_id", responseId);
+      response.put("model_usage", modelUsage);
+      return response;
+    } finally {
+      if (ownTransport) transport.close();
+    }
+  }
+
+  private static boolean realtimeEventIsReady(Map<String, Object> event) {
+    String type = String.valueOf(event.get("type"));
+    if (type.equals("session.created") || type.equals("session.updated") || type.equals("transcription_session.created") || type.equals("transcription_session.updated")) return true;
+    return event.containsKey("setupComplete");
+  }
+
+  private static boolean realtimeEventIsDone(Map<String, Object> event) {
+    String type = String.valueOf(event.get("type"));
+    if (type.equals("response.done") || type.equals("response.completed")) return true;
+    Object sc = event.get("serverContent");
+    return sc instanceof Map && Boolean.TRUE.equals(((Map<?, ?>) sc).get("turnComplete"));
+  }
+
+  private Object[] realtimeWsTarget(String model) {
+    // Grammar-specific URL + auth construction lives in Core so the client stays
+    // provider-agnostic.
+    String key = apiKey == null || "null".equals(apiKey) ? "" : apiKey;
+    Map<String, Object> target = Core.asMap(Core.provider_realtime_ws_url(profile, model, key));
+    Map<String, String> wsHeaders = new LinkedHashMap<>();
+    for (Map.Entry<String, Object> header : Core.asMap(target.get("headers")).entrySet()) {
+      wsHeaders.put(header.getKey(), String.valueOf(header.getValue()));
+    }
+    return new Object[] { String.valueOf(target.getOrDefault("url", "")), wsHeaders };
+  }
+
   private Map<String, Object> modelConfig() {
     return new LinkedHashMap<>(this.modelConfig);
   }
 
   private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream) throws Exception {
-    return requestJson(endpoint, payload, stream, "json");
+    return requestJson(endpoint, payload, stream, "json", false);
   }
 
   private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey) throws Exception {
+    return requestJson(endpoint, payload, stream, bodyKey, false);
+  }
+
+  private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey, boolean binaryResponse) throws Exception {
     Map<String, Object> call = new LinkedHashMap<>();
     call.put("method", "POST");
     call.put("url", baseUrl + endpoint);
     call.put("headers", headers());
-    call.put(bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey, payload);
+    String resolvedBodyKey = bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey;
+    call.put(resolvedBodyKey, payload);
     call.put("stream", stream);
     if (transport != null) return transportResult(transport.call(call), call);
     if (apiKey == null || apiKey.isBlank() || "null".equals(apiKey)) throw new AxAIServiceAuthenticationError("OPENAI_API_KEY is required", null, null, null, call);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(baseUrl + endpoint))
       .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)));
-    for (Map.Entry<String, Object> header : headers().entrySet()) builder.header(header.getKey(), String.valueOf(header.getValue()));
-    HttpRequest req = builder.POST(HttpRequest.BodyPublishers.ofString(Json.stringify(payload))).build();
+    Map<String, Object> requestHeaders = headers();
+    HttpRequest.BodyPublisher bodyPublisher;
+    if ("data".equals(resolvedBodyKey)) {
+      byte[] multipartBody = encodeMultipart(payload, MULTIPART_BOUNDARY);
+      requestHeaders.put("Content-Type", "multipart/form-data; boundary=" + MULTIPART_BOUNDARY);
+      bodyPublisher = HttpRequest.BodyPublishers.ofByteArray(multipartBody);
+    } else {
+      bodyPublisher = HttpRequest.BodyPublishers.ofString(Json.stringify(payload));
+    }
+    for (Map.Entry<String, Object> header : requestHeaders.entrySet()) builder.header(header.getKey(), String.valueOf(header.getValue()));
+    HttpRequest req = builder.POST(bodyPublisher).build();
+    if (binaryResponse) {
+      // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not be UTF-8
+      // decoded; read the response as bytes and return them as a base64 String.
+      HttpResponse<byte[]> res = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
+      if (res.statusCode() >= 400) {
+        String errorBody = new String(res.body(), StandardCharsets.UTF_8);
+        Object parsed;
+        try { parsed = Json.parse(errorBody); } catch (RuntimeException ex) { parsed = errorBody; }
+        throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, call));
+      }
+      return Base64.getEncoder().encodeToString(res.body());
+    }
     HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
-    Object body;
-    try { body = Json.parse(res.body()); } catch (RuntimeException ex) { body = res.body(); }
-    if (res.statusCode() >= 400) throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), body, call));
-    return body;
+    String responseBody = res.body();
+    if (res.statusCode() >= 400) {
+      Object parsed;
+      try { parsed = Json.parse(responseBody); } catch (RuntimeException ex) { parsed = responseBody; }
+      throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, call));
+    }
+    // Streaming responses are SSE text (text/event-stream): return the raw body
+    // for iterSseJson to fold. This explicit branch matches the other ports
+    // rather than relying on Json.parse throwing on the SSE body to fall back.
+    if (stream) return responseBody;
+    return Json.parse(responseBody);
+  }
+
+  // Encode a request payload as multipart/form-data. Multipart operations (e.g. OpenAI
+  // /audio/transcriptions) carry the audio as a binary `file` part; every other field is a
+  // plain form field. The `file` value is a base64 String (optionally a data: URL) or a
+  // Map {data, mimeType?, filename?}. The body is binary: text parts are UTF-8 bytes and the
+  // file part is the raw decoded bytes.
+  private static byte[] encodeMultipart(Map<String, Object> payload, String boundary) throws IOException {
+    byte[] crlf = "\r\n".getBytes(StandardCharsets.UTF_8);
+    byte[] dashes = ("--" + boundary).getBytes(StandardCharsets.UTF_8);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    for (Map.Entry<String, Object> entry : payload.entrySet()) {
+      String key = entry.getKey();
+      Object value = entry.getValue();
+      if (value == null) continue;
+      if ("file".equals(key)) {
+        String data;
+        String filename;
+        String contentType;
+        if (value instanceof Map<?, ?> map) {
+          Map<String, Object> fileMap = Core.asMap(map);
+          data = String.valueOf(fileMap.getOrDefault("data", ""));
+          Object rawFilename = fileMap.get("filename");
+          filename = rawFilename == null || String.valueOf(rawFilename).isBlank() ? "audio.wav" : String.valueOf(rawFilename);
+          Object rawMime = fileMap.get("mimeType");
+          if (rawMime == null) rawMime = fileMap.get("mime_type");
+          contentType = rawMime == null || String.valueOf(rawMime).isBlank() ? "audio/wav" : String.valueOf(rawMime);
+        } else {
+          data = String.valueOf(value);
+          filename = "audio.wav";
+          contentType = "audio/wav";
+        }
+        if (data.startsWith("data:") && data.contains(",")) {
+          data = data.substring(data.indexOf(',') + 1);
+        }
+        byte[] fileBytes;
+        try {
+          fileBytes = Base64.getDecoder().decode(data);
+        } catch (IllegalArgumentException ex) {
+          fileBytes = data.getBytes(StandardCharsets.UTF_8);
+        }
+        out.write(dashes);
+        out.write(crlf);
+        out.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"").getBytes(StandardCharsets.UTF_8));
+        out.write(crlf);
+        out.write(("Content-Type: " + contentType).getBytes(StandardCharsets.UTF_8));
+        out.write(crlf);
+        out.write(crlf);
+        out.write(fileBytes);
+        out.write(crlf);
+      } else {
+        out.write(dashes);
+        out.write(crlf);
+        out.write(("Content-Disposition: form-data; name=\"" + key + "\"").getBytes(StandardCharsets.UTF_8));
+        out.write(crlf);
+        out.write(crlf);
+        out.write(String.valueOf(value).getBytes(StandardCharsets.UTF_8));
+        out.write(crlf);
+      }
+    }
+    out.write(dashes);
+    out.write("--".getBytes(StandardCharsets.UTF_8));
+    out.write(crlf);
+    return out.toByteArray();
   }
 
   private String operationPath(String operation) {
@@ -214,14 +510,38 @@ public class OpenAICompatibleClient extends AxBaseAI {
       for (Object item : items) if (!"[DONE]".equals(item)) out.add(item);
       return out;
     }
+    // Mirror src/ax/util/sse.ts: normalize CRLF/CR, then fold the data: lines of
+    // each event (events are blank-line separated) into a single payload before
+    // parsing. A spec-legal SSE event may split one JSON value across several
+    // data: lines, joined with "\n"; parsing each line on its own would choke.
+    String text = String.valueOf(raw).replace("\r\n", "\n").replace("\r", "\n");
     List<Object> out = new ArrayList<>();
-    for (String line : String.valueOf(raw).split("\\R")) {
-      line = line.trim();
-      if (!line.startsWith("data:")) continue;
-      String data = line.substring(5).trim();
-      if (data.isBlank() || "[DONE]".equals(data)) continue;
-      out.add(Json.parse(data));
+    StringBuilder buffer = new StringBuilder();
+    for (String line : text.split("\n", -1)) {
+      if (line.isEmpty()) {
+        flushSseEvent(buffer, out);
+        continue;
+      }
+      if (line.startsWith(":")) continue; // comment line
+      String value;
+      int colon = line.indexOf(':');
+      if (colon >= 0) {
+        if (!"data".equals(line.substring(0, colon).trim())) continue; // not a data: line
+        value = line.substring(colon + 1).trim();
+      } else {
+        value = line.trim();
+      }
+      if (buffer.length() > 0 && buffer.charAt(buffer.length() - 1) != '\n') buffer.append('\n');
+      buffer.append(value);
     }
+    flushSseEvent(buffer, out);
     return out;
+  }
+
+  private static void flushSseEvent(StringBuilder buffer, List<Object> out) {
+    String payload = buffer.toString().trim();
+    buffer.setLength(0);
+    if (payload.isEmpty() || "[DONE]".equals(payload)) return;
+    out.add(Json.parse(payload));
   }
 }

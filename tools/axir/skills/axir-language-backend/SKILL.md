@@ -37,6 +37,7 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 - Repo examples: `scripts/run-example.mjs`, `src/examples/<language>/`, `src/examples/README.md`, and root `package.json` convenience scripts if needed.
 - User-facing example lists: update `npm run example -- list`, the root README "Run examples" block, examples README command blocks, package convenience scripts, and release/compiler docs so the new backend is discoverable without reading compiler internals.
 - Docs: `README.md`, `docs/COMPILER.md`, `docs/RELEASE.md`, and `docs/ARCHITECTURE.md`. Edit canonical docs in `docs/`, not generated docs under `website/.generated/`.
+- Website language docs: for any public backend feature or capability claim, update `src/examples/<language>/<group>/` with provider-backed `ax-example` headers and run the website-md language docs workflow so generated markdown stays aligned.
 
 ## Acceptance Bar
 
@@ -44,6 +45,8 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 - `axir verify --targets python,java,cpp,<new-target>` passes for all default suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, and axflow.
 - Generated package metadata is shippable for the ecosystem and uses the Ax product namespace.
 - User-facing examples are honest: no-key examples are deterministic, provider API examples use real provider transport and require explicit environment keys.
+- Public website examples are real provider-backed files under `src/examples/<language>/`; keep mock, no-key, scripted, debug, and conformance-only material under internal tests or `packages/<language>/examples`.
+- Public example coverage stays in sync with language claims: `generation`, `short-agents`, `flows`, `optimization`, and `audio` each need beginner, intermediate, and advanced examples when the language is listed on the website.
 - Generated-output audits pass for the target: no unsupported manifest entries, no placeholder concrete public methods, no dead Core helper stubs, and explicit conformance/example guards for every claimed Core-owned feature group.
 - The conformance runner proves claimed behavior with fixture-level assertions over outputs, requests, state, traces, artifacts, runtime envelopes, and expected errors. Placeholder-free code is necessary but not sufficient for default `test:axir` inclusion.
 

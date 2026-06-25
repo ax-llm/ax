@@ -72,6 +72,11 @@ const __ax_builtin_reserved = [
   "console", "final", "askClarification", "discover", "recall", "used", "reportSuccess",
   "reportFailure", "guideAgent"
 ];
+// Persistence: top-level const/let/var declared this turn are block-scoped to the async
+// wrapper and would vanish next turn, but the RLM prompt promises a long-running REPL.
+// Extract the declared names so they can be assigned onto globalThis (which persists),
+// mirroring the TS runtime. Fail-open.
+function axPersistSuffix(src){try{var n=[],s={},re=/(?:^|[\n;{}])\s*(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,m;while((m=re.exec(src))){if(!s[m[1]]){s[m[1]]=1;n.push(m[1]);}}return n.map(function(x){return 'try{globalThis['+JSON.stringify(x)+']='+x+';}catch(__e){}';}).join('');}catch(__e){return '';}}
 function __ax_has_name(values, name) {
   if (!Array.isArray(values)) return false;
   for (let i = 0; i < values.length; i++) {
@@ -79,6 +84,17 @@ function __ax_has_name(values, name) {
   }
   return false;
 }
+// Capture console output so the actor's debug logging surfaces as `logs` instead of
+// throwing ReferenceError (which would waste an actor step). Mirrors the TS/Python runtimes.
+globalThis.__ax_logs = [];
+function __ax_log() {
+  var parts = Array.prototype.slice.call(arguments).map(function (x) {
+    if (typeof x === "string") return x;
+    try { return JSON.stringify(x); } catch (e) { return String(x); }
+  });
+  globalThis.__ax_logs.push(parts.join(" "));
+}
+globalThis.console = { log: __ax_log, error: __ax_log, warn: __ax_log, info: __ax_log, debug: __ax_log };
 function __ax_complete(value) { globalThis.__ax_completion = value; return value; }
 function __ax_clone_json(value) {
   if (value === undefined) return null;
@@ -205,8 +221,20 @@ Value QuickJsCodeSession::execute(Value code, Value options) {
   int timeout_ms = int_option(options, "timeoutMs", int_option(runtime_policy_, "timeoutMs", 5000));
   auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
   JS_SetInterruptHandler(runtime_, quickjs_interrupt_handler, &deadline);
-  JS_FreeValue(context_, JS_Eval(context_, "globalThis.__ax_completion = undefined; __ax_install_host_callables();", std::strlen("globalThis.__ax_completion = undefined; __ax_install_host_callables();"), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
-  JSValue result = JS_Eval(context_, source.c_str(), source.size(), "<actor>", JS_EVAL_TYPE_GLOBAL);
+  JS_FreeValue(context_, JS_Eval(context_, "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_logs = []; __ax_install_host_callables();", std::strlen("globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_logs = []; __ax_install_host_callables();"), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
+  // RLM actor code uses top-level await (`await final(...)`), illegal in a plain script eval.
+  // Pass the code in via a global string (avoids host-side JS escaping) and run it through the
+  // AsyncFunction constructor so await is legal; then drain the job queue so awaited
+  // continuations and the synchronous host primitives that set __ax_completion run.
+  {
+    JSValue global = JS_GetGlobalObject(context_);
+    JS_SetPropertyStr(context_, global, "__ax_code", JS_NewStringLen(context_, source.c_str(), source.size()));
+    JS_FreeValue(context_, global);
+  }
+  static const char kRunActor[] =
+      "(async function(){}).constructor('with (globalThis) {\\n' + (globalThis.__ax_code || '') + '\\n' + axPersistSuffix(globalThis.__ax_code || '') + '\\n}')()"
+      ".then(function(){}, function(e){ globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); });";
+  JSValue result = JS_Eval(context_, kRunActor, std::strlen(kRunActor), "<actor>", JS_EVAL_TYPE_GLOBAL);
   if (JS_IsException(result)) {
     JSValue exception = JS_GetException(context_);
     const char* text = JS_ToCString(context_, exception);
@@ -219,10 +247,26 @@ Value QuickJsCodeSession::execute(Value code, Value options) {
     }
     return RuntimeEnvelope::error(message, "runtime");
   }
-  if (JS_IsUndefined(result)) {
-    JS_FreeValue(context_, result);
-    result = JS_Eval(context_, "globalThis.__ax_completion", std::strlen("globalThis.__ax_completion"), "<ax-completion>", JS_EVAL_TYPE_GLOBAL);
+  JS_FreeValue(context_, result);
+  {
+    JSContext* pending_ctx = nullptr;
+    while (JS_ExecutePendingJob(runtime_, &pending_ctx) > 0) {
+    }
   }
+  JSValue actor_error = JS_Eval(context_, "globalThis.__ax_error === undefined ? null : globalThis.__ax_error", std::strlen("globalThis.__ax_error === undefined ? null : globalThis.__ax_error"), "<ax-error>", JS_EVAL_TYPE_GLOBAL);
+  if (!JS_IsNull(actor_error) && !JS_IsUndefined(actor_error)) {
+    const char* etext = JS_ToCString(context_, actor_error);
+    std::string emsg = etext ? etext : "QuickJS actor error";
+    JS_FreeCString(context_, etext);
+    JS_FreeValue(context_, actor_error);
+    JS_SetInterruptHandler(runtime_, nullptr, nullptr);
+    if (std::chrono::steady_clock::now() > deadline || emsg.find("interrupted") != std::string::npos) {
+      return RuntimeEnvelope::timeout("QuickJS execution timed out");
+    }
+    return RuntimeEnvelope::error(emsg, "runtime");
+  }
+  JS_FreeValue(context_, actor_error);
+  result = JS_Eval(context_, "globalThis.__ax_completion === undefined ? {kind:'result', result:null} : globalThis.__ax_completion", std::strlen("globalThis.__ax_completion === undefined ? {kind:'result', result:null} : globalThis.__ax_completion"), "<ax-completion>", JS_EVAL_TYPE_GLOBAL);
   JSValue json = JS_JSONStringify(context_, result, JS_UNDEFINED, JS_UNDEFINED);
   const char* text = JS_ToCString(context_, json);
   std::string json_text = text ? text : "";
@@ -233,11 +277,18 @@ Value QuickJsCodeSession::execute(Value code, Value options) {
   if (json_text.empty() || json_text == "undefined") {
     return RuntimeEnvelope::error("QuickJS actor code did not return a JSON-compatible value", "runtime");
   }
+  Value payload;
   try {
-    return parse_json(json_text);
+    payload = parse_json(json_text);
   } catch (const std::exception& error) {
     return RuntimeEnvelope::error(std::string("malformed QuickJS actor output: ") + error.what(), "runtime");
   }
+  // Surface console output (captured into __ax_logs) as `logs`, mirroring the TS/Python runtimes.
+  if (payload.is_object()) {
+    Value logs = eval_json("JSON.stringify(globalThis.__ax_logs || [])");
+    if (logs.is_array() && Core::truthy(Core::len(logs))) Core::set(payload, "logs", logs);
+  }
+  return payload;
 }
 
 Value QuickJsCodeSession::inspect(Value) { return eval_json("__ax_snapshot_json()"); }
@@ -315,6 +366,13 @@ QuickJsCodeRuntime& QuickJsCodeRuntime::register_callable(std::string name, Host
   if (!handler) throw AxError("runtime", "QuickJS host callable handler is required");
   host_callables_[std::move(name)] = std::move(handler);
   return *this;
+}
+
+// Implements the package-neutral AxCodeRuntime seam (used by the agent wrapper
+// to wire llmQuery); HostCallable is the same std::function<Value(Value)> type.
+void QuickJsCodeRuntime::register_host_callable(std::string name, std::function<Value(Value)> callable) {
+  if (!callable) return;
+  register_callable(std::move(name), std::move(callable));
 }
 
 AxCodeSession* QuickJsCodeRuntime::create_session(Value globals, Value options) {

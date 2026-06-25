@@ -31,7 +31,7 @@ metrics.setGlobalMeterProvider(meterProvider);
 const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: AxAIOpenAIModel.GPT41Mini },
+  config: { model: AxAIOpenAIModel.GPT54Mini },
   options: {
     meter: metrics.getMeter('ax-ai-demo'),
     debug: true,

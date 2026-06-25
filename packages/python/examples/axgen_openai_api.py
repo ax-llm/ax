@@ -1,4 +1,3 @@
-# docs:start provider-axgen
 import json
 import os
 
@@ -22,4 +21,3 @@ out = program.forward(
     },
 )
 print(json.dumps(out, indent=2, sort_keys=True))
-# docs:end provider-axgen

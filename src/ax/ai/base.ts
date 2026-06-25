@@ -9,7 +9,12 @@ import { defaultLogger } from '../dsp/loggers.js';
 import { getModelInfo } from '../dsp/modelinfo.js';
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js';
 import { mergeAbortSignals } from '../util/abort.js';
-import { AxMediaNotSupportedError, apiCall } from '../util/apicall.js';
+import type { RetryConfig } from '../util/apicall.js';
+import {
+  AxMediaNotSupportedError,
+  apiCall,
+  defaultRetryConfig,
+} from '../util/apicall.js';
 import { createHash, randomUUID } from '../util/crypto.js';
 import { RespTransformStream } from '../util/transform.js';
 import {
@@ -1718,6 +1723,88 @@ export class AxBaseAI<
     return cleanFn;
   }
 
+  /**
+   * Peeks the first raw streaming delta and, if the provider classifies it as a retryable
+   * transient error (e.g. an Anthropic `overloaded_error` SSE event), re-issues the request
+   * with exponential backoff — the same policy {@link apiCall} applies to an HTTP 529 status,
+   * so streaming and non-streaming overloads behave identically. The first delta is classified
+   * on the raw chunk (no stateful transform runs), so peeking has no side effects. After the
+   * retry budget is exhausted the original error delta is replayed so it surfaces normally
+   * (and the balancer can still fail over). A non-error first delta is replayed unchanged.
+   *
+   * Note: re-issuing cancels the previous stream's reader best-effort; the underlying fetch
+   * body of the abandoned overloaded request is released by GC rather than promptly aborted,
+   * since apiCall's streams don't propagate cancel. Acceptable for the transient-overload case.
+   */
+  private async retryTransientStreamStart(
+    stream: ReadableStream<TChatResponseDelta>,
+    reissue: () => Promise<unknown>,
+    retryOverride?: Partial<RetryConfig>
+  ): Promise<ReadableStream<TChatResponseDelta>> {
+    const cfg: RetryConfig = { ...defaultRetryConfig, ...retryOverride };
+    const classify = this.aiImpl.classifyStreamErrorStatus;
+    let current = stream;
+    let attempt = 0;
+
+    while (true) {
+      const reader = current.getReader();
+      const first = await reader.read();
+
+      if (!first.done) {
+        const status = classify?.(first.value);
+        if (
+          status !== undefined &&
+          cfg.retryableStatusCodes.includes(status) &&
+          attempt < cfg.maxRetries
+        ) {
+          await reader.cancel().catch(() => {});
+          attempt++;
+          const delay = Math.min(
+            cfg.initialDelayMs * cfg.backoffFactor ** (attempt - 1),
+            cfg.maxDelayMs
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          const next = await reissue();
+          if (!(next instanceof ReadableStream)) {
+            return next as ReadableStream<TChatResponseDelta>;
+          }
+          current = next as ReadableStream<TChatResponseDelta>;
+          continue;
+        }
+      }
+
+      // Good first delta, or a non-retryable / retry-exhausted error: replay the buffered
+      // first delta and pump the rest, so the normal transform pipeline runs once.
+      let emittedFirst = false;
+      return new ReadableStream<TChatResponseDelta>({
+        async pull(controller) {
+          if (!emittedFirst) {
+            emittedFirst = true;
+            if (first.done) {
+              controller.close();
+              return;
+            }
+            controller.enqueue(first.value);
+            return;
+          }
+          try {
+            const { done, value } = await reader.read();
+            if (done) {
+              controller.close();
+              return;
+            }
+            controller.enqueue(value);
+          } catch (err) {
+            controller.error(err);
+          }
+        },
+        cancel(reason) {
+          return reader.cancel(reason);
+        },
+      });
+    }
+  }
+
   private async _chat2(
     model: TModel,
     modelConfig: Readonly<AxModelConfig>,
@@ -1879,9 +1966,30 @@ export class AxBaseAI<
     };
 
     const rt = options?.rateLimiter ?? this.rt;
+    const issueRequest = () =>
+      rt ? rt(fn, { modelUsage: this.modelUsage }) : fn();
     let rv: Awaited<ReturnType<typeof fn>>;
     try {
-      rv = rt ? await rt(fn, { modelUsage: this.modelUsage }) : await fn();
+      rv = await issueRequest();
+      // Pre-content streaming retry: if the stream's FIRST delta is a transient error event
+      // (e.g. Anthropic's HTTP-200 `overloaded_error` SSE, which precedes message_start),
+      // re-issue with backoff so a streaming overload gets the same retry policy as an HTTP 529
+      // status — before the balancer sees it. Scope is the first delta only: an error preceded
+      // by leading ping/message_start events isn't retried here, and an error after content
+      // can't be retried at all (output already committed) — both instead surface during
+      // consumption and fail over downstream. Only providers implementing
+      // classifyStreamErrorStatus participate; others are unaffected.
+      if (
+        modelConfig.stream &&
+        rv instanceof ReadableStream &&
+        this.aiImpl.classifyStreamErrorStatus
+      ) {
+        rv = (await this.retryTransientStreamStart(
+          rv as ReadableStream<TChatResponseDelta>,
+          issueRequest,
+          options?.retry ?? this.retry
+        )) as typeof rv;
+      }
     } catch (error) {
       recordSpanException(span, error);
       if (span?.isRecording()) {

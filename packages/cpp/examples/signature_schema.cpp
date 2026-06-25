@@ -1,4 +1,3 @@
-// docs:start signature-schema
 #include "axllm/axllm.hpp"
 #include <iostream>
 
@@ -8,4 +7,3 @@ int main() {
   if (!axllm::Core::truthy(axllm::Core::get(axllm::Core::get(schema, "properties"), "answer"))) return 1;
   std::cout << "cpp-signature-schema-ok\n";
 }
-// docs:end signature-schema

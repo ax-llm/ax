@@ -35,7 +35,7 @@ Generated language packages expose the optimizer surface available in their AxIR
 
 ## Common Patterns
 
-- Start with no-key deterministic examples for the metric.
+- Start with deterministic eval fixtures for the metric.
 - Keep `maxMetricCalls` explicit.
 - Use scalar metrics for one clear objective.
 - Use multi-objective metrics for tradeoffs such as accuracy/cost or quality/brevity.

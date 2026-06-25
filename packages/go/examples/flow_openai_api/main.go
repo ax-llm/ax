@@ -1,4 +1,3 @@
-// docs:start provider-flow
 package main
 
 import (
@@ -8,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	ax "github.com/ax-llm/ax/go"
+	ax "github.com/ax-llm/ax/packages/go"
 )
 
 func main() {
@@ -45,4 +44,3 @@ func main() {
 	}
 	fmt.Println(string(data))
 }
-// docs:end provider-flow
