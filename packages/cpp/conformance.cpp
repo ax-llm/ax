@@ -1647,6 +1647,7 @@ struct ClientFixture {
     Core::set(out, "embed_model", Core::get(fixture, "embed_model", default_embed_model));
     Core::set(out, "api_key", "test-key");
     Core::set(out, "model_config", Core::get(fixture, "model_config", Value::object()));
+    Core::set(out, "options", Core::get(fixture, "options", Value::object()));
     for (const std::string& key : {"base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version"}) {
       Value value = Core::get(fixture, key);
       if (!value.is_null()) Core::set(out, key, value);

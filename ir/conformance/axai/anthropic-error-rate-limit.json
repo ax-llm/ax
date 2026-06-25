@@ -1,0 +1,28 @@
+{
+  "name": "anthropic-error-rate-limit",
+  "kind": "ai_error",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "type": "error",
+        "error": {
+          "type": "rate_limit_error",
+          "message": "Rate limit exceeded"
+        }
+      }
+    }
+  ],
+  "expected_error_type": "AxAIServiceStatusError",
+  "expected_error_contains": "Rate limit exceeded",
+  "expected_status": 429
+}

@@ -2883,10 +2883,12 @@ final class Core {
     Object is_500 = Core.eq(status, 500);
     Object is_502 = Core.eq(status, 502);
     Object is_503 = Core.eq(status, 503);
+    Object is_529 = Core.eq(status, 529);
     Object retry_left = Core.or(is_429, is_500);
     Object retry_right = Core.or(is_502, is_503);
     Object retry_some = Core.or(retry_left, retry_right);
-    Object retryable = Core.or(retry_some, is_504);
+    Object retry_more = Core.or(retry_some, is_504);
+    Object retryable = Core.or(retry_more, is_529);
     Object error = Core.aiErrorStatus(message, status, code, body, request, retryable);
     return error;
   }
@@ -4583,6 +4585,91 @@ final class Core {
       }
     }
     return response;
+  }
+
+  static Object provider_classify_stream_error_status(Object profile, Object event) {
+    axirCoverageMark("provider_classify_stream_error_status");
+    Object provider_id = Core.provider_normalize_profile(profile);
+    Object none = Core.none();
+    Object status = none;
+    Object is_anthropic = Core.eq(provider_id, "anthropic");
+    if (Core.truthy(is_anthropic)) {
+      Object event_is_object = Core.typeIs(event, "object");
+      if (Core.truthy(event_is_object)) {
+        Object type = Core.get(event, "type", "");
+        Object is_error = Core.eq(type, "error");
+        if (Core.truthy(is_error)) {
+          Object error_body = Core.get(event, "error", null);
+          Object error_type = Core.get(error_body, "type", "");
+          Object mapped = Core._anthropic_error_type_to_status(error_type);
+          status = mapped;
+        }
+      }
+    }
+    return status;
+  }
+
+  static Object is_retryable_status(Object status) {
+    axirCoverageMark("is_retryable_status");
+    Object is_408 = Core.eq(status, 408);
+    Object is_429 = Core.eq(status, 429);
+    Object is_500 = Core.eq(status, 500);
+    Object is_502 = Core.eq(status, 502);
+    Object is_503 = Core.eq(status, 503);
+    Object is_504 = Core.eq(status, 504);
+    Object is_529 = Core.eq(status, 529);
+    Object r1 = Core.or(is_408, is_429);
+    Object r2 = Core.or(is_500, is_502);
+    Object r3 = Core.or(is_503, is_504);
+    Object r4 = Core.or(r1, r2);
+    Object r5 = Core.or(r3, is_529);
+    Object retryable = Core.or(r4, r5);
+    return retryable;
+  }
+
+  static Object default_retry_config() {
+    axirCoverageMark("default_retry_config");
+    Object config = new java.util.LinkedHashMap<String, Object>();
+    Core.set(config, "max_retries", 3);
+    Core.set(config, "initial_delay_ms", 1000);
+    Core.set(config, "max_delay_ms", 60000);
+    Core.set(config, "backoff_factor", 2);
+    return config;
+  }
+
+  static Object retry_opt_value(Object map, Object camel, Object snake, Object fallback) {
+    axirCoverageMark("retry_opt_value");
+    Object camel_val = Core.get(map, camel, null);
+    Object has_camel = Core.isNotNone(camel_val);
+    if (Core.truthy(has_camel)) {
+      return camel_val;
+    }
+    Object snake_val = Core.get(map, snake, null);
+    Object has_snake = Core.isNotNone(snake_val);
+    if (Core.truthy(has_snake)) {
+      return snake_val;
+    }
+    return fallback;
+  }
+
+  static Object resolve_stream_retry(Object options) {
+    axirCoverageMark("resolve_stream_retry");
+    Object cfg = Core.default_retry_config();
+    Object def_max = Core.get(cfg, "max_retries", null);
+    Object def_initial = Core.get(cfg, "initial_delay_ms", null);
+    Object def_max_delay = Core.get(cfg, "max_delay_ms", null);
+    Object def_backoff = Core.get(cfg, "backoff_factor", null);
+    Object retry = Core.get(options, "retry", null);
+    Object max_retries = Core.retry_opt_value(retry, "maxRetries", "max_retries", def_max);
+    Object initial = Core.retry_opt_value(retry, "initialDelayMs", "initial_delay_ms", def_initial);
+    Object max_delay = Core.retry_opt_value(retry, "maxDelayMs", "max_delay_ms", def_max_delay);
+    Object backoff = Core.retry_opt_value(retry, "backoffFactor", "backoff_factor", def_backoff);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "max_retries", max_retries);
+    Core.set(out, "initial_delay_ms", initial);
+    Core.set(out, "max_delay_ms", max_delay);
+    Core.set(out, "backoff_factor", backoff);
+    return out;
   }
 
   static Object provider_normalize_embed_response(Object profile, Object raw, Object ai_name, Object model) {
@@ -6482,14 +6569,73 @@ final class Core {
     return none;
   }
 
+  static Object _anthropic_error_type_to_status(Object type) {
+    axirCoverageMark("_anthropic_error_type_to_status");
+    Object none = Core.none();
+    Object status = none;
+    Object is_overloaded = Core.eq(type, "overloaded_error");
+    if (Core.truthy(is_overloaded)) {
+      status = 529;
+    }
+    Object is_api = Core.eq(type, "api_error");
+    if (Core.truthy(is_api)) {
+      status = 500;
+    }
+    Object is_rate = Core.eq(type, "rate_limit_error");
+    if (Core.truthy(is_rate)) {
+      status = 429;
+    }
+    Object is_invalid = Core.eq(type, "invalid_request_error");
+    if (Core.truthy(is_invalid)) {
+      status = 400;
+    }
+    Object is_permission = Core.eq(type, "permission_error");
+    if (Core.truthy(is_permission)) {
+      status = 403;
+    }
+    Object is_not_found = Core.eq(type, "not_found_error");
+    if (Core.truthy(is_not_found)) {
+      status = 404;
+    }
+    Object is_too_large = Core.eq(type, "request_too_large");
+    if (Core.truthy(is_too_large)) {
+      status = 413;
+    }
+    return status;
+  }
+
+  static Object _anthropic_map_error_event(Object error, Object raw) {
+    axirCoverageMark("_anthropic_map_error_event");
+    Object type = Core.get(error, "type", "");
+    Object message = Core.get(error, "message", "Anthropic API error");
+    Object none = Core.none();
+    Object is_auth = Core.eq(type, "authentication_error");
+    if (Core.truthy(is_auth)) {
+      Object auth_error = Core.aiErrorAuth(message, none, type, raw, none);
+      return auth_error;
+    }
+    Object status = Core._anthropic_error_type_to_status(type);
+    Object has_status = Core.isNotNone(status);
+    if (Core.truthy(has_status)) {
+      Object is_429 = Core.eq(status, 429);
+      Object is_500 = Core.eq(status, 500);
+      Object is_529 = Core.eq(status, 529);
+      Object retry_left = Core.or(is_429, is_500);
+      Object retryable = Core.or(retry_left, is_529);
+      Object status_error = Core.aiErrorStatus(message, status, type, raw, none, retryable);
+      return status_error;
+    }
+    Object refusal = Core.aiErrorRefusal(message, raw);
+    return refusal;
+  }
+
   static Object _anthropic_normalize_chat_response(Object raw, Object ai_name, Object model) {
     axirCoverageMark("_anthropic_normalize_chat_response");
     Object type = Core.get(raw, "type", "");
     Object is_error = Core.eq(type, "error");
     if (Core.truthy(is_error)) {
       Object error_body = Core.get(raw, "error", null);
-      Object message = Core.get(error_body, "message", "Anthropic API error");
-      Object error = Core.aiErrorRefusal(message, raw);
+      Object error = Core._anthropic_map_error_event(error_body, raw);
       throw Core.asRuntime(error);
     }
     Object stop_reason = Core.get(raw, "stop_reason", null);
@@ -6697,8 +6843,7 @@ final class Core {
     Object is_error = Core.eq(type, "error");
     if (Core.truthy(is_error)) {
       Object error_body = Core.get(event, "error", null);
-      Object message = Core.get(error_body, "message", "Anthropic stream error");
-      Object error = Core.aiErrorRefusal(message, event);
+      Object error = Core._anthropic_map_error_event(error_body, event);
       throw Core.asRuntime(error);
     }
     Object index = 0;

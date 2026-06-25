@@ -909,6 +909,61 @@ writeFixture('balancer-input-order-retry', {
   },
 });
 
+const overload529PrimarySpec = {
+  name: 'Overload529Primary',
+  id: 'Overload529Primary-id',
+  features: routerFeatures(),
+  metrics: balancerMetrics(100),
+  responses: [
+    { error: { type: 'status', status: 529, message: 'overloaded' } },
+    { error: { type: 'status', status: 529, message: 'overloaded' } },
+  ],
+};
+const overload529BackupSpec = {
+  name: 'Overload529Backup',
+  id: 'Overload529Backup-id',
+  features: routerFeatures(),
+  metrics: balancerMetrics(300),
+};
+const balancerOverload529Services = [
+  new FixtureAIService(overload529PrimarySpec),
+  new FixtureAIService(overload529BackupSpec),
+];
+const balancerOverload529 = new AxBalancer(balancerOverload529Services as any, {
+  comparator: AxBalancer.inputOrderComparator,
+  debug: false,
+  maxRetries: 2,
+});
+const balancerOverload529Chat = await balancerOverload529.chat(
+  {
+    model: 'overload-model',
+    chatPrompt: [{ role: 'user', content: 'overload' }],
+  } as any,
+  { trace: 'overload' } as any
+);
+writeFixture('balancer-status-529-failover', {
+  kind: 'ai_balancer',
+  services: [overload529PrimarySpec, overload529BackupSpec],
+  options: { strategy: 'input_order', debug: false, maxRetries: 2 },
+  operations: [
+    {
+      name: 'chat',
+      request: {
+        model: 'overload-model',
+        chatPrompt: [{ role: 'user', content: 'overload' }],
+      },
+      options: { trace: 'overload' },
+    },
+  ],
+  expected_output: {
+    outputs: { chat: balancerOverload529Chat as any },
+    lastChat: balancerOverload529.getLastUsedChatModel() as Json,
+    serviceCalls: balancerOverload529Services
+      .map((service) => normalizeFixtureServiceCalls(service.requests))
+      .filter((calls) => calls.length > 0),
+  },
+});
+
 const textOnlyBalancerSpec = {
   name: 'TextBalancer',
   id: 'TextBalancer-id',

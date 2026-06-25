@@ -1,11 +1,11 @@
 {
   "target": "java",
   "enforced": true,
-  "emitted_functions": 391,
+  "emitted_functions": 398,
   "files": {
     "dev/axllm/ax/Core.java": {
-      "emitted_lines": 14036,
-      "total_lines": 15222
+      "emitted_lines": 14181,
+      "total_lines": 15367
     }
   }
 }

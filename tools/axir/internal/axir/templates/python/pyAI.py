@@ -483,7 +483,7 @@ class ProviderOperationClient(AxBaseAI):
             return self.realtime_chat(request, options)
         payload = provider_build_chat_request(self.profile, request)
         if payload.get("stream"):
-            return self._stream_chat(payload, request)
+            return self._stream_chat(payload, request, options)
         model = request.get("model") or payload.get("model") or self.model
         endpoint = self._operation_path("chat", model)
         raw = self._request_json(endpoint, payload, stream=False)
@@ -501,7 +501,7 @@ class ProviderOperationClient(AxBaseAI):
         self.last_used_chat_model = model
         self.last_used_model_config = copy.deepcopy(model_config)
         payload = provider_build_chat_request(self.profile, req)
-        yield from self._stream_chat(payload, req)
+        yield from self._stream_chat(payload, req, merged_options)
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
         payload = provider_build_embed_request(self.profile, request)
@@ -510,13 +510,38 @@ class ProviderOperationClient(AxBaseAI):
         raw = self._request_json(endpoint, payload, stream=False)
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
-    def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any]):
+    def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any], options: dict[str, Any] | None = None):
         model = request.get("model") or payload.get("model") or self.model
         endpoint = self._operation_path("stream_chat", model)
-        raw = self._request_json(endpoint, payload, stream=True)
-        state: dict[str, Any] = {}
-        for event in _iter_sse_json(raw):
-            yield provider_normalize_stream_delta(self.profile, event, state, self.name, model)
+        cfg = resolve_stream_retry(options or {})
+        max_retries = int(cfg["max_retries"])
+        initial_delay = float(cfg["initial_delay_ms"])
+        max_delay = float(cfg["max_delay_ms"])
+        backoff = float(cfg["backoff_factor"])
+        attempt = 0
+        sentinel = object()
+        while True:
+            # Pre-content streaming retry: peek the first raw SSE event before any stateful
+            # normalize runs (so peeking has no side effects). If the provider classifies it as
+            # a retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error event),
+            # re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
+            raw = self._request_json(endpoint, payload, stream=True)
+            events = _iter_sse_json(raw)
+            first = next(events, sentinel)
+            if first is not sentinel:
+                status = provider_classify_stream_error_status(self.profile, first)
+                if status is not None and is_retryable_status(status) and attempt < max_retries:
+                    attempt += 1
+                    delay = min(initial_delay * (backoff ** (attempt - 1)), max_delay)
+                    if delay > 0:
+                        time.sleep(delay / 1000.0)
+                    continue
+            state: dict[str, Any] = {}
+            if first is not sentinel:
+                yield provider_normalize_stream_delta(self.profile, first, state, self.name, model)
+                for event in events:
+                    yield provider_normalize_stream_delta(self.profile, event, state, self.name, model)
+            return
 
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         payload = provider_build_transcribe_request(self.profile, request)
@@ -1092,7 +1117,7 @@ def _is_retryable_ai_error(exc: AxAIServiceError) -> bool:
     if isinstance(exc, AxAIServiceAuthenticationError):
         return False
     if isinstance(exc, AxAIServiceStatusError):
-        return getattr(exc, "status", None) in {408, 429, 500, 502, 503, 504}
+        return getattr(exc, "status", None) in {408, 429, 500, 502, 503, 504, 529}
     return isinstance(
         exc,
         (

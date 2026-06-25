@@ -1,0 +1,28 @@
+{
+  "name": "anthropic-error-invalid-request",
+  "kind": "ai_error",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "type": "error",
+        "error": {
+          "type": "invalid_request_error",
+          "message": "Bad request body"
+        }
+      }
+    }
+  ],
+  "expected_error_type": "AxAIServiceStatusError",
+  "expected_error_contains": "Bad request body",
+  "expected_status": 400
+}

@@ -1843,6 +1843,23 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 		return mustCore(provider_normalize_embed_response(c.Profile, coreGet(raw, "json", raw), c.Name, model))
 	})
 }
+func streamRetryParams(options map[string]Value) (int, float64, float64, float64) {
+	var opts Value = options
+	if options == nil {
+		opts = Object()
+	}
+	cfg := mustCore(resolve_stream_retry(opts))
+	return int(num(coreGet(cfg, "max_retries", 3))), num(coreGet(cfg, "initial_delay_ms", 1000)), num(coreGet(cfg, "max_delay_ms", 60000)), num(coreGet(cfg, "backoff_factor", 2))
+}
+
+func streamBackoffDelay(initialDelay float64, maxDelay float64, backoff float64, attempt int) float64 {
+	delay := initialDelay * math.Pow(backoff, float64(attempt-1))
+	if delay > maxDelay {
+		delay = maxDelay
+	}
+	return delay
+}
+
 func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
 	value, err := safeValue(func() Value {
 		req := c.prepareChatRequest(request, Object("stream", true))
@@ -1850,17 +1867,37 @@ func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]
 		opts := c.optionsSnapshot()
 		model := coreGet(req, "model", coreGet(opts, "model", nil))
 		transportReq := c.requestJSON("stream_chat", req, true)
-		raw, err := c.Transport.Call(ctx, transportReq)
-		if err != nil {
-			panic(AxError{Category: "network", Message: err.Error()})
+		maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(options)
+		attempt := 0
+		for {
+			raw, err := c.Transport.Call(ctx, transportReq)
+			if err != nil {
+				panic(AxError{Category: "network", Message: err.Error()})
+			}
+			body := normalizeTransportPayload(raw)
+			events := iterSSE(body)
+			// Pre-content streaming retry: peek the first raw SSE event before any stateful
+			// normalize runs (so peeking has no side effects). If the provider classifies it
+			// as a retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error
+			// event), re-issue with the same exponential backoff apiCall uses for a 529.
+			if len(events) > 0 {
+				status := mustCore(provider_classify_stream_error_status(c.Profile, events[0]))
+				if status != nil && coreTruthy(mustCore(is_retryable_status(status))) && attempt < maxRetries {
+					attempt++
+					delay := streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)
+					if delay > 0 {
+						time.Sleep(time.Duration(delay) * time.Millisecond)
+					}
+					continue
+				}
+			}
+			out := Array()
+			state := Object()
+			for _, event := range events {
+				out = append(out, mustCore(provider_normalize_stream_delta(c.Profile, event, state, c.Name, model)))
+			}
+			return out
 		}
-		body := normalizeTransportPayload(raw)
-		out := Array()
-		state := Object()
-		for _, event := range iterSSE(body) {
-			out = append(out, mustCore(provider_normalize_stream_delta(c.Profile, event, state, c.Name, model)))
-		}
-		return out
 	})
 	return asSlice(value), err
 }
@@ -2773,7 +2810,7 @@ func isRetryableAIError(err error) bool {
 			return false
 		}
 		if e.Type == "AxAIServiceStatusError" {
-			return e.Status == 408 || e.Status == 429 || e.Status == 500 || e.Status == 502 || e.Status == 503 || e.Status == 504
+			return e.Status == 408 || e.Status == 429 || e.Status == 500 || e.Status == 502 || e.Status == 503 || e.Status == 504 || e.Status == 529
 		}
 		return e.Type == "AxAIServiceNetworkError" || e.Type == "AxAIServiceResponseError" || e.Type == "AxAIServiceStreamTerminatedError" || e.Type == "AxAIServiceTimeoutError"
 	case AxError:
@@ -5904,7 +5941,7 @@ func runConformanceAIEmbed(fixture map[string]Value) {
 func runConformanceAIStream(fixture map[string]Value) {
 	client, transport := conformanceAIClient(fixture)
 	output := expectMaybeFixtureError(func() Value {
-		out, err := client.Stream(context.Background(), asMap(coreGet(fixture, "request", Object())), Object())
+		out, err := client.Stream(context.Background(), asMap(coreGet(fixture, "request", Object())), asMap(coreGet(fixture, "options", Object())))
 		if err != nil {
 			panic(err)
 		}
@@ -6037,18 +6074,19 @@ func runConformanceAIError(fixture map[string]Value) {
 	client, _ := conformanceAIClient(fixture)
 	method := display(coreGet(fixture, "method", "chat"))
 	request := asMap(coreGet(fixture, "request", Object()))
+	options := asMap(coreGet(fixture, "options", Object()))
 	var err error
 	switch method {
 	case "stream":
-		_, err = client.Stream(context.Background(), request, Object())
+		_, err = client.Stream(context.Background(), request, options)
 	case "embed":
-		_, err = client.Embed(context.Background(), request, Object())
+		_, err = client.Embed(context.Background(), request, options)
 	case "transcribe":
-		_, err = client.Transcribe(context.Background(), request, Object())
+		_, err = client.Transcribe(context.Background(), request, options)
 	case "speak":
-		_, err = client.Speak(context.Background(), request, Object())
+		_, err = client.Speak(context.Background(), request, options)
 	default:
-		_, err = client.Chat(context.Background(), request, Object())
+		_, err = client.Chat(context.Background(), request, options)
 	}
 	if err == nil {
 		panic(AxError{Category: "fixture", Message: "expected AI call to fail"})

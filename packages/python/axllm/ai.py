@@ -482,7 +482,7 @@ class ProviderOperationClient(AxBaseAI):
             return self.realtime_chat(request, options)
         payload = provider_build_chat_request(self.profile, request)
         if payload.get("stream"):
-            return self._stream_chat(payload, request)
+            return self._stream_chat(payload, request, options)
         model = request.get("model") or payload.get("model") or self.model
         endpoint = self._operation_path("chat", model)
         raw = self._request_json(endpoint, payload, stream=False)
@@ -500,7 +500,7 @@ class ProviderOperationClient(AxBaseAI):
         self.last_used_chat_model = model
         self.last_used_model_config = copy.deepcopy(model_config)
         payload = provider_build_chat_request(self.profile, req)
-        yield from self._stream_chat(payload, req)
+        yield from self._stream_chat(payload, req, merged_options)
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
         payload = provider_build_embed_request(self.profile, request)
@@ -509,13 +509,38 @@ class ProviderOperationClient(AxBaseAI):
         raw = self._request_json(endpoint, payload, stream=False)
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
-    def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any]):
+    def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any], options: dict[str, Any] | None = None):
         model = request.get("model") or payload.get("model") or self.model
         endpoint = self._operation_path("stream_chat", model)
-        raw = self._request_json(endpoint, payload, stream=True)
-        state: dict[str, Any] = {}
-        for event in _iter_sse_json(raw):
-            yield provider_normalize_stream_delta(self.profile, event, state, self.name, model)
+        cfg = resolve_stream_retry(options or {})
+        max_retries = int(cfg["max_retries"])
+        initial_delay = float(cfg["initial_delay_ms"])
+        max_delay = float(cfg["max_delay_ms"])
+        backoff = float(cfg["backoff_factor"])
+        attempt = 0
+        sentinel = object()
+        while True:
+            # Pre-content streaming retry: peek the first raw SSE event before any stateful
+            # normalize runs (so peeking has no side effects). If the provider classifies it as
+            # a retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error event),
+            # re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
+            raw = self._request_json(endpoint, payload, stream=True)
+            events = _iter_sse_json(raw)
+            first = next(events, sentinel)
+            if first is not sentinel:
+                status = provider_classify_stream_error_status(self.profile, first)
+                if status is not None and is_retryable_status(status) and attempt < max_retries:
+                    attempt += 1
+                    delay = min(initial_delay * (backoff ** (attempt - 1)), max_delay)
+                    if delay > 0:
+                        time.sleep(delay / 1000.0)
+                    continue
+            state: dict[str, Any] = {}
+            if first is not sentinel:
+                yield provider_normalize_stream_delta(self.profile, first, state, self.name, model)
+                for event in events:
+                    yield provider_normalize_stream_delta(self.profile, event, state, self.name, model)
+            return
 
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         payload = provider_build_transcribe_request(self.profile, request)
@@ -1091,7 +1116,7 @@ def _is_retryable_ai_error(exc: AxAIServiceError) -> bool:
     if isinstance(exc, AxAIServiceAuthenticationError):
         return False
     if isinstance(exc, AxAIServiceStatusError):
-        return getattr(exc, "status", None) in {408, 429, 500, 502, 503, 504}
+        return getattr(exc, "status", None) in {408, 429, 500, 502, 503, 504, 529}
     return isinstance(
         exc,
         (
@@ -2328,10 +2353,12 @@ def openai_normalize_error(status: int, body: Any, request: Any = None) -> AxAIS
     is_500 = _core_eq(status, 500)
     is_502 = _core_eq(status, 502)
     is_503 = _core_eq(status, 503)
+    is_529 = _core_eq(status, 529)
     retry_left = _core_or(is_429, is_500)
     retry_right = _core_or(is_502, is_503)
     retry_some = _core_or(retry_left, retry_right)
-    retryable = _core_or(retry_some, is_504)
+    retry_more = _core_or(retry_some, is_504)
+    retryable = _core_or(retry_more, is_529)
     error = _core_ai_error_status(message, status, code, body, request, retryable)
     return error
 
@@ -4048,6 +4075,96 @@ def provider_normalize_stream_delta(profile: str, raw: Any, state: Any, ai_name:
                 compatible_response = openai_normalize_stream_delta(raw, state, ai_name, model)
                 response = compatible_response
     return response
+
+
+def provider_classify_stream_error_status(profile: str, event: Any) -> Any:
+    _core_coverage_mark("provider_classify_stream_error_status")
+    provider_id = provider_normalize_profile(profile)
+    none = _core_none()
+    status = none
+    is_anthropic = _core_eq(provider_id, "anthropic")
+    if is_anthropic:
+        event_is_object = _core_type_is(event, "object")
+        if event_is_object:
+            type = _core_get(event, "type", "")
+            is_error = _core_eq(type, "error")
+            if is_error:
+                error_body = _core_get(event, "error", None)
+                error_type = _core_get(error_body, "type", "")
+                mapped = _anthropic_error_type_to_status(error_type)
+                status = mapped
+            else:
+                pass
+        else:
+            pass
+    else:
+        pass
+    return status
+
+
+def is_retryable_status(status: int) -> bool:
+    _core_coverage_mark("is_retryable_status")
+    is_408 = _core_eq(status, 408)
+    is_429 = _core_eq(status, 429)
+    is_500 = _core_eq(status, 500)
+    is_502 = _core_eq(status, 502)
+    is_503 = _core_eq(status, 503)
+    is_504 = _core_eq(status, 504)
+    is_529 = _core_eq(status, 529)
+    r1 = _core_or(is_408, is_429)
+    r2 = _core_or(is_500, is_502)
+    r3 = _core_or(is_503, is_504)
+    r4 = _core_or(r1, r2)
+    r5 = _core_or(r3, is_529)
+    retryable = _core_or(r4, r5)
+    return retryable
+
+
+def default_retry_config() -> Any:
+    _core_coverage_mark("default_retry_config")
+    config = {}
+    config["max_retries"] = 3
+    config["initial_delay_ms"] = 1000
+    config["max_delay_ms"] = 60000
+    config["backoff_factor"] = 2
+    return config
+
+
+def retry_opt_value(map: Any, camel: str, snake: str, fallback: Any) -> Any:
+    _core_coverage_mark("retry_opt_value")
+    camel_val = _core_get(map, camel, None)
+    has_camel = _core_is_not_none(camel_val)
+    if has_camel:
+        return camel_val
+    else:
+        pass
+    snake_val = _core_get(map, snake, None)
+    has_snake = _core_is_not_none(snake_val)
+    if has_snake:
+        return snake_val
+    else:
+        pass
+    return fallback
+
+
+def resolve_stream_retry(options: Any) -> Any:
+    _core_coverage_mark("resolve_stream_retry")
+    cfg = default_retry_config()
+    def_max = _core_get(cfg, "max_retries", None)
+    def_initial = _core_get(cfg, "initial_delay_ms", None)
+    def_max_delay = _core_get(cfg, "max_delay_ms", None)
+    def_backoff = _core_get(cfg, "backoff_factor", None)
+    retry = _core_get(options, "retry", None)
+    max_retries = retry_opt_value(retry, "maxRetries", "max_retries", def_max)
+    initial = retry_opt_value(retry, "initialDelayMs", "initial_delay_ms", def_initial)
+    max_delay = retry_opt_value(retry, "maxDelayMs", "max_delay_ms", def_max_delay)
+    backoff = retry_opt_value(retry, "backoffFactor", "backoff_factor", def_backoff)
+    out = {}
+    out["max_retries"] = max_retries
+    out["initial_delay_ms"] = initial
+    out["max_delay_ms"] = max_delay
+    out["backoff_factor"] = backoff
+    return out
 
 
 def provider_normalize_embed_response(profile: str, raw: Any, ai_name: str, model: str) -> AxEmbedResponse:
@@ -5977,14 +6094,82 @@ def _anthropic_tool_choice_impl(request: Any) -> Any:
     return none
 
 
+def _anthropic_error_type_to_status(type: str) -> Any:
+    _core_coverage_mark("_anthropic_error_type_to_status")
+    none = _core_none()
+    status = none
+    is_overloaded = _core_eq(type, "overloaded_error")
+    if is_overloaded:
+        status = 529
+    else:
+        pass
+    is_api = _core_eq(type, "api_error")
+    if is_api:
+        status = 500
+    else:
+        pass
+    is_rate = _core_eq(type, "rate_limit_error")
+    if is_rate:
+        status = 429
+    else:
+        pass
+    is_invalid = _core_eq(type, "invalid_request_error")
+    if is_invalid:
+        status = 400
+    else:
+        pass
+    is_permission = _core_eq(type, "permission_error")
+    if is_permission:
+        status = 403
+    else:
+        pass
+    is_not_found = _core_eq(type, "not_found_error")
+    if is_not_found:
+        status = 404
+    else:
+        pass
+    is_too_large = _core_eq(type, "request_too_large")
+    if is_too_large:
+        status = 413
+    else:
+        pass
+    return status
+
+
+def _anthropic_map_error_event(error: Any, raw: Any) -> AxAIServiceError:
+    _core_coverage_mark("_anthropic_map_error_event")
+    type = _core_get(error, "type", "")
+    message = _core_get(error, "message", "Anthropic API error")
+    none = _core_none()
+    is_auth = _core_eq(type, "authentication_error")
+    if is_auth:
+        auth_error = _core_ai_error_auth(message, none, type, raw, none)
+        return auth_error
+    else:
+        pass
+    status = _anthropic_error_type_to_status(type)
+    has_status = _core_is_not_none(status)
+    if has_status:
+        is_429 = _core_eq(status, 429)
+        is_500 = _core_eq(status, 500)
+        is_529 = _core_eq(status, 529)
+        retry_left = _core_or(is_429, is_500)
+        retryable = _core_or(retry_left, is_529)
+        status_error = _core_ai_error_status(message, status, type, raw, none, retryable)
+        return status_error
+    else:
+        pass
+    refusal = _core_ai_error_refusal(message, raw)
+    return refusal
+
+
 def _anthropic_normalize_chat_response(raw: Any, ai_name: str, model: str) -> AxChatResponse:
     _core_coverage_mark("_anthropic_normalize_chat_response")
     type = _core_get(raw, "type", "")
     is_error = _core_eq(type, "error")
     if is_error:
         error_body = _core_get(raw, "error", None)
-        message = _core_get(error_body, "message", "Anthropic API error")
-        error = _core_ai_error_refusal(message, raw)
+        error = _anthropic_map_error_event(error_body, raw)
         raise error
     else:
         pass
@@ -6210,8 +6395,7 @@ def _anthropic_normalize_stream_delta(event: Any, state: Any, ai_name: str, mode
     is_error = _core_eq(type, "error")
     if is_error:
         error_body = _core_get(event, "error", None)
-        message = _core_get(error_body, "message", "Anthropic stream error")
-        error = _core_ai_error_refusal(message, event)
+        error = _anthropic_map_error_event(error_body, event)
         raise error
     else:
         pass

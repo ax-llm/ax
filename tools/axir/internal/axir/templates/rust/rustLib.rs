@@ -803,6 +803,7 @@ pub struct OpenAICompatibleClient {
     pub embed_model: String,
     pub profile: String,
     pub model_config: Value,
+    pub options: Value,
     pub transport: Option<Box<dyn AxTransport>>,
 }
 
@@ -817,6 +818,7 @@ impl OpenAICompatibleClient {
             embed_model: "text-embedding-3-small".to_string(),
             profile: "openai-compatible".to_string(),
             model_config: json!({}),
+            options: json!({}),
             transport: None,
         }
     }
@@ -843,6 +845,11 @@ impl OpenAICompatibleClient {
 
     pub fn with_profile(mut self, profile: impl Into<String>) -> Self {
         self.profile = profile.into();
+        self
+    }
+
+    pub fn with_options(mut self, options: Value) -> Self {
+        self.options = if options.is_object() { options } else { json!({}) };
         self
     }
 
@@ -1647,8 +1654,38 @@ impl AxAIClient for OpenAICompatibleClient {
     fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
         let body = self.stream_body(&request);
         let path = self.stream_path();
-        let response = self.post_stream(&path, body)?;
-        normalize_stream_response(&self.profile, &self.model, response)
+        let cfg = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(&self.options)])?);
+        let max_retries = cfg.get("max_retries").and_then(Value::as_i64).unwrap_or(3);
+        let initial_delay = cfg.get("initial_delay_ms").and_then(Value::as_f64).unwrap_or(1000.0);
+        let max_delay = cfg.get("max_delay_ms").and_then(Value::as_f64).unwrap_or(60000.0);
+        let backoff = cfg.get("backoff_factor").and_then(Value::as_f64).unwrap_or(2.0);
+        let mut attempt: i64 = 0;
+        loop {
+            let response = self.post_stream(&path, body.clone())?;
+            let events = extract_stream_events(response)?;
+            // Pre-content streaming retry: peek the first raw SSE event before any stateful
+            // normalize runs (so peeking has no side effects); if the provider classifies it as a
+            // retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error event),
+            // re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
+            if let Some(first) = events.first() {
+                let status = provider_classify_stream_error_status(&[
+                    CoreValue::from(self.profile.as_str()),
+                    core_value_from_json(first),
+                ])?;
+                if !status.is_null()
+                    && core_truthy(&is_retryable_status(&[status.clone()])?)
+                    && attempt < max_retries
+                {
+                    attempt += 1;
+                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
+                    if delay > 0.0 {
+                        std::thread::sleep(std::time::Duration::from_millis(delay as u64));
+                    }
+                    continue;
+                }
+            }
+            return normalize_stream_events(&self.profile, &self.model, &events);
+        }
     }
 }
 
@@ -1818,23 +1855,31 @@ fn normalize_passthrough_response(response: Value) -> AxResult<Value> {
     Ok(body)
 }
 
-fn normalize_stream_response(profile: &str, model: &str, response: Value) -> AxResult<Vec<Value>> {
+fn extract_stream_events(response: Value) -> AxResult<Vec<Value>> {
     let payload = normalize_passthrough_response(response)?;
-    let events = if let Some(events) = payload.as_array() {
-        events.clone()
+    if let Some(events) = payload.as_array() {
+        Ok(events.clone())
     } else if let Some(events) = payload.get("events").and_then(Value::as_array) {
-        events.clone()
+        Ok(events.clone())
     } else {
         let body = payload
             .as_str()
             .or_else(|| payload.get("body").and_then(Value::as_str))
             .unwrap_or_default();
-        parse_sse_events(body)?
-    };
+        parse_sse_events(body)
+    }
+}
+
+fn normalize_stream_response(profile: &str, model: &str, response: Value) -> AxResult<Vec<Value>> {
+    let events = extract_stream_events(response)?;
+    normalize_stream_events(profile, model, &events)
+}
+
+fn normalize_stream_events(profile: &str, model: &str, events: &[Value]) -> AxResult<Vec<Value>> {
     let ai_name = provider_ai_display_name(profile);
     let state = CoreValue::new_map();
     let mut out = Vec::new();
-    for event in &events {
+    for event in events {
         if profile == "openai-compatible" {
             let _ = normalize_stream_delta(&[
                 core_value_from_json(event),
@@ -4599,7 +4644,7 @@ fn fixture_ai_service_error(spec: &Value) -> AxError {
     }.to_string());
     err.status = spec.get("status").and_then(Value::as_u64).map(|status| status as u16);
     err.retryable = matches!(error_type, "network" | "response" | "timeout")
-        || matches!(err.status, Some(408 | 429 | 500 | 502 | 503 | 504));
+        || matches!(err.status, Some(408 | 429 | 500 | 502 | 503 | 504 | 529));
     err
 }
 
@@ -5190,7 +5235,7 @@ fn is_retryable_ai_error(err: &AxError) -> bool {
         return false;
     }
     if err.error_type.as_deref() == Some("AxAIServiceStatusError") {
-        return matches!(err.status, Some(408 | 429 | 500 | 502 | 503 | 504));
+        return matches!(err.status, Some(408 | 429 | 500 | 502 | 503 | 504 | 529));
     }
     err.retryable
         || matches!(
@@ -8771,7 +8816,9 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
             options[key] = value.clone();
         }
     }
-    let client = ai(provider, options)?.with_transport(transport);
+    let client = ai(provider, options)?
+        .with_transport(transport)
+        .with_options(fixture.get("options").cloned().unwrap_or_else(|| json!({})));
     Ok((client, requests))
 }
 

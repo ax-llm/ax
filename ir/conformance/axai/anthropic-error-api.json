@@ -1,0 +1,28 @@
+{
+  "name": "anthropic-error-api",
+  "kind": "ai_error",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "type": "error",
+        "error": {
+          "type": "api_error",
+          "message": "Internal server error"
+        }
+      }
+    }
+  ],
+  "expected_error_type": "AxAIServiceStatusError",
+  "expected_error_contains": "Internal server error",
+  "expected_status": 500
+}

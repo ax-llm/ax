@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <thread>
 #include <cctype>
 #include <cstdlib>
 #include <cstdint>
@@ -319,6 +321,11 @@ struct Core {
   static Value provider_build_embed_request(Value profile, Value request);
   static Value provider_normalize_chat_response(Value profile, Value raw, Value ai_name, Value model);
   static Value provider_normalize_stream_delta(Value profile, Value raw, Value state, Value ai_name, Value model);
+  static Value provider_classify_stream_error_status(Value profile, Value event);
+  static Value is_retryable_status(Value status);
+  static Value default_retry_config();
+  static Value retry_opt_value(Value map, Value camel, Value snake, Value fallback);
+  static Value resolve_stream_retry(Value options);
   static Value provider_normalize_embed_response(Value profile, Value raw, Value ai_name, Value model);
   static Value provider_build_transcribe_request(Value profile, Value request);
   static Value provider_build_speak_request(Value profile, Value request);
@@ -368,6 +375,8 @@ struct Core {
   static Value _anthropic_content_part_impl(Value part);
   static Value _anthropic_tool_spec_impl(Value fn);
   static Value _anthropic_tool_choice_impl(Value request);
+  static Value _anthropic_error_type_to_status(Value type);
+  static Value _anthropic_map_error_event(Value error, Value raw);
   static Value _anthropic_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value _anthropic_merge_response_block_impl(Value text_parts, Value function_calls, Value thought_parts, Value thought_blocks, Value citations, Value block);
   static Value _anthropic_append_citations_impl(Value out, Value block);

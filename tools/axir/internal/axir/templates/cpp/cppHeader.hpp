@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <thread>
 #include <cctype>
 #include <cstdlib>
 #include <cstdint>

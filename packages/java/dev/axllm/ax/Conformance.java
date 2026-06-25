@@ -1979,6 +1979,7 @@ public final class Conformance {
     options.put("api_key", "test-key");
     options.put("transport", transport);
     options.put("model_config", fixture.get("model_config"));
+    options.put("options", fixture.getOrDefault("options", Map.of()));
     for (String key : List.of("base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version")) {
       if (fixture.containsKey(key)) options.put(key, fixture.get(key));
     }

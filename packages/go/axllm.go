@@ -5318,11 +5318,13 @@ func openai_normalize_error(args ...Value) (Value, error) {
 	var v_is_502 Value
 	var v_is_503 Value
 	var v_is_504 Value
+	var v_is_529 Value
 	var v_is_auth Value
 	var v_is_timeout Value
 	var v_message Value
 	var v_message_value Value
 	var v_retry_left Value
+	var v_retry_more Value
 	var v_retry_right Value
 	var v_retry_some Value
 	var v_retryable Value
@@ -5347,11 +5349,13 @@ func openai_normalize_error(args ...Value) (Value, error) {
 	_ = v_is_502
 	_ = v_is_503
 	_ = v_is_504
+	_ = v_is_529
 	_ = v_is_auth
 	_ = v_is_timeout
 	_ = v_message
 	_ = v_message_value
 	_ = v_retry_left
+	_ = v_retry_more
 	_ = v_retry_right
 	_ = v_retry_some
 	_ = v_retryable
@@ -5396,10 +5400,12 @@ func openai_normalize_error(args ...Value) (Value, error) {
 	v_is_500 = _core_eq(v_status, 500)
 	v_is_502 = _core_eq(v_status, 502)
 	v_is_503 = _core_eq(v_status, 503)
+	v_is_529 = _core_eq(v_status, 529)
 	v_retry_left = _core_or(v_is_429, v_is_500)
 	v_retry_right = _core_or(v_is_502, v_is_503)
 	v_retry_some = _core_or(v_retry_left, v_retry_right)
-	v_retryable = _core_or(v_retry_some, v_is_504)
+	v_retry_more = _core_or(v_retry_some, v_is_504)
+	v_retryable = _core_or(v_retry_more, v_is_529)
 	v_error = _core_ai_error_status(v_message, v_status, v_code, v_body, v_request, v_retryable)
 	return v_error, nil
 }
@@ -8793,6 +8799,203 @@ func provider_normalize_stream_delta(args ...Value) (Value, error) {
 		}
 	}
 	return v_response, nil
+}
+
+func provider_classify_stream_error_status(args ...Value) (Value, error) {
+	axirCoverageMark("provider_classify_stream_error_status")
+	var v_profile Value
+	var v_event Value
+	var v_error_body Value
+	var v_error_type Value
+	var v_event_is_object Value
+	var v_is_anthropic Value
+	var v_is_error Value
+	var v_mapped Value
+	var v_none Value
+	var v_provider_id Value
+	var v_status Value
+	var v_type Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	if len(args) > 1 { v_event = args[1] }
+	_ = v_event
+	_ = v_error_body
+	_ = v_error_type
+	_ = v_event_is_object
+	_ = v_is_anthropic
+	_ = v_is_error
+	_ = v_mapped
+	_ = v_none
+	_ = v_provider_id
+	_ = v_status
+	_ = v_type
+	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_provider_id = v }
+	v_none = _core_none()
+	v_status = v_none
+	v_is_anthropic = _core_eq(v_provider_id, "anthropic")
+	if coreTruthy(v_is_anthropic) {
+		v_event_is_object = coreTypeIs(v_event, "object")
+		if coreTruthy(v_event_is_object) {
+			v_type = coreGet(v_event, "type", "")
+			v_is_error = _core_eq(v_type, "error")
+			if coreTruthy(v_is_error) {
+				v_error_body = coreGet(v_event, "error", nil)
+				v_error_type = coreGet(v_error_body, "type", "")
+				{ v, err := _anthropic_error_type_to_status(v_error_type); if err != nil { return nil, err }; v_mapped = v }
+				v_status = v_mapped
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_status, nil
+}
+
+func is_retryable_status(args ...Value) (Value, error) {
+	axirCoverageMark("is_retryable_status")
+	var v_status Value
+	var v_is_408 Value
+	var v_is_429 Value
+	var v_is_500 Value
+	var v_is_502 Value
+	var v_is_503 Value
+	var v_is_504 Value
+	var v_is_529 Value
+	var v_r1 Value
+	var v_r2 Value
+	var v_r3 Value
+	var v_r4 Value
+	var v_r5 Value
+	var v_retryable Value
+	if len(args) > 0 { v_status = args[0] }
+	_ = v_status
+	_ = v_is_408
+	_ = v_is_429
+	_ = v_is_500
+	_ = v_is_502
+	_ = v_is_503
+	_ = v_is_504
+	_ = v_is_529
+	_ = v_r1
+	_ = v_r2
+	_ = v_r3
+	_ = v_r4
+	_ = v_r5
+	_ = v_retryable
+	v_is_408 = _core_eq(v_status, 408)
+	v_is_429 = _core_eq(v_status, 429)
+	v_is_500 = _core_eq(v_status, 500)
+	v_is_502 = _core_eq(v_status, 502)
+	v_is_503 = _core_eq(v_status, 503)
+	v_is_504 = _core_eq(v_status, 504)
+	v_is_529 = _core_eq(v_status, 529)
+	v_r1 = _core_or(v_is_408, v_is_429)
+	v_r2 = _core_or(v_is_500, v_is_502)
+	v_r3 = _core_or(v_is_503, v_is_504)
+	v_r4 = _core_or(v_r1, v_r2)
+	v_r5 = _core_or(v_r3, v_is_529)
+	v_retryable = _core_or(v_r4, v_r5)
+	return v_retryable, nil
+}
+
+func default_retry_config(args ...Value) (Value, error) {
+	axirCoverageMark("default_retry_config")
+	var v_config Value
+	_ = v_config
+	v_config = Object()
+	if err := coreSet(v_config, "max_retries", 3); err != nil { return nil, err }
+	if err := coreSet(v_config, "initial_delay_ms", 1000); err != nil { return nil, err }
+	if err := coreSet(v_config, "max_delay_ms", 60000); err != nil { return nil, err }
+	if err := coreSet(v_config, "backoff_factor", 2); err != nil { return nil, err }
+	return v_config, nil
+}
+
+func retry_opt_value(args ...Value) (Value, error) {
+	axirCoverageMark("retry_opt_value")
+	var v_map Value
+	var v_camel Value
+	var v_snake Value
+	var v_fallback Value
+	var v_camel_val Value
+	var v_has_camel Value
+	var v_has_snake Value
+	var v_snake_val Value
+	if len(args) > 0 { v_map = args[0] }
+	_ = v_map
+	if len(args) > 1 { v_camel = args[1] }
+	_ = v_camel
+	if len(args) > 2 { v_snake = args[2] }
+	_ = v_snake
+	if len(args) > 3 { v_fallback = args[3] }
+	_ = v_fallback
+	_ = v_camel_val
+	_ = v_has_camel
+	_ = v_has_snake
+	_ = v_snake_val
+	v_camel_val = coreGet(v_map, v_camel, nil)
+	v_has_camel = _core_is_not_none(v_camel_val)
+	if coreTruthy(v_has_camel) {
+		return v_camel_val, nil
+	} else {
+	// empty
+	}
+	v_snake_val = coreGet(v_map, v_snake, nil)
+	v_has_snake = _core_is_not_none(v_snake_val)
+	if coreTruthy(v_has_snake) {
+		return v_snake_val, nil
+	} else {
+	// empty
+	}
+	return v_fallback, nil
+}
+
+func resolve_stream_retry(args ...Value) (Value, error) {
+	axirCoverageMark("resolve_stream_retry")
+	var v_options Value
+	var v_backoff Value
+	var v_cfg Value
+	var v_def_backoff Value
+	var v_def_initial Value
+	var v_def_max Value
+	var v_def_max_delay Value
+	var v_initial Value
+	var v_max_delay Value
+	var v_max_retries Value
+	var v_out Value
+	var v_retry Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	_ = v_backoff
+	_ = v_cfg
+	_ = v_def_backoff
+	_ = v_def_initial
+	_ = v_def_max
+	_ = v_def_max_delay
+	_ = v_initial
+	_ = v_max_delay
+	_ = v_max_retries
+	_ = v_out
+	_ = v_retry
+	{ v, err := default_retry_config(); if err != nil { return nil, err }; v_cfg = v }
+	v_def_max = coreGet(v_cfg, "max_retries", nil)
+	v_def_initial = coreGet(v_cfg, "initial_delay_ms", nil)
+	v_def_max_delay = coreGet(v_cfg, "max_delay_ms", nil)
+	v_def_backoff = coreGet(v_cfg, "backoff_factor", nil)
+	v_retry = coreGet(v_options, "retry", nil)
+	{ v, err := retry_opt_value(v_retry, "maxRetries", "max_retries", v_def_max); if err != nil { return nil, err }; v_max_retries = v }
+	{ v, err := retry_opt_value(v_retry, "initialDelayMs", "initial_delay_ms", v_def_initial); if err != nil { return nil, err }; v_initial = v }
+	{ v, err := retry_opt_value(v_retry, "maxDelayMs", "max_delay_ms", v_def_max_delay); if err != nil { return nil, err }; v_max_delay = v }
+	{ v, err := retry_opt_value(v_retry, "backoffFactor", "backoff_factor", v_def_backoff); if err != nil { return nil, err }; v_backoff = v }
+	v_out = Object()
+	if err := coreSet(v_out, "max_retries", v_max_retries); err != nil { return nil, err }
+	if err := coreSet(v_out, "initial_delay_ms", v_initial); err != nil { return nil, err }
+	if err := coreSet(v_out, "max_delay_ms", v_max_delay); err != nil { return nil, err }
+	if err := coreSet(v_out, "backoff_factor", v_backoff); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func provider_normalize_embed_response(args ...Value) (Value, error) {
@@ -12649,6 +12852,139 @@ func _anthropic_tool_choice_impl(args ...Value) (Value, error) {
 	return v_none, nil
 }
 
+func _anthropic_error_type_to_status(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_error_type_to_status")
+	var v_type Value
+	var v_is_api Value
+	var v_is_invalid Value
+	var v_is_not_found Value
+	var v_is_overloaded Value
+	var v_is_permission Value
+	var v_is_rate Value
+	var v_is_too_large Value
+	var v_none Value
+	var v_status Value
+	if len(args) > 0 { v_type = args[0] }
+	_ = v_type
+	_ = v_is_api
+	_ = v_is_invalid
+	_ = v_is_not_found
+	_ = v_is_overloaded
+	_ = v_is_permission
+	_ = v_is_rate
+	_ = v_is_too_large
+	_ = v_none
+	_ = v_status
+	v_none = _core_none()
+	v_status = v_none
+	v_is_overloaded = _core_eq(v_type, "overloaded_error")
+	if coreTruthy(v_is_overloaded) {
+		v_status = 529
+	} else {
+	// empty
+	}
+	v_is_api = _core_eq(v_type, "api_error")
+	if coreTruthy(v_is_api) {
+		v_status = 500
+	} else {
+	// empty
+	}
+	v_is_rate = _core_eq(v_type, "rate_limit_error")
+	if coreTruthy(v_is_rate) {
+		v_status = 429
+	} else {
+	// empty
+	}
+	v_is_invalid = _core_eq(v_type, "invalid_request_error")
+	if coreTruthy(v_is_invalid) {
+		v_status = 400
+	} else {
+	// empty
+	}
+	v_is_permission = _core_eq(v_type, "permission_error")
+	if coreTruthy(v_is_permission) {
+		v_status = 403
+	} else {
+	// empty
+	}
+	v_is_not_found = _core_eq(v_type, "not_found_error")
+	if coreTruthy(v_is_not_found) {
+		v_status = 404
+	} else {
+	// empty
+	}
+	v_is_too_large = _core_eq(v_type, "request_too_large")
+	if coreTruthy(v_is_too_large) {
+		v_status = 413
+	} else {
+	// empty
+	}
+	return v_status, nil
+}
+
+func _anthropic_map_error_event(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_map_error_event")
+	var v_error Value
+	var v_raw Value
+	var v_auth_error Value
+	var v_has_status Value
+	var v_is_429 Value
+	var v_is_500 Value
+	var v_is_529 Value
+	var v_is_auth Value
+	var v_message Value
+	var v_none Value
+	var v_refusal Value
+	var v_retry_left Value
+	var v_retryable Value
+	var v_status Value
+	var v_status_error Value
+	var v_type Value
+	if len(args) > 0 { v_error = args[0] }
+	_ = v_error
+	if len(args) > 1 { v_raw = args[1] }
+	_ = v_raw
+	_ = v_auth_error
+	_ = v_has_status
+	_ = v_is_429
+	_ = v_is_500
+	_ = v_is_529
+	_ = v_is_auth
+	_ = v_message
+	_ = v_none
+	_ = v_refusal
+	_ = v_retry_left
+	_ = v_retryable
+	_ = v_status
+	_ = v_status_error
+	_ = v_type
+	v_type = coreGet(v_error, "type", "")
+	v_message = coreGet(v_error, "message", "Anthropic API error")
+	v_none = _core_none()
+	v_is_auth = _core_eq(v_type, "authentication_error")
+	if coreTruthy(v_is_auth) {
+		v_auth_error = _core_ai_error_auth(v_message, v_none, v_type, v_raw, v_none)
+		return v_auth_error, nil
+	} else {
+	// empty
+	}
+	{ v, err := _anthropic_error_type_to_status(v_type); if err != nil { return nil, err }; v_status = v }
+	v_has_status = _core_is_not_none(v_status)
+	if coreTruthy(v_has_status) {
+		v_is_429 = _core_eq(v_status, 429)
+		v_is_500 = _core_eq(v_status, 500)
+		v_is_529 = _core_eq(v_status, 529)
+		v_retry_left = _core_or(v_is_429, v_is_500)
+		v_retryable = _core_or(v_retry_left, v_is_529)
+		v_status_error = _core_ai_error_status(v_message, v_status, v_type, v_raw, v_none, v_retryable)
+		return v_status_error, nil
+	} else {
+	// empty
+	}
+	v_refusal = _core_ai_error_refusal(v_message, v_raw)
+	return v_refusal, nil
+}
+
 func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 	axirCoverageMark("_anthropic_normalize_chat_response")
 	var v_raw Value
@@ -12726,8 +13062,7 @@ func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 	v_is_error = _core_eq(v_type, "error")
 	if coreTruthy(v_is_error) {
 		v_error_body = coreGet(v_raw, "error", nil)
-		v_message = coreGet(v_error_body, "message", "Anthropic API error")
-		v_error = _core_ai_error_refusal(v_message, v_raw)
+		{ v, err := _anthropic_map_error_event(v_error_body, v_raw); if err != nil { return nil, err }; v_error = v }
 		return nil, asAxError(v_error)
 	} else {
 	// empty
@@ -13228,8 +13563,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	v_is_error = _core_eq(v_type, "error")
 	if coreTruthy(v_is_error) {
 		v_error_body = coreGet(v_event, "error", nil)
-		v_message = coreGet(v_error_body, "message", "Anthropic stream error")
-		v_error = _core_ai_error_refusal(v_message, v_event)
+		{ v, err := _anthropic_map_error_event(v_error_body, v_event); if err != nil { return nil, err }; v_error = v }
 		return nil, asAxError(v_error)
 	} else {
 	// empty
@@ -30937,6 +31271,23 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 		return mustCore(provider_normalize_embed_response(c.Profile, coreGet(raw, "json", raw), c.Name, model))
 	})
 }
+func streamRetryParams(options map[string]Value) (int, float64, float64, float64) {
+	var opts Value = options
+	if options == nil {
+		opts = Object()
+	}
+	cfg := mustCore(resolve_stream_retry(opts))
+	return int(num(coreGet(cfg, "max_retries", 3))), num(coreGet(cfg, "initial_delay_ms", 1000)), num(coreGet(cfg, "max_delay_ms", 60000)), num(coreGet(cfg, "backoff_factor", 2))
+}
+
+func streamBackoffDelay(initialDelay float64, maxDelay float64, backoff float64, attempt int) float64 {
+	delay := initialDelay * math.Pow(backoff, float64(attempt-1))
+	if delay > maxDelay {
+		delay = maxDelay
+	}
+	return delay
+}
+
 func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
 	value, err := safeValue(func() Value {
 		req := c.prepareChatRequest(request, Object("stream", true))
@@ -30944,17 +31295,37 @@ func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]
 		opts := c.optionsSnapshot()
 		model := coreGet(req, "model", coreGet(opts, "model", nil))
 		transportReq := c.requestJSON("stream_chat", req, true)
-		raw, err := c.Transport.Call(ctx, transportReq)
-		if err != nil {
-			panic(AxError{Category: "network", Message: err.Error()})
+		maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(options)
+		attempt := 0
+		for {
+			raw, err := c.Transport.Call(ctx, transportReq)
+			if err != nil {
+				panic(AxError{Category: "network", Message: err.Error()})
+			}
+			body := normalizeTransportPayload(raw)
+			events := iterSSE(body)
+			// Pre-content streaming retry: peek the first raw SSE event before any stateful
+			// normalize runs (so peeking has no side effects). If the provider classifies it
+			// as a retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error
+			// event), re-issue with the same exponential backoff apiCall uses for a 529.
+			if len(events) > 0 {
+				status := mustCore(provider_classify_stream_error_status(c.Profile, events[0]))
+				if status != nil && coreTruthy(mustCore(is_retryable_status(status))) && attempt < maxRetries {
+					attempt++
+					delay := streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)
+					if delay > 0 {
+						time.Sleep(time.Duration(delay) * time.Millisecond)
+					}
+					continue
+				}
+			}
+			out := Array()
+			state := Object()
+			for _, event := range events {
+				out = append(out, mustCore(provider_normalize_stream_delta(c.Profile, event, state, c.Name, model)))
+			}
+			return out
 		}
-		body := normalizeTransportPayload(raw)
-		out := Array()
-		state := Object()
-		for _, event := range iterSSE(body) {
-			out = append(out, mustCore(provider_normalize_stream_delta(c.Profile, event, state, c.Name, model)))
-		}
-		return out
 	})
 	return asSlice(value), err
 }
@@ -31867,7 +32238,7 @@ func isRetryableAIError(err error) bool {
 			return false
 		}
 		if e.Type == "AxAIServiceStatusError" {
-			return e.Status == 408 || e.Status == 429 || e.Status == 500 || e.Status == 502 || e.Status == 503 || e.Status == 504
+			return e.Status == 408 || e.Status == 429 || e.Status == 500 || e.Status == 502 || e.Status == 503 || e.Status == 504 || e.Status == 529
 		}
 		return e.Type == "AxAIServiceNetworkError" || e.Type == "AxAIServiceResponseError" || e.Type == "AxAIServiceStreamTerminatedError" || e.Type == "AxAIServiceTimeoutError"
 	case AxError:
@@ -34998,7 +35369,7 @@ func runConformanceAIEmbed(fixture map[string]Value) {
 func runConformanceAIStream(fixture map[string]Value) {
 	client, transport := conformanceAIClient(fixture)
 	output := expectMaybeFixtureError(func() Value {
-		out, err := client.Stream(context.Background(), asMap(coreGet(fixture, "request", Object())), Object())
+		out, err := client.Stream(context.Background(), asMap(coreGet(fixture, "request", Object())), asMap(coreGet(fixture, "options", Object())))
 		if err != nil {
 			panic(err)
 		}
@@ -35131,18 +35502,19 @@ func runConformanceAIError(fixture map[string]Value) {
 	client, _ := conformanceAIClient(fixture)
 	method := display(coreGet(fixture, "method", "chat"))
 	request := asMap(coreGet(fixture, "request", Object()))
+	options := asMap(coreGet(fixture, "options", Object()))
 	var err error
 	switch method {
 	case "stream":
-		_, err = client.Stream(context.Background(), request, Object())
+		_, err = client.Stream(context.Background(), request, options)
 	case "embed":
-		_, err = client.Embed(context.Background(), request, Object())
+		_, err = client.Embed(context.Background(), request, options)
 	case "transcribe":
-		_, err = client.Transcribe(context.Background(), request, Object())
+		_, err = client.Transcribe(context.Background(), request, options)
 	case "speak":
-		_, err = client.Speak(context.Background(), request, Object())
+		_, err = client.Speak(context.Background(), request, options)
 	default:
-		_, err = client.Chat(context.Background(), request, Object())
+		_, err = client.Chat(context.Background(), request, options)
 	}
 	if err == nil {
 		panic(AxError{Category: "fixture", Message: "expected AI call to fail"})

@@ -77,7 +77,7 @@ public final class AxBalancer implements AxAIService {
   private boolean retryable(AxAIServiceError error) {
     if (error instanceof AxAIServiceAuthenticationError) return false;
     if (error instanceof AxAIServiceStatusError) {
-      return error.status != null && List.of(408, 429, 500, 502, 503, 504).contains(error.status);
+      return error.status != null && List.of(408, 429, 500, 502, 503, 504, 529).contains(error.status);
     }
     return error instanceof AxAIServiceNetworkError || error instanceof AxAIServiceResponseError || error instanceof AxAIServiceStreamTerminatedError || error instanceof AxAIServiceTimeoutError;
   }

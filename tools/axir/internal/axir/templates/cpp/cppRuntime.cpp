@@ -2361,11 +2361,33 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
   Core::set(req, "model_config", config);
   Value payload = Core::provider_build_chat_request(profile_, req);
   Value model = Core::get(req, "model", Core::get(payload, "model", model_));
-  Value raw = request_json(operation_path("stream_chat", model), payload, true);
-  Value state = Value::object();
-  std::vector<Value> out;
-  for (const auto& event : iter_sse_json(raw)) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
-  return out;
+  Value retry_cfg = Core::resolve_stream_retry(options_);
+  int max_retries = static_cast<int>(num(Core::get(retry_cfg, "max_retries", 3)));
+  double initial_delay = num(Core::get(retry_cfg, "initial_delay_ms", 1000));
+  double max_delay = num(Core::get(retry_cfg, "max_delay_ms", 60000));
+  double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
+  int attempt = 0;
+  while (true) {
+    Value raw = request_json(operation_path("stream_chat", model), payload, true);
+    std::vector<Value> events = iter_sse_json(raw);
+    // Pre-content streaming retry: peek the first raw SSE event before any stateful normalize
+    // runs (so peeking has no side effects); if the provider classifies it as a retryable
+    // transient status (e.g. Anthropic's HTTP-200 overloaded_error event), re-issue with the
+    // same exponential backoff apiCall uses for a 529 before surfacing.
+    if (!events.empty()) {
+      Value status = Core::provider_classify_stream_error_status(profile_, events[0]);
+      if (!status.is_null() && Core::truthy(Core::is_retryable_status(status)) && attempt < max_retries) {
+        attempt++;
+        double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
+        if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(delay)));
+        continue;
+      }
+    }
+    Value state = Value::object();
+    std::vector<Value> out;
+    for (const auto& event : events) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
+    return out;
+  }
 }
 
 Value OpenAICompatibleClient::transcribe(Value request) {
@@ -4347,7 +4369,7 @@ bool AxBalancer::retryable(const AxError& error) const {
   if (error.category != "ai") return false;
   if (error.type == "AxAIServiceAuthenticationError") return false;
   if (error.type == "AxAIServiceStatusError") {
-    return error.status == 408 || error.status == 429 || error.status == 500 || error.status == 502 || error.status == 503 || error.status == 504;
+    return error.status == 408 || error.status == 429 || error.status == 500 || error.status == 502 || error.status == 503 || error.status == 504 || error.status == 529;
   }
   return error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceResponseError" || error.type == "AxAIServiceStreamTerminatedError" || error.type == "AxAIServiceTimeoutError";
 }

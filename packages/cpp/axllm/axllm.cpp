@@ -3855,10 +3855,12 @@ Value Core::openai_normalize_error(Value status, Value body, Value request) {
   Value is_500 = Core::eq(status, Value(500));
   Value is_502 = Core::eq(status, Value(502));
   Value is_503 = Core::eq(status, Value(503));
+  Value is_529 = Core::eq(status, Value(529));
   Value retry_left = Core::or_(is_429, is_500);
   Value retry_right = Core::or_(is_502, is_503);
   Value retry_some = Core::or_(retry_left, retry_right);
-  Value retryable = Core::or_(retry_some, is_504);
+  Value retry_more = Core::or_(retry_some, is_504);
+  Value retryable = Core::or_(retry_more, is_529);
   Value error = Core::ai_error_status(message, status, code, body, request, retryable);
   return error;
 }
@@ -5541,6 +5543,91 @@ Value Core::provider_normalize_stream_delta(Value profile, Value raw, Value stat
     }
   }
   return response;
+}
+
+Value Core::provider_classify_stream_error_status(Value profile, Value event) {
+  axir_coverage_mark("provider_classify_stream_error_status");
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value none = Core::none();
+  Value status = none;
+  Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
+  if (Core::truthy(is_anthropic)) {
+    Value event_is_object = Core::type_is(event, Value("object"));
+    if (Core::truthy(event_is_object)) {
+      Value type = Core::get(event, Value("type"), Value(""));
+      Value is_error = Core::eq(type, Value("error"));
+      if (Core::truthy(is_error)) {
+        Value error_body = Core::get(event, Value("error"), Value());
+        Value error_type = Core::get(error_body, Value("type"), Value(""));
+        Value mapped = Core::_anthropic_error_type_to_status(error_type);
+        status = mapped;
+      }
+    }
+  }
+  return status;
+}
+
+Value Core::is_retryable_status(Value status) {
+  axir_coverage_mark("is_retryable_status");
+  Value is_408 = Core::eq(status, Value(408));
+  Value is_429 = Core::eq(status, Value(429));
+  Value is_500 = Core::eq(status, Value(500));
+  Value is_502 = Core::eq(status, Value(502));
+  Value is_503 = Core::eq(status, Value(503));
+  Value is_504 = Core::eq(status, Value(504));
+  Value is_529 = Core::eq(status, Value(529));
+  Value r1 = Core::or_(is_408, is_429);
+  Value r2 = Core::or_(is_500, is_502);
+  Value r3 = Core::or_(is_503, is_504);
+  Value r4 = Core::or_(r1, r2);
+  Value r5 = Core::or_(r3, is_529);
+  Value retryable = Core::or_(r4, r5);
+  return retryable;
+}
+
+Value Core::default_retry_config() {
+  axir_coverage_mark("default_retry_config");
+  Value config = Value::object();
+  Core::set(config, Value("max_retries"), Value(3));
+  Core::set(config, Value("initial_delay_ms"), Value(1000));
+  Core::set(config, Value("max_delay_ms"), Value(60000));
+  Core::set(config, Value("backoff_factor"), Value(2));
+  return config;
+}
+
+Value Core::retry_opt_value(Value map, Value camel, Value snake, Value fallback) {
+  axir_coverage_mark("retry_opt_value");
+  Value camel_val = Core::get(map, camel, Value());
+  Value has_camel = Core::is_not_none(camel_val);
+  if (Core::truthy(has_camel)) {
+    return camel_val;
+  }
+  Value snake_val = Core::get(map, snake, Value());
+  Value has_snake = Core::is_not_none(snake_val);
+  if (Core::truthy(has_snake)) {
+    return snake_val;
+  }
+  return fallback;
+}
+
+Value Core::resolve_stream_retry(Value options) {
+  axir_coverage_mark("resolve_stream_retry");
+  Value cfg = Core::default_retry_config();
+  Value def_max = Core::get(cfg, Value("max_retries"), Value());
+  Value def_initial = Core::get(cfg, Value("initial_delay_ms"), Value());
+  Value def_max_delay = Core::get(cfg, Value("max_delay_ms"), Value());
+  Value def_backoff = Core::get(cfg, Value("backoff_factor"), Value());
+  Value retry = Core::get(options, Value("retry"), Value());
+  Value max_retries = Core::retry_opt_value(retry, Value("maxRetries"), Value("max_retries"), def_max);
+  Value initial = Core::retry_opt_value(retry, Value("initialDelayMs"), Value("initial_delay_ms"), def_initial);
+  Value max_delay = Core::retry_opt_value(retry, Value("maxDelayMs"), Value("max_delay_ms"), def_max_delay);
+  Value backoff = Core::retry_opt_value(retry, Value("backoffFactor"), Value("backoff_factor"), def_backoff);
+  Value out = Value::object();
+  Core::set(out, Value("max_retries"), max_retries);
+  Core::set(out, Value("initial_delay_ms"), initial);
+  Core::set(out, Value("max_delay_ms"), max_delay);
+  Core::set(out, Value("backoff_factor"), backoff);
+  return out;
 }
 
 Value Core::provider_normalize_embed_response(Value profile, Value raw, Value ai_name, Value model) {
@@ -7443,14 +7530,73 @@ Value Core::_anthropic_tool_choice_impl(Value request) {
   return none;
 }
 
+Value Core::_anthropic_error_type_to_status(Value type) {
+  axir_coverage_mark("_anthropic_error_type_to_status");
+  Value none = Core::none();
+  Value status = none;
+  Value is_overloaded = Core::eq(type, Value("overloaded_error"));
+  if (Core::truthy(is_overloaded)) {
+    status = Value(529);
+  }
+  Value is_api = Core::eq(type, Value("api_error"));
+  if (Core::truthy(is_api)) {
+    status = Value(500);
+  }
+  Value is_rate = Core::eq(type, Value("rate_limit_error"));
+  if (Core::truthy(is_rate)) {
+    status = Value(429);
+  }
+  Value is_invalid = Core::eq(type, Value("invalid_request_error"));
+  if (Core::truthy(is_invalid)) {
+    status = Value(400);
+  }
+  Value is_permission = Core::eq(type, Value("permission_error"));
+  if (Core::truthy(is_permission)) {
+    status = Value(403);
+  }
+  Value is_not_found = Core::eq(type, Value("not_found_error"));
+  if (Core::truthy(is_not_found)) {
+    status = Value(404);
+  }
+  Value is_too_large = Core::eq(type, Value("request_too_large"));
+  if (Core::truthy(is_too_large)) {
+    status = Value(413);
+  }
+  return status;
+}
+
+Value Core::_anthropic_map_error_event(Value error, Value raw) {
+  axir_coverage_mark("_anthropic_map_error_event");
+  Value type = Core::get(error, Value("type"), Value(""));
+  Value message = Core::get(error, Value("message"), Value("Anthropic API error"));
+  Value none = Core::none();
+  Value is_auth = Core::eq(type, Value("authentication_error"));
+  if (Core::truthy(is_auth)) {
+    Value auth_error = Core::ai_error_auth(message, none, type, raw, none);
+    return auth_error;
+  }
+  Value status = Core::_anthropic_error_type_to_status(type);
+  Value has_status = Core::is_not_none(status);
+  if (Core::truthy(has_status)) {
+    Value is_429 = Core::eq(status, Value(429));
+    Value is_500 = Core::eq(status, Value(500));
+    Value is_529 = Core::eq(status, Value(529));
+    Value retry_left = Core::or_(is_429, is_500);
+    Value retryable = Core::or_(retry_left, is_529);
+    Value status_error = Core::ai_error_status(message, status, type, raw, none, retryable);
+    return status_error;
+  }
+  Value refusal = Core::ai_error_refusal(message, raw);
+  return refusal;
+}
+
 Value Core::_anthropic_normalize_chat_response(Value raw, Value ai_name, Value model) {
   axir_coverage_mark("_anthropic_normalize_chat_response");
   Value type = Core::get(raw, Value("type"), Value(""));
   Value is_error = Core::eq(type, Value("error"));
   if (Core::truthy(is_error)) {
     Value error_body = Core::get(raw, Value("error"), Value());
-    Value message = Core::get(error_body, Value("message"), Value("Anthropic API error"));
-    Value error = Core::ai_error_refusal(message, raw);
+    Value error = Core::_anthropic_map_error_event(error_body, raw);
     throw Core::as_error(error);
   }
   Value stop_reason = Core::get(raw, Value("stop_reason"), Value());
@@ -7658,8 +7804,7 @@ Value Core::_anthropic_normalize_stream_delta(Value event, Value state, Value ai
   Value is_error = Core::eq(type, Value("error"));
   if (Core::truthy(is_error)) {
     Value error_body = Core::get(event, Value("error"), Value());
-    Value message = Core::get(error_body, Value("message"), Value("Anthropic stream error"));
-    Value error = Core::ai_error_refusal(message, event);
+    Value error = Core::_anthropic_map_error_event(error_body, event);
     throw Core::as_error(error);
   }
   Value index = Value(0);
@@ -16382,11 +16527,33 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
   Core::set(req, "model_config", config);
   Value payload = Core::provider_build_chat_request(profile_, req);
   Value model = Core::get(req, "model", Core::get(payload, "model", model_));
-  Value raw = request_json(operation_path("stream_chat", model), payload, true);
-  Value state = Value::object();
-  std::vector<Value> out;
-  for (const auto& event : iter_sse_json(raw)) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
-  return out;
+  Value retry_cfg = Core::resolve_stream_retry(options_);
+  int max_retries = static_cast<int>(num(Core::get(retry_cfg, "max_retries", 3)));
+  double initial_delay = num(Core::get(retry_cfg, "initial_delay_ms", 1000));
+  double max_delay = num(Core::get(retry_cfg, "max_delay_ms", 60000));
+  double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
+  int attempt = 0;
+  while (true) {
+    Value raw = request_json(operation_path("stream_chat", model), payload, true);
+    std::vector<Value> events = iter_sse_json(raw);
+    // Pre-content streaming retry: peek the first raw SSE event before any stateful normalize
+    // runs (so peeking has no side effects); if the provider classifies it as a retryable
+    // transient status (e.g. Anthropic's HTTP-200 overloaded_error event), re-issue with the
+    // same exponential backoff apiCall uses for a 529 before surfacing.
+    if (!events.empty()) {
+      Value status = Core::provider_classify_stream_error_status(profile_, events[0]);
+      if (!status.is_null() && Core::truthy(Core::is_retryable_status(status)) && attempt < max_retries) {
+        attempt++;
+        double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
+        if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(delay)));
+        continue;
+      }
+    }
+    Value state = Value::object();
+    std::vector<Value> out;
+    for (const auto& event : events) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
+    return out;
+  }
 }
 
 Value OpenAICompatibleClient::transcribe(Value request) {
@@ -18368,7 +18535,7 @@ bool AxBalancer::retryable(const AxError& error) const {
   if (error.category != "ai") return false;
   if (error.type == "AxAIServiceAuthenticationError") return false;
   if (error.type == "AxAIServiceStatusError") {
-    return error.status == 408 || error.status == 429 || error.status == 500 || error.status == 502 || error.status == 503 || error.status == 504;
+    return error.status == 408 || error.status == 429 || error.status == 500 || error.status == 502 || error.status == 503 || error.status == 504 || error.status == 529;
   }
   return error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceResponseError" || error.type == "AxAIServiceStreamTerminatedError" || error.type == "AxAIServiceTimeoutError";
 }

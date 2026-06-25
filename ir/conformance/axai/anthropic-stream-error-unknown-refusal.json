@@ -1,0 +1,22 @@
+{
+  "name": "anthropic-stream-error-unknown-refusal",
+  "kind": "ai_error",
+  "method": "stream",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "stream"
+      }
+    ],
+    "model_config": {
+      "stream": true
+    }
+  },
+  "transport_responses": [
+    "data: {\"type\":\"error\",\"error\":{\"type\":\"mystery_error\",\"message\":\"Stream mystery\"}}\n\n"
+  ],
+  "expected_error_type": "AxAIRefusalError",
+  "expected_error_contains": "Stream mystery"
+}

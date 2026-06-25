@@ -67,13 +67,8 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, request));
     Object stream = payload.get("stream");
     if (Boolean.TRUE.equals(stream)) {
-      List<Map<String, Object>> out = new ArrayList<>();
-      Map<String, Object> state = new LinkedHashMap<>();
       Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
-      for (Object event : iterSseJson(requestJson(operationPath("stream_chat", modelName), payload, true))) {
-        out.add(Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName)));
-      }
-      return Map.of("results", out);
+      return Map.of("results", streamEvents(payload, modelName));
     }
     Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
     Object raw = requestJson(operationPath("chat", modelName), payload, false);
@@ -87,6 +82,36 @@ public class OpenAICompatibleClient extends AxBaseAI {
     return Core.asMap(Core.provider_normalize_embed_response(profile, raw, name, modelName));
   }
 
+  protected List<Map<String, Object>> streamEvents(Map<String, Object> payload, Object modelName) throws Exception {
+    Map<String, Object> retryCfg = Core.asMap(Core.resolve_stream_retry(options));
+    int maxRetries = Core.asInt(retryCfg.getOrDefault("max_retries", 3));
+    double initialDelay = Core.asDouble(retryCfg.getOrDefault("initial_delay_ms", 1000));
+    double maxDelay = Core.asDouble(retryCfg.getOrDefault("max_delay_ms", 60000));
+    double backoff = Core.asDouble(retryCfg.getOrDefault("backoff_factor", 2));
+    int attempt = 0;
+    while (true) {
+      List<Object> events = new ArrayList<>();
+      for (Object event : iterSseJson(requestJson(operationPath("stream_chat", modelName), payload, true))) events.add(event);
+      // Pre-content streaming retry: peek the first raw SSE event before any stateful normalize
+      // runs (so peeking has no side effects); if the provider classifies it as a retryable
+      // transient status (e.g. Anthropic's HTTP-200 overloaded_error event), re-issue with the
+      // same exponential backoff apiCall uses for a 529 before surfacing.
+      if (!events.isEmpty()) {
+        Object status = Core.provider_classify_stream_error_status(profile, events.get(0));
+        if (status != null && Core.truthy(Core.is_retryable_status(status)) && attempt < maxRetries) {
+          attempt++;
+          double delay = Math.min(initialDelay * Math.pow(backoff, attempt - 1), maxDelay);
+          if (delay > 0) Thread.sleep((long) delay);
+          continue;
+        }
+      }
+      Map<String, Object> state = new LinkedHashMap<>();
+      List<Map<String, Object>> out = new ArrayList<>();
+      for (Object event : events) out.add(Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName)));
+      return out;
+    }
+  }
+
   public Iterable<Map<String, Object>> stream(Map<String, Object> request) throws Exception {
     Map<String, Object> req = Core.coerceChatRequest(request);
     Core.validate_chat_request(req);
@@ -96,11 +121,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     req.put("model_config", modelConfig);
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, req));
     Object modelName = req.getOrDefault("model", payload.getOrDefault("model", model));
-    Object raw = requestJson(operationPath("stream_chat", modelName), payload, true);
-    Map<String, Object> state = new LinkedHashMap<>();
-    List<Map<String, Object>> out = new ArrayList<>();
-    for (Object event : iterSseJson(raw)) out.add(Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName)));
-    return out;
+    return streamEvents(payload, modelName);
   }
 
   public Map<String, Object> transcribe(Map<String, Object> request) throws Exception {
