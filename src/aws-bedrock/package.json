@@ -26,6 +26,7 @@
     "clean": "rm -rf dist",
     "test": "run-s test:*",
     "test:type-check": "tsc --noEmit",
+    "test:unit": "vitest run",
     "test:lint": "biome lint .",
     "test:format": "biome format .",
     "fix": "run-s fix:*",
