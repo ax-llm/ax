@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install dependencies
@@ -40,7 +40,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install dependencies
@@ -76,7 +76,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install dependencies
@@ -92,7 +92,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Setup Python
@@ -149,7 +149,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Setup Go
@@ -180,7 +180,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install Hugo
@@ -206,7 +206,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Setup Python

@@ -12,12 +12,16 @@
   },
   "license": "Apache-2.0",
   "keywords": [],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
     "clean": "rm -rf dist",
     "test": "run-s test:*",
     "test:type-check": "tsc --noEmit",
+    "test:unit": "vitest run",
     "test:lint": "biome lint .",
     "test:format": "biome format .",
     "fix": "run-s fix:*",
@@ -30,10 +34,11 @@
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
-    "@ai-sdk/provider-utils": "^3.0.10",
+    "@ai-sdk/provider": "^4.0.0",
+    "@ai-sdk/provider-utils": "^5.0.0",
     "@ax-llm/ax": "22.0.7",
-    "ai": "^5.0.100",
-    "zod": "^3.23.8"
+    "ai": "^7.0.2",
+    "zod": "^3.25.76"
   },
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
