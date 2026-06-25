@@ -21,6 +21,28 @@
       "verification": "npm run test:axir"
     },
     {
+      "id": "axir-2026-06-16-match-gepa-best-candidate-tie-break-to-prefer-the-accepted-evolu",
+      "status": "open",
+      "title": "Match GEPA best-candidate tie-break to prefer the accepted evolution",
+      "createdAt": "2026-06-16",
+      "sourcePR": 546,
+      "sourceCommit": "d7570019ba945edb4a733345cc63a080463fdc3a",
+      "tsPaths": [
+        "src/ax/dsp/optimizers/gepa.ts",
+        "src/ax/dsp/optimizers/gepa.test.ts"
+      ],
+      "portableSurface": "axoptimize",
+      "impact": "GEPA compile() now breaks a scalarized-score tie on the Pareto front toward the later-discovered candidate, so an accepted evolution that only ties the seed surfaces in componentMap instead of the seed text. Generated Python/Java/C++/Go/Rust AxGEPA selection still breaks ties toward the earlier candidate (the seed) and can return the original instruction, drifting from the TS optimizer.",
+      "suggestedAxirWork": [
+        "Update the AxGEPA candidate-selection lowering so a scalarized-score tie selects the later candidate.",
+        "Add a TS-derived axoptimize conformance fixture for a tie between the seed and an accepted evolution.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-06-24-port-anthropic-transient-error-classification-streaming-retry-fa",
       "status": "done",
       "title": "Port Anthropic transient-error classification + streaming retry/failover",
