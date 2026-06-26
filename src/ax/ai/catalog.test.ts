@@ -7,6 +7,10 @@ import {
   AxAIGoogleGeminiModel,
 } from './google-gemini/types.js';
 import { AxAIOpenAIModel } from './openai/chat_types.js';
+// axir-nonportable:start webllm
+import { AxAIWebLLMModel } from './webllm/types.js';
+
+// axir-nonportable:end webllm
 
 describe('axGetSupportedAIModels', () => {
   it('returns every ai() provider', () => {
@@ -25,9 +29,14 @@ describe('axGetSupportedAIModels', () => {
         'mistral',
         'reka',
         'grok',
+        // axir-nonportable:start webllm
+        'webllm',
+        // axir-nonportable:end webllm
       ])
     );
-    expect(providerNames).toHaveLength(10);
+    // axir-nonportable:start webllm
+    expect(providerNames).toHaveLength(11);
+    // axir-nonportable:end webllm
   });
 
   it('returns provider grouped model metadata with pricing', () => {
@@ -221,6 +230,21 @@ describe('axGetSupportedAIModels', () => {
         (model) => model.name === AxAIDeepSeekModel.DeepSeekCoder
       )
     ).toBe(false);
+    // axir-nonportable:start webllm
+    const webllm = providers.find((provider) => provider.name === 'webllm');
+    const llama32 = webllm?.models.find(
+      (model) => model.name === AxAIWebLLMModel.Llama32_3B_Instruct
+    );
+
+    expect(webllm?.defaultModel).toBe(AxAIWebLLMModel.Llama32_3B_Instruct);
+    expect(llama32).toMatchObject({
+      provider: 'webllm',
+      type: 'text',
+      isDefault: true,
+      promptTokenCostPer1M: 0,
+      completionTokenCostPer1M: 0,
+    });
+    // axir-nonportable:end webllm
   });
 
   it('returns cloned metadata on each call', () => {

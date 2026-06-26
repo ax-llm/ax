@@ -4,8 +4,22 @@
 
 This ledger tracks portable TypeScript behavior that should be migrated into AxIR/Core and generated language backends.
 
+## Non-Portable Exemptions
+
+- `webllm-browser-only` [axai]
+  - Reason: WebLLM is browser-specific integration code around a caller-supplied MLCEngine/WebGPU runtime. It is not a portable Ax semantic and should not create Python/Java/C++/Go/Rust AxIR backlog work.
+  - Paths: `src/ax/ai/webllm`, `src/examples/webllm-chat.html`
+  - Scoped files: `src/ax/ai/wrap.ts`, `src/ax/ai/catalog.ts`, `src/ax/ai/catalog.test.ts`, `src/ax/ai/wrap.test.ts`, `src/ax/skills/ax-ai.md`
+  - Tags: `webllm`, `browser-only`, `webgpu`, `host-engine`
+
 ## Open
 
+- `axir-2026-06-26-port-ace-agentic-context-engineering-optimizer` [axoptimize] Port ACE agentic context engineering optimizer
+  - Status: open
+  - Source commit: `1b26efd014295c7dd88b8544268d807a521b1679`
+  - TS paths: `src/ax/dsp/optimizers/ace.ts`, `src/ax/dsp/optimizers/acePlaybook.ts`, `src/ax/dsp/optimizers/aceTypes.ts`
+  - Impact: TypeScript will restore the AxACE optimizer, its structured playbook artifact, offline compile loop, and online playbook update behavior. Generated Python/Java/C++/Go/Rust optimizer surfaces do not expose matching ACE semantics yet.
+  - Suggested AxIR work: Decide whether ACE becomes a generated optimizer engine or remains TypeScript-only by policy.; If portable, add TS-derived axoptimize conformance fixtures for ACE playbook operations, artifact application, and online updates.; Update AxIR/Core optimizer descriptors and generated backends, then run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-06-16-match-gepa-best-candidate-tie-break-to-prefer-the-accepted-evolu` [axoptimize] Match GEPA best-candidate tie-break to prefer the accepted evolution
   - Status: open
   - Source PR: #546

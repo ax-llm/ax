@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   evaluatePrCheck,
+  parseChangedLineRanges,
   staleOpenEntries,
   surfaceIrModulesFor,
 } from './axir-backlog.mjs';
@@ -21,7 +22,11 @@ const scriptPath = path.join(
   'axir-backlog.mjs'
 );
 
-const emptyLedger = { schemaVersion: 1, entries: [] };
+const emptyLedger = {
+  schemaVersion: 2,
+  entries: [],
+  nonPortableExemptions: [],
+};
 
 function openEntry(overrides = {}) {
   return {
@@ -130,6 +135,103 @@ describe('evaluatePrCheck surface scoping', () => {
         noImpact: true,
       }).ok
     ).toBe(true);
+  });
+
+  it('honors non-portable path exemptions without exempting sibling provider paths', () => {
+    const ledger = {
+      schemaVersion: 2,
+      entries: [],
+      nonPortableExemptions: [
+        {
+          id: 'webllm-browser-only',
+          surface: 'axai',
+          paths: ['src/ax/ai/webllm'],
+          scopedFiles: [],
+          tags: ['webllm', 'browser-only'],
+          reason: 'WebLLM is browser-only and backed by a host MLCEngine.',
+        },
+      ],
+    };
+
+    expect(
+      evaluatePrCheck({
+        changedFiles: ['src/ax/ai/webllm/api.ts'],
+        ledger,
+      }).ok
+    ).toBe(true);
+
+    const sibling = evaluatePrCheck({
+      changedFiles: ['src/ax/ai/openai/api.ts'],
+      ledger,
+    });
+    expect(sibling.ok).toBe(false);
+    expect(sibling.uncovered).toEqual(['src/ax/ai/openai/api.ts']);
+  });
+
+  it('honors scoped non-portable markers in shared files', () => {
+    const ledger = {
+      schemaVersion: 2,
+      entries: [],
+      nonPortableExemptions: [
+        {
+          id: 'webllm-browser-only',
+          surface: 'axai',
+          paths: [],
+          scopedFiles: ['src/ax/ai/wrap.ts'],
+          tags: ['webllm'],
+          reason: 'WebLLM registration is browser-only.',
+        },
+      ],
+    };
+    const fileText = [
+      'const before = true;',
+      '// axir-nonportable:start webllm',
+      "register('webllm');",
+      '// axir-nonportable:end webllm',
+      'const after = true;',
+    ].join('\n');
+
+    expect(
+      evaluatePrCheck({
+        changedFiles: ['src/ax/ai/wrap.ts'],
+        changedLineRanges: {
+          'src/ax/ai/wrap.ts': [{ start: 3, end: 3 }],
+        },
+        readFile: () => fileText,
+        ledger,
+      }).ok
+    ).toBe(true);
+
+    const outside = evaluatePrCheck({
+      changedFiles: ['src/ax/ai/wrap.ts'],
+      changedLineRanges: {
+        'src/ax/ai/wrap.ts': [{ start: 5, end: 5 }],
+      },
+      readFile: () => fileText,
+      ledger,
+    });
+    expect(outside.ok).toBe(false);
+    expect(outside.uncovered).toEqual(['src/ax/ai/wrap.ts']);
+  });
+
+  it('parses changed line ranges from zero-context diffs', () => {
+    const ranges =
+      parseChangedLineRanges(`diff --git a/src/ax/ai/wrap.ts b/src/ax/ai/wrap.ts
+--- a/src/ax/ai/wrap.ts
++++ b/src/ax/ai/wrap.ts
+@@ -2,0 +3,2 @@
++a
++b
+@@ -10 +12 @@
+-old
++new
+`);
+    expect(ranges).toEqual({
+      'src/ax/ai/wrap.ts': [
+        { start: 3, end: 4 },
+        { start: 12, end: 12 },
+      ],
+    });
   });
 });
 
@@ -286,6 +388,49 @@ describe('axir-backlog CLI', () => {
         'src/ax/ai/catalog.ts',
       ])
     ).toThrow(/invalid --surface/);
+  });
+
+  it('adds non-portable exemptions and renders them', () => {
+    run([
+      'exempt',
+      '--root',
+      root,
+      '--id',
+      'webllm-browser-only',
+      '--surface',
+      'axai',
+      '--reason',
+      'Browser-only WebLLM provider.',
+      '--paths',
+      'src/ax/ai/webllm',
+      '--scoped-files',
+      'src/ax/ai/wrap.ts',
+      '--tags',
+      'webllm,browser-only',
+    ]);
+
+    const ledger = readLedger(root);
+    expect(ledger.nonPortableExemptions).toHaveLength(1);
+    expect(ledger.nonPortableExemptions[0]).toMatchObject({
+      id: 'webllm-browser-only',
+      surface: 'axai',
+      paths: ['src/ax/ai/webllm'],
+      scopedFiles: ['src/ax/ai/wrap.ts'],
+      tags: ['webllm', 'browser-only'],
+    });
+    expect(
+      readFileSync(path.join(root, 'docs', 'AXIR_BACKLOG.md'), 'utf8')
+    ).toContain('Non-Portable Exemptions');
+
+    expect(
+      run([
+        'check-pr',
+        '--root',
+        root,
+        '--changed-file',
+        'src/ax/ai/webllm/api.ts',
+      ])
+    ).toContain('ok');
   });
 
   it('checks PR drift with synthetic changed files', () => {

@@ -31,6 +31,28 @@ const grok = ai({ name: 'grok', apiKey: 'your-key' });
 const compatible = ai({ name: 'openai', apiKey: 'key', apiURL: 'https://api.example.com/v1', config: { model: 'provider/model' } });
 ```
 
+<!-- axir-nonportable:start webllm -->
+WebLLM is browser-only and requires a host-created WebLLM engine. The host
+loads or reloads models with WebLLM APIs such as `CreateMLCEngine(...)`; Ax
+only forwards chat requests to that loaded engine. Do not present WebLLM as a
+portable AxIR provider or a server-side default.
+
+```typescript
+import { ai, AxAIWebLLMModel } from '@ax-llm/ax';
+
+const engine = await CreateMLCEngine(AxAIWebLLMModel.Llama32_3B_Instruct);
+const llm = ai({
+  name: 'webllm',
+  engine,
+  config: {
+    model: AxAIWebLLMModel.Llama32_3B_Instruct,
+    stream: false,
+    supportsFunctions: false,
+  },
+});
+```
+<!-- axir-nonportable:end webllm -->
+
 ## Model Presets
 
 ```typescript

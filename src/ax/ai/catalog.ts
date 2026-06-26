@@ -20,7 +20,11 @@ import { AxAIOpenAIResponsesModel } from './openai/responses_types.js';
 import { axModelInfoReka } from './reka/info.js';
 import { AxAIRekaModel } from './reka/types.js';
 import type { AxModelInfo } from './types.js';
+// axir-nonportable:start webllm
+import { axModelInfoWebLLM } from './webllm/info.js';
+import { AxAIWebLLMModel } from './webllm/types.js';
 import type { AxAIArgs } from './wrap.js';
+// axir-nonportable:end webllm
 import { axModelInfoGrok } from './x-grok/info.js';
 import { AxAIGrokModel } from './x-grok/types.js';
 
@@ -145,6 +149,14 @@ const axAIModelCatalogProviderDefinitions = {
     isDynamic: false,
     modelInfo: axModelInfoGrok,
   },
+  // axir-nonportable:start webllm
+  webllm: {
+    displayName: 'WebLLM',
+    defaultModel: AxAIWebLLMModel.Llama32_3B_Instruct,
+    isDynamic: false,
+    modelInfo: axModelInfoWebLLM,
+  },
+  // axir-nonportable:end webllm
 } satisfies Record<
   AxAIModelCatalogProviderName,
   AxAIModelCatalogProviderDefinition

@@ -48,6 +48,10 @@ import type {
   AxTranscriptionRequest,
   AxTranscriptionResponse,
 } from './types.js';
+// axir-nonportable:start webllm
+import { AxAIWebLLM, type AxAIWebLLMArgs } from './webllm/api.js';
+import type { AxAIWebLLMModelId } from './webllm/types.js';
+// axir-nonportable:end webllm
 import { AxAIGrok, type AxAIGrokArgs } from './x-grok/api.js';
 import type { AxAIGrokModel } from './x-grok/types.js';
 
@@ -66,6 +70,9 @@ export type AxAIArgs<TModelKey> =
   | AxAIMistralArgs<TModelKey>
   | AxAIDeepSeekArgs<TModelKey>
   | AxAIRekaArgs<TModelKey>
+  // axir-nonportable:start webllm
+  | AxAIWebLLMArgs<TModelKey>
+  // axir-nonportable:end webllm
   | AxAIGrokArgs<TModelKey>;
 
 export type AxAIModels =
@@ -75,6 +82,9 @@ export type AxAIModels =
   | AxAICohereModel
   | AxAIMistralModel
   | AxAIDeepSeekModel
+  // axir-nonportable:start webllm
+  | AxAIWebLLMModelId
+  // axir-nonportable:end webllm
   | AxAIGrokModel;
 
 export type AxAIEmbedModels =
@@ -113,6 +123,9 @@ type InferTModelKey<T> = T extends { models: infer M }
  * - `'deepseek'` - DeepSeek (DeepSeek-V4-Flash, DeepSeek-V4-Pro)
  * - `'reka'` - Reka AI
  * - `'grok'` - xAI Grok
+ * // axir-nonportable:start webllm
+ * - `'webllm'` - WebLLM browser runtime with a caller-supplied MLCEngine
+ * // axir-nonportable:end webllm
  *
  * @param options - Provider-specific configuration. Must include `name` to identify the provider.
  * @param options.name - The provider identifier (see list above)
@@ -219,6 +232,11 @@ export class AxAI<TModelKey = string>
       case 'reka':
         this.ai = new AxAIReka<TModelKey>(options);
         break;
+      // axir-nonportable:start webllm
+      case 'webllm':
+        this.ai = new AxAIWebLLM<TModelKey>(options);
+        break;
+      // axir-nonportable:end webllm
       default:
         throw new Error('Unknown AI');
     }

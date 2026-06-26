@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const BACKLOG_SCHEMA_VERSION = 1;
+export const BACKLOG_SCHEMA_VERSION = 2;
 export const PORTABLE_SURFACES = new Set([
   'signature',
   'schema',
@@ -90,6 +90,7 @@ function usage(code = 0) {
   const out = code === 0 ? console.log : console.error;
   out(`Usage:
   npm run axir:backlog -- add --title "..." --surface axai --impact "..." --paths src/ax/ai/openai/info.ts [--pr 525]
+  npm run axir:backlog -- exempt --id webllm-browser-only --surface axai --reason "Browser-only WebLLM provider" --paths src/ax/ai/webllm --scoped-files src/ax/ai/wrap.ts --tags webllm,browser-only
   npm run axir:backlog -- list [--status open|done|all] [--surface axai]
   npm run axir:backlog -- done <id> --commit <sha> --verification "npm run test:axir"
   npm run axir:backlog -- check-pr --base origin/main --head HEAD
@@ -99,6 +100,7 @@ function usage(code = 0) {
 check-pr passes a changed portable TS path when the same range touches the
 IR modules for its surface (see portableRootIrModules), conformance
 fixtures, tools/axir, or an open backlog entry covering it.
+Non-portable browser/host-specific paths can be tracked with an exemption.
 CI escape hatch for TS-only changes: add the PR label or commit marker '${noImpactMarker}'.`);
   process.exit(code);
 }
@@ -187,13 +189,14 @@ export function emptyLedger() {
   return {
     schemaVersion: BACKLOG_SCHEMA_VERSION,
     entries: [],
+    nonPortableExemptions: [],
   };
 }
 
 export function readLedger(root = defaultRepoRoot) {
   const { backlog } = repoPaths(root);
   if (!existsSync(backlog)) return emptyLedger();
-  return readJson(backlog);
+  return normalizeLedger(readJson(backlog));
 }
 
 export function writeLedger(root, ledger) {
@@ -202,9 +205,28 @@ export function writeLedger(root, ledger) {
 }
 
 function sortLedger(ledger) {
+  const normalized = normalizeLedger(ledger);
   return {
-    schemaVersion: ledger.schemaVersion,
-    entries: [...ledger.entries].sort((a, b) => a.id.localeCompare(b.id)),
+    schemaVersion: normalized.schemaVersion,
+    entries: [...normalized.entries].sort((a, b) => a.id.localeCompare(b.id)),
+    nonPortableExemptions: [...normalized.nonPortableExemptions].sort((a, b) =>
+      a.id.localeCompare(b.id)
+    ),
+  };
+}
+
+function normalizeLedger(ledger) {
+  if (!ledger || typeof ledger !== 'object') return ledger;
+  if (ledger.schemaVersion === 1) {
+    return {
+      ...ledger,
+      schemaVersion: BACKLOG_SCHEMA_VERSION,
+      nonPortableExemptions: ledger.nonPortableExemptions ?? [],
+    };
+  }
+  return {
+    ...ledger,
+    nonPortableExemptions: ledger.nonPortableExemptions ?? [],
   };
 }
 
@@ -264,6 +286,10 @@ function parseSuggestedWork(flags) {
   ];
 }
 
+function parseTags(flags) {
+  return splitList([...flagValues(flags, 'tags'), ...flagValues(flags, 'tag')]);
+}
+
 export function validateEntry(entry) {
   const errors = [];
   const requiredStrings = [
@@ -311,22 +337,73 @@ export function validateEntry(entry) {
   return errors;
 }
 
-export function validateLedger(ledger) {
+export function validateNonPortableExemption(exemption) {
   const errors = [];
-  if (!ledger || typeof ledger !== 'object') {
+  const id = exemption?.id ?? '<unknown>';
+  for (const key of ['id', 'surface', 'reason']) {
+    if (typeof exemption?.[key] !== 'string' || exemption[key].trim() === '') {
+      errors.push(`nonPortableExemption ${id} missing string ${key}`);
+    }
+  }
+  if (exemption?.surface && !PORTABLE_SURFACES.has(exemption.surface)) {
+    errors.push(
+      `nonPortableExemption ${id} has invalid surface ${exemption.surface}`
+    );
+  }
+  for (const key of ['paths', 'scopedFiles', 'tags']) {
+    if (!Array.isArray(exemption?.[key])) {
+      errors.push(`nonPortableExemption ${id} ${key} must be an array`);
+      continue;
+    }
+    for (const item of exemption[key]) {
+      if (typeof item !== 'string' || item.trim() === '') {
+        errors.push(`nonPortableExemption ${id} has invalid ${key} item`);
+      }
+    }
+  }
+  if (
+    Array.isArray(exemption?.paths) &&
+    Array.isArray(exemption?.scopedFiles) &&
+    exemption.paths.length === 0 &&
+    exemption.scopedFiles.length === 0
+  ) {
+    errors.push(`nonPortableExemption ${id} must include paths or scopedFiles`);
+  }
+  if (Array.isArray(exemption?.tags) && exemption.tags.length === 0) {
+    errors.push(`nonPortableExemption ${id} must include at least one tag`);
+  }
+  return errors;
+}
+
+export function validateLedger(ledger) {
+  const normalizedLedger = normalizeLedger(ledger);
+  const errors = [];
+  if (!normalizedLedger || typeof normalizedLedger !== 'object') {
     throw new Error('ledger must be an object');
   }
-  if (ledger.schemaVersion !== BACKLOG_SCHEMA_VERSION) {
+  if (normalizedLedger.schemaVersion !== BACKLOG_SCHEMA_VERSION) {
     errors.push(`schemaVersion must be ${BACKLOG_SCHEMA_VERSION}`);
   }
-  if (!Array.isArray(ledger.entries)) {
+  if (!Array.isArray(normalizedLedger.entries)) {
     errors.push('entries must be an array');
   } else {
     const seen = new Set();
-    for (const entry of ledger.entries) {
+    for (const entry of normalizedLedger.entries) {
       if (seen.has(entry.id)) errors.push(`duplicate entry id ${entry.id}`);
       seen.add(entry.id);
       errors.push(...validateEntry(entry));
+    }
+  }
+  if (!Array.isArray(normalizedLedger.nonPortableExemptions)) {
+    errors.push('nonPortableExemptions must be an array');
+  } else {
+    const seen = new Set();
+    for (const exemption of normalizedLedger.nonPortableExemptions) {
+      if (seen.has(exemption.id)) {
+        errors.push(`duplicate nonPortableExemption id ${exemption.id}`);
+      }
+      seen.add(exemption.id);
+      errors.push(...validateNonPortableExemption(exemption));
     }
   }
   if (errors.length > 0) {
@@ -335,6 +412,49 @@ export function validateLedger(ledger) {
     );
   }
   return true;
+}
+
+function addExemption(root, flags) {
+  const id = flagValue(flags, 'id');
+  const reason = flagValue(flags, 'reason');
+  const paths = parsePaths(flags);
+  const scopedFiles = splitList([
+    ...flagValues(flags, 'scoped-files'),
+    ...flagValues(flags, 'scoped-file'),
+  ]).map(normalizePath);
+  const tags = parseTags(flags);
+  if (!id || !reason || tags.length === 0) {
+    throw new Error('exempt requires --id, --reason, and --tags');
+  }
+  if (paths.length === 0 && scopedFiles.length === 0) {
+    throw new Error('exempt requires --paths or --scoped-files');
+  }
+  const surface = flagValue(
+    flags,
+    'surface',
+    inferSurface([...paths, ...scopedFiles])
+  );
+  if (!PORTABLE_SURFACES.has(surface)) {
+    throw new Error(`invalid --surface ${surface}`);
+  }
+
+  const ledger = readLedger(root);
+  if (ledger.nonPortableExemptions.some((item) => item.id === id)) {
+    throw new Error(`AxIR non-portable exemption already exists: ${id}`);
+  }
+
+  ledger.nonPortableExemptions.push({
+    id,
+    surface,
+    paths,
+    scopedFiles,
+    tags,
+    reason,
+    createdAt: today(),
+  });
+  writeLedger(root, ledger);
+  renderDocsToDisk(root);
+  console.log(`Added AxIR non-portable exemption ${id}`);
 }
 
 function addEntry(root, flags) {
@@ -430,6 +550,19 @@ function listEntries(root, flags) {
     );
     console.log(`     paths: ${entry.tsPaths.join(', ')}`);
   }
+
+  const exemptions = ledger.nonPortableExemptions.filter((item) => {
+    if (surface && item.surface !== surface) return false;
+    return true;
+  });
+  if (status === 'open' && exemptions.length > 0) {
+    console.log('\nNon-portable exemptions:');
+    for (const exemption of exemptions) {
+      console.log(
+        `     ${exemption.id} [${exemption.surface}] ${exemption.reason}`
+      );
+    }
+  }
 }
 
 function renderDocsToDisk(root) {
@@ -440,9 +573,14 @@ function renderDocsToDisk(root) {
 }
 
 export function renderMarkdown(ledger) {
-  validateLedger(ledger);
-  const open = ledger.entries.filter((entry) => entry.status === 'open');
-  const done = ledger.entries.filter((entry) => entry.status === 'done');
+  const normalizedLedger = normalizeLedger(ledger);
+  validateLedger(normalizedLedger);
+  const open = normalizedLedger.entries.filter(
+    (entry) => entry.status === 'open'
+  );
+  const done = normalizedLedger.entries.filter(
+    (entry) => entry.status === 'done'
+  );
   return [
     '# AxIR Backlog',
     '',
@@ -450,9 +588,39 @@ export function renderMarkdown(ledger) {
     '',
     'This ledger tracks portable TypeScript behavior that should be migrated into AxIR/Core and generated language backends.',
     '',
+    renderExemptions(normalizedLedger.nonPortableExemptions),
     renderSection('Open', open),
     renderSection('Done', done),
   ].join('\n');
+}
+
+function renderExemptions(exemptions) {
+  const lines = ['## Non-Portable Exemptions', ''];
+  if (exemptions.length === 0) {
+    lines.push('No entries.', '');
+    return lines.join('\n');
+  }
+  for (const exemption of exemptions) {
+    lines.push(`- \`${exemption.id}\` [${exemption.surface}]`);
+    lines.push(`  - Reason: ${exemption.reason}`);
+    if (exemption.paths.length > 0) {
+      lines.push(
+        `  - Paths: ${exemption.paths.map((item) => `\`${item}\``).join(', ')}`
+      );
+    }
+    if (exemption.scopedFiles.length > 0) {
+      lines.push(
+        `  - Scoped files: ${exemption.scopedFiles
+          .map((item) => `\`${item}\``)
+          .join(', ')}`
+      );
+    }
+    lines.push(
+      `  - Tags: ${exemption.tags.map((item) => `\`${item}\``).join(', ')}`
+    );
+  }
+  lines.push('');
+  return lines.join('\n');
 }
 
 function renderSection(title, entries) {
@@ -548,6 +716,44 @@ function changedFilesFromGit(root, base, head) {
   return output.split(/\r?\n/).map(normalizePath).filter(Boolean);
 }
 
+function changedLineRangesFromGit(root, base, head) {
+  const range = base && head ? [`${base}...${head}`] : [];
+  const output = execFileSync(
+    'git',
+    ['diff', '--unified=0', '--no-ext-diff', ...range],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'inherit'],
+    }
+  );
+  return parseChangedLineRanges(output);
+}
+
+export function parseChangedLineRanges(diffText) {
+  const ranges = {};
+  let currentPath = null;
+  for (const line of diffText.split(/\r?\n/)) {
+    if (line.startsWith('+++ b/')) {
+      currentPath = normalizePath(line.slice('+++ b/'.length));
+      continue;
+    }
+    if (line.startsWith('+++ /dev/null')) {
+      currentPath = null;
+      continue;
+    }
+    if (!currentPath || !line.startsWith('@@')) continue;
+    const match = /\+(\d+)(?:,(\d+))?/.exec(line);
+    if (!match) continue;
+    const start = Number(match[1]);
+    const count = match[2] === undefined ? 1 : Number(match[2]);
+    if (count <= 0) continue;
+    const end = start + count - 1;
+    ranges[currentPath] = [...(ranges[currentPath] ?? []), { start, end }];
+  }
+  return ranges;
+}
+
 function commitMessages(root, base, head) {
   if (!base || !head) return '';
   try {
@@ -598,6 +804,83 @@ function coveredByBacklog(changedPath, entries) {
   );
 }
 
+function changedRangesFor(changedLineRanges, changedPath) {
+  if (!changedLineRanges) return [];
+  if (changedLineRanges instanceof Map) {
+    return changedLineRanges.get(normalizePath(changedPath)) ?? [];
+  }
+  return changedLineRanges[normalizePath(changedPath)] ?? [];
+}
+
+function markerRangesFor(content, tags) {
+  const ranges = [];
+  const lines = String(content).split(/\r?\n/);
+  const tagSet = new Set(tags);
+  let active = null;
+  for (let index = 0; index < lines.length; index++) {
+    const lineNumber = index + 1;
+    const startMatch = /axir-nonportable:start\s+([A-Za-z0-9_.:-]+)/.exec(
+      lines[index]
+    );
+    if (startMatch && tagSet.has(startMatch[1])) {
+      active = { tag: startMatch[1], start: lineNumber };
+      continue;
+    }
+    const endMatch = /axir-nonportable:end\s+([A-Za-z0-9_.:-]+)/.exec(
+      lines[index]
+    );
+    if (endMatch && active?.tag === endMatch[1]) {
+      ranges.push({ start: active.start, end: lineNumber });
+      active = null;
+    }
+  }
+  return ranges;
+}
+
+function rangeCoveredByMarkers(range, markerRanges) {
+  return markerRanges.some(
+    (marker) => range.start >= marker.start && range.end <= marker.end
+  );
+}
+
+function fileContentFor(readFile, changedPath) {
+  if (!readFile) return undefined;
+  try {
+    return readFile(normalizePath(changedPath));
+  } catch {
+    return undefined;
+  }
+}
+
+function coveredByNonPortableExemption(
+  changedPath,
+  exemptions,
+  { changedLineRanges, readFile } = {}
+) {
+  const normalized = normalizePath(changedPath);
+  return exemptions.some((exemption) => {
+    if (
+      exemption.paths.some((candidate) => pathCovers(normalized, candidate))
+    ) {
+      return true;
+    }
+    if (
+      !exemption.scopedFiles.some(
+        (candidate) => normalizePath(candidate) === normalized
+      )
+    ) {
+      return false;
+    }
+    const ranges = changedRangesFor(changedLineRanges, normalized);
+    if (ranges.length === 0) return false;
+    const content = fileContentFor(readFile, normalized);
+    if (content === undefined) return false;
+    const markerRanges = markerRangesFor(content, exemption.tags);
+    if (markerRanges.length === 0) return false;
+    return ranges.every((range) => rangeCoveredByMarkers(range, markerRanges));
+  });
+}
+
 function portableRootOf(filePath) {
   const normalized = normalizePath(filePath);
   for (const [root] of portableRoots) {
@@ -623,8 +906,15 @@ function coveredByAxirChange(changedPath, changedFiles) {
   return changedFiles.some((file) => modules.includes(normalizePath(file)));
 }
 
-export function evaluatePrCheck({ changedFiles, ledger, noImpact = false }) {
-  validateLedger(ledger);
+export function evaluatePrCheck({
+  changedFiles,
+  ledger,
+  noImpact = false,
+  changedLineRanges,
+  readFile,
+}) {
+  const normalizedLedger = normalizeLedger(ledger);
+  validateLedger(normalizedLedger);
   const changedPortable = changedFiles.filter(isPortableTsPath);
   if (changedPortable.length === 0) {
     return {
@@ -643,13 +933,21 @@ export function evaluatePrCheck({ changedFiles, ledger, noImpact = false }) {
   const uncovered = changedPortable.filter(
     (item) =>
       !coveredByAxirChange(item, changedFiles) &&
-      !coveredByBacklog(item, ledger.entries)
+      !coveredByBacklog(item, normalizedLedger.entries) &&
+      !coveredByNonPortableExemption(
+        item,
+        normalizedLedger.nonPortableExemptions,
+        {
+          changedLineRanges,
+          readFile,
+        }
+      )
   );
   if (uncovered.length === 0) {
     return {
       ok: true,
       reason:
-        'Surface-matching AxIR changes or open backlog entries cover every changed portable TS path.',
+        'Surface-matching AxIR changes, open backlog entries, or non-portable exemptions cover every changed portable TS path.',
       changedPortable,
     };
   }
@@ -662,9 +960,10 @@ export function evaluatePrCheck({ changedFiles, ledger, noImpact = false }) {
 }
 
 export function staleOpenEntries(ledger, todayDate, thresholdDays = 30) {
+  const normalizedLedger = normalizeLedger(ledger);
   const now = Date.parse(todayDate);
   if (Number.isNaN(now)) return [];
-  return ledger.entries
+  return normalizedLedger.entries
     .filter((entry) => entry.status === 'open')
     .map((entry) => {
       const created = Date.parse(entry.createdAt);
@@ -702,12 +1001,22 @@ function checkPr(root, flags) {
     explicitChanged.length > 0
       ? explicitChanged
       : changedFilesFromGit(root, base, head);
+  const changedLineRanges =
+    explicitChanged.length > 0
+      ? {}
+      : changedLineRangesFromGit(root, base, head);
   const noImpact =
     Boolean(flagValue(flags, 'no-impact', false)) ||
     eventHasNoImpactLabel() ||
     commitMessages(root, base, head).includes(noImpactMarker);
   const ledger = readLedger(root);
-  const result = evaluatePrCheck({ changedFiles, ledger, noImpact });
+  const result = evaluatePrCheck({
+    changedFiles,
+    ledger,
+    noImpact,
+    changedLineRanges,
+    readFile: (filePath) => readFileSync(path.join(root, filePath), 'utf8'),
+  });
   printStaleWarnings(ledger);
 
   if (result.ok) {
@@ -734,7 +1043,7 @@ function checkPr(root, flags) {
 Uncovered portable TypeScript paths:
 ${result.uncovered.map((item) => `- ${item}`).join('\n')}
 
-These paths can affect generated Python/Java/C++/Go/Rust behavior. The check passes when the same change also touches the IR modules for their surface (${moduleHints.join(', ') || 'see portableRootIrModules'}), conformance fixtures, or tools/axir. Otherwise add a tracked backlog item:
+These paths can affect generated Python/Java/C++/Go/Rust behavior. The check passes when the same change also touches the IR modules for their surface (${moduleHints.join(', ') || 'see portableRootIrModules'}), conformance fixtures, tools/axir, a matching open backlog entry, or a scoped non-portable exemption. Otherwise add a tracked backlog item:
 
   ${command}
 
@@ -751,6 +1060,9 @@ async function main(argv = process.argv.slice(2)) {
   switch (command) {
     case 'add':
       addEntry(root, flags);
+      break;
+    case 'exempt':
+      addExemption(root, flags);
       break;
     case 'done':
       doneEntry(root, positional, flags);

@@ -172,6 +172,31 @@ describe('AxAI Wrapper', () => {
           apiKey: 'test-key',
           config: { model: 'test-model' },
         },
+        // axir-nonportable:start webllm
+        {
+          name: 'webllm',
+          engine: {
+            chat: {
+              completions: {
+                create: async () => ({
+                  id: 'webllm-test',
+                  choices: [
+                    {
+                      message: { role: 'assistant', content: 'ok' },
+                      finish_reason: 'stop',
+                    },
+                  ],
+                  usage: {
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    total_tokens: 0,
+                  },
+                }),
+              },
+            },
+          },
+        },
+        // axir-nonportable:end webllm
       ] as const;
 
       providerConfigs.forEach((config) => {

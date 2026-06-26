@@ -1,6 +1,29 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "entries": [
+    {
+      "id": "axir-2026-06-26-port-ace-agentic-context-engineering-optimizer",
+      "status": "open",
+      "title": "Port ACE agentic context engineering optimizer",
+      "createdAt": "2026-06-26",
+      "sourcePR": null,
+      "sourceCommit": "1b26efd014295c7dd88b8544268d807a521b1679",
+      "tsPaths": [
+        "src/ax/dsp/optimizers/ace.ts",
+        "src/ax/dsp/optimizers/acePlaybook.ts",
+        "src/ax/dsp/optimizers/aceTypes.ts"
+      ],
+      "portableSurface": "axoptimize",
+      "impact": "TypeScript will restore the AxACE optimizer, its structured playbook artifact, offline compile loop, and online playbook update behavior. Generated Python/Java/C++/Go/Rust optimizer surfaces do not expose matching ACE semantics yet.",
+      "suggestedAxirWork": [
+        "Decide whether ACE becomes a generated optimizer engine or remains TypeScript-only by policy.",
+        "If portable, add TS-derived axoptimize conformance fixtures for ACE playbook operations, artifact application, and online updates.",
+        "Update AxIR/Core optimizer descriptors and generated backends, then run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
     {
       "id": "axir-2026-06-07-port-mcp-client-and-transports",
       "status": "done",
@@ -60,6 +83,23 @@
       "completedAt": "2026-06-25",
       "completedByCommit": "working-tree",
       "verification": "npm run test:axir"
+    }
+  ],
+  "nonPortableExemptions": [
+    {
+      "id": "webllm-browser-only",
+      "surface": "axai",
+      "paths": ["src/ax/ai/webllm", "src/examples/webllm-chat.html"],
+      "scopedFiles": [
+        "src/ax/ai/wrap.ts",
+        "src/ax/ai/catalog.ts",
+        "src/ax/ai/catalog.test.ts",
+        "src/ax/ai/wrap.test.ts",
+        "src/ax/skills/ax-ai.md"
+      ],
+      "tags": ["webllm", "browser-only", "webgpu", "host-engine"],
+      "reason": "WebLLM is browser-specific integration code around a caller-supplied MLCEngine/WebGPU runtime. It is not a portable Ax semantic and should not create Python/Java/C++/Go/Rust AxIR backlog work.",
+      "createdAt": "2026-06-26"
     }
   ]
 }

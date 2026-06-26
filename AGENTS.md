@@ -83,6 +83,15 @@ npm run axir:backlog -- add --title "..." --surface axai --impact "..." --paths 
 npm run axir:backlog:validate
 ```
 
+If the changed code is intentionally not portable, such as a browser-only
+provider around a host runtime, add a scoped non-portable exemption instead of a
+backlog item:
+
+```bash
+npm run axir:backlog -- exempt --id "..." --surface axai --reason "..." --paths src/ax/ai/browser-only-provider --tags browser-only
+npm run axir:backlog:validate
+```
+
 Most TS-only PR agents should prefer a backlog entry over attempting an AxIR
 migration unless they are already working in `ir/` or `tools/axir/`. AxIR
 maintainers can refresh conformance with:

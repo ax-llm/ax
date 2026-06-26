@@ -248,6 +248,23 @@ npm run axir:backlog:validate
 full generated-backend verification so coding agents get a fast, command-first
 failure when portable TS changes need AxIR follow-up.
 
+Some TypeScript integrations are intentionally host-specific rather than
+portable Ax semantics. Browser-only providers such as WebLLM should be tracked
+as non-portable exemptions instead of AxIR backlog items:
+
+```bash
+npm run axir:backlog -- exempt --id "..." --surface axai --reason "..." --paths src/ax/ai/browser-only-provider --tags browser-only
+npm run axir:backlog:validate
+```
+
+For shared files, keep the non-portable edit inside matching marker comments:
+
+```typescript
+// axir-nonportable:start webllm
+// browser-only registration
+// axir-nonportable:end webllm
+```
+
 When completing backlog work, update or add the TS-derived fixtures, update
 Core/descriptor data, then run:
 

@@ -544,6 +544,25 @@ import {
   axValidateChatResponseResult,
 } from './ai/validate.js';
 import {
+  AxAIWebLLM,
+  type AxAIWebLLMArgs,
+  axAIWebLLMCreativeConfig,
+  axAIWebLLMDefaultConfig,
+} from './ai/webllm/api.js';
+import { axModelInfoWebLLM } from './ai/webllm/info.js';
+import {
+  type AxAIWebLLMChatRequest,
+  type AxAIWebLLMChatResponse,
+  type AxAIWebLLMChatResponseDelta,
+  type AxAIWebLLMConfig,
+  type AxAIWebLLMEmbedModel,
+  type AxAIWebLLMEmbedRequest,
+  type AxAIWebLLMEmbedResponse,
+  type AxAIWebLLMEngine,
+  AxAIWebLLMModel,
+  type AxAIWebLLMModelId,
+} from './ai/webllm/types.js';
+import {
   AxAI,
   type AxAIArgs,
   type AxAIEmbedModels,
@@ -657,6 +676,23 @@ import {
   axCreateDefaultOptimizerTextLogger,
   axDefaultOptimizerLogger,
 } from './dsp/optimizerLogging.js';
+import {
+  AxACE,
+  AxACEOptimizedProgram,
+  type AxACEResult,
+} from './dsp/optimizers/ace.js';
+import type {
+  AxACEBullet,
+  AxACECuratorOperation,
+  AxACECuratorOperationType,
+  AxACECuratorOutput,
+  AxACEFeedbackEvent,
+  AxACEGeneratorOutput,
+  AxACEOptimizationArtifact,
+  AxACEOptions,
+  AxACEPlaybook,
+  AxACEReflectionOutput,
+} from './dsp/optimizers/aceTypes.js';
 import type { AxRolloutTrace } from './dsp/optimizers/axGenAdapter.js';
 import { AxBootstrapFewShot } from './dsp/optimizers/bootstrapFewshot.js';
 import {
@@ -913,6 +949,8 @@ import {
 } from './util/rate-limit.js';
 
 // Value exports
+export { AxACE };
+export { AxACEOptimizedProgram };
 export { AxAI };
 export { AxAIAnthropic };
 export { AxAIAnthropicModel };
@@ -953,6 +991,8 @@ export { AxAIServiceResponseError };
 export { AxAIServiceStatusError };
 export { AxAIServiceStreamTerminatedError };
 export { AxAIServiceTimeoutError };
+export { AxAIWebLLM };
+export { AxAIWebLLMModel };
 export { AxAgent };
 export { AxAgentClarificationError };
 export { AxAgentContextMap };
@@ -1036,6 +1076,8 @@ export { axAIRekaBestConfig };
 export { axAIRekaCreativeConfig };
 export { axAIRekaDefaultConfig };
 export { axAIRekaFastConfig };
+export { axAIWebLLMCreativeConfig };
+export { axAIWebLLMDefaultConfig };
 export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
 export { axApplyOpenAIChatAudioRequest };
@@ -1096,6 +1138,7 @@ export { axModelInfoMistral };
 export { axModelInfoOpenAI };
 export { axModelInfoOpenAIResponses };
 export { axModelInfoReka };
+export { axModelInfoWebLLM };
 export { axNormalizeOpenAIUsage };
 export { axNormalizeTranscriptionResponse };
 export { axOpenAIChatAudioDefaults };
@@ -1130,6 +1173,17 @@ export { refine };
 export { s };
 
 // Type exports
+export type { AxACEBullet };
+export type { AxACECuratorOperation };
+export type { AxACECuratorOperationType };
+export type { AxACECuratorOutput };
+export type { AxACEFeedbackEvent };
+export type { AxACEGeneratorOutput };
+export type { AxACEOptimizationArtifact };
+export type { AxACEOptions };
+export type { AxACEPlaybook };
+export type { AxACEReflectionOutput };
+export type { AxACEResult };
 export type { AxAIAnthropicArgs };
 export type { AxAIAnthropicChatError };
 export type { AxAIAnthropicChatRequest };
@@ -1320,6 +1374,16 @@ export type { AxAIServiceImpl };
 export type { AxAIServiceMetrics };
 export type { AxAIServiceModelType };
 export type { AxAIServiceOptions };
+export type { AxAIWebLLMArgs };
+export type { AxAIWebLLMChatRequest };
+export type { AxAIWebLLMChatResponse };
+export type { AxAIWebLLMChatResponseDelta };
+export type { AxAIWebLLMConfig };
+export type { AxAIWebLLMEmbedModel };
+export type { AxAIWebLLMEmbedRequest };
+export type { AxAIWebLLMEmbedResponse };
+export type { AxAIWebLLMEngine };
+export type { AxAIWebLLMModelId };
 export type { AxAPI };
 export type { AxAPIConfig };
 export type { AxAPIResponseMetadata };
