@@ -297,8 +297,19 @@ jobs:
           key: ${{ runner.os }}-cargo-antidote-${{ hashFiles('packages/rust/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+      - name: Build Rust antidote binary
+        run: |
+          for attempt in 1 2 3; do
+            if cargo build --manifest-path packages/rust/Cargo.toml --features runtime-quickjs --bin axllm-conformance; then
+              exit 0
+            fi
+            if [ "$attempt" = "3" ]; then
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
       - name: Rust in-process engine antidote (rquickjs)
-        run: cargo run --manifest-path packages/rust/Cargo.toml --features runtime-quickjs --bin axllm-conformance -- ir/conformance/axagent-real
+        run: cargo run --offline --manifest-path packages/rust/Cargo.toml --features runtime-quickjs --bin axllm-conformance -- ir/conformance/axagent-real
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
