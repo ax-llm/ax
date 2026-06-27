@@ -6,14 +6,14 @@
       "type": "skill-md",
       "description": "This skill helps with using the @ax-llm/ax TypeScript library for building LLM applications. Use when the user asks about ax(), ai(), f(), s(), agent(), flow(), AxGen, AxAgent, AxFlow, signatures, streaming, or mentions @ax-llm/ax.",
       "url": "ax-llm/SKILL.md",
-      "digest": "sha256:f24b33f052fce0cd48971e73e3fa2ced6b57f379396d9eca635194954a2a19ca"
+      "digest": "sha256:2a9a3334e67f0b435292c9f2ac40905138d26cde85abba8d59547823dbfa73f7"
     },
     {
       "name": "ax-ai",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:be7d9a8841c9b205d532d03df4f8d51ae5b43e74376d64f105acd9eb7a4b7a62"
+      "digest": "sha256:42931f191701358b6aafa7638e537d2472c8a4093312b65cd3962c86c5c309a4"
     },
     {
       "name": "ax-audio",
@@ -34,14 +34,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs.",
       "url": "ax-gen/SKILL.md",
-      "digest": "sha256:fae2e3c28e5dc9d77de00328d7533b1ae60d29cf8056024a8f712cc0049230a6"
+      "digest": "sha256:4b9883d5eff8d0b5b6bbc7fa5148549488b0d86ad0b09facb0f91832ac18ebd8"
     },
     {
       "name": "ax-flow",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.",
       "url": "ax-flow/SKILL.md",
-      "digest": "sha256:79c9168761f369ed1fb4dadeee0a63efd2fb757bf028326b2504483751c16a24"
+      "digest": "sha256:8bfb2b04f6cc2bd4bd23c16f88fd57d3bc9c756f241a86ecd2ef6ece6da3640a"
     },
     {
       "name": "ax-agent",
@@ -76,7 +76,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent tuning and evaluation code using @ax-llm/ax. Use when the user asks about agent.optimize(...), judgeOptions, eval datasets, optimization targets, saved optimizedProgram artifacts, or agent optimization guidance.",
       "url": "ax-agent-optimize/SKILL.md",
-      "digest": "sha256:6c44bbf918ca5cd92fbaec64ed5e9e975e97cb6c120524255d8f5d7e89b7ae1f"
+      "digest": "sha256:498615f239d793e1bf9d1668749b35a95257f128d46381a7ef7e460e389ea15c"
     },
     {
       "name": "ax-agent-context",
@@ -90,7 +90,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGEPA optimization code using @ax-llm/ax. Use when the user asks about AxGEPA, GEPA, Pareto optimization, multi-objective prompt tuning, reflective prompt evolution, validationExamples, maxMetricCalls, or optimizing a generator, flow, or agent tree.",
       "url": "ax-gepa/SKILL.md",
-      "digest": "sha256:cc463e0cf51cb988dc8b41284bae7a920fe10717f8d41929eeccc8196d673ac9"
+      "digest": "sha256:5d203025483eb97651d66e79b25caaacd2551f7d93b1b39cfd614e94c9ae7436"
     },
     {
       "name": "ax-refine",

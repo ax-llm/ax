@@ -48,7 +48,7 @@ const teacherAI = ai({
   name: 'google-gemini',
   apiKey: googleApiKey,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini3Pro,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
     temperature: 0.2,
     maxTokens: 640,
   },
@@ -58,7 +58,7 @@ const judgeAI = ai({
   name: 'google-gemini',
   apiKey: googleApiKey,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini3Pro,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
     temperature: 0,
     maxTokens: 640,
   },
@@ -262,7 +262,7 @@ console.log('Starting delegated llmQuery GEPA optimization...');
 console.log(
   `Using numTrials=${optimizerTrials}, minibatchSize=${optimizerMinibatchSize}, earlyStoppingTrials=${optimizerEarlyStoppingTrials}, maxMetricCalls=${optimizerMaxMetricCalls}`
 );
-console.log(`Using AxGen judge model=${AxAIGoogleGeminiModel.Gemini3Pro}`);
+console.log(`Using AxGen judge model=${AxAIGoogleGeminiModel.Gemini35Flash}`);
 
 const optimizationResult = await trainingAgent.optimize(
   {
@@ -302,7 +302,7 @@ const optimizationResult = await trainingAgent.optimize(
           turnCount: evalPrediction.turnCount,
         },
         {
-          model: AxAIGoogleGeminiModel.Gemini3Pro,
+          model: AxAIGoogleGeminiModel.Gemini35Flash,
           modelConfig: { temperature: 0, maxTokens: 160 },
           maxSteps: 1,
         }

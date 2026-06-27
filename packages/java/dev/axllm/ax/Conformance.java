@@ -695,6 +695,7 @@ public final class Conformance {
 	      if (gen.getTraces().isEmpty()) throw new FixtureError("expected trace but none was recorded");
 	      assertSubset(gen.getTraces().get(gen.getTraces().size() - 1), fixture.get("expected_trace"), "trace");
 	    }
+	    if (fixture.containsKey("expected_memory_history_count") && gen.getMemory().history().size() != Core.asInt(fixture.get("expected_memory_history_count"))) throw new FixtureError("expected memory history count mismatch");
 	    if (fixture.containsKey("expected_memory_history_subset")) assertListSubset(gen.getMemory().history(), fixture.get("expected_memory_history_subset"), "memory history");
 	    if (fixture.containsKey("expected_chat_log_subset")) assertListSubset(gen.getChatLog(), fixture.get("expected_chat_log_subset"), "chat log");
 	    if (fixture.containsKey("expected_function_traces_subset")) assertListSubset(gen.getFunctionCallTraces(), fixture.get("expected_function_traces_subset"), "function call traces");

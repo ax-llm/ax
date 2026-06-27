@@ -1,4 +1,4 @@
-import { type AxAIGoogleGeminiModel, AxGen, ai as createAI } from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, AxGen, ai as createAI } from '@ax-llm/ax';
 import { trace } from '@opentelemetry/api';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import {
@@ -58,13 +58,13 @@ const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
-    model: 'gemini-2.5-flash-preview-04-17' as AxAIGoogleGeminiModel,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
     thinking: { includeThoughts: true },
   },
   options: { debug: false, tracer },
   modelInfo: [
     {
-      name: 'gemini-2.5-flash-preview-04-17',
+      name: AxAIGoogleGeminiModel.Gemini35Flash,
       supported: { thinkingBudget: true },
     },
   ],

@@ -204,7 +204,7 @@ const teacherAI = ai({
   name: 'google-gemini',
   apiKey: googleApiKey,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini3Pro,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
     temperature: 0.3,
     maxTokens: 700,
   },

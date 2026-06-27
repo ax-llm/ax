@@ -14035,6 +14035,10 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	var v_functions Value
 	var v_call Value
 	var v_argument_params Value
+	var v_available Value
+	var v_available_joined Value
+	var v_available_name Value
+	var v_available_names Value
 	var v_direct_name Value
 	var v_direct_params Value
 	var v_empty_params Value
@@ -14056,6 +14060,10 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	if len(args) > 1 { v_call = args[1] }
 	_ = v_call
 	_ = v_argument_params
+	_ = v_available
+	_ = v_available_joined
+	_ = v_available_name
+	_ = v_available_names
 	_ = v_direct_name
 	_ = v_direct_params
 	_ = v_empty_params
@@ -14108,8 +14116,15 @@ func _execute_tool_call(args ...Value) (Value, error) {
 		// empty
 		}
 	}
-	v_message = _core_string_format("unknown tool call: {}", v_name)
-	v_error = _core_runtime_error(v_message)
+	v_available_names = MutableArray()
+	for _, v_fn = range coreIter(v_functions) {
+		v_available_name = coreGet(v_fn, "name", nil)
+		v_available_names = coreAppend(v_available_names, v_available_name)
+	}
+	v_available_joined = _core_string_join(", ", v_available_names)
+	v_available = _core_string_default_if_empty(v_available_joined, "(none)")
+	v_message = _core_string_format("Function not found: {}. Available functions: {}. Call one of these exact function names.", v_name, v_available)
+	v_error = _core_validation_error(v_message)
 	return nil, asAxError(v_error)
 }
 
@@ -34057,18 +34072,48 @@ func _core_axgen_apply_context_cache(values ...Value) Value {
 }
 func _core_axgen_memory_add_request(target Value, request Value) Value {
 	memory := coreGet(target, "memory", Array())
-	memory = coreAppend(memory, request)
+	memory = coreAppend(memory, Object("role", "request", "messages", request, "tags", Array()))
 	if g, ok := target.(*AxGen); ok {
 		g.Memory = memory
 	}
 	return memory
 }
+func axMemoryResponseMeaningful(response Value) bool {
+	switch response.(type) {
+	case []Value, []string, *AxArray:
+		for _, item := range asSlice(response) {
+			if axMemoryResponseMeaningful(item) {
+				return true
+			}
+		}
+		return false
+	}
+	m := asMap(response)
+	if len(m) == 0 {
+		return coreTruthy(response)
+	}
+	if content := coreGet(m, "content", nil); content != nil && strings.TrimSpace(display(content)) != "" {
+		return true
+	}
+	for _, key := range []string{"function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks"} {
+		if len(asSlice(coreGet(m, key, nil))) > 0 {
+			return true
+		}
+	}
+	return coreGet(m, "audio", nil) != nil
+}
 func _core_axgen_memory_add_response(target Value, values ...Value) Value {
 	memory := coreGet(target, "memory", Array())
-	entry := Object("kind", "response")
-	for i, value := range values {
-		coreSet(entry, fmt.Sprintf("item%d", i), value)
+	response := Value(nil)
+	if len(values) > 1 {
+		response = values[1]
+	} else if len(values) > 0 {
+		response = values[0]
 	}
+	if !axMemoryResponseMeaningful(response) {
+		return memory
+	}
+	entry := Object("role", "assistant", "response", response, "tags", Array())
 	memory = coreAppend(memory, entry)
 	if g, ok := target.(*AxGen); ok {
 		g.Memory = memory
@@ -34077,10 +34122,7 @@ func _core_axgen_memory_add_response(target Value, values ...Value) Value {
 }
 func _core_axgen_memory_add_function_result(target Value, values ...Value) Value {
 	memory := coreGet(target, "memory", Array())
-	entry := Object("kind", "function_result")
-	for i, value := range values {
-		coreSet(entry, fmt.Sprintf("item%d", i), value)
-	}
+	entry := Object("role", "function", "results", values, "tags", Array())
 	memory = coreAppend(memory, entry)
 	if g, ok := target.(*AxGen); ok {
 		g.Memory = memory
@@ -34089,17 +34131,41 @@ func _core_axgen_memory_add_function_result(target Value, values ...Value) Value
 }
 func _core_axgen_memory_add_correction(target Value, values ...Value) Value {
 	memory := coreGet(target, "memory", Array())
-	entry := Object("kind", "correction")
-	for i, value := range values {
-		coreSet(entry, fmt.Sprintf("item%d", i), value)
+	response := Value(nil)
+	if len(values) > 0 {
+		response = values[0]
 	}
+	errorValue := Value(nil)
+	if len(values) > 1 {
+		errorValue = values[1]
+	}
+	entry := Object("role", "user", "content", "Correction: "+display(_core_exception_message(errorValue)), "response", response, "tags", Array("correction"))
 	memory = coreAppend(memory, entry)
 	if g, ok := target.(*AxGen); ok {
 		g.Memory = memory
 	}
 	return memory
 }
-func _core_axgen_memory_cleanup_corrections(memory Value) Value { return memory }
+func _core_axgen_memory_cleanup_corrections(target Value) Value {
+	memory := coreGet(target, "memory", Array())
+	cleaned := Array()
+	for _, item := range asSlice(memory) {
+		hasCorrection := false
+		for _, tag := range asSlice(coreGet(item, "tags", Array())) {
+			if display(tag) == "correction" {
+				hasCorrection = true
+				break
+			}
+		}
+		if !hasCorrection {
+			cleaned = append(cleaned, item)
+		}
+	}
+	if g, ok := target.(*AxGen); ok {
+		g.Memory = cleaned
+	}
+	return cleaned
+}
 func _core_axgen_record_chat_log(target Value, values ...Value) Value {
 	log := coreGet(target, "chat_log", Array())
 	entry := Object()
@@ -35260,6 +35326,12 @@ func runConformanceForward(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 			assertEqual(calls, expected, "tool calls")
+		}
+		if expected := coreGet(fixture, "expected_memory_history_count", nil); expected != nil && len(asSlice(gen.Memory)) != int(num(expected)) {
+			panic(AxError{Category: "fixture", Message: "expected memory history count mismatch"})
+		}
+		if expected := coreGet(fixture, "expected_memory_history_subset", nil); expected != nil {
+			assertListSubset(gen.Memory, expected, "memory history")
 		}
 	}
 }

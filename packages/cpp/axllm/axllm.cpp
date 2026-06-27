@@ -1792,7 +1792,24 @@ Value Core::axgen_memory_add_request(Value gen, Value messages) {
   set(gen, "memory", memory);
   return Value();
 }
+static bool ax_memory_response_meaningful(const Value& response) {
+  if (response.is_array()) {
+    for (const auto& item : array_ref(response)) {
+      if (ax_memory_response_meaningful(item)) return true;
+    }
+    return false;
+  }
+  if (!response.is_object()) return Core::truthy(response);
+  Value content = get_key(response, "content");
+  if (content.is_string() && !str(Core::string_trim(content)).empty()) return true;
+  for (const auto& key : {"function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks"}) {
+    Value value = get_key(response, key);
+    if (value.is_array() && !array_ref(value).empty()) return true;
+  }
+  return has_key(response, "audio") && !get_key(response, "audio").is_null();
+}
 Value Core::axgen_memory_add_response(Value gen, Value request, Value response) {
+  if (!ax_memory_response_meaningful(response)) return Value();
   Value memory = get(gen, "memory", Value::object());
   Value items = get_key(memory, "items", Value::array());
   append(items, Value(Object{{"role", "assistant"}, {"response", response}, {"tags", Value::array()}}));
@@ -8154,8 +8171,15 @@ Value Core::_execute_tool_call(Value functions, Value call) {
       return result;
     }
   }
-  Value message = Core::string_format(Value("unknown tool call: {}"), name);
-  Value error = Core::runtime_error(message);
+  Value available_names = Value::array();
+  for (auto fn : Core::iter(functions)) {
+    Value available_name = Core::get(fn, Value("name"), Value());
+    Core::append(available_names, available_name);
+  }
+  Value available_joined = Core::string_join(Value(", "), available_names);
+  Value available = Core::string_default_if_empty(available_joined, Value("(none)"));
+  Value message = Core::string_format(Value("Function not found: {}. Available functions: {}. Call one of these exact function names."), name, available);
+  Value error = Core::validation_error(message);
   throw Core::as_error(error);
 }
 
@@ -16923,6 +16947,7 @@ AxMemory& AxMemory::add_request(Value messages) {
   return *this;
 }
 AxMemory& AxMemory::add_response(Value response) {
+  if (!ax_memory_response_meaningful(response)) return *this;
   Value items = Core::get(items_, "items", Value::array());
   Core::append(items, Value(Object{{"role", "assistant"}, {"response", response}, {"tags", Value::array()}}));
   Core::set(items_, "items", items);

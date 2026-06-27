@@ -305,7 +305,7 @@ const wf = flow<{ items: string[] }, { processed: string[] }>({ batchSize: 3 })
 Route nodes to different AI providers:
 
 ```typescript
-const fast = ai({ name: 'openai', apiKey: '...', config: { model: 'gpt-5-mini' } });
+const fast = ai({ name: 'openai', apiKey: '...', config: { model: 'gpt-5.4-mini' } });
 const smart = ai({ name: 'anthropic', apiKey: '...' });
 
 const wf = flow<{ text: string }, { out: string }>()

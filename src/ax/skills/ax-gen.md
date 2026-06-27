@@ -111,7 +111,7 @@ const result = await gen.forward(llm, { input: '...' });
 // With options
 const result = await gen.forward(llm, { input: '...' }, {
   maxRetries: 5,
-  model: 'gpt-4.1',
+  model: 'gpt-5.4-mini',
   modelConfig: { temperature: 0.9, maxTokens: 1000 },
   debug: true,
 });

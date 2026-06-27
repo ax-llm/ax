@@ -7,7 +7,7 @@
  * Usage:
  *   const ai = new AxAIBedrock({
  *     region: 'us-east-2',
- *     config: { model: AxAIBedrockModel.ClaudeSonnet4 }
+ *     config: { model: AxAIBedrockModel.ClaudeOpus45 }
  *   });
  *
  *   const sig = AxSignature.from('input -> output');
@@ -476,7 +476,7 @@ export class AxAIBedrock extends AxBaseAI<
     // Merge user config with defaults
     const fullConfig: AxAIBedrockConfig = {
       ...axBaseAIDefaultConfig(),
-      model: AxAIBedrockModel.ClaudeSonnet4,
+      model: AxAIBedrockModel.ClaudeOpus45,
       region,
       fallbackRegions,
       gptRegion,

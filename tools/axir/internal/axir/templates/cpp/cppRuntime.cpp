@@ -1792,7 +1792,24 @@ Value Core::axgen_memory_add_request(Value gen, Value messages) {
   set(gen, "memory", memory);
   return Value();
 }
+static bool ax_memory_response_meaningful(const Value& response) {
+  if (response.is_array()) {
+    for (const auto& item : array_ref(response)) {
+      if (ax_memory_response_meaningful(item)) return true;
+    }
+    return false;
+  }
+  if (!response.is_object()) return Core::truthy(response);
+  Value content = get_key(response, "content");
+  if (content.is_string() && !str(Core::string_trim(content)).empty()) return true;
+  for (const auto& key : {"function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks"}) {
+    Value value = get_key(response, key);
+    if (value.is_array() && !array_ref(value).empty()) return true;
+  }
+  return has_key(response, "audio") && !get_key(response, "audio").is_null();
+}
 Value Core::axgen_memory_add_response(Value gen, Value request, Value response) {
+  if (!ax_memory_response_meaningful(response)) return Value();
   Value memory = get(gen, "memory", Value::object());
   Value items = get_key(memory, "items", Value::array());
   append(items, Value(Object{{"role", "assistant"}, {"response", response}, {"tags", Value::array()}}));
@@ -2757,6 +2774,7 @@ AxMemory& AxMemory::add_request(Value messages) {
   return *this;
 }
 AxMemory& AxMemory::add_response(Value response) {
+  if (!ax_memory_response_meaningful(response)) return *this;
   Value items = Core::get(items_, "items", Value::array());
   Core::append(items, Value(Object{{"role", "assistant"}, {"response", response}, {"tags", Value::array()}}));
   Core::set(items_, "items", items);

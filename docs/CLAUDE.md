@@ -565,7 +565,7 @@ const taskExtractor = ax(`
 const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: "gpt-4" },
+  config: { model: "gpt-5.4-mini" },
 });
 
 // 3. Execute the generator

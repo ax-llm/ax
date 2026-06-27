@@ -22,7 +22,7 @@ func main() {
 
 	model := os.Getenv("AX_OPENAI_MODEL")
 	if model == "" {
-		model = "gpt-4.1-mini"
+		model = "gpt-5.4-mini"
 	}
 
 	client := ax.NewOpenAICompatibleClient(map[string]ax.Value{

@@ -10,7 +10,7 @@ const llm = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
   config: {
-    model: AxAIOpenAIModel.GPT5Mini,
+    model: AxAIOpenAIModel.GPT54Mini,
     stream: false,
     webSearchOptions: {
       searchContextSize: 'medium',

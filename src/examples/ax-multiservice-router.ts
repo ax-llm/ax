@@ -60,15 +60,15 @@ const googleService = ai({
       description: 'Gemini 3.5 Flash',
     },
     {
-      key: 'gemini-3-pro',
-      model: AxAIGoogleGeminiModel.Gemini3Pro,
-      description: 'Gemini 3 Pro',
+      key: 'gemini-3.1-flash-lite',
+      model: AxAIGoogleGeminiModel.Gemini31FlashLite,
+      description: 'Gemini 3.1 Flash Lite',
     },
   ] as const,
 });
 
 // Create type-safe multi-service router
-// TModelKey is automatically inferred as: 'gpt-5.4' | 'gpt-5.4-mini' | 'claude-sonnet-4-6' | 'claude-haiku-4-5' | 'gemini-3.5-flash' | 'gemini-3-pro'
+// TModelKey is automatically inferred as: 'gpt-5.4' | 'gpt-5.4-mini' | 'claude-sonnet-4-6' | 'claude-haiku-4-5' | 'gemini-3.5-flash' | 'gemini-3.1-flash-lite'
 const router = AxMultiServiceRouter.create([
   openaiService,
   anthropicService,

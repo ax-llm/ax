@@ -686,6 +686,10 @@ static void run_forward(Value fixture) {
     if (trace_items.empty()) throw AxError("fixture", "expected trace but none was recorded");
     assert_subset(trace_items.back(), expected_trace, "trace");
   }
+  Value expected_memory_count = Core::get(fixture, "expected_memory_history_count");
+  if (!expected_memory_count.is_null() && Core::iter(gen.get_memory().history()).size() != static_cast<size_t>(std::stoul(display(expected_memory_count)))) {
+    throw AxError("fixture", "expected memory history count mismatch");
+  }
   if (!Core::get(fixture, "expected_memory_history_subset").is_null()) assert_list_subset(gen.get_memory().history(), Core::get(fixture, "expected_memory_history_subset"), "memory history");
   if (!Core::get(fixture, "expected_chat_log_subset").is_null()) assert_list_subset(gen.get_chat_log(), Core::get(fixture, "expected_chat_log_subset"), "chat log");
   if (!Core::get(fixture, "expected_function_traces_subset").is_null()) assert_list_subset(gen.get_function_call_traces(), Core::get(fixture, "expected_function_traces_subset"), "function call traces");

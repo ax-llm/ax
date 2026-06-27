@@ -74,10 +74,10 @@ int main() {
   // One logical delta whose JSON is split across two data: lines (folded with
   // "\n"), then a single-line delta, then [DONE]. Every line uses CRLF.
   const std::string event1a =
-      "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":";
+      "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":";
   const std::string event1b = "{\"content\":\"Hello \"}}]}";
   const std::string event2 =
-      "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
+      "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
   const std::string sse_body = "data: " + event1a + "\r\n" + "data: " + event1b + "\r\n" + "\r\n" +
                                "data: " + event2 + "\r\n" + "\r\n" + "data: [DONE]\r\n" + "\r\n";
 
@@ -115,7 +115,7 @@ int main() {
   axllm::OpenAICompatibleClient client(
       axllm::object({{"api_key", "test-key"},
                      {"base_url", std::string("http://127.0.0.1:") + std::to_string(port)},
-                     {"model", "gpt-4.1-mini"}}),
+                     {"model", "gpt-5.4-mini"}}),
       nullptr);
   std::vector<std::string> deltas;
   for (const auto& event : client.stream(axllm::object(

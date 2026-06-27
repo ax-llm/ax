@@ -56,7 +56,7 @@ if not api_key:
 
 client = OpenAICompatibleClient(
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-4.1-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
     model_config={"temperature": 0},
 )
 program = ax("question:string -> answer:string")
@@ -77,7 +77,7 @@ def scripted_transport(request):
         "status": 200,
         "json": {
             "id": "chatcmpl_example",
-            "model": "gpt-4.1-mini",
+            "model": "gpt-5.4-mini",
             "choices": [
                 {
                     "index": 0,
@@ -90,7 +90,7 @@ def scripted_transport(request):
     }
 
 
-service = ai("openai", model="gpt-4.1-mini", api_key="test-key", transport=scripted_transport)
+service = ai("openai", model="gpt-5.4-mini", api_key="test-key", transport=scripted_transport)
 response = service.chat({"chat_prompt": [{"role": "user", "content": "hello"}]})
 assert response["results"][0]["content"] == "hello from scripted transport", response
 print("python-axai-ok")
@@ -299,7 +299,7 @@ public final class AxGenOpenAIExample {
     }
     OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
       "api_key", apiKey,
-      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini"),
+      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"),
       "model_config", Map.of("temperature", 0.0)
     ));
     AxGen program = Ax.ax("question:string -> answer:string");
@@ -320,7 +320,7 @@ public final class ProviderMappingNoKeyExample {
       "status", 200,
       "json", Map.of(
         "id", "chatcmpl_example",
-        "model", "gpt-4.1-mini",
+        "model", "gpt-5.4-mini",
         "choices", List.of(Map.of(
           "index", 0,
           "finish_reason", "stop",
@@ -329,7 +329,7 @@ public final class ProviderMappingNoKeyExample {
         "usage", Map.of("prompt_tokens", 1, "completion_tokens", 2, "total_tokens", 3)
       )
     );
-    AxAIService service = Ax.ai("openai", Map.of("model", "gpt-4.1-mini", "api_key", "test-key", "transport", transport));
+    AxAIService service = Ax.ai("openai", Map.of("model", "gpt-5.4-mini", "api_key", "test-key", "transport", transport));
     Map<String, Object> response = service.chat(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "hello"))));
     List<?> results = (List<?>) response.get("results");
     Map<?, ?> first = (Map<?, ?>) results.get(0);
@@ -573,7 +573,7 @@ int main() {
 
   axllm::OpenAICompatibleClient client(axllm::object({
     {"api_key", key},
-    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-4.1-mini"},
+    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-5.4-mini"},
     {"model_config", axllm::object({{"temperature", 0}})}
   }));
   auto program = axllm::ax("question:string -> answer:string");
@@ -593,7 +593,7 @@ struct ScriptedTransport : axllm::Transport {
       {"status", 200},
       {"json", axllm::object({
         {"id", "chatcmpl_example"},
-        {"model", "gpt-4.1-mini"},
+        {"model", "gpt-5.4-mini"},
         {"choices", axllm::array({
           axllm::object({
             {"index", 0},
@@ -609,7 +609,7 @@ struct ScriptedTransport : axllm::Transport {
 
 int main() {
   ScriptedTransport transport;
-  axllm::OpenAICompatibleClient service(axllm::object({{"model", "gpt-4.1-mini"}, {"api_key", "test-key"}}), &transport);
+  axllm::OpenAICompatibleClient service(axllm::object({{"model", "gpt-5.4-mini"}, {"api_key", "test-key"}}), &transport);
   axllm::Value response = service.chat(axllm::object({
     {"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "hello"}})})}
   }));
@@ -810,14 +810,14 @@ def scripted_transport(request):
     return {
         "status": 200,
         "body": (
-            'data: {"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":{"content":"hel"}}]}' + "\n\n"
-            'data: {"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":"stop"}]}' + "\n\n"
+            'data: {"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"hel"}}]}' + "\n\n"
+            'data: {"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":"stop"}]}' + "\n\n"
             "data: [DONE]\n\n"
         ),
     }
 
 
-client = OpenAICompatibleClient(api_key="test-key", model="gpt-4.1-mini", transport=scripted_transport)
+client = OpenAICompatibleClient(api_key="test-key", model="gpt-5.4-mini", transport=scripted_transport)
 events = list(client.stream({"chat_prompt": [{"role": "user", "content": "stream"}]}))
 text = "".join((event["results"][0].get("content") or "") for event in events)
 assert text == "hello", events
@@ -836,7 +836,7 @@ if not api_key:
 
 client = OpenAICompatibleClient(
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-4.1-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
     model_config={"temperature": 0},
 )
 outline = ax("topic:string -> outline:string")
@@ -1056,9 +1056,9 @@ from axllm import OpenAICompatibleClient
 # One logical chat-completion delta whose JSON is split across two data: lines
 # (folded with "\n" into ...,"delta":\n{"content":"Hello "}}), then a normal
 # single-line delta, then [DONE]. Every line uses CRLF.
-EVENT1A = '{"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":'
+EVENT1A = '{"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":'
 EVENT1B = '{"content":"Hello "}}]}'
-EVENT2 = '{"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}'
+EVENT2 = '{"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}'
 SSE_BODY = (
     "data: " + EVENT1A + "\r\n"
     + "data: " + EVENT1B + "\r\n"
@@ -1091,7 +1091,7 @@ thread.start()
 
 try:
     client = OpenAICompatibleClient(
-        api_key="test-key", base_url=f"http://127.0.0.1:{port}", model="gpt-4.1-mini"
+        api_key="test-key", base_url=f"http://127.0.0.1:{port}", model="gpt-5.4-mini"
     )
     deltas = [
         (event.get("results") or [{}])[0].get("content")
@@ -1298,13 +1298,13 @@ public final class ProviderStreamNoKeyExample {
   public static void main(String[] args) throws Exception {
     OpenAICompatibleClient.Transport transport = request -> Map.of(
       "status", 200,
-      "body", "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\n"
-        + "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
+      "body", "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\n"
+        + "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
         + "data: [DONE]\n\n"
     );
     OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
       "api_key", "test-key",
-      "model", "gpt-4.1-mini",
+      "model", "gpt-5.4-mini",
       "transport", transport
     ));
     StringBuilder text = new StringBuilder();
@@ -1329,7 +1329,7 @@ public final class FlowOpenAIExample {
     if (apiKey == null || apiKey.isBlank()) {
       throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.");
     }
-    String model = System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini");
+    String model = System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini");
     OpenAICompatibleClient client =
         new OpenAICompatibleClient(
             Map.of("api_key", apiKey, "model", model, "model_config", Map.of("temperature", 0.0)));
@@ -1575,9 +1575,9 @@ public final class StreamHTTPRoundtripExample {
   public static void main(String[] args) throws Exception {
     // One logical delta whose JSON is split across two data: lines (folded with
     // "\n"), then a single-line delta, then [DONE]. Every line uses CRLF.
-    String event1a = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":";
+    String event1a = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":";
     String event1b = "{\"content\":\"Hello \"}}]}";
-    String event2 = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
+    String event2 = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
     String sseBody =
         "data: " + event1a + "\r\n"
             + "data: " + event1b + "\r\n"
@@ -1605,7 +1605,7 @@ public final class StreamHTTPRoundtripExample {
     try {
       OpenAICompatibleClient client =
           new OpenAICompatibleClient(
-              Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + port, "model", "gpt-4.1-mini"));
+              Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + port, "model", "gpt-5.4-mini"));
       List<String> deltas = new ArrayList<>();
       for (Map<String, Object> event :
           client.stream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "stream"))))) {
@@ -1855,8 +1855,8 @@ struct ScriptedTransport : axllm::Transport {
     return axllm::object({
       {"status", 200},
       {"body",
-       "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\n"
-       "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
+       "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\n"
+       "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
        "data: [DONE]\n\n"}
     });
   }
@@ -1864,7 +1864,7 @@ struct ScriptedTransport : axllm::Transport {
 
 int main() {
   ScriptedTransport transport;
-  axllm::OpenAICompatibleClient client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-4.1-mini"}}), &transport);
+  axllm::OpenAICompatibleClient client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-5.4-mini"}}), &transport);
   std::string text;
   for (const auto& event : client.stream(axllm::object({
          {"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "stream"}})})}
@@ -2265,10 +2265,10 @@ int main() {
   // One logical delta whose JSON is split across two data: lines (folded with
   // "\n"), then a single-line delta, then [DONE]. Every line uses CRLF.
   const std::string event1a =
-      "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":";
+      "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":";
   const std::string event1b = "{\"content\":\"Hello \"}}]}";
   const std::string event2 =
-      "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
+      "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
   const std::string sse_body = "data: " + event1a + "\r\n" + "data: " + event1b + "\r\n" + "\r\n" +
                                "data: " + event2 + "\r\n" + "\r\n" + "data: [DONE]\r\n" + "\r\n";
 
@@ -2306,7 +2306,7 @@ int main() {
   axllm::OpenAICompatibleClient client(
       axllm::object({{"api_key", "test-key"},
                      {"base_url", std::string("http://127.0.0.1:") + std::to_string(port)},
-                     {"model", "gpt-4.1-mini"}}),
+                     {"model", "gpt-5.4-mini"}}),
       nullptr);
   std::vector<std::string> deltas;
   for (const auto& event : client.stream(axllm::object(
@@ -2351,7 +2351,7 @@ int main() {
   const char* model = std::getenv("AX_OPENAI_MODEL");
   axllm::OpenAICompatibleClient client(axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-4.1-mini" : model},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
   axllm::AxGen outline = axllm::ax("topic:string -> outline:string");

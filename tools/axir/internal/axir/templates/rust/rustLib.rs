@@ -8686,6 +8686,21 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         }
     }
     if let Some(expected) = fixture
+        .get("expected_memory_history_count")
+        .and_then(Value::as_u64)
+    {
+        if program.memory.len() as u64 != expected {
+            return Err(AxError::new(
+                "fixture",
+                format!(
+                    "expected memory history count {}, got {}",
+                    expected,
+                    program.memory.len()
+                ),
+            ));
+        }
+    }
+    if let Some(expected) = fixture
         .get("expected_memory_history_subset")
         .and_then(Value::as_array)
     {
@@ -11418,6 +11433,39 @@ fn core_memory_tags_contain(item: &CoreValue, tag: &CoreValue) -> bool {
     }
 }
 
+fn core_memory_response_meaningful(response: &CoreValue) -> bool {
+    match response {
+        CoreValue::List(items) => items
+            .borrow()
+            .iter()
+            .any(core_memory_response_meaningful),
+        CoreValue::Map(map) => {
+            let map = map.borrow();
+            if let Some(CoreValue::Str(content)) = map.get("content") {
+                if !content.trim().is_empty() {
+                    return true;
+                }
+            }
+            for key in [
+                "function_calls",
+                "functionCalls",
+                "tool_calls",
+                "toolCalls",
+                "thought_blocks",
+                "thoughtBlocks",
+            ] {
+                if let Some(CoreValue::List(items)) = map.get(key) {
+                    if !items.borrow().is_empty() {
+                        return true;
+                    }
+                }
+            }
+            map.get("audio").is_some_and(|value| !value.is_null())
+        }
+        other => core_truthy(other),
+    }
+}
+
 impl CoreHost for CoreMemory {
     fn host_type(&self) -> &'static str {
         "AxMemory"
@@ -11438,10 +11486,14 @@ impl CoreHost for CoreMemory {
                 Ok(CoreValue::Null)
             }
             "add_response" => {
+                let response = core_arg(args, 0);
+                if !core_memory_response_meaningful(&response) {
+                    return Ok(CoreValue::Null);
+                }
                 let item = core_memory_entry(
                     "assistant",
                     "response",
-                    core_arg(args, 0),
+                    response,
                     core_arg(args, 1),
                 )?;
                 self.items.borrow_mut().push(item);

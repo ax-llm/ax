@@ -5,13 +5,13 @@ public final class ProviderStreamNoKeyExample {
   public static void main(String[] args) throws Exception {
     OpenAICompatibleClient.Transport transport = request -> Map.of(
       "status", 200,
-      "body", "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\n"
-        + "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
+      "body", "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\n"
+        + "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
         + "data: [DONE]\n\n"
     );
     OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
       "api_key", "test-key",
-      "model", "gpt-4.1-mini",
+      "model", "gpt-5.4-mini",
       "transport", transport
     ));
     StringBuilder text = new StringBuilder();

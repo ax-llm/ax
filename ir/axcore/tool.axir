@@ -56,8 +56,15 @@ module @ax.tool version "0.1" {
           core.return %result
         }
       }
-      %message = core.call intrinsic.string.format("unknown tool call: {}", %name)
-      %error = core.call intrinsic.error.runtime(%message)
+      %available_names = core.list
+      core.for %fn in %functions {
+        %available_name = core.get %fn["name"]
+        core.append %available_names, %available_name
+      }
+      %available_joined = core.call intrinsic.string.join(", ", %available_names)
+      %available = core.call intrinsic.string.default_if_empty(%available_joined, "(none)")
+      %message = core.call intrinsic.string.format("Function not found: {}. Available functions: {}. Call one of these exact function names.", %name, %available)
+      %error = core.call intrinsic.error.validation(%message)
       core.raise %error
     }
   }

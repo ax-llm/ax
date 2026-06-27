@@ -18,6 +18,7 @@ public final class AxMemory {
   }
 
   public AxMemory addResponse(Object response) {
+    if (!responseMeaningful(response)) return this;
     Map<String, Object> item = new LinkedHashMap<>();
     item.put("role", "assistant");
     item.put("response", response);
@@ -94,5 +95,20 @@ public final class AxMemory {
   public AxMemory removeByTag(String tag) {
     items.removeIf(item -> Core.asList(item.get("tags")).contains(tag));
     return this;
+  }
+
+  private static boolean responseMeaningful(Object response) {
+    if (response instanceof List<?> list) {
+      for (Object item : list) if (responseMeaningful(item)) return true;
+      return false;
+    }
+    if (!(response instanceof Map<?, ?> map)) return response != null;
+    Object content = map.get("content");
+    if (content instanceof String text && !text.trim().isEmpty()) return true;
+    for (String key : List.of("function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks")) {
+      Object value = map.get(key);
+      if (value instanceof List<?> list && !list.isEmpty()) return true;
+    }
+    return map.containsKey("audio") && map.get("audio") != null;
   }
 }

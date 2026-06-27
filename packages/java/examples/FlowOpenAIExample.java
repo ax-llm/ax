@@ -8,7 +8,7 @@ public final class FlowOpenAIExample {
     if (apiKey == null || apiKey.isBlank()) {
       throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.");
     }
-    String model = System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini");
+    String model = System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini");
     OpenAICompatibleClient client =
         new OpenAICompatibleClient(
             Map.of("api_key", apiKey, "model", model, "model_config", Map.of("temperature", 0.0)));

@@ -6,7 +6,7 @@ fn main() -> AxResult<()> {
         "status": 200,
         "json": {
             "id": "chatcmpl_example",
-            "model": "gpt-4.1-mini",
+            "model": "gpt-5.4-mini",
             "choices": [{
                 "index": 0,
                 "finish_reason": "stop",
@@ -15,7 +15,7 @@ fn main() -> AxResult<()> {
             "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12}
         }
     })]);
-    let mut client = OpenAICompatibleClient::new("test-key", "gpt-4.1-mini").with_transport(transport);
+    let mut client = OpenAICompatibleClient::new("test-key", "gpt-5.4-mini").with_transport(transport);
     let result = client.chat(json!({
         "chat_prompt": [
             {"role": "system", "content": "Answer briefly."},

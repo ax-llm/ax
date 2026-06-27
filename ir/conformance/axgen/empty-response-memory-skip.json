@@ -1,0 +1,32 @@
+{
+  "name": "empty-response-memory-skip",
+  "kind": "forward",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Recover from blank?"
+  },
+  "responses": [
+    {
+      "content": " \n "
+    },
+    {
+      "content": "{\"answer\":\"recovered\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "recovered"
+  },
+  "expected_memory_history_count": 2,
+  "expected_memory_history_subset": [
+    {
+      "role": "request"
+    },
+    {
+      "role": "assistant",
+      "response": {
+        "content": "{\"answer\":\"recovered\"}"
+      }
+    }
+  ],
+  "expected_request_count": 2
+}

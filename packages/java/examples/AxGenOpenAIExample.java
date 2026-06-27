@@ -10,7 +10,7 @@ public final class AxGenOpenAIExample {
     }
     OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
       "api_key", apiKey,
-      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini"),
+      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"),
       "model_config", Map.of("temperature", 0.0)
     ));
     AxGen program = Ax.ax("question:string -> answer:string");

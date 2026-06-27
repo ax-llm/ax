@@ -114,7 +114,7 @@ The repo includes a streaming benchmark for checking overhead on your own provid
 
 ```bash
 AX_STREAM_BENCH_PROVIDER=anthropic AX_STREAM_BENCH_MODEL=claude-sonnet-4-5-20250929 AX_STREAM_BENCH_RUNS=2 AX_STREAM_BENCH_WARMUP_RUNS=0 npm run tsx src/examples/streaming-latency.ts
-AX_STREAM_BENCH_PROVIDER=google-gemini AX_STREAM_BENCH_MODEL=gemini-2.5-flash AX_STREAM_BENCH_RUNS=2 AX_STREAM_BENCH_WARMUP_RUNS=0 npm run tsx src/examples/streaming-latency.ts
+AX_STREAM_BENCH_PROVIDER=google-gemini AX_STREAM_BENCH_MODEL=gemini-3.5-flash AX_STREAM_BENCH_RUNS=2 AX_STREAM_BENCH_WARMUP_RUNS=0 npm run tsx src/examples/streaming-latency.ts
 ```
 
 Recent runs on Claude Haiku/Sonnet and Gemini Flash/Flash Lite show provider queueing and model generation dominate total latency; AxGen stays close to the raw `ai.chat()` path while providing the structured-output control loop that direct SDK calls leave to application code.
@@ -321,7 +321,7 @@ const analyzer = agent(
     maxTurns: 20,
     maxRuntimeChars: 2_000,
     contextPolicy: { preset: "checkpointed", budget: "balanced" },
-    executorOptions: { model: "gpt-4o-mini" },
+    executorOptions: { model: "gpt-5.4-mini" },
   },
 );
 
@@ -422,9 +422,9 @@ Tune the whole flow with **GEPA** (multi-objective Pareto optimizer). Define a m
 
 ```typescript
 const student = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: AxAIOpenAIModel.GPT4OMini } });
+  config: { model: AxAIOpenAIModel.GPT54Mini } });
 const teacher = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: AxAIOpenAIModel.GPT4O } });
+  config: { model: AxAIOpenAIModel.GPT54 } });
 
 const optimizer = new AxGEPA({
   studentAI: student,

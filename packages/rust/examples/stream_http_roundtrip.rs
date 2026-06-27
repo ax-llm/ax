@@ -54,9 +54,9 @@ fn main() -> AxResult<()> {
     // lines (folded with "\n" into ...,"delta":\n{"content":"Hello "}}), then a
     // normal single-line delta, then [DONE]. Every line uses CRLF.
     let event1a =
-        r#"{"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":"#;
+        r#"{"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":"#;
     let event1b = r#"{"content":"Hello "}}]}"#;
-    let event2 = r#"{"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}"#;
+    let event2 = r#"{"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}"#;
     let sse_body = format!(
         "data: {event1a}\r\ndata: {event1b}\r\n\r\ndata: {event2}\r\n\r\ndata: [DONE]\r\n\r\n"
     );
@@ -80,7 +80,7 @@ fn main() -> AxResult<()> {
 
     // base_url_override is the documented proxy/gateway knob; point it at the
     // loopback so the real reqwest transport streams from our server.
-    let mut client = OpenAICompatibleClient::new("test-key", "gpt-4.1-mini");
+    let mut client = OpenAICompatibleClient::new("test-key", "gpt-5.4-mini");
     client.base_url_override = Some(format!("http://127.0.0.1:{port}"));
     let events = client.stream(json!({
         "chat_prompt": [{"role": "user", "content": "stream"}]

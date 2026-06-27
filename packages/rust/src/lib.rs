@@ -9847,6 +9847,21 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         }
     }
     if let Some(expected) = fixture
+        .get("expected_memory_history_count")
+        .and_then(Value::as_u64)
+    {
+        if program.memory.len() as u64 != expected {
+            return Err(AxError::new(
+                "fixture",
+                format!(
+                    "expected memory history count {}, got {}",
+                    expected,
+                    program.memory.len()
+                ),
+            ));
+        }
+    }
+    if let Some(expected) = fixture
         .get("expected_memory_history_subset")
         .and_then(Value::as_array)
     {
@@ -12937,6 +12952,36 @@ fn core_memory_tags_contain(item: &CoreValue, tag: &CoreValue) -> bool {
     }
 }
 
+fn core_memory_response_meaningful(response: &CoreValue) -> bool {
+    match response {
+        CoreValue::List(items) => items.borrow().iter().any(core_memory_response_meaningful),
+        CoreValue::Map(map) => {
+            let map = map.borrow();
+            if let Some(CoreValue::Str(content)) = map.get("content") {
+                if !content.trim().is_empty() {
+                    return true;
+                }
+            }
+            for key in [
+                "function_calls",
+                "functionCalls",
+                "tool_calls",
+                "toolCalls",
+                "thought_blocks",
+                "thoughtBlocks",
+            ] {
+                if let Some(CoreValue::List(items)) = map.get(key) {
+                    if !items.borrow().is_empty() {
+                        return true;
+                    }
+                }
+            }
+            map.get("audio").is_some_and(|value| !value.is_null())
+        }
+        other => core_truthy(other),
+    }
+}
+
 impl CoreHost for CoreMemory {
     fn host_type(&self) -> &'static str {
         "AxMemory"
@@ -12953,12 +12998,11 @@ impl CoreHost for CoreMemory {
                 Ok(CoreValue::Null)
             }
             "add_response" => {
-                let item = core_memory_entry(
-                    "assistant",
-                    "response",
-                    core_arg(args, 0),
-                    core_arg(args, 1),
-                )?;
+                let response = core_arg(args, 0);
+                if !core_memory_response_meaningful(&response) {
+                    return Ok(CoreValue::Null);
+                }
+                let item = core_memory_entry("assistant", "response", response, core_arg(args, 1))?;
                 self.items.borrow_mut().push(item);
                 Ok(CoreValue::Null)
             }
@@ -29844,6 +29888,10 @@ fn _execute_tool_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_functions = core_arg(args, 0);
     let mut v_call = core_arg(args, 1);
     let mut v_argument_params = CoreValue::Null;
+    let mut v_available = CoreValue::Null;
+    let mut v_available_joined = CoreValue::Null;
+    let mut v_available_name = CoreValue::Null;
+    let mut v_available_names = CoreValue::Null;
     let mut v_direct_name = CoreValue::Null;
     let mut v_direct_params = CoreValue::Null;
     let mut v_empty_params = CoreValue::Null;
@@ -29893,8 +29941,18 @@ fn _execute_tool_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             return Ok(v_result.clone());
         }
     }
-    v_message = core_string_format(&[CoreValue::from("unknown tool call: {}"), v_name.clone()])?;
-    v_error = core_runtime_error(&[v_message.clone()])?;
+    v_available_names = CoreValue::new_list();
+    for v_fn in core_iter(&v_functions)? {
+        let mut v_fn = v_fn;
+        v_available_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+        core_append(&v_available_names, v_available_name.clone())?;
+    }
+    v_available_joined =
+        core_string_join_intrinsic(&[CoreValue::from(", "), v_available_names.clone()])?;
+    v_available =
+        core_string_default_if_empty(&[v_available_joined.clone(), CoreValue::from("(none)")])?;
+    v_message = core_string_format(&[CoreValue::from("Function not found: {}. Available functions: {}. Call one of these exact function names."), v_name.clone(), v_available.clone()])?;
+    v_error = core_validation_error(&[v_message.clone()])?;
     return Err(core_as_error(&v_error));
 }
 

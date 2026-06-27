@@ -287,6 +287,20 @@ writeFixture('memory-history-and-chat-log', {
   expected_request_count: 1,
 });
 
+writeFixture('empty-response-memory-skip', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Recover from blank?' },
+  responses: [{ content: ' \n ' }, { content: '{"answer":"recovered"}' }],
+  expected_output: { answer: 'recovered' },
+  expected_memory_history_count: 2,
+  expected_memory_history_subset: [
+    { role: 'request' },
+    { role: 'assistant', response: { content: '{"answer":"recovered"}' } },
+  ],
+  expected_request_count: 2,
+});
+
 writeFixture('correction-tags-cleaned-after-retry', {
   kind: 'forward',
   signature: 'question:string -> answer:string',
@@ -371,5 +385,38 @@ writeFixture('function-call-trace-hook', {
   ],
   expected_memory_history_subset: [{ role: 'function' }],
   expected_tool_calls: [{ name: 'search', args: { query: 'ax docs' } }],
+  expected_request_count: 2,
+});
+
+writeFixture('unknown-tool-call-correction', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string',
+  input: { query: 'docs' },
+  tools: [
+    {
+      name: 'search',
+      description: 'Search docs',
+      args: { query: { type: 'string' } },
+      result: { title: 'Docs' },
+    },
+  ],
+  responses: [
+    {
+      content: '',
+      function_calls: [
+        { id: 'call_1', name: 'lookup', params: { query: 'docs' } },
+      ],
+    },
+    { content: '{"answer":"No lookup tool is registered."}' },
+  ],
+  expected_output: { answer: 'No lookup tool is registered.' },
+  expected_function_traces_subset: [
+    { id: 'call_1', name: 'lookup', status: 'error' },
+  ],
+  expected_request_contains: [
+    'Function not found: lookup',
+    'Available functions: search',
+  ],
+  expected_tool_calls: [],
   expected_request_count: 2,
 });

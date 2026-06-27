@@ -13,9 +13,9 @@ from axllm import OpenAICompatibleClient
 # One logical chat-completion delta whose JSON is split across two data: lines
 # (folded with "\n" into ...,"delta":\n{"content":"Hello "}}), then a normal
 # single-line delta, then [DONE]. Every line uses CRLF.
-EVENT1A = '{"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":'
+EVENT1A = '{"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":'
 EVENT1B = '{"content":"Hello "}}]}'
-EVENT2 = '{"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}'
+EVENT2 = '{"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}'
 SSE_BODY = (
     "data: " + EVENT1A + "\r\n"
     + "data: " + EVENT1B + "\r\n"
@@ -48,7 +48,7 @@ thread.start()
 
 try:
     client = OpenAICompatibleClient(
-        api_key="test-key", base_url=f"http://127.0.0.1:{port}", model="gpt-4.1-mini"
+        api_key="test-key", base_url=f"http://127.0.0.1:{port}", model="gpt-5.4-mini"
     )
     deltas = [
         (event.get("results") or [{}])[0].get("content")

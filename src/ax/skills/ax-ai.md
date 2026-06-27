@@ -16,7 +16,7 @@ import { ai } from '@ax-llm/ax';
 const openai = ai({ name: 'openai', apiKey: 'sk-...' });
 const claude = ai({ name: 'anthropic', apiKey: 'sk-ant-...' });
 const gemini = ai({ name: 'google-gemini', apiKey: 'AIza...' });
-const azure = ai({ name: 'azure-openai', apiKey: 'your-key', resourceName: 'your-resource', deploymentName: 'gpt-4' });
+const azure = ai({ name: 'azure-openai', apiKey: 'your-key', resourceName: 'your-resource', deploymentName: 'gpt-5-4-mini' });
 const deepseek = ai({ name: 'deepseek', apiKey: 'sk-...' });
 const mistral = ai({ name: 'mistral', apiKey: 'your-key' });
 const cohere = ai({ name: 'cohere', apiKey: 'your-key' });
@@ -63,8 +63,8 @@ const gemini = ai({
   apiKey: process.env.GOOGLE_APIKEY!,
   config: { model: 'simple' },
   models: [
-    { key: 'tiny', model: AxAIGoogleGeminiModel.Gemini20FlashLite, description: 'Fast + cheap', config: { maxTokens: 1024, temperature: 0.3 } },
-    { key: 'simple', model: AxAIGoogleGeminiModel.Gemini20Flash, description: 'Balanced', config: { temperature: 0.6 } },
+    { key: 'tiny', model: AxAIGoogleGeminiModel.Gemini31FlashLite, description: 'Fast + cheap', config: { maxTokens: 1024, temperature: 0.3 } },
+    { key: 'simple', model: AxAIGoogleGeminiModel.Gemini35Flash, description: 'Balanced', config: { temperature: 0.6 } },
   ],
 });
 
@@ -306,7 +306,7 @@ import { AxAIBedrock, AxAIBedrockModel } from '@ax-llm/ax-ai-aws-bedrock';
 const bedrock = new AxAIBedrock({
   region: 'us-east-2',
   fallbackRegions: ['us-west-2'],
-  config: { model: AxAIBedrockModel.ClaudeSonnet4 },
+  config: { model: AxAIBedrockModel.ClaudeOpus45 },
 });
 ```
 

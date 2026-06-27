@@ -25,7 +25,7 @@ async function run() {
   const student = ai({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY!,
-    config: { model: AxAIOpenAIModel.GPT5Mini, temperature: 0.5 },
+    config: { model: AxAIOpenAIModel.GPT54Mini, temperature: 0.5 },
   });
 
   // For example runtime we reuse the student as the "teacher" so reflections happen quickly.

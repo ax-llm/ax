@@ -7193,8 +7193,15 @@ final class Core {
         return result;
       }
     }
-    Object message = Core.stringFormat("unknown tool call: {}", name);
-    Object error = Core.runtimeError(message);
+    Object available_names = new java.util.ArrayList<Object>();
+    for (Object fn : Core.iter(functions)) {
+      Object available_name = Core.get(fn, "name", null);
+      Core.append(available_names, available_name);
+    }
+    Object available_joined = Core.stringJoin(", ", available_names);
+    Object available = Core.stringDefaultIfEmpty(available_joined, "(none)");
+    Object message = Core.stringFormat("Function not found: {}. Available functions: {}. Call one of these exact function names.", name, available);
+    Object error = Core.validationError(message);
     throw Core.asRuntime(error);
   }
 

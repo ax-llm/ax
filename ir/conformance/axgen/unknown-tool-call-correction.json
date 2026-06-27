@@ -39,5 +39,17 @@
   "expected_output": {
     "answer": "No lookup tool is registered."
   },
+  "expected_function_traces_subset": [
+    {
+      "id": "call_1",
+      "name": "lookup",
+      "status": "error"
+    }
+  ],
+  "expected_request_contains": [
+    "Function not found: lookup",
+    "Available functions: search"
+  ],
+  "expected_request_count": 2,
   "expected_tool_calls": []
 }

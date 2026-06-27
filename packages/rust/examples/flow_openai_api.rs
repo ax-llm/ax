@@ -10,7 +10,7 @@ fn main() -> AxResult<()> {
                 "Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.",
             )
         })?;
-    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-4.1-mini".to_string());
+    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
     let mut client =
         OpenAICompatibleClient::new(api_key, model).with_model_config(json!({"temperature": 0}));
     let outline = ax("topic:string -> outline:string")?;

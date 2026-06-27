@@ -9,7 +9,7 @@
  *
  * const ai = new AxAIBedrock({
  *   region: 'us-east-2',
- *   config: { model: AxAIBedrockModel.ClaudeSonnet4 }
+ *   config: { model: AxAIBedrockModel.ClaudeOpus45 }
  * });
  *
  * const response = await ai.chat({
@@ -25,8 +25,6 @@
 
 export { AxAIBedrock } from './api.js';
 export { axModelInfoBedrock } from './info.js';
-export { AxAIBedrockEmbedModel, AxAIBedrockModel } from './types.js';
-
 export type {
   AxAIBedrockConfig,
   BedrockChatRequest,
@@ -38,3 +36,4 @@ export type {
   BedrockTitanEmbedRequest,
   BedrockTitanEmbedResponse,
 } from './types.js';
+export { AxAIBedrockEmbedModel, AxAIBedrockModel } from './types.js';

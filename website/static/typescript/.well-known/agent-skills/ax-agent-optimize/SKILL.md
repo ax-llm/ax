@@ -136,13 +136,13 @@ const tools = [
 const studentAI = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.Gemini25FlashLite, temperature: 0.2 },
+  config: { model: AxAIGoogleGeminiModel.Gemini31FlashLite, temperature: 0.2 },
 });
 
 const judgeAI = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.Gemini3Pro, temperature: 1.0 },
+  config: { model: AxAIGoogleGeminiModel.Gemini35Flash, temperature: 1.0 },
 });
 
 const assistant = agent('query:string -> answer:string', {
@@ -246,7 +246,7 @@ Use this when the agent behavior needs holistic review:
 const result = await assistant.optimize(tasks, {
   judgeAI,
   judgeOptions: {
-    model: AxAIGoogleGeminiModel.Gemini3Pro,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
     description:
       'Be strict about unnecessary child-agent calls, weak clarifications, and incorrect tool choices.',
   },

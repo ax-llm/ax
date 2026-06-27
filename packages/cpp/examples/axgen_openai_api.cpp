@@ -12,7 +12,7 @@ int main() {
 
   axllm::OpenAICompatibleClient client(axllm::object({
     {"api_key", key},
-    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-4.1-mini"},
+    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-5.4-mini"},
     {"model_config", axllm::object({{"temperature", 0}})}
   }));
   auto program = axllm::ax("question:string -> answer:string");

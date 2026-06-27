@@ -7,7 +7,7 @@ struct ScriptedTransport : axllm::Transport {
       {"status", 200},
       {"json", axllm::object({
         {"id", "chatcmpl_example"},
-        {"model", "gpt-4.1-mini"},
+        {"model", "gpt-5.4-mini"},
         {"choices", axllm::array({
           axllm::object({
             {"index", 0},
@@ -23,7 +23,7 @@ struct ScriptedTransport : axllm::Transport {
 
 int main() {
   ScriptedTransport transport;
-  axllm::OpenAICompatibleClient service(axllm::object({{"model", "gpt-4.1-mini"}, {"api_key", "test-key"}}), &transport);
+  axllm::OpenAICompatibleClient service(axllm::object({{"model", "gpt-5.4-mini"}, {"api_key", "test-key"}}), &transport);
   axllm::Value response = service.chat(axllm::object({
     {"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "hello"}})})}
   }));

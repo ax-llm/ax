@@ -16,9 +16,9 @@ public final class StreamHTTPRoundtripExample {
   public static void main(String[] args) throws Exception {
     // One logical delta whose JSON is split across two data: lines (folded with
     // "\n"), then a single-line delta, then [DONE]. Every line uses CRLF.
-    String event1a = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":";
+    String event1a = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":";
     String event1b = "{\"content\":\"Hello \"}}]}";
-    String event2 = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
+    String event2 = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
     String sseBody =
         "data: " + event1a + "\r\n"
             + "data: " + event1b + "\r\n"
@@ -46,7 +46,7 @@ public final class StreamHTTPRoundtripExample {
     try {
       OpenAICompatibleClient client =
           new OpenAICompatibleClient(
-              Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + port, "model", "gpt-4.1-mini"));
+              Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + port, "model", "gpt-5.4-mini"));
       List<String> deltas = new ArrayList<>();
       for (Map<String, Object> event :
           client.stream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "stream"))))) {

@@ -8,7 +8,7 @@ from typing import Any
 
 from .ai import AIClient, chat_response_to_completion
 from .prompt import AxPromptTemplate
-from .schema import strip_internal, validate_fields, validate_output
+from .schema import AxValidationError, strip_internal, validate_fields, validate_output
 from .signature import AxSignature
 # AXIR_CORE_IMPORTS
 
@@ -92,6 +92,8 @@ class AxMemory:
         return self
 
     def add_response(self, response, session_id: str | None = None):
+        if not _ax_memory_response_meaningful(response):
+            return self
         self.items.append({"role": "assistant", "response": response, "session_id": session_id, "tags": []})
         return self
 
@@ -138,6 +140,21 @@ class AxMemory:
     def remove_by_tag(self, tag: str):
         self.items = [item for item in self.items if tag not in (item.get("tags") or [])]
         return self
+
+
+def _ax_memory_response_meaningful(response) -> bool:
+    if isinstance(response, list):
+        return any(_ax_memory_response_meaningful(item) for item in response)
+    if not isinstance(response, dict):
+        return bool(response)
+    content = response.get("content")
+    if isinstance(content, str) and content.strip():
+        return True
+    for key in ("function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks"):
+        value = response.get(key)
+        if isinstance(value, list) and value:
+            return True
+    return response.get("audio") is not None
 
 
 class AxGen:
@@ -560,6 +577,11 @@ def _core_string_ends_with(value, suffix):
     return str(value).endswith(str(suffix))
 
 
+def _core_string_default_if_empty(value, fallback):
+    text = str(value or "").strip()
+    return text if text else fallback
+
+
 def _core_ai_complete_once(client, request):
     chat = getattr(client, "chat", None)
     if callable(chat):
@@ -584,6 +606,10 @@ def _core_regex_match(pattern, value):
 
 def _core_runtime_error(message):
     return RuntimeError(str(message))
+
+
+def _core_validation_error(message):
+    return AxValidationError(str(message))
 
 
 def _core_tool_invoke(fn, params):

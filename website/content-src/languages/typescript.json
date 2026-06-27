@@ -123,7 +123,7 @@
       "const llm = ai({",
       "  name: 'openai',",
       "  apiKey: process.env.OPENAI_APIKEY!,",
-      "  config: { model: AxAIOpenAIModel.GPT4OMini },",
+      "  config: { model: AxAIOpenAIModel.GPT54Mini },",
       "});"
     ],
     "telemetry": [
@@ -142,8 +142,8 @@
       "import { AxAIOpenAIModel, ai, ax, optimize } from '@ax-llm/ax';",
       "",
       "const program = ax('emailText:string -> priority:class \"high, normal, low\"');",
-      "const studentAI = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: AxAIOpenAIModel.GPT4OMini } });",
-      "const teacherAI = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: AxAIOpenAIModel.GPT4O } });",
+      "const studentAI = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: AxAIOpenAIModel.GPT54Mini } });",
+      "const teacherAI = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: AxAIOpenAIModel.GPT54 } });",
       "const metric = ({ prediction, example }: any) => prediction.priority === example.priority ? 1 : 0;",
       "",
       "const result = await optimize(program, train, metric, { studentAI, teacherAI, maxMetricCalls: 40 });",

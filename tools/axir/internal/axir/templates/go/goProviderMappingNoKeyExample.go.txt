@@ -13,7 +13,7 @@ func main() {
 			"status", 200,
 			"json", ax.Object(
 				"id", "chatcmpl_example",
-				"model", "gpt-4.1-mini",
+				"model", "gpt-5.4-mini",
 				"usage", ax.Object("prompt_tokens", 8, "completion_tokens", 4, "total_tokens", 12),
 				"choices", ax.Array(ax.Object(
 					"index", 0,
@@ -25,7 +25,7 @@ func main() {
 	})
 	client := ax.NewOpenAICompatibleClient(map[string]ax.Value{
 		"api_key":   "test-key",
-		"model":     "gpt-4.1-mini",
+		"model":     "gpt-5.4-mini",
 		"transport": transport,
 	})
 	result, err := client.Chat(context.Background(), map[string]ax.Value{

@@ -90,7 +90,7 @@ for await (const chunk of gen.streamingForward(llm, { question: 'Tell a story' }
 
 | Goal | Option | Example |
 |------|--------|---------|
-| Model override | `model` | `{ model: 'gpt-4o-mini' }` |
+| Model override | `model` | `{ model: 'gpt-5.4-mini' }` |
 | Temperature | `modelConfig.temperature` | `{ modelConfig: { temperature: 0.8 } }` |
 | Max tokens | `modelConfig.maxTokens` | `{ modelConfig: { maxTokens: 500 } }` |
 | Retry on failure | `maxRetries` | `{ maxRetries: 3 }` |

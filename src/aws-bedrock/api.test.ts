@@ -31,7 +31,7 @@ describe('AxAIBedrock Titan embeddings dimensions', () => {
   it('honors config.dimensions when set', async () => {
     const ai = new AxAIBedrock({
       config: {
-        model: AxAIBedrockModel.ClaudeSonnet4,
+        model: AxAIBedrockModel.ClaudeOpus45,
         embedModel: AxAIBedrockEmbedModel.TitanEmbedV2,
         dimensions: 1024,
       },
@@ -44,7 +44,7 @@ describe('AxAIBedrock Titan embeddings dimensions', () => {
   it('passes through a non-default supported dimension (256)', async () => {
     const ai = new AxAIBedrock({
       config: {
-        model: AxAIBedrockModel.ClaudeSonnet4,
+        model: AxAIBedrockModel.ClaudeOpus45,
         embedModel: AxAIBedrockEmbedModel.TitanEmbedV2,
         dimensions: 256,
       },
@@ -57,7 +57,7 @@ describe('AxAIBedrock Titan embeddings dimensions', () => {
   it('omits dimensions when unset so Titan uses its default (1024)', async () => {
     const ai = new AxAIBedrock({
       config: {
-        model: AxAIBedrockModel.ClaudeSonnet4,
+        model: AxAIBedrockModel.ClaudeOpus45,
         embedModel: AxAIBedrockEmbedModel.TitanEmbedV2,
       },
     });

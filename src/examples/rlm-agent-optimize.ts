@@ -86,7 +86,7 @@ const teacherAI = ai({
   name: 'google-gemini',
   apiKey: googleApiKey!,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini3Pro,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
     temperature: 0.2,
   },
 });
@@ -568,7 +568,7 @@ function buildCoordinator(env: OfficeEnvironment) {
     judgeOptions: {
       description:
         'Prefer actual task completion over polished prose. Reward correct tool choice, correct recipients, exact scheduled times, and grounded project details. Penalize missing required tool use, wrong recipients, needless retries, or claiming actions that were not performed.',
-      model: AxAIGoogleGeminiModel.Gemini3Pro,
+      model: AxAIGoogleGeminiModel.Gemini35Flash,
       modelConfig: { temperature: 0.2 },
     },
   });
@@ -718,8 +718,8 @@ function printRun(label: string, answer: string, env: OfficeEnvironment) {
 }
 
 console.log('RLM agent optimization with a real office-assistant task set');
-console.log('Student: Gemini 2.5 Flash Lite');
-console.log('Judge/teacher: Gemini 3 Pro');
+console.log('Student: Gemini 3.5 Flash');
+console.log('Judge/teacher: Gemini 3.5 Flash');
 console.log(`Today context: ${today}`);
 
 const baselineEnv = createOfficeEnvironment();
@@ -797,7 +797,7 @@ const comparison = await comparisonGen.forward(
     baselineRun: buildRunSnapshot(baselineRun.answer, baselineEnv),
   },
   {
-    model: AxAIGoogleGeminiModel.Gemini3Pro,
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
     modelConfig: { temperature: 0.2 },
     maxSteps: 1,
   }

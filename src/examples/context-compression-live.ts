@@ -22,18 +22,14 @@ import {
   f,
   fn,
 } from '@ax-llm/ax';
-import {
-  AxContextMetricsCollector,
-  type AxContextMetricsRow,
-  renderMetricsTable,
-} from '../ax/agent/benchmarks/contextMetrics.js';
+import { AxContextMetricsCollector } from '../ax/agent/benchmarks/contextMetrics.js';
 
 const googleApiKey = process.env.GOOGLE_APIKEY;
 if (!googleApiKey) {
   throw new Error('GOOGLE_APIKEY is required for the live context spike');
 }
 
-// Override with AX_LIVE_MODEL to compare model tiers (e.g. gemini-3.1-pro-preview).
+// Override with AX_LIVE_MODEL to compare model tiers (e.g. gemini-3.5-flash).
 const model = (process.env.AX_LIVE_MODEL ??
   AxAIGoogleGeminiModel.Gemini35Flash) as AxAIGoogleGeminiModel;
 
@@ -108,78 +104,120 @@ const scoreAnswer = (
   );
 };
 
-const rows: AxContextMetricsRow[] = [];
-const outcomes: Array<{ preset: string; status: 'pass' | 'review' | 'error' }> =
-  [];
+// Set RUNS=10 to repeat each preset and report medians (smooths the high
+// run-to-run variance dominated by turn count). Runs are SEQUENTIAL so latency
+// is not corrupted by API contention.
+const RUNS = Math.max(1, Number(process.env.RUNS ?? '1'));
+
+type RunSample = {
+  tokens: number;
+  ms: number;
+  mgmtCalls: number;
+  turns: number;
+  status: 'pass' | 'review' | 'error';
+};
+
+const median = (xs: readonly number[]): number => {
+  if (xs.length === 0) return 0;
+  const sorted = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[mid]!
+    : Math.round((sorted[mid - 1]! + sorted[mid]!) / 2);
+};
+
+const samplesByPreset = new Map<string, RunSample[]>();
 
 for (const preset of PRESETS) {
-  const collector = new AxContextMetricsCollector();
-  const analyzer = agent(
-    'incidentNotes:string, incidentId:string, query:string -> answer:string, keyFindings:string[]',
-    {
-      ai: llm,
-      contextFields: ['incidentNotes'],
-      runtime: new AxJSRuntime({ permissions: [AxJSRuntimePermission.TIMING] }),
-      functions: incidentTools,
-      maxTurns: 8,
-      contextPolicy: { preset, budget: 'compact' },
-      onContextEvent: collector.onEvent,
-    }
-  );
+  const samples: RunSample[] = [];
+  for (let run = 1; run <= RUNS; run++) {
+    const collector = new AxContextMetricsCollector();
+    const analyzer = agent(
+      'incidentNotes:string, incidentId:string, query:string -> answer:string, keyFindings:string[]',
+      {
+        ai: llm,
+        contextFields: ['incidentNotes'],
+        runtime: new AxJSRuntime({
+          permissions: [AxJSRuntimePermission.TIMING],
+        }),
+        functions: incidentTools,
+        maxTurns: 8,
+        contextPolicy: { preset, budget: 'compact' },
+        onContextEvent: collector.onEvent,
+      }
+    );
 
-  const startedAt = Date.now();
-  try {
-    const result = await analyzer.forward(llm, {
-      incidentNotes,
-      incidentId: 'checkout-17',
-      query,
-    });
-    rows.push({
-      scenario: 'incident',
-      preset,
-      summary: collector.summarize(analyzer.getUsage()),
-      elapsedMs: Date.now() - startedAt,
-    });
-    outcomes.push({
-      preset,
-      status: scoreAnswer(result.answer ?? '', result.keyFindings ?? [])
+    const startedAt = Date.now();
+    let status: RunSample['status'];
+    try {
+      const result = await analyzer.forward(llm, {
+        incidentNotes,
+        incidentId: 'checkout-17',
+        query,
+      });
+      status = scoreAnswer(result.answer ?? '', result.keyFindings ?? [])
         ? 'pass'
-        : 'review',
+        : 'review';
+    } catch (err) {
+      // Non-deterministic model failures are a robustness signal; record and
+      // keep going.
+      status = 'error';
+      const message =
+        err instanceof Error ? err.message.split('\n')[0] : String(err);
+      console.log(`  [${preset} run ${run}/${RUNS}] errored: ${message}`);
+    }
+    const elapsedMs = Date.now() - startedAt;
+    const summary = collector.summarize(analyzer.getUsage());
+    samples.push({
+      tokens: summary.cumulativeTokens,
+      ms: elapsedMs,
+      mgmtCalls: summary.checkpoints + summary.tombstones,
+      turns: summary.turns,
+      status,
     });
-  } catch (err) {
-    // Live models are non-deterministic (empty turns, hallucinated tools);
-    // record the failure as a robustness signal and keep the sweep going.
-    rows.push({
-      scenario: 'incident',
-      preset,
-      summary: collector.summarize(analyzer.getUsage()),
-      elapsedMs: Date.now() - startedAt,
-    });
-    outcomes.push({ preset, status: 'error' });
-    const message =
-      err instanceof Error ? err.message.split('\n')[0] : String(err);
-    console.log(`  [${preset}] run errored: ${message}`);
+    console.log(
+      `  ${preset.padEnd(12)} run ${run}/${RUNS}: ${status.padEnd(6)} tokens=${summary.cumulativeTokens} ms=${elapsedMs} turns=${summary.turns}`
+    );
   }
+  samplesByPreset.set(preset, samples);
 }
 
-console.log(`AxAgent context-compression baseline (LIVE, ${model})\n`);
-console.log(renderMetricsTable(rows));
+console.log(`\nAxAgent context-compression (LIVE, ${model}, RUNS=${RUNS})\n`);
 
-console.log(
-  '\nOutcome per preset (pass = correct, review = incomplete, error = run failed):'
-);
-for (const { preset, status } of outcomes) {
-  console.log(`  ${preset.padEnd(12)} ${status}`);
+const pad = (s: string, n: number) => s.padEnd(n);
+const range = (xs: readonly number[]) =>
+  `${median(xs)} (${Math.min(...xs)}-${Math.max(...xs)})`;
+
+const header = [
+  pad('preset', 12),
+  pad('pass/rev/err', 13),
+  pad('tokens med (min-max)', 24),
+  pad('ms med (min-max)', 22),
+  pad('mgmt', 5),
+  pad('turns', 5),
+].join(' ');
+console.log(header);
+console.log('-'.repeat(header.length));
+
+for (const preset of PRESETS) {
+  const s = samplesByPreset.get(preset) ?? [];
+  const ok = s.filter((x) => x.status === 'pass').length;
+  const rev = s.filter((x) => x.status === 'review').length;
+  const err = s.filter((x) => x.status === 'error').length;
+  console.log(
+    [
+      pad(preset, 12),
+      pad(`${ok}/${rev}/${err}`, 13),
+      pad(range(s.map((x) => x.tokens)), 24),
+      pad(range(s.map((x) => x.ms)), 22),
+      pad(String(median(s.map((x) => x.mgmtCalls))), 5),
+      pad(String(median(s.map((x) => x.turns))), 5),
+    ].join(' ')
+  );
 }
 
 console.log(
-  '\nCorrectness is the gate. Among correct presets it is a tokens <-> speed (ms) tradeoff.'
+  '\nGate: among presets that pass reliably, compare median tokens vs median ms.'
 );
-console.log(
-  'mgmtCalls = extra context-management LLM round-trips (checkpoints + tombstones)'
-);
-console.log(
-  'that trade latency for fewer tokens. Single run per preset; run several times for stable medians.'
-);
-
-console.log('\nLive baseline captured.');
+console.log('Wide (min-max) spreads = noisy; medians over RUNS smooth it.');
+console.log('\nLive run complete.');

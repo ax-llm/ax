@@ -6,7 +6,7 @@ def scripted_transport(request):
         "status": 200,
         "json": {
             "id": "chatcmpl_example",
-            "model": "gpt-4.1-mini",
+            "model": "gpt-5.4-mini",
             "choices": [
                 {
                     "index": 0,
@@ -19,7 +19,7 @@ def scripted_transport(request):
     }
 
 
-service = ai("openai", model="gpt-4.1-mini", api_key="test-key", transport=scripted_transport)
+service = ai("openai", model="gpt-5.4-mini", api_key="test-key", transport=scripted_transport)
 response = service.chat({"chat_prompt": [{"role": "user", "content": "hello"}]})
 assert response["results"][0]["content"] == "hello from scripted transport", response
 print("python-axai-ok")

@@ -57,13 +57,13 @@ import { ai, ax, optimize, AxAIOpenAIModel } from '@ax-llm/ax';
 const student = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: AxAIOpenAIModel.GPT4OMini },
+  config: { model: AxAIOpenAIModel.GPT54Mini },
 });
 
 const teacher = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: AxAIOpenAIModel.GPT4O },
+  config: { model: AxAIOpenAIModel.GPT54 },
 });
 
 const classifier = ax(
@@ -107,13 +107,13 @@ import { ai, flow, optimize, AxAIOpenAIModel } from '@ax-llm/ax';
 const student = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: AxAIOpenAIModel.GPT4OMini },
+  config: { model: AxAIOpenAIModel.GPT54Mini },
 });
 
 const teacher = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: AxAIOpenAIModel.GPT4O },
+  config: { model: AxAIOpenAIModel.GPT54 },
 });
 
 const wf = flow<{ emailText: string }>()

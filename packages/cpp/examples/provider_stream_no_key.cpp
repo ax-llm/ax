@@ -7,8 +7,8 @@ struct ScriptedTransport : axllm::Transport {
     return axllm::object({
       {"status", 200},
       {"body",
-       "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\n"
-       "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
+       "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\n"
+       "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
        "data: [DONE]\n\n"}
     });
   }
@@ -16,7 +16,7 @@ struct ScriptedTransport : axllm::Transport {
 
 int main() {
   ScriptedTransport transport;
-  axllm::OpenAICompatibleClient client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-4.1-mini"}}), &transport);
+  axllm::OpenAICompatibleClient client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-5.4-mini"}}), &transport);
   std::string text;
   for (const auto& event : client.stream(axllm::object({
          {"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "stream"}})})}

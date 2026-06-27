@@ -723,6 +723,8 @@ def _run_forward(fixture):
         _assert_subset(traces[-1], fixture["expected_trace"], "trace")
     if "expected_memory_history" in fixture:
         _assert_subset(gen.get_memory().history(), fixture["expected_memory_history"], "memory history")
+    if "expected_memory_history_count" in fixture and len(gen.get_memory().history()) != fixture["expected_memory_history_count"]:
+        raise FixtureError(f"expected memory history count {fixture['expected_memory_history_count']}, got {len(gen.get_memory().history())}")
     if "expected_memory_history_subset" in fixture:
         _assert_list_subset(gen.get_memory().history(), fixture["expected_memory_history_subset"], "memory history")
     if "expected_chat_log" in fixture:

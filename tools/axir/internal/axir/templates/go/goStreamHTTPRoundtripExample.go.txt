@@ -21,9 +21,9 @@ func main() {
 	// One logical chat-completion delta whose JSON is split across two data:
 	// lines (folded with "\n" into ...,"delta":\n{"content":"Hello "}}), then a
 	// normal single-line delta, then [DONE]. Every line uses CRLF.
-	const event1a = `{"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":`
+	const event1a = `{"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":`
 	const event1b = `{"content":"Hello "}}]}`
-	const event2 = `{"id":"chatcmpl_stream","model":"gpt-4.1-mini","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}`
+	const event2 = `{"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}`
 	sseBody := "data: " + event1a + "\r\n" +
 		"data: " + event1b + "\r\n" +
 		"\r\n" +
@@ -42,7 +42,7 @@ func main() {
 	client := ax.NewOpenAICompatibleClient(map[string]ax.Value{
 		"api_key":  "test-key",
 		"base_url": server.URL,
-		"model":    "gpt-4.1-mini",
+		"model":    "gpt-5.4-mini",
 	})
 	events, err := client.Stream(context.Background(), map[string]ax.Value{
 		"chat_prompt": ax.Array(ax.Object("role", "user", "content", "stream")),
