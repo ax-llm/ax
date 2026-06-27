@@ -1,7 +1,7 @@
 ---
 name: ax-gen
 description: This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs.
-version: "22.0.3"
+version: "22.0.7"
 ---
 
 # AxGen Codegen Rules (@ax-llm/ax)

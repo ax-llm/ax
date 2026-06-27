@@ -116,6 +116,8 @@ Long-running agents need a context policy:
 
 Context maps are different: they are persistent orientation caches for repeated runs over the same long context, repository, document set, or system. Use them when many tasks ask different questions over the same material.
 
+For how the stages, context maps, trajectory compaction, and offline optimizers fit together — and the papers behind them — see [Agent Internals]({{langRoot}}/concepts/agent-internals/).
+
 For concrete code, see [Advanced Start]({{langRoot}}/advanced-start/) and the generated [examples]({{langRoot}}/examples/).
 
 ## Memory And Skills

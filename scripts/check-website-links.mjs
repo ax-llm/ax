@@ -709,7 +709,7 @@ function collectQualityFailures(rel, html, failures) {
     if (!hasClass(html, 'section', 'home-research-section')) {
       failures.push(`${rel}: homepage missing research section`);
     }
-    if (!html.includes('Built on DSPy, GEPA, RLM, and PEEK')) {
+    if (!html.includes('Built on DSPy, GEPA, ACE, RLM, and PEEK')) {
       failures.push(`${rel}: homepage missing new research title`);
     }
     if (!hasClass(html, 'div', 'home-research-list')) {

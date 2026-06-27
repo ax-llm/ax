@@ -1,7 +1,7 @@
 ---
 name: ax-agent-optimize
 description: This skill helps an LLM generate correct AxAgent tuning and evaluation code using @ax-llm/ax. Use when the user asks about agent.optimize(...), judgeOptions, eval datasets, optimization targets, saved optimizedProgram artifacts, or agent optimization guidance.
-version: "22.0.3"
+version: "22.0.7"
 ---
 
 # AxAgent Optimize Codegen Rules (@ax-llm/ax)

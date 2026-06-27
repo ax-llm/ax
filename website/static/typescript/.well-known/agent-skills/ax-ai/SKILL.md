@@ -1,7 +1,7 @@
 ---
 name: ax-ai
 description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
-version: "22.0.3"
+version: "22.0.7"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -30,6 +30,28 @@ const reka = ai({ name: 'reka', apiKey: 'your-key' });
 const grok = ai({ name: 'grok', apiKey: 'your-key' });
 const compatible = ai({ name: 'openai', apiKey: 'key', apiURL: 'https://api.example.com/v1', config: { model: 'provider/model' } });
 ```
+
+<!-- axir-nonportable:start webllm -->
+WebLLM is browser-only and requires a host-created WebLLM engine. The host
+loads or reloads models with WebLLM APIs such as `CreateMLCEngine(...)`; Ax
+only forwards chat requests to that loaded engine. Do not present WebLLM as a
+portable AxIR provider or a server-side default.
+
+```typescript
+import { ai, AxAIWebLLMModel } from '@ax-llm/ax';
+
+const engine = await CreateMLCEngine(AxAIWebLLMModel.Llama32_3B_Instruct);
+const llm = ai({
+  name: 'webllm',
+  engine,
+  config: {
+    model: AxAIWebLLMModel.Llama32_3B_Instruct,
+    stream: false,
+    supportsFunctions: false,
+  },
+});
+```
+<!-- axir-nonportable:end webllm -->
 
 ## Model Presets
 

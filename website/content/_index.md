@@ -137,7 +137,7 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
 <section class="home-section home-research-section" aria-labelledby="research">
 <div class="home-section-heading home-section-heading-wide">
   <p class="home-section-label">The ideas behind it</p>
-  <h2 id="research">Built on DSPy, GEPA, RLM, and PEEK.</h2>
+  <h2 id="research">Built on DSPy, GEPA, ACE, RLM, and PEEK.</h2>
   <p>Ax is more than another LLM framework — it is where a serious research lineage ships. The typed signatures, validation with retry feedback, reflective optimization, runtime-backed agents, and context maps you just saw all come from these papers.</p>
 </div>
 <div class="home-research-list home-research-compact">
@@ -172,6 +172,17 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
     <div class="paper-item-meta">
       <a class="paper-arxiv-link" href="https://arxiv.org/abs/2507.19457">arXiv 2507.19457</a>
       <div class="paper-logo-row"><span class="paper-logo-mark paper-logo-stanford">Stanford</span><span class="paper-logo-mark paper-logo-berkeley">Berkeley</span></div>
+    </div>
+  </article>
+  <article class="home-paper-item">
+    <div class="paper-item-main">
+      <div class="paper-title-row"><span class="paper-logo-mark paper-logo-arxiv" aria-label="arXiv"><span>ar</span><strong>X</strong><span>iv</span></span><h3><a href="https://arxiv.org/abs/2510.04618">Agentic Context Engineering: Evolving Contexts for Self-Improving Language Models</a></h3></div>
+      <p class="paper-authors">Qizheng Zhang et al.</p>
+      <p>Evolving context playbooks via generation, reflection, and curation map to Ax's ACE optimizer for agents and programs.</p>
+    </div>
+    <div class="paper-item-meta">
+      <a class="paper-arxiv-link" href="https://arxiv.org/abs/2510.04618">arXiv 2510.04618</a>
+      <div class="paper-logo-row"><span class="paper-logo-mark paper-logo-stanford">Stanford</span></div>
     </div>
   </article>
   <article class="home-paper-item">

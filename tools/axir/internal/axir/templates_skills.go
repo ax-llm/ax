@@ -136,6 +136,18 @@ var packageSkillSpecs = []packageSkillSpec{
 		Sections: []string{"agents-rlm", "optimizers"},
 	},
 	{
+		ID:          "agent-context",
+		Title:       "AxAgent Context Selection",
+		Area:        "choosing context maps, policy, optimization, and recall",
+		Description: "deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents",
+		UseWhen: []string{
+			"Choose between contextMap, contextPolicy, optimization, and recall for a task.",
+			"Avoid mixing persistent corpus orientation with within-run compaction.",
+			"Route long-context agent work to the right generated-package feature.",
+		},
+		Sections: []string{"agents-rlm", "runtime-profiles", "optimizers"},
+	},
+	{
 		ID:          "flow",
 		Title:       "AxFlow",
 		Area:        "workflow graphs and orchestration",
@@ -337,7 +349,7 @@ func skillSnippet(target, specID string) string {
 	switch {
 	case specID == "signature":
 		return skillSignatureSnippet(target)
-	case specID == "agent" || specID == "agent-rlm" || specID == "agent-memory-skills" || specID == "agent-observability":
+	case specID == "agent" || specID == "agent-rlm" || specID == "agent-memory-skills" || specID == "agent-observability" || specID == "agent-context":
 		return skillAgentSnippet(target)
 	case specID == "flow":
 		return skillFlowSnippet(target)

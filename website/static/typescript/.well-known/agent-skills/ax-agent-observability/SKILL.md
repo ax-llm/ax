@@ -1,7 +1,7 @@
 ---
 name: ax-agent-observability
 description: This skill helps an LLM generate correct AxAgent observability code using @ax-llm/ax. Use when the user asks about actorTurnCallback, onContextEvent, agentStatusCallback, onFunctionCall, reportSuccess, reportFailure, getChatLog(), getUsage(), resetUsage(), debug traces, progress updates, or telemetry for AxAgent runs.
-version: "22.0.3"
+version: "22.0.7"
 ---
 
 # AxAgent Observability Rules (@ax-llm/ax)

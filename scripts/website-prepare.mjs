@@ -170,6 +170,7 @@ const skillNavLabels = new Map([
   ['agent-memory-skills', 'Memory & Skills'],
   ['agent-observability', 'Observability'],
   ['agent-optimize', 'Agent Optimize'],
+  ['agent-context', 'Agent Context'],
   ['gepa', 'GEPA'],
   ['refine', 'Refinement'],
 ]);
@@ -186,6 +187,7 @@ const skillNavOrder = [
   'agent-memory-skills',
   'agent-observability',
   'agent-optimize',
+  'agent-context',
   'gepa',
   'refine',
 ];

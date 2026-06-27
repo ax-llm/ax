@@ -1,6 +1,6 @@
 ---
 title: "Research Map"
-description: "Research papers behind Ax: DSPy, DSPy Assertions, GEPA, Recursive Language Models, and PEEK."
+description: "Research papers behind Ax: DSPy, DSPy Assertions, GEPA, ACE, Recursive Language Models, and PEEK."
 standalone: true
 toc: true
 ---
@@ -48,6 +48,19 @@ This page is not an endorsement wall. It is a map from public research ideas to 
     <div class="paper-item-meta">
       <a class="paper-arxiv-link" href="https://arxiv.org/abs/2507.19457">arXiv 2507.19457</a>
       <div class="paper-logo-row"><span class="paper-logo-mark paper-logo-stanford">Stanford</span><span class="paper-logo-mark paper-logo-berkeley">Berkeley</span></div>
+    </div>
+  </article>
+
+  <article class="home-paper-item">
+    <div class="paper-item-main">
+      <div class="paper-title-row"><span class="paper-logo-mark paper-logo-arxiv" aria-label="arXiv"><span>ar</span><strong>X</strong><span>iv</span></span><h2><a href="https://arxiv.org/abs/2510.04618">Agentic Context Engineering: Evolving Contexts for Self-Improving Language Models</a></h2></div>
+    <p><strong>Authors:</strong> Qizheng Zhang et al.</p>
+    <p><strong>Year:</strong> 2025.</p>
+    <p><strong>Why it matters for Ax:</strong> ACE treats context as an evolving playbook — generation, reflection, and curation with incremental delta updates that resist brevity bias and context collapse. Ax ships it as the ACE optimizer alongside GEPA, evolving a reusable strategy playbook that merges into a program's instructions.</p>
+    </div>
+    <div class="paper-item-meta">
+      <a class="paper-arxiv-link" href="https://arxiv.org/abs/2510.04618">arXiv 2510.04618</a>
+      <div class="paper-logo-row"><span class="paper-logo-mark paper-logo-stanford">Stanford</span></div>
     </div>
   </article>
 

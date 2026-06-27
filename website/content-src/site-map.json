@@ -61,6 +61,12 @@
           "description": "RLM agents, runtime sessions, context, memory, skills, discovery, and delegation."
         },
         {
+          "slug": "concepts/agent-internals",
+          "title": "Agent Internals",
+          "template": "concept-agent-internals",
+          "description": "AxAgent stages, the four context objects, and the research lineage behind them."
+        },
+        {
           "slug": "concepts/mcp",
           "title": "MCP",
           "template": "concept-mcp",
