@@ -8,6 +8,44 @@ import type {
 
 import { AxMemory, MemoryImpl } from './memory.js';
 
+describe('MemoryImpl addResponse empty-turn guard', () => {
+  it('drops assistant turns with no usable content', () => {
+    const memory = new MemoryImpl();
+    memory.addRequest([{ role: 'user', content: 'hi' }], 0);
+    memory.addResponse([{ index: 0, content: '\n' }]);
+
+    const history = memory.history(0);
+    expect(history).toHaveLength(1);
+    expect(history.some((m) => m.role === 'assistant')).toBe(false);
+  });
+
+  it('keeps assistant turns with text content', () => {
+    const memory = new MemoryImpl();
+    memory.addRequest([{ role: 'user', content: 'hi' }], 0);
+    memory.addResponse([{ index: 0, content: 'hello' }]);
+
+    const history = memory.history(0);
+    expect(history.some((m) => m.role === 'assistant')).toBe(true);
+  });
+
+  it('keeps assistant turns that only have function calls', () => {
+    const memory = new MemoryImpl();
+    memory.addRequest([{ role: 'user', content: 'hi' }], 0);
+    memory.addResponse([
+      {
+        index: 0,
+        content: '',
+        functionCalls: [
+          { id: '1', type: 'function', function: { name: 'f', params: '{}' } },
+        ],
+      },
+    ]);
+
+    const history = memory.history(0);
+    expect(history.some((m) => m.role === 'assistant')).toBe(true);
+  });
+});
+
 describe('MemoryImpl', () => {
   it('constructor should accept options object', () => {
     expect(() => new MemoryImpl()).not.toThrow();
@@ -175,7 +213,7 @@ describe('MemoryImpl', () => {
     expect(result).toEqual([]);
   });
 
-  it('addResponse should handle empty results', () => {
+  it('addResponse drops empty results to avoid poisoning later requests', () => {
     const memory = new MemoryImpl();
     const emptyResult: AxChatResponseResult = {
       index: 0,
@@ -185,7 +223,9 @@ describe('MemoryImpl', () => {
 
     memory.addResponse([emptyResult]);
 
-    expect(memory.history(0).length).toBe(1);
+    // Empty assistant turns are not stored; storing one would later fail
+    // outgoing assistant-message validation and hard-abort the run.
+    expect(memory.history(0).length).toBe(0);
   });
 
   it('updateResult should modify last assistant message', () => {

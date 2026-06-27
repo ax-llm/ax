@@ -42,7 +42,25 @@ export class MemoryImpl {
   }
 
   addResponse(results: Readonly<AxChatResponseResult[]>): void {
-    const chat = results.map(({ index, ...value }) => ({
+    // Drop assistant turns with no usable content (empty/whitespace text, no
+    // tool calls, no thoughts, no audio). Storing one poisons a later outgoing
+    // request, which fails assistant-message validation and hard-aborts the run.
+    const meaningful = results.filter((result) => {
+      const hasContent =
+        typeof result.content === 'string' && result.content.trim() !== '';
+      const hasFunctionCalls =
+        Array.isArray(result.functionCalls) && result.functionCalls.length > 0;
+      const hasThoughtBlocks =
+        Array.isArray(result.thoughtBlocks) && result.thoughtBlocks.length > 0;
+      const hasAudio = result.audio != null;
+      return hasContent || hasFunctionCalls || hasThoughtBlocks || hasAudio;
+    });
+
+    if (meaningful.length === 0) {
+      return;
+    }
+
+    const chat = meaningful.map(({ index, ...value }) => ({
       index,
       value: structuredClone(value),
     }));

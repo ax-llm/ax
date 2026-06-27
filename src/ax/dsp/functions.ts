@@ -10,6 +10,7 @@ import type {
   AxLoggerFunction,
 } from '../ai/types.js';
 import type { AxMemory } from '../mem/memory.js';
+import { ValidationError } from './errors.js';
 import { axGlobals } from './globals.js';
 import { validateJSONSchema } from './jsonSchema.js';
 import type { AxStepContextImpl } from './stepContext.js';
@@ -218,7 +219,12 @@ export class AxFunctionProcessor {
       fnSpec = this.funcList.find((v) => normalize(v.name) === target);
     }
     if (!fnSpec) {
-      throw new Error(`Function not found: ${func.name}`);
+      // Recoverable: surface the valid names so the model can self-correct via
+      // the generate retry loop instead of hard-aborting the run.
+      const available = this.funcList.map((v) => v.name).join(', ');
+      throw new ValidationError(
+        `Function not found: ${func.name}. Available functions: ${available || '(none)'}. Call one of these exact function names.`
+      );
     }
     if (!fnSpec.func) {
       throw new Error(`No handler for function: ${func.name}`);

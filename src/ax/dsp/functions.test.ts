@@ -2,7 +2,35 @@ import { describe, expect, it } from 'vitest';
 
 import type { AxFunction } from '../ai/types.js';
 
+import { ValidationError } from './errors.js';
 import { AxFunctionProcessor } from './functions.js';
+
+describe('AxFunctionProcessor unknown function handling', () => {
+  const knownTool: AxFunction = {
+    name: 'knownTool',
+    description: 'A known tool',
+    parameters: {
+      type: 'object',
+      properties: { q: { type: 'string', description: 'query' } },
+      required: ['q'],
+    },
+    func: async () => 'ok',
+  };
+
+  it('throws a recoverable ValidationError listing available functions', async () => {
+    const processor = new AxFunctionProcessor([knownTool]);
+    const call = { id: 'test_id', name: 'list_dir', args: '{}' };
+
+    // Recoverable (ValidationError) so the generate retry loop can self-correct
+    // instead of hard-aborting the run.
+    await expect(processor.executeWithDetails(call)).rejects.toThrowError(
+      ValidationError
+    );
+    await expect(processor.executeWithDetails(call)).rejects.toThrow(
+      /Available functions: knownTool/
+    );
+  });
+});
 
 describe('AxFunctionProcessor undefined/null handling', () => {
   it('should convert undefined return value to empty string', async () => {
