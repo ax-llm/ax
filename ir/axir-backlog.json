@@ -2,6 +2,66 @@
   "schemaVersion": 2,
   "entries": [
     {
+      "id": "axir-2026-06-07-port-mcp-client-and-transports",
+      "status": "done",
+      "title": "Port MCP client and transports",
+      "createdAt": "2026-06-07",
+      "sourcePR": null,
+      "sourceCommit": "4e8da4ba",
+      "tsPaths": ["src/ax/mcp"],
+      "portableSurface": "axmcp",
+      "impact": "Generated Python, Java, C++, Go, and Rust packages do not yet expose the modern MCP client, transports, OAuth discovery, or SSRF guard behavior.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-06-07",
+      "completedByCommit": "working-tree",
+      "verification": "npm run test:axir"
+    },
+    {
+      "id": "axir-2026-06-16-match-gepa-best-candidate-tie-break-to-prefer-the-accepted-evolu",
+      "status": "done",
+      "title": "Match GEPA best-candidate tie-break to prefer the accepted evolution",
+      "createdAt": "2026-06-16",
+      "sourcePR": 546,
+      "sourceCommit": "d7570019ba945edb4a733345cc63a080463fdc3a",
+      "tsPaths": [
+        "src/ax/dsp/optimizers/gepa.ts",
+        "src/ax/dsp/optimizers/gepa.test.ts"
+      ],
+      "portableSurface": "axoptimize",
+      "impact": "GEPA compile() now breaks a scalarized-score tie on the Pareto front toward the later-discovered candidate, so an accepted evolution that only ties the seed surfaces in componentMap instead of the seed text. Generated Python/Java/C++/Go/Rust AxGEPA selection still breaks ties toward the earlier candidate (the seed) and can return the original instruction, drifting from the TS optimizer.",
+      "suggestedAxirWork": [
+        "Update the AxGEPA candidate-selection lowering so a scalarized-score tie selects the later candidate.",
+        "Add a TS-derived axoptimize conformance fixture for a tie between the seed and an accepted evolution.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-06-28",
+      "completedByCommit": "working-tree",
+      "verification": "npm run test:axir; npm run axir:check-packages"
+    },
+    {
+      "id": "axir-2026-06-24-port-anthropic-transient-error-classification-streaming-retry-fa",
+      "status": "done",
+      "title": "Port Anthropic transient-error classification + streaming retry/failover",
+      "createdAt": "2026-06-24",
+      "sourcePR": 556,
+      "sourceCommit": "2d1a5f96f033640bf4e892e866fde99bc92e8268",
+      "tsPaths": ["src/ax/ai"],
+      "portableSurface": "axai",
+      "impact": "Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording — so transient Anthropic errors hard-fail there with no retry or failover.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-06-25",
+      "completedByCommit": "working-tree",
+      "verification": "npm run test:axir"
+    },
+    {
       "id": "axir-2026-06-26-port-ace-agentic-context-engineering-optimizer",
       "status": "open",
       "title": "Port ACE agentic context engineering optimizer",
@@ -23,66 +83,6 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
-    },
-    {
-      "id": "axir-2026-06-07-port-mcp-client-and-transports",
-      "status": "done",
-      "title": "Port MCP client and transports",
-      "createdAt": "2026-06-07",
-      "sourcePR": null,
-      "sourceCommit": "4e8da4ba",
-      "tsPaths": ["src/ax/mcp"],
-      "portableSurface": "axmcp",
-      "impact": "Generated Python, Java, C++, Go, and Rust packages do not yet expose the modern MCP client, transports, OAuth discovery, or SSRF guard behavior.",
-      "suggestedAxirWork": [
-        "Add or update the TS-derived conformance fixture.",
-        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
-        "Run npm run axir:conformance:check and npm run test:axir."
-      ],
-      "completedAt": "2026-06-07",
-      "completedByCommit": "working-tree",
-      "verification": "npm run test:axir"
-    },
-    {
-      "id": "axir-2026-06-16-match-gepa-best-candidate-tie-break-to-prefer-the-accepted-evolu",
-      "status": "open",
-      "title": "Match GEPA best-candidate tie-break to prefer the accepted evolution",
-      "createdAt": "2026-06-16",
-      "sourcePR": 546,
-      "sourceCommit": "d7570019ba945edb4a733345cc63a080463fdc3a",
-      "tsPaths": [
-        "src/ax/dsp/optimizers/gepa.ts",
-        "src/ax/dsp/optimizers/gepa.test.ts"
-      ],
-      "portableSurface": "axoptimize",
-      "impact": "GEPA compile() now breaks a scalarized-score tie on the Pareto front toward the later-discovered candidate, so an accepted evolution that only ties the seed surfaces in componentMap instead of the seed text. Generated Python/Java/C++/Go/Rust AxGEPA selection still breaks ties toward the earlier candidate (the seed) and can return the original instruction, drifting from the TS optimizer.",
-      "suggestedAxirWork": [
-        "Update the AxGEPA candidate-selection lowering so a scalarized-score tie selects the later candidate.",
-        "Add a TS-derived axoptimize conformance fixture for a tie between the seed and an accepted evolution.",
-        "Run npm run axir:conformance:check and npm run test:axir."
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
-    },
-    {
-      "id": "axir-2026-06-24-port-anthropic-transient-error-classification-streaming-retry-fa",
-      "status": "done",
-      "title": "Port Anthropic transient-error classification + streaming retry/failover",
-      "createdAt": "2026-06-24",
-      "sourcePR": 556,
-      "sourceCommit": "2d1a5f96f033640bf4e892e866fde99bc92e8268",
-      "tsPaths": ["src/ax/ai"],
-      "portableSurface": "axai",
-      "impact": "Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording — so transient Anthropic errors hard-fail there with no retry or failover.",
-      "suggestedAxirWork": [
-        "Add or update the TS-derived conformance fixture.",
-        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
-        "Run npm run axir:conformance:check and npm run test:axir."
-      ],
-      "completedAt": "2026-06-25",
-      "completedByCommit": "working-tree",
-      "verification": "npm run test:axir"
     }
   ],
   "nonPortableExemptions": [

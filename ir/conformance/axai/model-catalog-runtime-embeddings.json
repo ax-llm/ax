@@ -239,12 +239,19 @@
         "isDynamic": false,
         "models": [],
         "name": "grok"
+      },
+      {
+        "defaultModel": "Llama-3.2-3B-Instruct-q4f32_1-MLC",
+        "displayName": "WebLLM",
+        "isDynamic": false,
+        "models": [],
+        "name": "webllm"
       }
     ],
     "modelCount": 9,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["embeddings"],
-    "providerCount": 10,
+    "providerCount": 11,
     "providerNames": [
       "openai",
       "google-gemini",
@@ -255,7 +262,8 @@
       "deepseek",
       "mistral",
       "reka",
-      "grok"
+      "grok",
+      "webllm"
     ]
   },
   "kind": "ai_model_catalog_runtime",

@@ -20,13 +20,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/optimizers/ace.ts`, `src/ax/dsp/optimizers/acePlaybook.ts`, `src/ax/dsp/optimizers/aceTypes.ts`
   - Impact: TypeScript will restore the AxACE optimizer, its structured playbook artifact, offline compile loop, and online playbook update behavior. Generated Python/Java/C++/Go/Rust optimizer surfaces do not expose matching ACE semantics yet.
   - Suggested AxIR work: Decide whether ACE becomes a generated optimizer engine or remains TypeScript-only by policy.; If portable, add TS-derived axoptimize conformance fixtures for ACE playbook operations, artifact application, and online updates.; Update AxIR/Core optimizer descriptors and generated backends, then run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-06-16-match-gepa-best-candidate-tie-break-to-prefer-the-accepted-evolu` [axoptimize] Match GEPA best-candidate tie-break to prefer the accepted evolution
-  - Status: open
-  - Source PR: #546
-  - Source commit: `d7570019ba945edb4a733345cc63a080463fdc3a`
-  - TS paths: `src/ax/dsp/optimizers/gepa.ts`, `src/ax/dsp/optimizers/gepa.test.ts`
-  - Impact: GEPA compile() now breaks a scalarized-score tie on the Pareto front toward the later-discovered candidate, so an accepted evolution that only ties the seed surfaces in componentMap instead of the seed text. Generated Python/Java/C++/Go/Rust AxGEPA selection still breaks ties toward the earlier candidate (the seed) and can return the original instruction, drifting from the TS optimizer.
-  - Suggested AxIR work: Update the AxGEPA candidate-selection lowering so a scalarized-score tie selects the later candidate.; Add a TS-derived axoptimize conformance fixture for a tie between the seed and an accepted evolution.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -39,6 +32,16 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-06-07
   - Completed by: `working-tree`
   - Verification: `npm run test:axir`
+- `axir-2026-06-16-match-gepa-best-candidate-tie-break-to-prefer-the-accepted-evolu` [axoptimize] Match GEPA best-candidate tie-break to prefer the accepted evolution
+  - Status: done
+  - Source PR: #546
+  - Source commit: `d7570019ba945edb4a733345cc63a080463fdc3a`
+  - TS paths: `src/ax/dsp/optimizers/gepa.ts`, `src/ax/dsp/optimizers/gepa.test.ts`
+  - Impact: GEPA compile() now breaks a scalarized-score tie on the Pareto front toward the later-discovered candidate, so an accepted evolution that only ties the seed surfaces in componentMap instead of the seed text. Generated Python/Java/C++/Go/Rust AxGEPA selection still breaks ties toward the earlier candidate (the seed) and can return the original instruction, drifting from the TS optimizer.
+  - Suggested AxIR work: Update the AxGEPA candidate-selection lowering so a scalarized-score tie selects the later candidate.; Add a TS-derived axoptimize conformance fixture for a tie between the seed and an accepted evolution.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-06-28
+  - Completed by: `working-tree`
+  - Verification: `npm run test:axir; npm run axir:check-packages`
 - `axir-2026-06-24-port-anthropic-transient-error-classification-streaming-retry-fa` [axai] Port Anthropic transient-error classification + streaming retry/failover
   - Status: done
   - Source PR: #556

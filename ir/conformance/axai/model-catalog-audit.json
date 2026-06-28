@@ -16,9 +16,10 @@
     ],
     "filterOptions": ["all", "text", "embeddings", "code", "audio"],
     "nextMilestone": "Generated catalog provider clients match the active catalog",
-    "providerCount": 10,
+    "providerCount": 11,
     "providerNames": [
       "google-gemini",
+      "webllm",
       "openai",
       "cohere",
       "mistral",
@@ -53,9 +54,10 @@
     },
     "openaiDefaultModel": "gpt-5-mini",
     "openaiFirstModel": "text-embedding-3-small",
-    "providerCount": 10,
+    "providerCount": 11,
     "providerNames": [
       "google-gemini",
+      "webllm",
       "openai",
       "cohere",
       "mistral",
@@ -68,6 +70,7 @@
     ],
     "returnedProviderNames": [
       "google-gemini",
+      "webllm",
       "openai",
       "cohere",
       "mistral",

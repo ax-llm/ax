@@ -584,6 +584,255 @@
         "name": "google-gemini"
       },
       {
+        "defaultModel": "Llama-3.2-3B-Instruct-q4f32_1-MLC",
+        "displayName": "WebLLM",
+        "isDynamic": false,
+        "models": [
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "contextWindow": 8192,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 2048,
+            "name": "gemma-2-2b-it-q4f32_1-MLC",
+            "promptTokenCostPer1M": 0,
+            "provider": "webllm",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "contextWindow": 8192,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 2048,
+            "name": "gemma-2-9b-it-q4f32_1-MLC",
+            "promptTokenCostPer1M": 0,
+            "provider": "webllm",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "contextWindow": 128000,
+            "currency": "usd",
+            "isDefault": false,
+            "isExpensive": true,
+            "maxTokens": 4096,
+            "name": "Llama-3.1-70B-Instruct-q4f16_1-MLC",
+            "promptTokenCostPer1M": 0,
+            "provider": "webllm",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "contextWindow": 128000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 4096,
+            "name": "Llama-3.1-8B-Instruct-q4f32_1-MLC",
+            "promptTokenCostPer1M": 0,
+            "provider": "webllm",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "contextWindow": 128000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 2048,
+            "name": "Llama-3.2-1B-Instruct-q4f32_1-MLC",
+            "promptTokenCostPer1M": 0,
+            "provider": "webllm",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "contextWindow": 128000,
+            "currency": "usd",
+            "isDefault": true,
+            "maxTokens": 2048,
+            "name": "Llama-3.2-3B-Instruct-q4f32_1-MLC",
+            "promptTokenCostPer1M": 0,
+            "provider": "webllm",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "contextWindow": 32768,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 4096,
+            "name": "Mistral-7B-Instruct-v0.3-q4f32_1-MLC",
+            "promptTokenCostPer1M": 0,
+            "provider": "webllm",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "contextWindow": 128000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 4096,
+            "name": "Phi-3.5-mini-instruct-q4f32_1-MLC",
+            "promptTokenCostPer1M": 0,
+            "provider": "webllm",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "contextWindow": 32768,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 2048,
+            "name": "Qwen2.5-0.5B-Instruct-q4f32_1-MLC",
+            "promptTokenCostPer1M": 0,
+            "provider": "webllm",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "contextWindow": 32768,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 2048,
+            "name": "Qwen2.5-1.5B-Instruct-q4f32_1-MLC",
+            "promptTokenCostPer1M": 0,
+            "provider": "webllm",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "contextWindow": 32768,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 2048,
+            "name": "Qwen2.5-3B-Instruct-q4f32_1-MLC",
+            "promptTokenCostPer1M": 0,
+            "provider": "webllm",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "contextWindow": 32768,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 4096,
+            "name": "Qwen2.5-7B-Instruct-q4f32_1-MLC",
+            "promptTokenCostPer1M": 0,
+            "provider": "webllm",
+            "type": "text"
+          }
+        ],
+        "name": "webllm"
+      },
+      {
         "defaultModel": "mistral-small-latest",
         "displayName": "Mistral AI",
         "isDynamic": false,
@@ -3773,12 +4022,13 @@
         "name": "azure-openai"
       }
     ],
-    "modelCount": 154,
+    "modelCount": 166,
     "openaiFirstModel": "gpt-5-nano",
     "openaiModelTypes": ["code", "text"],
-    "providerCount": 10,
+    "providerCount": 11,
     "providerNames": [
       "google-gemini",
+      "webllm",
       "mistral",
       "deepseek",
       "openai",

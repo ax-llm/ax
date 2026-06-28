@@ -3232,9 +3232,15 @@ pub struct AxGEPA {
     pub max_rounds: usize,
 }
 
+#[derive(Clone)]
+struct AxGEPACandidate {
+    cfg: Map<String, Value>,
+    scores: Value,
+}
+
 impl AxGEPA {
     pub fn new() -> Self {
-        Self { max_rounds: 1 }
+        Self { max_rounds: 30 }
     }
 }
 
@@ -3250,21 +3256,419 @@ impl OptimizerEngine for AxGEPA {
         request: Value,
         evaluator: &mut dyn FnMut(Value) -> AxResult<Value>,
     ) -> AxResult<Value> {
-        let candidate = request
-            .get("candidate")
+        let options = request.get("options").cloned().unwrap_or_else(|| json!({}));
+        let mut components = request
+            .get("components")
+            .and_then(Value::as_array)
             .cloned()
-            .unwrap_or_else(|| request.clone());
-        let score = evaluator(json!({"candidate": candidate.clone()}))?;
-        Ok(json!({
-            "artifact": {
-                "version": 1,
-                "kind": "gepa",
-                "candidate": candidate,
-                "score": score,
-                "rounds": self.max_rounds
+            .unwrap_or_default();
+        if components.is_empty() {
+            if let Some(candidate) = request.get("candidate").and_then(Value::as_object) {
+                components = candidate
+                    .iter()
+                    .map(|(id, value)| {
+                        json!({
+                            "id": id,
+                            "owner": id.split("::").next().unwrap_or(id),
+                            "kind": "instruction",
+                            "current": value,
+                        })
+                    })
+                    .collect();
             }
+        }
+        if components.is_empty() {
+            return Err(AxError::runtime("AxGEPA: program exposes no optimizable components"));
+        }
+
+        let dataset_value = request.get("dataset").cloned().unwrap_or_else(|| json!([]));
+        let dataset = normalize_optimization_dataset(&dataset_value);
+        let train = dataset
+            .get("train")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let validation = dataset
+            .get("validation")
+            .and_then(Value::as_array)
+            .cloned()
+            .filter(|items| !items.is_empty())
+            .unwrap_or_else(|| train.clone());
+        let max_calls = ax_gepa_option_usize(&options, &["maxMetricCalls", "max_metric_calls"], 0);
+        if max_calls == 0 {
+            return Err(AxError::runtime("AxGEPA: options.maxMetricCalls must be set to a positive integer"));
+        }
+        let num_trials = ax_gepa_option_usize(&options, &["numTrials", "num_trials"], 30);
+        let minibatch_size = ax_gepa_option_usize(&options, &["minibatchSize", "minibatch_size"], 20).max(1);
+        let min_improvement = ax_gepa_option_f64(&options, &["minImprovementThreshold", "min_improvement_threshold"], 0.0);
+        let pareto_set_size = ax_gepa_option_usize(
+            &options,
+            &["paretoSetSize", "pareto_set_size"],
+            std::cmp::max(10, std::cmp::min(200, minibatch_size * 3)),
+        )
+        .clamp(1, 1000);
+        let tie_eps = ax_gepa_option_f64(&options, &["tieEpsilon", "tie_epsilon"], 0.0);
+        let score_options = request
+            .get("score_options")
+            .or_else(|| request.get("scoreOptions"))
+            .unwrap_or(&options);
+        let mut total_calls = 0usize;
+        let base_cfg = ax_gepa_current_map(&components);
+        let pareto_set = validation
+            .iter()
+            .take(pareto_set_size)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let mut demos = Vec::new();
+        if let Some(bootstrap) = options.get("bootstrap") {
+            if bootstrap.as_bool().unwrap_or(true) {
+                let bootstrap_opts = if bootstrap.is_object() { bootstrap } else { &options };
+                let threshold = ax_gepa_option_f64(bootstrap_opts, &["scoreThreshold", "score_threshold"], 0.8);
+                let max_demos = ax_gepa_option_usize(bootstrap_opts, &["maxBootstrapDemos", "max_bootstrap_demos"], 4).max(1);
+                let max_bootstrap_calls = ax_gepa_option_usize(
+                    bootstrap_opts,
+                    &["maxBootstrapMetricCalls", "max_bootstrap_metric_calls"],
+                    std::cmp::max(1, std::cmp::min(train.len(), 8)),
+                );
+                let mut bootstrap_calls = 0usize;
+                for example in &train {
+                    if demos.len() >= max_demos || bootstrap_calls >= max_bootstrap_calls {
+                        break;
+                    }
+                    let (result, next_calls) = ax_gepa_evaluate(
+                        evaluator,
+                        &base_cfg,
+                        std::slice::from_ref(example),
+                        "bootstrap",
+                        max_calls,
+                        total_calls,
+                        false,
+                    )?;
+                    total_calls = next_calls;
+                    bootstrap_calls += 1;
+                    let row = result
+                        .get("rows")
+                        .and_then(Value::as_array)
+                        .and_then(|items| items.first())
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                    if row.get("scalar").and_then(Value::as_f64).unwrap_or(0.0) >= threshold {
+                        let trace = row
+                            .get("prediction")
+                            .cloned()
+                            .or_else(|| row.get("input").cloned())
+                            .unwrap_or_else(|| json!({}));
+                        demos.push(json!({"programId": "root", "traces": [trace]}));
+                    }
+                }
+            }
+        }
+
+        let (base_eval, next_calls) = ax_gepa_evaluate(
+            evaluator,
+            &base_cfg,
+            &pareto_set,
+            "initial Pareto evaluation",
+            max_calls,
+            total_calls,
+            true,
+        )?;
+        total_calls = next_calls;
+        let mut candidates = vec![AxGEPACandidate {
+            cfg: base_cfg.clone(),
+            scores: ax_gepa_eval_scores(&base_eval),
+        }];
+        let reflection_values = ax_gepa_reflection_values(&request);
+        let rounds = num_trials.min(self.max_rounds);
+        if rounds > 0 && !reflection_values.is_empty() && !train.is_empty() {
+            let mini = train
+                .iter()
+                .take(minibatch_size)
+                .cloned()
+                .collect::<Vec<_>>();
+            let (parent_eval, next_calls) = ax_gepa_evaluate(
+                evaluator,
+                &base_cfg,
+                &mini,
+                "parent minibatch",
+                max_calls,
+                total_calls,
+                false,
+            )?;
+            total_calls = next_calls;
+            let mut proposed = base_cfg.clone();
+            if let Some(component) = components.first() {
+                if let Some(component_id) = component.get("id").and_then(Value::as_str) {
+                    let current = proposed
+                        .get(component_id)
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let next = reflection_values
+                        .iter()
+                        .find(|value| ax_gepa_validate_component_value(component, value))
+                        .cloned()
+                        .unwrap_or(current);
+                    proposed.insert(component_id.to_string(), Value::String(next));
+                }
+            }
+            let (child_mini, next_calls) = ax_gepa_evaluate(
+                evaluator,
+                &proposed,
+                &mini,
+                "child minibatch",
+                max_calls,
+                total_calls,
+                false,
+            )?;
+            total_calls = next_calls;
+            if ax_gepa_eval_sum(&child_mini) > ax_gepa_eval_sum(&parent_eval) + min_improvement {
+                let (child_eval, next_calls) = ax_gepa_evaluate(
+                    evaluator,
+                    &proposed,
+                    &pareto_set,
+                    "validation evaluation",
+                    max_calls,
+                    total_calls,
+                    false,
+                )?;
+                total_calls = next_calls;
+                candidates.push(AxGEPACandidate {
+                    cfg: proposed,
+                    scores: ax_gepa_eval_scores(&child_eval),
+                });
+            }
+        }
+
+        let front = ax_gepa_pareto_front(&candidates, tie_eps);
+        let mut best_idx = *front.first().unwrap_or(&0);
+        let mut best_score = f64::NEG_INFINITY;
+        for idx in front {
+            let score = scalarize_scores(&candidates[idx].scores, score_options);
+            if score > best_score || (score == best_score && idx > best_idx) {
+                best_score = score;
+                best_idx = idx;
+            }
+        }
+        let best_score = if best_score.is_finite() { best_score } else { 0.0 };
+        Ok(json!({
+            "artifactVersion": "axir-optimized-artifact-v1",
+            "optimizerName": "GEPA",
+            "optimizerVersion": "axir-gepa-v1",
+            "componentMap": Value::Object(candidates[best_idx].cfg.clone()),
+            "demos": demos,
+            "metadata": {
+                "optimizer": "GEPA",
+                "selectorState": options.get("selectorState").or_else(|| options.get("selector_state")).cloned().unwrap_or_else(|| json!({})),
+                "bestScore": json_number(best_score),
+                "totalMetricCalls": total_calls,
+                "candidatesExplored": candidates.len(),
+                "report": {
+                    "summary": "GEPA Multi-Objective Optimization Complete",
+                    "statistics": {
+                        "totalEvaluations": total_calls,
+                        "candidatesExplored": candidates.len(),
+                        "converged": true,
+                    },
+                    "paretoFrontier": {"solutionCount": candidates.len()},
+                },
+            },
+            "evidence": {
+                "avg": json_number(best_score),
+                "count": pareto_set.len(),
+                "totalMetricCalls": total_calls,
+            },
+            "provenance": {
+                "sourceProgramKind": request.get("programKind").or_else(|| request.get("programId")).and_then(Value::as_str).unwrap_or("unknown"),
+                "componentOwners": Value::Object(ax_gepa_component_owners(&components)),
+            },
         }))
     }
+}
+
+fn ax_gepa_option_f64(options: &Value, keys: &[&str], default: f64) -> f64 {
+    keys.iter()
+        .find_map(|key| options.get(*key).and_then(Value::as_f64))
+        .unwrap_or(default)
+}
+
+fn ax_gepa_option_usize(options: &Value, keys: &[&str], default: usize) -> usize {
+    keys.iter()
+        .find_map(|key| options.get(*key).and_then(Value::as_u64))
+        .map(|value| value as usize)
+        .unwrap_or(default)
+}
+
+fn ax_gepa_current_map(components: &[Value]) -> Map<String, Value> {
+    components
+        .iter()
+        .filter_map(|component| {
+            component
+                .get("id")
+                .and_then(Value::as_str)
+                .map(|id| (id.to_string(), component.get("current").cloned().unwrap_or_else(|| json!(""))))
+        })
+        .collect()
+}
+
+fn ax_gepa_component_owners(components: &[Value]) -> Map<String, Value> {
+    components
+        .iter()
+        .filter_map(|component| {
+            let id = component.get("id").and_then(Value::as_str)?;
+            let owner = component
+                .get("owner")
+                .and_then(Value::as_str)
+                .unwrap_or_else(|| id.split("::").next().unwrap_or(id));
+            Some((id.to_string(), Value::String(owner.to_string())))
+        })
+        .collect()
+}
+
+fn ax_gepa_evaluate(
+    evaluator: &mut dyn FnMut(Value) -> AxResult<Value>,
+    cfg: &Map<String, Value>,
+    examples: &[Value],
+    phase: &str,
+    max_calls: usize,
+    total_calls: usize,
+    required: bool,
+) -> AxResult<(Value, usize)> {
+    let needed = examples.len();
+    if total_calls + needed > max_calls {
+        if required {
+            return Err(AxError::runtime(format!(
+                "AxGEPA: options.maxMetricCalls={max_calls} is too small to evaluate the initial Pareto set; need at least {needed} metric calls"
+            )));
+        }
+        return Ok((json!({"rows": [], "avg": 0.0, "sum": 0.0, "count": 0}), total_calls));
+    }
+    let dataset = json!({"train": examples, "validation": []});
+    let result = evaluator(json!({
+        "candidateMap": Value::Object(cfg.clone()),
+        "componentMap": Value::Object(cfg.clone()),
+        "candidate": Value::Object(cfg.clone()),
+        "dataset": dataset,
+        "options": {
+            "dataset": dataset,
+            "phase": phase,
+            "captureTraces": true,
+        },
+    }))?;
+    let count = result
+        .get("count")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or(needed);
+    Ok((result, total_calls + count))
+}
+
+fn ax_gepa_eval_scores(result: &Value) -> Value {
+    result
+        .get("avgScores")
+        .cloned()
+        .unwrap_or_else(|| json!({"score": result.get("avg").and_then(Value::as_f64).unwrap_or(0.0)}))
+}
+
+fn ax_gepa_eval_sum(result: &Value) -> f64 {
+    result.get("sum").and_then(Value::as_f64).unwrap_or_else(|| {
+        result.get("rows").and_then(Value::as_array).map(|rows| {
+            rows.iter()
+                .filter_map(|row| row.get("scalar").and_then(Value::as_f64))
+                .sum()
+        }).unwrap_or(0.0)
+    })
+}
+
+fn ax_gepa_reflection_values(request: &Value) -> Vec<String> {
+    request
+        .get("reflection_responses")
+        .or_else(|| request.get("reflectionResponses"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|response| {
+            let content = response
+                .get("results")
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("content"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            content
+                .split_once("New Value:")
+                .map(|(_, value)| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .collect()
+}
+
+fn ax_gepa_validate_component_value(component: &Value, value: &str) -> bool {
+    if value.trim().is_empty() {
+        return false;
+    }
+    if component.get("format").and_then(Value::as_str) == Some("snake_case")
+        && !value
+            .chars()
+            .enumerate()
+            .all(|(index, ch)| ch == '_' || ch.is_ascii_lowercase() || (index > 0 && ch.is_ascii_digit()))
+    {
+        return false;
+    }
+    if let Some(max_length) = component.get("maxLength").and_then(Value::as_u64) {
+        if value.chars().count() > max_length as usize {
+            return false;
+        }
+    }
+    component
+        .get("preserve")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .all(|literal| value.contains(literal))
+        })
+        .unwrap_or(true)
+}
+
+fn ax_gepa_dominates(a: &Value, b: &Value, eps: f64) -> bool {
+    let mut keys = BTreeSet::new();
+    if let Some(map) = a.as_object() {
+        keys.extend(map.keys().cloned());
+    }
+    if let Some(map) = b.as_object() {
+        keys.extend(map.keys().cloned());
+    }
+    let mut strict = false;
+    for key in keys {
+        let av = a.get(&key).and_then(Value::as_f64).unwrap_or(0.0);
+        let bv = b.get(&key).and_then(Value::as_f64).unwrap_or(0.0);
+        if av + eps < bv {
+            return false;
+        }
+        if av > bv + eps {
+            strict = true;
+        }
+    }
+    strict
+}
+
+fn ax_gepa_pareto_front(candidates: &[AxGEPACandidate], eps: f64) -> Vec<usize> {
+    let mut front = Vec::new();
+    for (index, candidate) in candidates.iter().enumerate() {
+        let dominated = candidates
+            .iter()
+            .enumerate()
+            .any(|(other_index, other)| other_index != index && ax_gepa_dominates(&other.scores, &candidate.scores, eps));
+        if !dominated {
+            front.push(index);
+        }
+    }
+    front
 }
 
 pub fn optimize<P: AxProgram>(
@@ -7400,17 +7804,7 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
             }
         }
         "gepa" => {
-            if fixture
-                .get("optimize_options")
-                .and_then(|options| options.get("maxMetricCalls"))
-                .and_then(Value::as_f64)
-                .is_some_and(|value| value < 2.0)
-            {
-                return Err(AxError::runtime(
-                    "AxGEPA: options.maxMetricCalls=1 is too small to evaluate the initial Pareto set",
-                ));
-            }
-            let (artifact, evaluations) = conformance_gepa_result(fixture);
+            let (artifact, evaluations) = conformance_gepa_result(fixture)?;
             if let Some(expected) = fixture.get("expected_artifact_subset") {
                 expect_json_subset("GEPA artifact", &artifact, expected)?;
             }
@@ -8251,126 +8645,137 @@ fn engine_transcripts(fixture: &Value) -> Vec<Value> {
         .collect()
 }
 
-fn conformance_gepa_result(fixture: &Value) -> (Value, Vec<Value>) {
+fn conformance_gepa_result(fixture: &Value) -> AxResult<(Value, Vec<Value>)> {
     let components = fixture
         .get("components")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_else(|| conformance_optimizable_components(fixture));
-    let mut component_map = Map::new();
-    let mut reflection_values = fixture
-        .get("reflection_responses")
+    let request = json!({
+        "contractVersion": "axir-optimize-contract-v1",
+        "programKind": normalized_program_kind(fixture),
+        "components": components,
+        "dataset": normalize_optimization_dataset(fixture.get("dataset").unwrap_or(&json!([]))),
+        "options": fixture.get("optimize_options").cloned().unwrap_or_else(|| json!({})),
+        "reflection_responses": fixture.get("reflection_responses").cloned().unwrap_or_else(|| json!([])),
+        "score_options": fixture.get("score_options").cloned().unwrap_or_else(|| json!({})),
+    });
+    let mut evaluations = Vec::new();
+    let mut engine = AxGEPA::new();
+    let mut evaluator = |step: Value| -> AxResult<Value> {
+        let result = conformance_gepa_evaluate(fixture, &step);
+        evaluations.push(result.clone());
+        Ok(result)
+    };
+    let artifact = engine.optimize(request, &mut evaluator)?;
+    Ok((artifact, evaluations))
+}
+
+fn conformance_gepa_evaluate(fixture: &Value, step: &Value) -> Value {
+    let candidate_map = step
+        .get("candidateMap")
+        .or_else(|| step.get("componentMap"))
+        .or_else(|| step.get("candidate"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let options = step.get("options").cloned().unwrap_or_else(|| json!({}));
+    let empty_dataset = json!([]);
+    let dataset_source = options
+        .get("dataset")
+        .or_else(|| step.get("dataset"))
+        .or_else(|| fixture.get("dataset"))
+        .unwrap_or(&empty_dataset);
+    let dataset = normalize_optimization_dataset(dataset_source);
+    let score_component = fixture
+        .get("score_component")
+        .or_else(|| fixture.get("scoreComponent"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            fixture
+                .get("components")
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(|component| component.get("id"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("");
+    let component_value = candidate_map
+        .get(score_component)
+        .cloned()
+        .or_else(|| {
+            fixture
+                .get("components")
+                .and_then(Value::as_array)
+                .and_then(|items| {
+                    items.iter().find(|component| {
+                        component.get("id").and_then(Value::as_str) == Some(score_component)
+                    })
+                })
+                .map(component_current)
+        })
+        .unwrap_or_else(|| json!(""));
+    let score_map = fixture.get("gepa_scores").and_then(Value::as_object);
+    let scripted_score = score_map
+        .and_then(|scores| component_value.as_str().and_then(|key| scores.get(key)))
+        .or_else(|| score_map.and_then(|scores| scores.get("*")));
+    let empty_score_options = json!({});
+    let score_options = fixture.get("score_options").unwrap_or(&empty_score_options);
+    let rows = dataset
+        .get("train")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|response| {
-            let content = response
-                .get("results")
-                .and_then(Value::as_array)
-                .and_then(|items| items.first())
-                .and_then(|item| item.get("content"))
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            content
-                .split_once("New Value:")
-                .map(|(_, value)| value.trim().to_string())
-        })
-        .collect::<Vec<_>>();
-    for component in &components {
-        let Some(id) = component.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let value = reflection_values
-            .pop()
-            .map(Value::String)
-            .unwrap_or_else(|| component_current(component));
-        component_map.insert(id.to_string(), value);
-    }
-    let selector_state = fixture
-        .get("optimize_options")
-        .and_then(|options| options.get("selectorState"))
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let mut metadata = json!({
-        "optimizer": "GEPA",
-        "report": {"summary": "GEPA Multi-Objective Optimization Complete"},
-        "selectorState": selector_state,
-        "candidatesExplored": fixture.get("reflection_responses").and_then(Value::as_array).map(|items| items.len()).unwrap_or(0),
-    });
-    if let Some(scores) = fixture.get("gepa_scores").and_then(Value::as_object) {
-        let best = component_map
-            .values()
-            .filter_map(|value| scores.get(value.as_str().unwrap_or("")))
-            .filter_map(Value::as_f64)
-            .fold(0.0, f64::max);
-        if best > 0.0 {
-            metadata["bestScore"] = json_number(best);
-        }
-    }
-    if let Some(bootstrap) = fixture
-        .get("optimize_options")
-        .and_then(|options| options.get("bootstrap"))
-    {
-        if bootstrap.get("maxBootstrapDemos").and_then(Value::as_u64).unwrap_or(0) > 0 {
-            metadata["totalMetricCalls"] = json!(2);
-        }
-    }
-    let provenance = json!({
-        "sourceProgramKind": normalized_program_kind(fixture),
-        "componentOwners": components.iter().filter_map(|component| {
-            component.get("id").and_then(Value::as_str).map(|id| (id.to_string(), json!(component_owner(component))))
-        }).collect::<Map<String, Value>>(),
-    });
-    let mut artifact = json!({
-        "artifactVersion": "axir-optimized-artifact-v1",
-        "optimizerName": "GEPA",
-        "optimizerVersion": "axir-gepa-v1",
-        "componentMap": Value::Object(component_map),
-        "metadata": metadata,
-        "provenance": provenance,
-    });
-    if artifact["metadata"].get("totalMetricCalls").is_some() {
-        let first = components.first().map(component_current).unwrap_or_else(|| json!(""));
-        artifact["demos"] = json!([{
-            "programId": "root",
-            "traces": [{
+        .enumerate()
+        .map(|(index, task)| {
+            let raw_score = if let Some(scripted) = scripted_score {
+                if let Some(items) = scripted.as_array() {
+                    items
+                        .get(index)
+                        .or_else(|| items.last())
+                        .cloned()
+                        .unwrap_or_else(|| json!(0))
+                } else {
+                    scripted.clone()
+                }
+            } else {
+                task.get("metric_score")
+                    .or_else(|| task.get("scores"))
+                    .or_else(|| task.get("score"))
+                    .cloned()
+                    .unwrap_or_else(|| json!(0))
+            };
+            let scores = normalize_metric_scores(&raw_score);
+            let scalar = scalarize_scores(&scores, score_options);
+            let prediction = json!({
                 "completionType": "final",
-                "finalOutput": {"componentValue": first.clone()},
-                "output": {"componentValue": first.clone()},
-                "trace": {"componentValue": first},
+                "output": {"componentValue": component_value.clone()},
+                "finalOutput": {"componentValue": component_value.clone()},
                 "functionCalls": [],
                 "actionLog": [],
                 "usage": {},
-            }]
-        }]);
-    }
-    let evaluations = vec![json!({
-        "phase": "initial Pareto evaluation",
-        "count": 1,
-        "avg": fixture
-            .get("gepa_scores")
-            .and_then(Value::as_object)
-            .and_then(|scores| {
-                components
-                    .first()
-                    .and_then(component_current_value_key)
-                    .and_then(|key| scores.get(&key))
-            })
-            .and_then(|value| {
-                if value.is_object() {
-                    value.get("faithfulness").and_then(Value::as_f64)
-                } else {
-                    value.as_f64()
-                }
-            })
-            .unwrap_or(0.6),
-    })];
-    (artifact, evaluations)
-}
-
-fn component_current_value_key(component: &Value) -> Option<String> {
-    component_current(component).as_str().map(ToString::to_string)
+                "trace": {"componentValue": component_value.clone()},
+            });
+            core_value_to_json(&_build_optimization_eval_row(&[
+                core_value_from_json(&task),
+                core_value_from_json(&prediction),
+                core_value_from_json(&scores),
+                CoreValue::Num(scalar),
+                core_value_from_json(prediction.get("trace").unwrap_or(&Value::Null)),
+                core_value_from_json(&Value::Null),
+            ]).unwrap_or_else(|_| core_value_from_json(&json!({
+                "input": task.get("input").cloned().unwrap_or_else(|| json!({})),
+                "prediction": prediction,
+                "scores": scores,
+                "scalar": scalar,
+            }))))
+        })
+        .collect::<Vec<_>>();
+    core_value_to_json(&_build_optimization_eval_result(&[
+        core_value_from_json(&Value::Array(rows)),
+        core_value_from_json(&candidate_map),
+        CoreValue::from(options.get("phase").and_then(Value::as_str).unwrap_or("train")),
+    ]).unwrap_or_else(|_| core_value_from_json(&json!({}))))
 }
 
 fn normalized_program_kind(fixture: &Value) -> &'static str {

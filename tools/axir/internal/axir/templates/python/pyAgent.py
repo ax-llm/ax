@@ -546,7 +546,7 @@ class AxGEPA(OptimizerEngine):
         best_score = -1e100
         for item in front:
             score = _gepa_scalar(item["scores"], options)
-            if score > best_score:
+            if score > best_score or (score == best_score and item["idx"] > best_idx):
                 best_score = score
                 best_idx = item["idx"]
         best_cfg = dict(candidates[best_idx]["cfg"])

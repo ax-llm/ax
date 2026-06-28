@@ -372,12 +372,19 @@
         "isDynamic": false,
         "models": [],
         "name": "grok"
+      },
+      {
+        "defaultModel": "Llama-3.2-3B-Instruct-q4f32_1-MLC",
+        "displayName": "WebLLM",
+        "isDynamic": false,
+        "models": [],
+        "name": "webllm"
       }
     ],
     "modelCount": 12,
     "openaiFirstModel": "gpt-5.1-codex-mini",
     "openaiModelTypes": ["code"],
-    "providerCount": 10,
+    "providerCount": 11,
     "providerNames": [
       "mistral",
       "openai",
@@ -388,7 +395,8 @@
       "cohere",
       "deepseek",
       "reka",
-      "grok"
+      "grok",
+      "webllm"
     ]
   },
   "kind": "ai_model_catalog_runtime",

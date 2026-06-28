@@ -329,6 +329,45 @@ writeFixture('gepa-reflection-validation-retry', {
   },
 });
 
+writeFixture('gepa-tie-prefers-later-accepted', {
+  kind: 'optimize',
+  operation: 'gepa',
+  program: 'axgen',
+  components: [gepaComponents[0]],
+  dataset: {
+    train: [{ input: { question: 'Train tie breaker?' }, score: 1 }],
+    validation: [
+      { input: { question: 'Validation one?' }, score: 1 },
+      { input: { question: 'Validation two?' }, score: 1 },
+    ],
+  },
+  optimize_options: {
+    maxMetricCalls: 6,
+    minibatchSize: 1,
+    numTrials: 1,
+    seed: 7,
+  },
+  reflection_responses: [
+    {
+      results: [{ content: 'New Value: answer accepted tie later', index: 0 }],
+    },
+  ],
+  gepa_scores: {
+    'Base answer instruction': [0.5, 0.5],
+    'answer accepted tie later': [0.75, 0.25],
+  },
+  expected_artifact_subset: {
+    componentMap: {
+      'qa::instruction': 'answer accepted tie later',
+    },
+    metadata: {
+      bestScore: 0.5,
+      candidatesExplored: 2,
+    },
+    optimizerName: 'GEPA',
+  },
+});
+
 writeFixture('gepa-bootstrap-demos', {
   kind: 'optimize',
   operation: 'gepa',

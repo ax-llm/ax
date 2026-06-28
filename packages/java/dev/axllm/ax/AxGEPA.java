@@ -404,7 +404,8 @@ public final class AxGEPA implements OptimizerEngine {
     double bestScore = Double.NEGATIVE_INFINITY;
     for (Map<String, Object> item : front) {
       double score = scalar(Core.asMap(item.get("scores")), options);
-      if (score > bestScore) { bestScore = score; bestIdx = ((Number) item.get("idx")).intValue(); }
+      int idx = ((Number) item.get("idx")).intValue();
+      if (score > bestScore || (score == bestScore && idx > bestIdx)) { bestScore = score; bestIdx = idx; }
     }
     Map<String, Object> bestCfg = Core.asMap(candidates.get(bestIdx).get("cfg"));
     Map<String, Object> owners = new LinkedHashMap<>();

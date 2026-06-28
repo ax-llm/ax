@@ -3509,7 +3509,7 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
   for (const auto& item : Core::iter(front)) {
     int idx = static_cast<int>(gepa_num(Core::get(item, "idx", Value(0)), 0));
     double score = gepa_scalar(Core::get(item, "scores", Value::object()), options);
-    if (score > best_score) {
+    if (score > best_score || (score == best_score && idx > best_idx)) {
       best_score = score;
       best_idx = idx;
     }

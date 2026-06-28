@@ -1,0 +1,71 @@
+{
+  "components": [
+    {
+      "constraints": "Keep the word answer in the instruction.",
+      "current": "Base answer instruction",
+      "description": "Primary prompt instruction.",
+      "id": "qa::instruction",
+      "kind": "instruction",
+      "owner": "qa",
+      "preserve": ["answer"]
+    }
+  ],
+  "dataset": {
+    "train": [
+      {
+        "input": {
+          "question": "Train tie breaker?"
+        },
+        "score": 1
+      }
+    ],
+    "validation": [
+      {
+        "input": {
+          "question": "Validation one?"
+        },
+        "score": 1
+      },
+      {
+        "input": {
+          "question": "Validation two?"
+        },
+        "score": 1
+      }
+    ]
+  },
+  "expected_artifact_subset": {
+    "componentMap": {
+      "qa::instruction": "answer accepted tie later"
+    },
+    "metadata": {
+      "bestScore": 0.5,
+      "candidatesExplored": 2
+    },
+    "optimizerName": "GEPA"
+  },
+  "gepa_scores": {
+    "answer accepted tie later": [0.75, 0.25],
+    "Base answer instruction": [0.5, 0.5]
+  },
+  "kind": "optimize",
+  "name": "gepa-tie-prefers-later-accepted",
+  "operation": "gepa",
+  "optimize_options": {
+    "maxMetricCalls": 6,
+    "minibatchSize": 1,
+    "numTrials": 1,
+    "seed": 7
+  },
+  "program": "axgen",
+  "reflection_responses": [
+    {
+      "results": [
+        {
+          "content": "New Value: answer accepted tie later",
+          "index": 0
+        }
+      ]
+    }
+  ]
+}
