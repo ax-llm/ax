@@ -12,6 +12,12 @@ from .ai import build_chat_request, build_embed_request, normalize_chat_response
 from .gen import (
     ax,
     fold_stream,
+    _ace_apply_curator_operations,
+    _ace_dedupe_playbook,
+    _ace_empty_playbook,
+    _ace_recompute_playbook_stats,
+    _ace_render_playbook,
+    _ace_update_bullet_feedback,
     _adjust_optimization_score_for_actions,
     _build_optimization_eval_result,
     _build_optimization_eval_row,
@@ -39,6 +45,7 @@ from .flow import (
     flow,
 )
 from .agent import (
+    AxACE,
     AxAgent,
     AxAgentClarificationError,
     AxBootstrapFewShot,
@@ -1038,6 +1045,33 @@ def _run_optimize(fixture):
             normalized = _normalize_optimization_dataset(fixture.get("dataset") or [])
             _assert_equal(normalized, fixture.get("expected_dataset"), "normalized dataset")
             return
+        if operation == "playbook-empty":
+            playbook = _ace_empty_playbook(fixture.get("description"), fixture.get("now") or "")
+            _assert_equal(playbook, fixture.get("expected_playbook"), "ace empty playbook")
+            return
+        if operation == "playbook-render":
+            rendered = _ace_render_playbook(copy.deepcopy(fixture.get("playbook") or {}))
+            _assert_equal(rendered, fixture.get("expected_render"), "ace rendered playbook")
+            return
+        if operation == "playbook-stats":
+            playbook = _ace_recompute_playbook_stats(copy.deepcopy(fixture.get("playbook") or {}))
+            _assert_equal(playbook, fixture.get("expected_playbook"), "ace recomputed stats")
+            return
+        if operation == "playbook-dedupe":
+            playbook = _ace_dedupe_playbook(copy.deepcopy(fixture.get("playbook") or {}))
+            _assert_equal(playbook, fixture.get("expected_playbook"), "ace deduped playbook")
+            return
+        if operation == "playbook-feedback":
+            playbook = _ace_update_bullet_feedback(copy.deepcopy(fixture.get("playbook") or {}), fixture.get("bullet_id") or "", fixture.get("tag") or "", fixture.get("now") or "")
+            _assert_equal(playbook, fixture.get("expected_playbook"), "ace bullet feedback")
+            return
+        if operation == "playbook-apply-ops":
+            result = _ace_apply_curator_operations(copy.deepcopy(fixture.get("playbook") or {}), fixture.get("operations") or [], fixture.get("apply_options") or {}, fixture.get("now") or "")
+            _assert_equal(result, fixture.get("expected_result"), "ace applied operations")
+            return
+        if operation in ("ace-compile", "ace-online-update"):
+            _run_ace(fixture, operation)
+            return
         if operation == "score":
             scores = _normalize_optimization_metric_scores(fixture.get("metric_score"))
             scalar = _scalarize_optimization_scores(scores, fixture.get("score_options") or {})
@@ -1141,6 +1175,65 @@ def _run_optimize(fixture):
             return
         raise
     raise FixtureError(f"unknown optimize operation {operation!r}")
+
+
+def _run_ace(fixture, operation):
+    reflections = list(fixture.get("reflection_responses") or [])
+    curators = list(fixture.get("curator_responses") or [])
+    predictions = list(fixture.get("generator_predictions") or [])
+    scores = list(fixture.get("metric_scores") or [])
+
+    def reflector(_payload):
+        if not reflections:
+            return None
+        return copy.deepcopy(reflections.pop(0))
+
+    def curator(_payload):
+        if not curators:
+            return None
+        return copy.deepcopy(curators.pop(0))
+
+    def generator(_example):
+        if not predictions:
+            return {}
+        return copy.deepcopy(predictions.pop(0))
+
+    def metric(_args):
+        if not scores:
+            return 0
+        return scores.pop(0)
+
+    options = dict(fixture.get("ace_options") or {})
+    options["now"] = fixture.get("now") or "1970-01-01T00:00:00.000Z"
+    if fixture.get("initial_playbook") is not None:
+        options["initialPlaybook"] = copy.deepcopy(fixture.get("initial_playbook"))
+    ace = AxACE(reflector=reflector, curator=curator, generator=generator, metricFn=metric, **options)
+
+    if operation == "ace-compile":
+        result = ace.compile(None, fixture.get("examples") or [], metric, {})
+        if "expected_playbook" in fixture:
+            _assert_equal(ace.get_playbook(), fixture["expected_playbook"], "ace compile playbook")
+        if "expected_artifact" in fixture:
+            _assert_equal(ace.get_artifact(), fixture["expected_artifact"], "ace compile artifact")
+        if "expected_artifact_subset" in fixture:
+            _assert_subset(ace.get_artifact(), fixture["expected_artifact_subset"], "ace compile artifact")
+        if "expected_result_subset" in fixture:
+            _assert_subset(result, fixture["expected_result_subset"], "ace compile result")
+        return
+
+    # ace-online-update (initial playbook + program seeded via __init__ options/generator)
+    update_args = dict(fixture.get("update") or {})
+    if "prediction" not in update_args:
+        update_args["prediction"] = generator(update_args.get("example"))
+    curator_result = ace.apply_online_update(update_args)
+    if "expected_playbook" in fixture:
+        _assert_equal(ace.get_playbook(), fixture["expected_playbook"], "ace online playbook")
+    if "expected_artifact" in fixture:
+        _assert_equal(ace.get_artifact(), fixture["expected_artifact"], "ace online artifact")
+    if "expected_artifact_subset" in fixture:
+        _assert_subset(ace.get_artifact(), fixture["expected_artifact_subset"], "ace online artifact")
+    if "expected_curator" in fixture:
+        _assert_equal(curator_result, fixture["expected_curator"], "ace online curator")
 
 
 def _verification_instruments_summary():

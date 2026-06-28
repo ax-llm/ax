@@ -82,8 +82,7 @@
           "slug": "concepts/playbook",
           "title": "Playbook",
           "template": "concept-playbook",
-          "description": "Evolving context playbooks that grow offline from examples and online from feedback.",
-          "languages": ["typescript"]
+          "description": "Evolving context playbooks that grow offline from examples and online from feedback."
         },
         {
           "slug": "concepts/llms",

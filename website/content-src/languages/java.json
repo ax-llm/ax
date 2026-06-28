@@ -60,6 +60,12 @@
     "optimize": [
       "var engine = new AxGEPA(reflectionClient, Map.of());",
       "var result = engine.optimize(request, evaluator);"
+    ],
+    "playbook": [
+      "AxPlaybook pb = Ax.playbook(program, Map.of(\"studentAI\", studentAI));",
+      "pb.evolve(examples, metric, Map.of());   // grow a playbook offline from examples",
+      "pb.update(Map.of(\"example\", ex, \"prediction\", pred, \"feedback\", \"...\"));",
+      "pb.applyTo(program);"
     ]
   },
   "snippetGroups": {

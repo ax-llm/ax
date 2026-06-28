@@ -1,0 +1,17 @@
+{
+  "expected_playbook": {
+    "sections": {},
+    "stats": {
+      "bulletCount": 0,
+      "harmfulCount": 0,
+      "helpfulCount": 0,
+      "tokenEstimate": 0
+    },
+    "updatedAt": "2024-01-02T03:04:05.000Z",
+    "version": 1
+  },
+  "kind": "optimize",
+  "name": "ace-empty-no-description",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "playbook-empty"
+}

@@ -57,6 +57,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `go run ./examples/runtime_protocol`: process runtime protocol against the AxJS reference adapter
 - `go run ./examples/optimizer_artifact`: optimizer artifact save/load/apply lifecycle
 - `go run ./examples/gepa_local_optimizer`: local GEPA optimizer artifact generation
+- `go run ./examples/ace_playbook`: grow an evolving context playbook with `Playbook()` (offline, scripted client)
 - `go run ./examples/mcp_scripted_tools`: MCP tool discovery and invocation through a scripted transport
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:

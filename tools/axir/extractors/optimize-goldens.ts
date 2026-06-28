@@ -8,6 +8,19 @@ import {
   normalizeAgentEvalDataset,
   resolveAgentOptimizeTargetIds,
 } from '../../../src/ax/agent/optimize.js';
+import { AxACE } from '../../../src/ax/dsp/optimizers/ace.js';
+import {
+  applyCuratorOperations,
+  createEmptyPlaybook,
+  dedupePlaybookByContent,
+  renderPlaybook,
+  updateBulletFeedback,
+} from '../../../src/ax/dsp/optimizers/acePlaybook.js';
+import type {
+  AxACECuratorOperation,
+  AxACEPlaybook,
+  AxACEReflectionOutput,
+} from '../../../src/ax/dsp/optimizers/aceTypes.js';
 import { getGEPAUpdateGroup } from '../../../src/ax/dsp/optimizers/gepaDependencies.js';
 import { scalarizeGEPAScores } from '../../../src/ax/dsp/optimizers/gepaEvaluation.js';
 import { summarizeGEPATraces } from '../../../src/ax/dsp/optimizers/gepaReflection.js';
@@ -16,7 +29,8 @@ import {
   buildParetoFront,
   hypervolume2D,
 } from '../../../src/ax/dsp/optimizers/paretoUtils.js';
-import { AxSignature } from '../../../src/ax/dsp/sig.js';
+import { AxSignature, f } from '../../../src/ax/dsp/sig.js';
+import { ax } from '../../../src/ax/dsp/template.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
@@ -34,7 +48,8 @@ function stable(value: unknown, parentKey = ''): unknown {
       parentKey === 'expected_output' ||
       parentKey === 'component_map' ||
       parentKey === 'componentMap' ||
-      parentKey === 'engine_response'
+      parentKey === 'engine_response' ||
+      parentKey === 'sections'
         ? entries
         : entries.sort(([a], [b]) => a.localeCompare(b));
     return Object.fromEntries(
@@ -49,6 +64,37 @@ function writeFixture(name: string, fixture: Fixture): void {
     join(outDir, `${name}.json`),
     `${JSON.stringify(stable({ name, ...fixture }), null, 2)}\n`
   );
+}
+
+// The deterministic ACE playbook helpers stamp `new Date().toISOString()` onto
+// bullets and playbook metadata. The lowered AxIR ops instead take an explicit
+// `now` input so the conformance fixtures stay reproducible. Freeze the clock to
+// a fixed ISO timestamp around the TS calls so the TS-derived golden matches the
+// value the lowered op produces when given the same `now`.
+function withFrozenClock<T>(now: string, fn: () => T): T {
+  const RealDate = Date;
+  const fixedMs = RealDate.parse(now);
+  class FrozenDate extends RealDate {
+    constructor(...args: any[]) {
+      super(...(args.length === 0 ? [fixedMs] : args));
+    }
+    static now(): number {
+      return fixedMs;
+    }
+  }
+  (globalThis as { Date: DateConstructor }).Date =
+    FrozenDate as unknown as DateConstructor;
+  try {
+    return fn();
+  } finally {
+    (globalThis as { Date: DateConstructor }).Date = RealDate;
+  }
+}
+
+const ACE_NOW = '2024-01-02T03:04:05.000Z';
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function touchReferenceBehavior(): void {
@@ -1737,3 +1783,714 @@ writeFixture('flow-engine-evaluator-rollout', {
     },
   ],
 });
+
+// --- ACE playbook deterministic helper fixtures -----------------------------
+// These exercise the lowered `@ace_*` ops authored in ir/axcore/optimize.axir.
+// All timestamps are explicit so the lowered ops (which take an explicit `now`)
+// reproduce the TS-derived goldens exactly; ADD operations always carry an
+// explicit bulletId so no nondeterministic id is invented.
+
+function aceBullet(
+  id: string,
+  section: string,
+  content: string,
+  overrides: Partial<{
+    helpfulCount: number;
+    harmfulCount: number;
+    createdAt: string;
+    updatedAt: string;
+    metadata: Record<string, unknown>;
+  }> = {}
+): Record<string, Json> {
+  const bullet: Record<string, Json> = {
+    id,
+    section,
+    content,
+    helpfulCount: overrides.helpfulCount ?? 0,
+    harmfulCount: overrides.harmfulCount ?? 0,
+    createdAt: overrides.createdAt ?? '2023-12-01T00:00:00.000Z',
+    updatedAt: overrides.updatedAt ?? '2023-12-01T00:00:00.000Z',
+  };
+  if (overrides.metadata) bullet.metadata = overrides.metadata as Json;
+  return bullet;
+}
+
+function acePlaybook(
+  sections: Record<string, Record<string, Json>[]>,
+  options: { description?: string; updatedAt?: string } = {}
+): AxACEPlaybook {
+  let bulletCount = 0;
+  let helpfulCount = 0;
+  let harmfulCount = 0;
+  let tokenEstimate = 0;
+  for (const bullets of Object.values(sections)) {
+    for (const bullet of bullets) {
+      bulletCount += 1;
+      helpfulCount += Number(bullet.helpfulCount ?? 0);
+      harmfulCount += Number(bullet.harmfulCount ?? 0);
+      tokenEstimate += Math.ceil(String(bullet.content ?? '').length / 4);
+    }
+  }
+  const playbook: Record<string, Json> = {
+    version: 1,
+    sections: sections as unknown as Json,
+    stats: { bulletCount, helpfulCount, harmfulCount, tokenEstimate },
+    updatedAt: options.updatedAt ?? '2023-12-01T00:00:00.000Z',
+  };
+  if (options.description !== undefined)
+    playbook.description = options.description;
+  return playbook as unknown as AxACEPlaybook;
+}
+
+// playbook-empty: createEmptyPlaybook(description?, now)
+const emptyWithDescription = withFrozenClock(ACE_NOW, () =>
+  createEmptyPlaybook('Grounded answers only.')
+);
+writeFixture('ace-empty-with-description', {
+  kind: 'optimize',
+  operation: 'playbook-empty',
+  description: 'Grounded answers only.',
+  now: ACE_NOW,
+  expected_playbook: emptyWithDescription as unknown as Json,
+});
+
+const emptyNoDescription = withFrozenClock(ACE_NOW, () =>
+  createEmptyPlaybook()
+);
+writeFixture('ace-empty-no-description', {
+  kind: 'optimize',
+  operation: 'playbook-empty',
+  now: ACE_NOW,
+  expected_playbook: emptyNoDescription as unknown as Json,
+});
+
+// playbook-render: with description, multiple sections and an empty section.
+const renderPlaybookInput = acePlaybook(
+  {
+    strategies: [
+      aceBullet('calc-00001', 'strategies', 'Break the problem into steps.'),
+      aceBullet('calc-00002', 'strategies', 'Verify the final arithmetic.'),
+    ],
+    pitfalls: [aceBullet('calc-00003', 'pitfalls', 'Do not skip unit checks.')],
+    scratch: [],
+  },
+  { description: '  Reusable tactics for math word problems.  ' }
+);
+writeFixture('ace-render-with-description', {
+  kind: 'optimize',
+  operation: 'playbook-render',
+  playbook: clone(renderPlaybookInput) as unknown as Json,
+  expected_render: renderPlaybook(renderPlaybookInput),
+});
+
+// playbook-render: no description, single empty section.
+const renderEmptySection = acePlaybook({ strategies: [] });
+writeFixture('ace-render-no-description-empty-section', {
+  kind: 'optimize',
+  operation: 'playbook-render',
+  playbook: clone(renderEmptySection) as unknown as Json,
+  expected_render: renderPlaybook(renderEmptySection),
+});
+
+// playbook-stats: recompute stats over a (duplicate-free) playbook. The TS
+// recomputePlaybookStats is internal, so derive the golden via the exported
+// dedupe path (which recomputes stats and leaves a dup-free playbook intact).
+const statsInput = acePlaybook({
+  strategies: [
+    aceBullet('calc-00001', 'strategies', 'Outline the approach first.', {
+      helpfulCount: 3,
+      harmfulCount: 1,
+    }),
+    aceBullet(
+      'calc-00002',
+      'strategies',
+      'Double-check edge cases carefully.',
+      {
+        helpfulCount: 2,
+      }
+    ),
+  ],
+  pitfalls: [
+    aceBullet('calc-00003', 'pitfalls', 'Avoid off-by-one mistakes.', {
+      harmfulCount: 2,
+    }),
+  ],
+});
+// Corrupt the stored stats so the recompute is observable.
+(statsInput.stats as Record<string, number>).bulletCount = 0;
+(statsInput.stats as Record<string, number>).helpfulCount = 0;
+(statsInput.stats as Record<string, number>).harmfulCount = 0;
+(statsInput.stats as Record<string, number>).tokenEstimate = 0;
+const statsExpected = clone(statsInput);
+dedupePlaybookByContent(statsExpected as unknown as AxACEPlaybook);
+writeFixture('ace-recompute-stats', {
+  kind: 'optimize',
+  operation: 'playbook-stats',
+  playbook: clone(statsInput) as unknown as Json,
+  expected_playbook: statsExpected as unknown as Json,
+});
+
+// playbook-dedupe: exact normalized-content duplicates are merged (counters
+// summed, latest updatedAt kept) and stats recomputed.
+const dedupeInput = acePlaybook({
+  strategies: [
+    aceBullet('calc-00001', 'strategies', 'Re-read the prompt.', {
+      helpfulCount: 1,
+      updatedAt: '2023-12-02T00:00:00.000Z',
+    }),
+    aceBullet('calc-00002', 'strategies', '  re-read THE prompt.  ', {
+      helpfulCount: 2,
+      harmfulCount: 1,
+      updatedAt: '2023-12-05T00:00:00.000Z',
+    }),
+    aceBullet('calc-00003', 'strategies', 'State assumptions.', {
+      helpfulCount: 4,
+    }),
+  ],
+});
+const dedupeExpected = clone(dedupeInput);
+dedupePlaybookByContent(dedupeExpected as unknown as AxACEPlaybook);
+writeFixture('ace-dedupe-merges-duplicates', {
+  kind: 'optimize',
+  operation: 'playbook-dedupe',
+  playbook: clone(dedupeInput) as unknown as Json,
+  expected_playbook: dedupeExpected as unknown as Json,
+});
+
+// playbook-feedback: increment helpful then harmful counters by id.
+const feedbackHelpfulInput = acePlaybook({
+  strategies: [
+    aceBullet('calc-00001', 'strategies', 'Show intermediate work.', {
+      helpfulCount: 1,
+    }),
+    aceBullet('calc-00002', 'strategies', 'Restate the goal.'),
+  ],
+});
+const feedbackHelpfulExpected = clone(feedbackHelpfulInput);
+withFrozenClock(ACE_NOW, () =>
+  updateBulletFeedback(
+    feedbackHelpfulExpected as unknown as AxACEPlaybook,
+    'calc-00001',
+    'helpful'
+  )
+);
+writeFixture('ace-feedback-helpful', {
+  kind: 'optimize',
+  operation: 'playbook-feedback',
+  playbook: clone(feedbackHelpfulInput) as unknown as Json,
+  bullet_id: 'calc-00001',
+  tag: 'helpful',
+  now: ACE_NOW,
+  expected_playbook: feedbackHelpfulExpected as unknown as Json,
+});
+
+const feedbackHarmfulInput = acePlaybook({
+  pitfalls: [
+    aceBullet('calc-00010', 'pitfalls', 'Stop guessing without evidence.', {
+      harmfulCount: 1,
+    }),
+  ],
+});
+const feedbackHarmfulExpected = clone(feedbackHarmfulInput);
+withFrozenClock(ACE_NOW, () =>
+  updateBulletFeedback(
+    feedbackHarmfulExpected as unknown as AxACEPlaybook,
+    'calc-00010',
+    'harmful'
+  )
+);
+writeFixture('ace-feedback-harmful', {
+  kind: 'optimize',
+  operation: 'playbook-feedback',
+  playbook: clone(feedbackHarmfulInput) as unknown as Json,
+  bullet_id: 'calc-00010',
+  tag: 'harmful',
+  now: ACE_NOW,
+  expected_playbook: feedbackHarmfulExpected as unknown as Json,
+});
+
+function applyOpsFixture(
+  name: string,
+  input: AxACEPlaybook,
+  operations: AxACECuratorOperation[],
+  options: {
+    maxSectionSize?: number;
+    allowDynamicSections?: boolean;
+    enableAutoPrune?: boolean;
+    protectedBulletIds?: string[];
+  },
+  fixtureOptions: Record<string, Json>
+): void {
+  const mutated = clone(input);
+  const result = withFrozenClock(ACE_NOW, () =>
+    applyCuratorOperations(mutated as unknown as AxACEPlaybook, operations, {
+      maxSectionSize: options.maxSectionSize,
+      allowDynamicSections: options.allowDynamicSections,
+      enableAutoPrune: options.enableAutoPrune,
+      protectedBulletIds: options.protectedBulletIds
+        ? new Set(options.protectedBulletIds)
+        : undefined,
+    })
+  );
+  writeFixture(name, {
+    kind: 'optimize',
+    operation: 'playbook-apply-ops',
+    playbook: clone(input) as unknown as Json,
+    operations: operations as unknown as Json,
+    apply_options: fixtureOptions,
+    now: ACE_NOW,
+    expected_result: {
+      playbook: mutated as unknown as Json,
+      updatedBulletIds: result.updatedBulletIds as unknown as Json,
+      autoRemoved: result.autoRemoved as unknown as Json,
+    },
+  });
+}
+
+// playbook-apply-ops: ADD a new bullet into a new (dynamic) section.
+applyOpsFixture(
+  'ace-apply-add-new',
+  acePlaybook({
+    strategies: [aceBullet('calc-00001', 'strategies', 'Plan before solving.')],
+  }),
+  [
+    {
+      type: 'ADD',
+      section: 'pitfalls',
+      bulletId: 'calc-09001',
+      content: '  Never ignore the units.  ',
+      metadata: { source: 'reflector' },
+    },
+  ],
+  {},
+  {}
+);
+
+// playbook-apply-ops: ADD that triggers auto-prune at maxSectionSize, with a
+// protected bullet that must NOT be pruned.
+applyOpsFixture(
+  'ace-apply-add-autoprune-protected',
+  acePlaybook({
+    strategies: [
+      aceBullet(
+        'keep-protected',
+        'strategies',
+        'Protected high-value tactic.',
+        {
+          helpfulCount: 5,
+          updatedAt: '2023-12-01T00:00:00.000Z',
+        }
+      ),
+      aceBullet('prune-me', 'strategies', 'Low-value tactic to drop.', {
+        helpfulCount: 0,
+        harmfulCount: 3,
+        updatedAt: '2023-12-03T00:00:00.000Z',
+      }),
+    ],
+  }),
+  [
+    {
+      type: 'ADD',
+      section: 'strategies',
+      bulletId: 'calc-09002',
+      content: 'Fresh tactic to insert.',
+    },
+  ],
+  {
+    maxSectionSize: 2,
+    enableAutoPrune: true,
+    protectedBulletIds: ['keep-protected'],
+  },
+  {
+    maxSectionSize: 2,
+    enableAutoPrune: true,
+    protectedBulletIds: ['keep-protected'],
+  }
+);
+
+// playbook-apply-ops: UPDATE by id (content + metadata merge) and REMOVE by id.
+applyOpsFixture(
+  'ace-apply-update-and-remove',
+  acePlaybook({
+    strategies: [
+      aceBullet('calc-00001', 'strategies', 'Old guidance.', {
+        helpfulCount: 2,
+        metadata: { origin: 'seed' },
+      }),
+      aceBullet('calc-00002', 'strategies', 'Remove this one.'),
+    ],
+  }),
+  [
+    {
+      type: 'UPDATE',
+      section: 'strategies',
+      bulletId: 'calc-00001',
+      content: 'Refined guidance with citations.',
+      metadata: { revisedBy: 'curator' },
+    },
+    { type: 'REMOVE', section: 'strategies', bulletId: 'calc-00002' },
+  ],
+  {},
+  {}
+);
+
+// --- ACE engine (compile / online-update) fixtures ---------------------------
+// Drive the real TS AxACE engine with scripted generator/metric/reflector/
+// curator responses under a frozen clock so the lowered AxACE port reproduces
+// the same playbook + artifact deterministically. The port consumes the same
+// scripted queues and reuses the `_ace_*` ops, so its output must match these
+// TS-derived goldens exactly. Every curator ADD carries an explicit bulletId
+// (the deterministic apply op derives ids from the section otherwise).
+
+function makeACEProgram() {
+  return ax(
+    f().input('question', f.string()).output('answer', f.string()).build()
+  );
+}
+
+async function withFrozenClockAsync<T>(
+  now: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const RealDate = Date;
+  const fixedMs = RealDate.parse(now);
+  class FrozenDate extends RealDate {
+    constructor(...args: any[]) {
+      super(...(args.length === 0 ? [fixedMs] : args));
+    }
+    static now(): number {
+      return fixedMs;
+    }
+  }
+  (globalThis as { Date: DateConstructor }).Date =
+    FrozenDate as unknown as DateConstructor;
+  try {
+    return await fn();
+  } finally {
+    (globalThis as { Date: DateConstructor }).Date = RealDate;
+  }
+}
+
+interface ACEScript {
+  predictions: unknown[];
+  scores: number[];
+  reflections: (AxACEReflectionOutput | undefined)[];
+  curators: (Record<string, Json> | undefined)[];
+}
+
+// The artifact's per-event generatorOutput carries `trajectory` (a JSON-string
+// snapshot) and `metadata` (field-name lists) that exist only to build the
+// reflector/curator prompts. They are byte-for-byte tied to TS JSON.stringify
+// semantics, so the lowered ports intentionally omit them and the goldens strip
+// them too; every ACE-state field (playbook, history, feedback scores,
+// reflection, curator, example, prediction, timestamp) is still asserted.
+function stripGeneratorSerialization(artifact: Json): Json {
+  const out = clone(artifact) as {
+    feedback?: { generatorOutput?: Record<string, unknown> }[];
+  };
+  for (const event of out.feedback ?? []) {
+    if (event.generatorOutput) {
+      delete event.generatorOutput.trajectory;
+      delete event.generatorOutput.metadata;
+    }
+  }
+  return out as unknown as Json;
+}
+
+function scriptACE(
+  ace: AxACE,
+  program: { forward: unknown },
+  script: ACEScript
+): void {
+  const predictions = [...script.predictions];
+  const reflections = [...script.reflections];
+  const curators = [...script.curators];
+  program.forward = async () => (predictions.length ? predictions.shift() : {});
+  const reflectorProgram = (ace as any).getOrCreateReflectorProgram();
+  reflectorProgram.forward = async () =>
+    reflections.length ? reflections.shift() : undefined;
+  const curatorProgram = (ace as any).getOrCreateCuratorProgram();
+  curatorProgram.forward = async () =>
+    curators.length ? curators.shift() : undefined;
+}
+
+async function driveACECompile(
+  examples: Record<string, Json>[],
+  aceOptions: Record<string, Json>,
+  script: ACEScript
+): Promise<{ playbook: Json; artifact: Json }> {
+  const program = makeACEProgram();
+  const scores = [...script.scores];
+  const ace = new AxACE(
+    { studentAI: {} as any, teacherAI: {} as any },
+    aceOptions as any
+  );
+  scriptACE(ace, program as unknown as { forward: unknown }, script);
+  const metric = async () => (scores.length ? scores.shift()! : 0);
+  return withFrozenClockAsync(ACE_NOW, async () => {
+    await ace.compile(program, examples as any, metric as any);
+    return {
+      playbook: ace.getPlaybook() as unknown as Json,
+      artifact: stripGeneratorSerialization(
+        ace.getArtifact() as unknown as Json
+      ),
+    };
+  });
+}
+
+async function driveACEOnlineUpdate(
+  initialPlaybook: AxACEPlaybook | undefined,
+  update: {
+    example: Record<string, Json>;
+    prediction: unknown;
+    feedback?: string;
+  },
+  aceOptions: Record<string, Json>,
+  script: Omit<ACEScript, 'predictions' | 'scores'>
+): Promise<{ playbook: Json; artifact: Json; curator: Json }> {
+  const program = makeACEProgram();
+  const ace = new AxACE({ studentAI: {} as any, teacherAI: {} as any }, {
+    ...aceOptions,
+    ...(initialPlaybook ? { initialPlaybook } : {}),
+  } as any);
+  ace.hydrate(
+    program,
+    initialPlaybook ? { playbook: initialPlaybook } : undefined
+  );
+  scriptACE(ace, program as unknown as { forward: unknown }, {
+    predictions: [],
+    scores: [],
+    reflections: script.reflections,
+    curators: script.curators,
+  });
+  return withFrozenClockAsync(ACE_NOW, async () => {
+    const curator = await ace.applyOnlineUpdate(update);
+    return {
+      playbook: ace.getPlaybook() as unknown as Json,
+      artifact: stripGeneratorSerialization(
+        ace.getArtifact() as unknown as Json
+      ),
+      curator: (curator ?? null) as unknown as Json,
+    };
+  });
+}
+
+// The real TS AxACE.compile requires >=2 examples (train/validation auto-split),
+// so each compile fixture uses two examples; the trailing example is a resolved
+// no-op so the asserted playbook reflects only the first example's curation.
+const aceResolvedReflection: AxACEReflectionOutput = {
+  reasoning: 'Answer already correct.',
+  errorIdentification: 'no error',
+  rootCauseAnalysis: 'none',
+  correctApproach: 'keep going',
+  keyInsight: 'stable behavior',
+  bulletTags: [],
+};
+const aceNoopCurator: Record<string, Json> = {
+  reasoning: 'Nothing to change.',
+  operations: [],
+};
+
+await (async () => {
+  // ace-compile-add-bullet: first example -> reflector flags an error and the
+  // curator ADDs one bullet (explicit id); second example resolves with no op.
+  {
+    const reflection: AxACEReflectionOutput = {
+      reasoning: 'Generator omitted citations.',
+      errorIdentification: 'Missing citations in the answer',
+      rootCauseAnalysis: 'No instruction to cite sources',
+      correctApproach: 'Always cite sources',
+      keyInsight: 'Citations build trust',
+      bulletTags: [],
+    };
+    const curator: Record<string, Json> = {
+      reasoning: 'Add a citation guideline.',
+      operations: [
+        {
+          type: 'ADD',
+          section: 'Guidelines',
+          bulletId: 'guidelines-00001',
+          content: 'Always cite your sources.',
+        },
+      ],
+    };
+    const examples = [
+      { question: 'What is the capital of France?', answer: 'Paris' },
+      { question: 'ping', answer: 'pong' },
+    ];
+    const predictions = [{ answer: 'Paris' }, { answer: 'pong' }];
+    const scores = [0.5, 1];
+    const reflections = [reflection, aceResolvedReflection];
+    const curators = [curator, aceNoopCurator];
+    const out = await driveACECompile(
+      examples,
+      { maxEpochs: 1, maxReflectorRounds: 1 },
+      { predictions, scores, reflections, curators }
+    );
+    writeFixture('ace-compile-add-bullet', {
+      kind: 'optimize',
+      operation: 'ace-compile',
+      now: ACE_NOW,
+      ace_options: { maxEpochs: 1, maxReflectorRounds: 1 },
+      examples,
+      generator_predictions: predictions,
+      metric_scores: scores,
+      reflection_responses: reflections as unknown as Json[],
+      curator_responses: curators,
+      expected_playbook: out.playbook,
+      expected_artifact: out.artifact,
+    });
+  }
+
+  // ace-compile-resolved-no-op: both examples resolve ("no error") and the
+  // curator returns no operations, so the playbook stays empty (feedback only).
+  {
+    const examples = [
+      { question: 'ping', answer: 'pong' },
+      { question: 'ping2', answer: 'pong2' },
+    ];
+    const predictions = [{ answer: 'pong' }, { answer: 'pong2' }];
+    const scores = [1, 1];
+    const reflections = [aceResolvedReflection, aceResolvedReflection];
+    const curators = [aceNoopCurator, aceNoopCurator];
+    const out = await driveACECompile(
+      examples,
+      { maxEpochs: 1, maxReflectorRounds: 3 },
+      { predictions, scores, reflections, curators }
+    );
+    writeFixture('ace-compile-resolved-no-op', {
+      kind: 'optimize',
+      operation: 'ace-compile',
+      now: ACE_NOW,
+      ace_options: { maxEpochs: 1, maxReflectorRounds: 3 },
+      examples,
+      generator_predictions: predictions,
+      metric_scores: scores,
+      reflection_responses: reflections as unknown as Json[],
+      curator_responses: curators,
+      expected_playbook: out.playbook,
+      expected_artifact: out.artifact,
+    });
+  }
+
+  // ace-compile-multi-round-reflection: the first example needs two reflection
+  // rounds (round 1 reports an error, round 2 resolves) before the curator ADDs
+  // a bullet; the second example resolves immediately with no op.
+  {
+    const reflection1: AxACEReflectionOutput = {
+      reasoning: 'Initial pass: answer too terse.',
+      errorIdentification: 'Answer lacks justification',
+      rootCauseAnalysis: 'No reasoning step',
+      correctApproach: 'Explain reasoning before answering',
+      keyInsight: 'Show the work',
+      bulletTags: [],
+    };
+    const reflection2: AxACEReflectionOutput = {
+      reasoning: 'Second pass: refined insight.',
+      errorIdentification: 'no error',
+      rootCauseAnalysis: 'resolved after refinement',
+      correctApproach: 'Explain reasoning then answer concisely',
+      keyInsight: 'Reasoning first, then a concise answer',
+      bulletTags: [],
+    };
+    const curator: Record<string, Json> = {
+      reasoning: 'Capture the reasoning-first insight.',
+      operations: [
+        {
+          type: 'ADD',
+          section: 'Strategies',
+          bulletId: 'strategies-00001',
+          content: 'Explain reasoning first, then answer concisely.',
+        },
+      ],
+    };
+    const examples = [
+      { question: 'Why is the sky blue?', answer: 'Rayleigh scattering.' },
+      { question: 'ping', answer: 'pong' },
+    ];
+    const predictions = [
+      { answer: 'Rayleigh scattering.' },
+      { answer: 'pong' },
+    ];
+    const scores = [0.4, 1];
+    const reflections = [reflection1, reflection2, aceResolvedReflection];
+    const curators = [curator, aceNoopCurator];
+    const out = await driveACECompile(
+      examples,
+      { maxEpochs: 1, maxReflectorRounds: 3 },
+      { predictions, scores, reflections, curators }
+    );
+    writeFixture('ace-compile-multi-round-reflection', {
+      kind: 'optimize',
+      operation: 'ace-compile',
+      now: ACE_NOW,
+      ace_options: { maxEpochs: 1, maxReflectorRounds: 3 },
+      examples,
+      generator_predictions: predictions,
+      metric_scores: scores,
+      reflection_responses: reflections as unknown as Json[],
+      curator_responses: curators,
+      expected_playbook: out.playbook,
+      expected_artifact: out.artifact,
+    });
+  }
+
+  // ace-online-update-add: a single online update on a seeded playbook. The
+  // reflector flags an error and the curator ADDs a bullet; the delta is
+  // recorded in artifact.history with source "online".
+  {
+    const initialPlaybook = acePlaybook({
+      Guidelines: [
+        aceBullet('guidelines-00001', 'Guidelines', 'Be concise.', {
+          helpfulCount: 1,
+        }),
+      ],
+    });
+    const reflection: AxACEReflectionOutput = {
+      reasoning: 'User corrected a factual slip.',
+      errorIdentification: 'Stated an incorrect fact',
+      rootCauseAnalysis: 'No verification step',
+      correctApproach: 'Verify facts before answering',
+      keyInsight: 'Verify before committing',
+      bulletTags: [{ id: 'guidelines-00001', tag: 'helpful' }],
+    };
+    const curator: Record<string, Json> = {
+      reasoning: 'Add a verification guideline.',
+      operations: [
+        {
+          type: 'ADD',
+          section: 'Guidelines',
+          bulletId: 'guidelines-00002',
+          content: 'Verify facts before answering.',
+        },
+      ],
+    };
+    const out = await driveACEOnlineUpdate(
+      initialPlaybook,
+      {
+        example: { question: 'q', answer: 'a' },
+        prediction: { answer: 'bad' },
+        feedback: 'User corrected the answer.',
+      },
+      { maxReflectorRounds: 1 },
+      { reflections: [reflection], curators: [curator] }
+    );
+    writeFixture('ace-online-update-add', {
+      kind: 'optimize',
+      operation: 'ace-online-update',
+      now: ACE_NOW,
+      ace_options: { maxReflectorRounds: 1 },
+      initial_playbook: clone(initialPlaybook) as unknown as Json,
+      update: {
+        example: { question: 'q', answer: 'a' },
+        prediction: { answer: 'bad' },
+        feedback: 'User corrected the answer.',
+      },
+      reflection_responses: [reflection as unknown as Json],
+      curator_responses: [curator],
+      expected_playbook: out.playbook,
+      expected_artifact: out.artifact,
+      expected_curator: out.curator,
+    });
+  }
+})();

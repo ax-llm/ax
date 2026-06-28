@@ -753,6 +753,84 @@ static void run_optimize(Value fixture) {
       assert_equal(normalized, Core::get(fixture, "expected_dataset"), "normalized dataset");
       return;
     }
+    if (op == "playbook-empty") {
+      Value playbook = Core::_ace_empty_playbook(Core::get(fixture, "description"), Core::get(fixture, "now", Value("")));
+      assert_equal(playbook, Core::get(fixture, "expected_playbook"), "ace empty playbook");
+      return;
+    }
+    if (op == "playbook-render") {
+      Value rendered = Core::_ace_render_playbook(Core::get(fixture, "playbook", Value::object()));
+      assert_equal(rendered, Core::get(fixture, "expected_render"), "ace rendered playbook");
+      return;
+    }
+    if (op == "playbook-stats") {
+      Value playbook = Core::_ace_recompute_playbook_stats(Core::get(fixture, "playbook", Value::object()));
+      assert_equal(playbook, Core::get(fixture, "expected_playbook"), "ace recomputed stats");
+      return;
+    }
+    if (op == "playbook-dedupe") {
+      Value playbook = Core::_ace_dedupe_playbook(Core::get(fixture, "playbook", Value::object()));
+      assert_equal(playbook, Core::get(fixture, "expected_playbook"), "ace deduped playbook");
+      return;
+    }
+    if (op == "playbook-feedback") {
+      Value playbook = Core::_ace_update_bullet_feedback(Core::get(fixture, "playbook", Value::object()), Core::get(fixture, "bullet_id", Value("")), Core::get(fixture, "tag", Value("")), Core::get(fixture, "now", Value("")));
+      assert_equal(playbook, Core::get(fixture, "expected_playbook"), "ace bullet feedback");
+      return;
+    }
+    if (op == "playbook-apply-ops") {
+      Value result = Core::_ace_apply_curator_operations(Core::get(fixture, "playbook", Value::object()), Core::get(fixture, "operations", Value::array()), Core::get(fixture, "apply_options", Value::object()), Core::get(fixture, "now", Value("")));
+      assert_equal(result, Core::get(fixture, "expected_result"), "ace applied operations");
+      return;
+    }
+    if (op == "ace-compile" || op == "ace-online-update") {
+      auto reflections = std::make_shared<Array>(as_array(Core::get(fixture, "reflection_responses", Value::array())));
+      auto curators = std::make_shared<Array>(as_array(Core::get(fixture, "curator_responses", Value::array())));
+      auto predictions = std::make_shared<Array>(as_array(Core::get(fixture, "generator_predictions", Value::array())));
+      auto scores = std::make_shared<Array>(as_array(Core::get(fixture, "metric_scores", Value::array())));
+      auto ri = std::make_shared<size_t>(0);
+      auto ci = std::make_shared<size_t>(0);
+      auto gi = std::make_shared<size_t>(0);
+      auto si = std::make_shared<size_t>(0);
+      AxACE::AceCallable reflector = [reflections, ri](const Value&) -> Value {
+        if (*ri >= reflections->size()) return Value();
+        return (*reflections)[(*ri)++];
+      };
+      AxACE::AceCallable curator = [curators, ci](const Value&) -> Value {
+        if (*ci >= curators->size()) return Value();
+        return (*curators)[(*ci)++];
+      };
+      AxACE::AceCallable generator = [predictions, gi](const Value&) -> Value {
+        if (*gi >= predictions->size()) return Value::object();
+        return (*predictions)[(*gi)++];
+      };
+      AxACE::AceCallable metric = [scores, si](const Value&) -> Value {
+        if (*si >= scores->size()) return Value(0);
+        return (*scores)[(*si)++];
+      };
+      Value ace_options = Core::get(fixture, "ace_options", Value::object());
+      Core::set(ace_options, "now", Core::get(fixture, "now", Value("1970-01-01T00:00:00.000Z")));
+      if (!Core::get(fixture, "initial_playbook").is_null()) Core::set(ace_options, "initialPlaybook", Core::get(fixture, "initial_playbook"));
+      AxACE ace(ace_options);
+      ace.set_callables(reflector, curator, generator);
+      if (op == "ace-compile") {
+        Array examples = as_array(Core::get(fixture, "examples", Value::array()));
+        Value result = ace.compile(examples, metric, Value::object());
+        if (!Core::get(fixture, "expected_playbook").is_null()) assert_equal(ace.get_playbook(), Core::get(fixture, "expected_playbook"), "ace compile playbook");
+        if (!Core::get(fixture, "expected_artifact").is_null()) assert_equal(ace.get_artifact(), Core::get(fixture, "expected_artifact"), "ace compile artifact");
+        if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(ace.get_artifact(), Core::get(fixture, "expected_artifact_subset"), "ace compile artifact");
+        if (!Core::get(fixture, "expected_result_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_result_subset"), "ace compile result");
+        return;
+      }
+      Value update_args = Core::get(fixture, "update", Value::object());
+      if (Core::get(update_args, "prediction").is_null()) Core::set(update_args, "prediction", generator(Core::get(update_args, "example")));
+      Value curator_result = ace.apply_online_update(update_args);
+      if (!Core::get(fixture, "expected_playbook").is_null()) assert_equal(ace.get_playbook(), Core::get(fixture, "expected_playbook"), "ace online playbook");
+      if (!Core::get(fixture, "expected_artifact").is_null()) assert_equal(ace.get_artifact(), Core::get(fixture, "expected_artifact"), "ace online artifact");
+      if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(ace.get_artifact(), Core::get(fixture, "expected_artifact_subset"), "ace online artifact");
+      if (!Core::get(fixture, "expected_curator").is_null()) assert_equal(curator_result, Core::get(fixture, "expected_curator"), "ace online curator");
+      return;
+    }
     if (op == "score") {
       Value scores = Core::_normalize_optimization_metric_scores(Core::get(fixture, "metric_score"));
       Value scalar = Core::_scalarize_optimization_scores(scores, Core::get(fixture, "score_options", Value::object()));

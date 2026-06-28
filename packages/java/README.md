@@ -67,6 +67,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/RuntimeProtocolExample.java`: process runtime protocol against the AxJS reference adapter
 - `examples/OptimizerArtifactExample.java`: optimizer artifact save/load/apply lifecycle
 - `examples/GEPALocalOptimizerExample.java`: local GEPA optimizer artifact generation
+- `examples/ACEPlaybookExample.java`: grow an evolving context playbook with `Ax.playbook()` (offline, scripted client)
 - `examples/AxMCPScriptedToolsExample.java`: MCP tool discovery and invocation through a scripted transport
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:

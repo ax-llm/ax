@@ -1,0 +1,89 @@
+{
+  "apply_options": {},
+  "expected_result": {
+    "autoRemoved": [],
+    "playbook": {
+      "sections": {
+        "strategies": [
+          {
+            "content": "Refined guidance with citations.",
+            "createdAt": "2023-12-01T00:00:00.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 2,
+            "id": "calc-00001",
+            "metadata": {
+              "origin": "seed",
+              "revisedBy": "curator"
+            },
+            "section": "strategies",
+            "updatedAt": "2024-01-02T03:04:05.000Z"
+          }
+        ]
+      },
+      "stats": {
+        "bulletCount": 1,
+        "harmfulCount": 0,
+        "helpfulCount": 2,
+        "tokenEstimate": 8
+      },
+      "updatedAt": "2024-01-02T03:04:05.000Z",
+      "version": 1
+    },
+    "updatedBulletIds": ["calc-00001", "calc-00002"]
+  },
+  "kind": "optimize",
+  "name": "ace-apply-update-and-remove",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "playbook-apply-ops",
+  "operations": [
+    {
+      "bulletId": "calc-00001",
+      "content": "Refined guidance with citations.",
+      "metadata": {
+        "revisedBy": "curator"
+      },
+      "section": "strategies",
+      "type": "UPDATE"
+    },
+    {
+      "bulletId": "calc-00002",
+      "section": "strategies",
+      "type": "REMOVE"
+    }
+  ],
+  "playbook": {
+    "sections": {
+      "strategies": [
+        {
+          "content": "Old guidance.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 2,
+          "id": "calc-00001",
+          "metadata": {
+            "origin": "seed"
+          },
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        },
+        {
+          "content": "Remove this one.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "calc-00002",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 2,
+      "harmfulCount": 0,
+      "helpfulCount": 2,
+      "tokenEstimate": 8
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  }
+}

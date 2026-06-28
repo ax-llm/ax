@@ -172,6 +172,18 @@ var packageSkillSpecs = []packageSkillSpec{
 		Sections: []string{"optimizers"},
 	},
 	{
+		ID:          "playbook",
+		Title:       "Ax Playbook",
+		Area:        "evolving context playbooks",
+		Description: "the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program",
+		UseWhen: []string{
+			"Grow an evolving context playbook for a program or agent stage with playbook().",
+			"Refine a playbook online from live feedback or offline from labeled examples.",
+			"Render or persist a playbook and inject it into a program context.",
+		},
+		Sections: []string{"optimizers"},
+	},
+	{
 		ID:          "refine",
 		Title:       "Ax Refinement Patterns",
 		Area:        "candidate improvement and evaluation feedback",
@@ -353,6 +365,8 @@ func skillSnippet(target, specID string) string {
 		return skillAgentSnippet(target)
 	case specID == "flow":
 		return skillFlowSnippet(target)
+	case specID == "playbook":
+		return skillPlaybookSnippet(target)
 	case specID == "gepa" || specID == "agent-optimize" || specID == "refine":
 		return skillOptimizeSnippet(target)
 	case specID == "ai" || specID == "audio" || specID == "llm":
@@ -461,6 +475,23 @@ func skillOptimizeSnippet(target string) string {
 		return readmeLines("let engine = axllm::AxGEPA::new(reflection_client, options)?;", "let result = engine.optimize(request, evaluator)?;")
 	default:
 		return "Read optimizer examples in `examples/`."
+	}
+}
+
+func skillPlaybookSnippet(target string) string {
+	switch target {
+	case "python":
+		return readmeLines("from axllm import ax, playbook", "", "program = ax(\"question:string -> answer:string\")", "pb = playbook(program, {\"studentAI\": llm})", "pb.evolve(examples, metric_fn)")
+	case "java":
+		return readmeLines("AxGen program = Ax.ax(\"question:string -> answer:string\");", "AxPlaybook pb = Ax.playbook(program, java.util.Map.of(\"studentAI\", llm));", "pb.evolve(examples, metricFn, java.util.Map.of());")
+	case "cpp":
+		return readmeLines("auto program = axllm::ax(\"question:string -> answer:string\");", "auto pb = axllm::playbook(program, *llm);", "pb.evolve(examples, metric_fn);")
+	case "go":
+		return readmeLines("program := ax.NewAx(\"question:string -> answer:string\", nil)", "pb := ax.Playbook(program, map[string]ax.Value{\"studentAI\": llm})", "pb.Evolve(ctx, examples, metricFn, nil)")
+	case "rust":
+		return readmeLines("let program = axllm::ax(\"question:string -> answer:string\")?;", "let mut pb = axllm::playbook(program, &mut llm, None)?;", "pb.evolve(&examples, &mut metric_fn, None)?;")
+	default:
+		return "Read playbook examples in `examples/`."
 	}
 }
 

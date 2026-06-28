@@ -98,6 +98,13 @@
       "description": "Use when writing Python code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-python-refine/SKILL.md",
       "digest": "sha256:e779b8b9ee93dd2e1688468416f2150560d5aa1e687715ea35e52fec636daac3"
+    },
+    {
+      "name": "ax-python-playbook",
+      "type": "skill-md",
+      "description": "Use when writing Python code with `axllm` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program.",
+      "url": "ax-python-playbook/SKILL.md",
+      "digest": "sha256:8954a494ecd175590e6f4d1e6ef25c411e20e57333752cdea0036921bc0b09a7"
     }
   ]
 }

@@ -31,7 +31,7 @@ from .ai import (
     get_supported_ai_models,
 )
 from .gen import AxGen, AxMemory, ax
-from .agent import AxAgent, AxAgentClarificationError, AxBootstrapFewShot, AxCodeRuntime, AxCodeSession, AxGEPA, OptimizerEngine, OptimizerEvaluator, agent, optimize
+from .agent import AxAgent, AxAgentClarificationError, AxBootstrapFewShot, AxCodeRuntime, AxCodeSession, AxGEPA, AxPlaybook, OptimizerEngine, OptimizerEvaluator, agent, optimize, playbook
 from .flow import AxFlow, AxProgram, flow
 from .mcp import AxMCPClient, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport
 from .prompt import AxPromptTemplate, TemplateError, render_template_content, validate_prompt_template_syntax
@@ -61,6 +61,7 @@ __all__ = [
     "AxQuickJsCodeRuntime",
     "AxQuickJsCodeSession",
     "AxGEPA",
+    "AxPlaybook",
     "AxMemory",
     "AxMCPClient",
     "AxMCPOAuthOptions",
@@ -105,6 +106,7 @@ __all__ = [
     "flow",
     "get_supported_ai_models",
     "optimize",
+    "playbook",
     "render_template_content",
     "s",
     "validate_prompt_template_syntax",

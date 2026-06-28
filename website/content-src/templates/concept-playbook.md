@@ -2,7 +2,7 @@
 
 A playbook is an evolving body of task knowledge that Ax grows for you and renders into a program's context. Unlike `optimize(...)`, which tunes a program's instructions and demos once, a playbook keeps accumulating concrete, structured guidance — offline from labeled examples, and online from live feedback — then injects it into the prompt at run time.
 
-> Playbooks are currently a TypeScript feature. The evolution engine (the Agentic Context Engineering loop) is an implementation detail hidden behind `playbook(...)`, just as `optimize(...)` hides its optimizer — so it can be improved or swapped without changing your code.
+> The evolution engine (the Agentic Context Engineering loop) is an implementation detail hidden behind `playbook(...)`, just as `optimize(...)` hides its optimizer — so it can be improved or swapped without changing your code. Playbooks are available across the Ax languages.
 
 ```{{fence}}
 {{playbookCode}}

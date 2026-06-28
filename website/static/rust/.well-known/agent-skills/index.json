@@ -98,6 +98,13 @@
       "description": "Use when writing Rust code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-rust-refine/SKILL.md",
       "digest": "sha256:42bc4f92d0864b46db9a429f5b9014c4ae936ff91cfbb670ad89ba9a4ea59ed4"
+    },
+    {
+      "name": "ax-rust-playbook",
+      "type": "skill-md",
+      "description": "Use when writing Rust code with `axllm` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program.",
+      "url": "ax-rust-playbook/SKILL.md",
+      "digest": "sha256:ee0022d40465385556684286650ad9749a499a323d3d7162a3e602a8531d05cb"
     }
   ]
 }

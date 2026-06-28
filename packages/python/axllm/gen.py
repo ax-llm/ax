@@ -2199,4 +2199,861 @@ def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
     out["reflectiveDataset"] = reflective
     return out
 
+
+def _ace_estimate_token_count(text: str) -> i64:
+    _core_coverage_mark("_ace_estimate_token_count")
+    len = _core_len(text)
+    tokens = 0
+    remaining = len
+    while True:
+        done = _core_lte(remaining, 0)
+        if done:
+            break
+        else:
+            pass
+        tokens_next = _core_add(tokens, 1)
+        tokens = tokens_next
+        remaining_next = _core_add(remaining, -4)
+        remaining = remaining_next
+    return tokens
+
+
+def _ace_recompute_playbook_stats(playbook: Any) -> Any:
+    _core_coverage_mark("_ace_recompute_playbook_stats")
+    empty_map = {}
+    sections = _core_get(playbook, "sections", empty_map)
+    bullet_count = 0
+    helpful_count = 0
+    harmful_count = 0
+    token_estimate = 0
+    section_lists = _core_map_values(sections)
+    for bullets in section_lists:
+        for bullet in bullets:
+            bullet_count_next = _core_add(bullet_count, 1)
+            bullet_count = bullet_count_next
+            helpful = _core_get(bullet, "helpfulCount", 0)
+            harmful = _core_get(bullet, "harmfulCount", 0)
+            helpful_count_next = _core_add(helpful_count, helpful)
+            helpful_count = helpful_count_next
+            harmful_count_next = _core_add(harmful_count, harmful)
+            harmful_count = harmful_count_next
+            content = _core_get(bullet, "content", "")
+            bullet_tokens = _ace_estimate_token_count(content)
+            token_estimate_next = _core_add(token_estimate, bullet_tokens)
+            token_estimate = token_estimate_next
+    stats = {}
+    stats["bulletCount"] = bullet_count
+    stats["helpfulCount"] = helpful_count
+    stats["harmfulCount"] = harmful_count
+    stats["tokenEstimate"] = token_estimate
+    playbook["stats"] = stats
+    return playbook
+
+
+def _ace_empty_playbook(description: Any, now: str) -> Any:
+    _core_coverage_mark("_ace_empty_playbook")
+    out = {}
+    out["version"] = 1
+    sections = {}
+    out["sections"] = sections
+    stats = {}
+    stats["bulletCount"] = 0
+    stats["helpfulCount"] = 0
+    stats["harmfulCount"] = 0
+    stats["tokenEstimate"] = 0
+    out["stats"] = stats
+    out["updatedAt"] = now
+    has_description = _core_is_not_none(description)
+    if has_description:
+        out["description"] = description
+    else:
+        pass
+    return out
+
+
+def _ace_render_playbook(playbook: Any) -> str:
+    _core_coverage_mark("_ace_render_playbook")
+    empty_map = {}
+    description = _core_get(playbook, "description", None)
+    has_description = _core_is_not_none(description)
+    header = "## Context Playbook\n"
+    if has_description:
+        trimmed_description = str(description).strip()
+        header_with_description = _core_string_format("## Context Playbook\n{}\n", trimmed_description)
+        header = header_with_description
+    else:
+        pass
+    sections = _core_get(playbook, "sections", empty_map)
+    section_names = _core_map_keys(sections)
+    section_blocks = []
+    for section_name in section_names:
+        bullets = _core_get(sections, section_name, None)
+        bullet_lines = []
+        for bullet in bullets:
+            id = _core_get(bullet, "id", "")
+            content = _core_get(bullet, "content", "")
+            line = _core_string_format("- [{}] {}", id, content)
+            bullet_lines.append(line)
+        body = _core_string_join("\n", bullet_lines)
+        has_body = _core_ne(body, "")
+        block = ""
+        if has_body:
+            block_with_body = _core_string_format("### {}\n{}", section_name, body)
+            block = block_with_body
+        else:
+            block_empty = _core_string_format("### {}\n_(empty)_", section_name)
+            block = block_empty
+        section_blocks.append(block)
+    joined_sections = _core_string_join("\n\n", section_blocks)
+    combined = _core_string_format("{}\n{}", header, joined_sections)
+    result = str(combined).strip()
+    return result
+
+
+def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: str) -> Any:
+    _core_coverage_mark("_ace_update_bullet_feedback")
+    empty_map = {}
+    sections = _core_get(playbook, "sections", empty_map)
+    section_names = _core_map_keys(sections)
+    found = False
+    for section_name in section_names:
+        already_found = found
+        if already_found:
+            pass
+        else:
+            bullets = _core_get(sections, section_name, None)
+            for bullet in bullets:
+                current_id = _core_get(bullet, "id", "")
+                match = _core_eq(bullet_id, current_id)
+                still_open = _core_not(found)
+                if match:
+                    if still_open:
+                        is_helpful = _core_eq(tag, "helpful")
+                        if is_helpful:
+                            helpful = _core_get(bullet, "helpfulCount", 0)
+                            helpful_next = _core_add(helpful, 1)
+                            bullet["helpfulCount"] = helpful_next
+                        else:
+                            pass
+                        is_harmful = _core_eq(tag, "harmful")
+                        if is_harmful:
+                            harmful = _core_get(bullet, "harmfulCount", 0)
+                            harmful_next = _core_add(harmful, 1)
+                            bullet["harmfulCount"] = harmful_next
+                        else:
+                            pass
+                        bullet["updatedAt"] = now
+                        found = True
+                    else:
+                        pass
+                else:
+                    pass
+    did_find = found
+    if did_find:
+        updated = _ace_recompute_playbook_stats(playbook)
+        return updated
+    else:
+        pass
+    return playbook
+
+
+def _ace_dedupe_playbook(playbook: Any) -> Any:
+    _core_coverage_mark("_ace_dedupe_playbook")
+    empty_map = {}
+    sections = _core_get(playbook, "sections", empty_map)
+    section_names = _core_map_keys(sections)
+    for section_name in section_names:
+        bullets = _core_get(sections, section_name, None)
+        seen = {}
+        unique = []
+        for bullet in bullets:
+            content = _core_get(bullet, "content", "")
+            trimmed = str(content).strip()
+            key = _core_string_lower(trimmed)
+            has_existing = _core_map_contains(seen, key)
+            if has_existing:
+                existing = _core_get(seen, key, None)
+                existing_helpful = _core_get(existing, "helpfulCount", 0)
+                bullet_helpful = _core_get(bullet, "helpfulCount", 0)
+                merged_helpful = _core_add(existing_helpful, bullet_helpful)
+                existing["helpfulCount"] = merged_helpful
+                existing_harmful = _core_get(existing, "harmfulCount", 0)
+                bullet_harmful = _core_get(bullet, "harmfulCount", 0)
+                merged_harmful = _core_add(existing_harmful, bullet_harmful)
+                existing["harmfulCount"] = merged_harmful
+                bullet_updated_at = _core_get(bullet, "updatedAt", "")
+                existing["updatedAt"] = bullet_updated_at
+            else:
+                seen[key] = bullet
+                unique.append(bullet)
+        sections[section_name] = unique
+    playbook["sections"] = sections
+    recomputed = _ace_recompute_playbook_stats(playbook)
+    return recomputed
+
+
+def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
+    _core_coverage_mark("_ace_prune_section_for_addition")
+    candidate_index = -1
+    candidate_net = 0
+    candidate_helpful = 0
+    candidate_recency = 0
+    index = 0
+    for bullet in section:
+        id = _core_get(bullet, "id", "")
+        is_protected = _core_contains(protected_ids, id)
+        not_protected = _core_not(is_protected)
+        if not_protected:
+            helpful = _core_get(bullet, "helpfulCount", 0)
+            harmful = _core_get(bullet, "harmfulCount", 0)
+            harmful_weighted = _core_mul(harmful, 2)
+            negative_harmful = _core_mul(harmful_weighted, -1)
+            net_score = _core_add(helpful, negative_harmful)
+            created_at = _core_get(bullet, "createdAt", "")
+            recency = _core_get(bullet, "updatedAt", created_at)
+            no_candidate = _core_lt(candidate_index, 0)
+            if no_candidate:
+                candidate_index = index
+                candidate_net = net_score
+                candidate_helpful = helpful
+                candidate_recency = recency
+            else:
+                net_lower = _core_lt(net_score, candidate_net)
+                net_equal = _core_eq(net_score, candidate_net)
+                helpful_lower = _core_lt(helpful, candidate_helpful)
+                helpful_equal = _core_eq(helpful, candidate_helpful)
+                recency_lower = _core_lt(recency, candidate_recency)
+                is_worse = net_lower
+                if net_equal:
+                    if helpful_lower:
+                        is_worse = True
+                    else:
+                        pass
+                    if helpful_equal:
+                        if recency_lower:
+                            is_worse = True
+                        else:
+                            pass
+                    else:
+                        pass
+                else:
+                    pass
+                if is_worse:
+                    candidate_index = index
+                    candidate_net = net_score
+                    candidate_helpful = helpful
+                    candidate_recency = recency
+                else:
+                    pass
+        else:
+            pass
+        index_next = _core_add(index, 1)
+        index = index_next
+    out = {}
+    has_candidate = _core_gte(candidate_index, 0)
+    new_section = []
+    if has_candidate:
+        pruned = _core_none()
+        cursor = 0
+        for bullet in section:
+            is_target = _core_eq(cursor, candidate_index)
+            if is_target:
+                pruned = bullet
+            else:
+                new_section.append(bullet)
+            cursor_next = _core_add(cursor, 1)
+            cursor = cursor_next
+        out["pruned"] = pruned
+        out["section"] = new_section
+        return out
+    else:
+        pass
+    null_pruned = _core_none()
+    out["pruned"] = null_pruned
+    out["section"] = section
+    return out
+
+
+def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, now: str) -> Any:
+    _core_coverage_mark("_ace_apply_curator_operations")
+    empty_map = {}
+    empty_list = []
+    opts = options
+    opts_missing = _core_is_none(options)
+    if opts_missing:
+        opts = empty_map
+    else:
+        pass
+    allow_dynamic = _core_get(opts, "allowDynamicSections", True)
+    enable_auto_prune = _core_get(opts, "enableAutoPrune", False)
+    has_max = _core_map_contains(opts, "maxSectionSize")
+    max_section_size = _core_get(opts, "maxSectionSize", 0)
+    protected_ids = _core_get(opts, "protectedBulletIds", empty_list)
+    updated_bullets = []
+    auto_removed = []
+    sections = _core_get(playbook, "sections", empty_map)
+    for op in operations:
+        section_name = _core_get(op, "section", "")
+        has_section_name = _core_ne(section_name, "")
+        if has_section_name:
+            section_exists = _core_map_contains(sections, section_name)
+            missing_section = _core_not(section_exists)
+            if missing_section:
+                if allow_dynamic:
+                    new_section_list = []
+                    sections[section_name] = new_section_list
+                else:
+                    pass
+            else:
+                pass
+            section_now_exists = _core_map_contains(sections, section_name)
+            if section_now_exists:
+                section = _core_get(sections, section_name, None)
+                op_type = _core_get(op, "type", "")
+                is_add = _core_eq(op_type, "ADD")
+                if is_add:
+                    raw_content = _core_get(op, "content", "")
+                    content = str(raw_content).strip()
+                    has_content = _core_ne(content, "")
+                    if has_content:
+                        section_len = _core_len(section)
+                        at_capacity_raw = _core_gte(section_len, max_section_size)
+                        at_capacity = False
+                        if has_max:
+                            if at_capacity_raw:
+                                at_capacity = True
+                            else:
+                                pass
+                        else:
+                            pass
+                        proceed = True
+                        if at_capacity:
+                            if enable_auto_prune:
+                                prune_result = _ace_prune_section_for_addition(section, protected_ids)
+                                pruned = _core_get(prune_result, "pruned", None)
+                                has_pruned = _core_is_not_none(pruned)
+                                if has_pruned:
+                                    pruned_section = _core_get(prune_result, "section", None)
+                                    section = pruned_section
+                                    sections[section_name] = section
+                                    pruned_id = _core_get(pruned, "id", "")
+                                    updated_bullets.append(pruned_id)
+                                    removal = {}
+                                    removal["type"] = "REMOVE"
+                                    removal["section"] = section_name
+                                    removal["bulletId"] = pruned_id
+                                    pruned_metadata = _core_get(pruned, "metadata", empty_map)
+                                    removal_metadata = _core_map_merge(empty_map, pruned_metadata)
+                                    removal_metadata["autoPruned"] = True
+                                    removal_metadata["removedAt"] = now
+                                    removal["metadata"] = removal_metadata
+                                    auto_removed.append(removal)
+                                else:
+                                    proceed = False
+                            else:
+                                proceed = False
+                        else:
+                            pass
+                        if proceed:
+                            op_bullet_id = _core_get(op, "bulletId", None)
+                            has_bullet_id = _core_is_not_none(op_bullet_id)
+                            bullet_id = op_bullet_id
+                            missing_bullet_id = _core_not(has_bullet_id)
+                            if missing_bullet_id:
+                                bullet_id = section_name
+                            else:
+                                pass
+                            bullet = {}
+                            bullet["id"] = bullet_id
+                            bullet["section"] = section_name
+                            bullet["content"] = content
+                            bullet["helpfulCount"] = 0
+                            bullet["harmfulCount"] = 0
+                            bullet["createdAt"] = now
+                            bullet["updatedAt"] = now
+                            op_metadata = _core_get(op, "metadata", None)
+                            has_metadata = _core_is_not_none(op_metadata)
+                            if has_metadata:
+                                bullet_metadata = _core_map_merge(empty_map, op_metadata)
+                                bullet["metadata"] = bullet_metadata
+                            else:
+                                pass
+                            section.append(bullet)
+                            sections[section_name] = section
+                            updated_bullets.append(bullet_id)
+                        else:
+                            pass
+                    else:
+                        pass
+                else:
+                    pass
+                is_update = _core_eq(op_type, "UPDATE")
+                if is_update:
+                    target_id = _core_get(op, "bulletId", None)
+                    for bullet in section:
+                        candidate_bullet_id = _core_get(bullet, "id", "")
+                        bullet_match = _core_eq(candidate_bullet_id, target_id)
+                        if bullet_match:
+                            op_content = _core_get(op, "content", None)
+                            content_is_string = _core_type_is(op_content, "string")
+                            if content_is_string:
+                                bullet["content"] = op_content
+                            else:
+                                pass
+                            bullet["updatedAt"] = now
+                            op_metadata_update = _core_get(op, "metadata", None)
+                            has_metadata_update = _core_is_not_none(op_metadata_update)
+                            if has_metadata_update:
+                                existing_metadata = _core_get(bullet, "metadata", empty_map)
+                                merged_metadata = _core_map_merge(existing_metadata, op_metadata_update)
+                                bullet["metadata"] = merged_metadata
+                            else:
+                                pass
+                            bullet_id_update = _core_get(bullet, "id", "")
+                            updated_bullets.append(bullet_id_update)
+                        else:
+                            pass
+                else:
+                    pass
+                is_remove = _core_eq(op_type, "REMOVE")
+                if is_remove:
+                    remove_id = _core_get(op, "bulletId", None)
+                    kept = []
+                    none_value = _core_none()
+                    removed_id = none_value
+                    for bullet in section:
+                        remove_candidate_id = _core_get(bullet, "id", "")
+                        bullet_remove_match = _core_eq(remove_candidate_id, remove_id)
+                        if bullet_remove_match:
+                            removed_id = remove_candidate_id
+                        else:
+                            kept.append(bullet)
+                    sections[section_name] = kept
+                    did_remove = _core_is_not_none(removed_id)
+                    if did_remove:
+                        updated_bullets.append(removed_id)
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+    playbook["sections"] = sections
+    recomputed = _ace_recompute_playbook_stats(playbook)
+    recomputed["updatedAt"] = now
+    out = {}
+    out["playbook"] = recomputed
+    out["updatedBulletIds"] = updated_bullets
+    out["autoRemoved"] = auto_removed
+    return out
+
+
+def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
+    _core_coverage_mark("_ace_normalize_curator_operations")
+    empty_list = []
+    has_operations = _core_is_not_none(operations)
+    missing = _core_not(has_operations)
+    if missing:
+        return empty_list
+    else:
+        pass
+    is_list = _core_type_is(operations, "list")
+    if is_list:
+        normalized = []
+        seen = {}
+        for entry in operations:
+            is_object = _core_type_is(entry, "object")
+            if is_object:
+                type_raw = _core_get(entry, "type", "ADD")
+                type_is_string = _core_type_is(type_raw, "string")
+                type_lower = "add"
+                if type_is_string:
+                    lowered = _core_string_lower(type_raw)
+                    type_lower = lowered
+                else:
+                    pass
+                is_update = _core_eq(type_lower, "update")
+                is_remove = _core_eq(type_lower, "remove")
+                type = "ADD"
+                if is_update:
+                    type = "UPDATE"
+                else:
+                    pass
+                if is_remove:
+                    type = "REMOVE"
+                else:
+                    pass
+                section_raw = _core_get(entry, "section", "Guidelines")
+                section_is_string = _core_type_is(section_raw, "string")
+                section = "Guidelines"
+                if section_is_string:
+                    section_trimmed = str(section_raw).strip()
+                    section_nonempty = _core_ne(section_trimmed, "")
+                    if section_nonempty:
+                        section = section_trimmed
+                    else:
+                        pass
+                else:
+                    pass
+                content_raw = _core_get(entry, "content", "")
+                content_is_string = _core_type_is(content_raw, "string")
+                content = ""
+                if content_is_string:
+                    content_trimmed = str(content_raw).strip()
+                    content = content_trimmed
+                else:
+                    pass
+                not_remove = _core_ne(type, "REMOVE")
+                content_empty = _core_eq(content, "")
+                keep = True
+                if not_remove:
+                    if content_empty:
+                        keep = False
+                    else:
+                        pass
+                else:
+                    pass
+                if keep:
+                    bullet_id_raw = _core_get(entry, "bulletId", None)
+                    has_bullet_id_field = _core_is_not_none(bullet_id_raw)
+                    bullet_id_source = bullet_id_raw
+                    if has_bullet_id_field:
+                        pass
+                    else:
+                        id_field = _core_get(entry, "id", None)
+                        bullet_id_source = id_field
+                    bullet_id_is_string = _core_type_is(bullet_id_source, "string")
+                    none_value = _core_none()
+                    bullet_id = none_value
+                    if bullet_id_is_string:
+                        bullet_id_trimmed = str(bullet_id_source).strip()
+                        bullet_id_nonempty = _core_ne(bullet_id_trimmed, "")
+                        if bullet_id_nonempty:
+                            bullet_id = bullet_id_trimmed
+                        else:
+                            pass
+                    else:
+                        pass
+                    bullet_id_key = ""
+                    has_bullet_id = _core_is_not_none(bullet_id)
+                    if has_bullet_id:
+                        bullet_id_key = bullet_id
+                    else:
+                        pass
+                    key_a = _core_string_format("{}:{}", type, section)
+                    key_b = _core_string_format("{}:{}", content, bullet_id_key)
+                    key = _core_string_format("{}:{}", key_a, key_b)
+                    already_seen = _core_map_contains(seen, key)
+                    fresh = _core_not(already_seen)
+                    if fresh:
+                        seen[key] = True
+                        normalized_entry = {}
+                        normalized_entry["type"] = type
+                        normalized_entry["section"] = section
+                        if not_remove:
+                            normalized_entry["content"] = content
+                        else:
+                            pass
+                        if has_bullet_id:
+                            normalized_entry["bulletId"] = bullet_id
+                        else:
+                            pass
+                        metadata_raw = _core_get(entry, "metadata", None)
+                        metadata_is_object = _core_type_is(metadata_raw, "object")
+                        if metadata_is_object:
+                            empty_metadata = {}
+                            metadata_copy = _core_map_merge(empty_metadata, metadata_raw)
+                            normalized_entry["metadata"] = metadata_copy
+                        else:
+                            pass
+                        normalized.append(normalized_entry)
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+        return normalized
+    else:
+        pass
+    is_string = _core_type_is(operations, "string")
+    if is_string:
+        parsed = _core_json_parse(operations)
+        parsed_is_none = _core_is_none(parsed)
+        if parsed_is_none:
+            return empty_list
+        else:
+            pass
+        normalized_from_string = _ace_normalize_curator_operations(parsed)
+        return normalized_from_string
+    else:
+        pass
+    is_object = _core_type_is(operations, "object")
+    if is_object:
+        inner = _core_get(operations, "operations", None)
+        has_inner = _core_is_not_none(inner)
+        if has_inner:
+            normalized_from_object = _ace_normalize_curator_operations(inner)
+            return normalized_from_object
+        else:
+            pass
+        return empty_list
+    else:
+        pass
+    return empty_list
+
+
+def _ace_locate_bullet_section(playbook: Any, bullet_id: str) -> Any:
+    _core_coverage_mark("_ace_locate_bullet_section")
+    empty_map = {}
+    sections = _core_get(playbook, "sections", empty_map)
+    section_names = _core_map_keys(sections)
+    none_value = _core_none()
+    found = none_value
+    for section_name in section_names:
+        already = _core_is_not_none(found)
+        still_open = _core_not(already)
+        if still_open:
+            bullets = _core_get(sections, section_name, None)
+            for bullet in bullets:
+                open = _core_is_none(found)
+                if open:
+                    current_id = _core_get(bullet, "id", "")
+                    match = _core_eq(current_id, bullet_id)
+                    if match:
+                        hit = {}
+                        hit["section"] = section_name
+                        hit["id"] = current_id
+                        found = hit
+                    else:
+                        pass
+                else:
+                    pass
+        else:
+            pass
+    return found
+
+
+def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, reflection: Any, generator_output: Any) -> list[Any]:
+    _core_coverage_mark("_ace_resolve_curator_operation_targets")
+    op_count = _core_len(operations)
+    is_empty = _core_eq(op_count, 0)
+    if is_empty:
+        return operations
+    else:
+        pass
+    used_ids = {}
+    for op in operations:
+        existing_bullet_id = _core_get(op, "bulletId", None)
+        has_existing = _core_is_not_none(existing_bullet_id)
+        if has_existing:
+            existing_is_string = _core_type_is(existing_bullet_id, "string")
+            if existing_is_string:
+                used_ids[existing_bullet_id] = True
+            else:
+                pass
+        else:
+            pass
+    section_queues = {}
+    empty_list = []
+    reflection_present = _core_is_not_none(reflection)
+    if reflection_present:
+        bullet_tags = _core_get(reflection, "bulletTags", empty_list)
+        for tag in bullet_tags:
+            tag_id = _core_get(tag, "id", None)
+            tag_id_is_string = _core_type_is(tag_id, "string")
+            if tag_id_is_string:
+                already_used = _core_map_contains(used_ids, tag_id)
+                not_used = _core_not(already_used)
+                if not_used:
+                    located = _ace_locate_bullet_section(playbook, tag_id)
+                    located_found = _core_is_not_none(located)
+                    if located_found:
+                        located_section = _core_get(located, "section", None)
+                        located_id = _core_get(located, "id", None)
+                        tag_value = _core_get(tag, "tag", "")
+                        is_harmful = _core_eq(tag_value, "harmful")
+                        priority = "primary"
+                        if is_harmful:
+                            priority = "harmful"
+                        else:
+                            pass
+                        has_queue = _core_map_contains(section_queues, located_section)
+                        missing_queue = _core_not(has_queue)
+                        if missing_queue:
+                            new_queue = {}
+                            harmful_list = []
+                            new_queue["harmful"] = harmful_list
+                            primary_list = []
+                            new_queue["primary"] = primary_list
+                            generator_list = []
+                            new_queue["generator"] = generator_list
+                            section_queues[located_section] = new_queue
+                        else:
+                            pass
+                        queue = _core_get(section_queues, located_section, None)
+                        priority_list = _core_get(queue, priority, None)
+                        priority_list.append(located_id)
+                        queue[priority] = priority_list
+                        section_queues[located_section] = queue
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+    else:
+        pass
+    generator_present = _core_is_not_none(generator_output)
+    if generator_present:
+        generator_bullet_ids = _core_get(generator_output, "bulletIds", empty_list)
+        for bullet_id in generator_bullet_ids:
+            gen_id_is_string = _core_type_is(bullet_id, "string")
+            if gen_id_is_string:
+                gen_already_used = _core_map_contains(used_ids, bullet_id)
+                gen_not_used = _core_not(gen_already_used)
+                if gen_not_used:
+                    gen_located = _ace_locate_bullet_section(playbook, bullet_id)
+                    gen_found = _core_is_not_none(gen_located)
+                    if gen_found:
+                        gen_section = _core_get(gen_located, "section", None)
+                        gen_located_id = _core_get(gen_located, "id", None)
+                        gen_has_queue = _core_map_contains(section_queues, gen_section)
+                        gen_missing_queue = _core_not(gen_has_queue)
+                        if gen_missing_queue:
+                            gen_new_queue = {}
+                            gen_harmful = []
+                            gen_new_queue["harmful"] = gen_harmful
+                            gen_primary = []
+                            gen_new_queue["primary"] = gen_primary
+                            gen_generator = []
+                            gen_new_queue["generator"] = gen_generator
+                            section_queues[gen_section] = gen_new_queue
+                        else:
+                            pass
+                        gen_queue = _core_get(section_queues, gen_section, None)
+                        gen_generator_list = _core_get(gen_queue, "generator", None)
+                        gen_generator_list.append(gen_located_id)
+                        gen_queue["generator"] = gen_generator_list
+                        section_queues[gen_section] = gen_queue
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+    else:
+        pass
+    resolved = []
+    for op in operations:
+        op_type = _core_get(op, "type", "")
+        op_is_update = _core_eq(op_type, "UPDATE")
+        op_is_remove = _core_eq(op_type, "REMOVE")
+        needs_target = _core_or(op_is_update, op_is_remove)
+        current_bullet_id = _core_get(op, "bulletId", None)
+        has_bullet_id = _core_is_not_none(current_bullet_id)
+        missing_bullet_id = _core_not(has_bullet_id)
+        empty_op = {}
+        resolved_op = _core_map_merge(empty_op, op)
+        if needs_target:
+            if missing_bullet_id:
+                op_section = _core_get(op, "section", "")
+                candidate = _ace_dequeue_section_candidate(section_queues, op_section, used_ids, playbook)
+                candidate_found = _core_is_not_none(candidate)
+                if candidate_found:
+                    resolved_op["bulletId"] = candidate
+                    used_ids[candidate] = True
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+        final_bullet_id = _core_get(resolved_op, "bulletId", None)
+        final_has_bullet_id = _core_is_not_none(final_bullet_id)
+        keep = True
+        if needs_target:
+            keep = final_has_bullet_id
+        else:
+            pass
+        if keep:
+            resolved.append(resolved_op)
+        else:
+            pass
+    return resolved
+
+
+def _ace_dequeue_section_candidate(section_queues: Any, section: str, used_ids: Any, playbook: Any) -> Any:
+    _core_coverage_mark("_ace_dequeue_section_candidate")
+    none_value = _core_none()
+    picked = none_value
+    has_queue = _core_map_contains(section_queues, section)
+    if has_queue:
+        queue = _core_get(section_queues, section, None)
+        empty_list = []
+        harmful_list = _core_get(queue, "harmful", empty_list)
+        for candidate in harmful_list:
+            open = _core_is_none(picked)
+            if open:
+                used = _core_map_contains(used_ids, candidate)
+                not_used = _core_not(used)
+                if not_used:
+                    picked = candidate
+                else:
+                    pass
+            else:
+                pass
+        primary_list = _core_get(queue, "primary", empty_list)
+        for candidate in primary_list:
+            open = _core_is_none(picked)
+            if open:
+                used = _core_map_contains(used_ids, candidate)
+                not_used = _core_not(used)
+                if not_used:
+                    picked = candidate
+                else:
+                    pass
+            else:
+                pass
+        generator_list = _core_get(queue, "generator", empty_list)
+        for candidate in generator_list:
+            open = _core_is_none(picked)
+            if open:
+                used = _core_map_contains(used_ids, candidate)
+                not_used = _core_not(used)
+                if not_used:
+                    picked = candidate
+                else:
+                    pass
+            else:
+                pass
+    else:
+        pass
+    still_open = _core_is_none(picked)
+    if still_open:
+        empty_map = {}
+        sections = _core_get(playbook, "sections", empty_map)
+        fallback_bullets = _core_get(sections, section, None)
+        fallback_present = _core_is_not_none(fallback_bullets)
+        if fallback_present:
+            for bullet in fallback_bullets:
+                open = _core_is_none(picked)
+                if open:
+                    bullet_id = _core_get(bullet, "id", "")
+                    used = _core_map_contains(used_ids, bullet_id)
+                    not_used = _core_not(used)
+                    if not_used:
+                        picked = bullet_id
+                    else:
+                        pass
+                else:
+                    pass
+        else:
+            pass
+    else:
+        pass
+    return picked
+
 # END AXIR CORE EMITTED FUNCTIONS

@@ -1,0 +1,91 @@
+{
+  "expected_playbook": {
+    "sections": {
+      "strategies": [
+        {
+          "content": "Outline the approach first.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 1,
+          "helpfulCount": 3,
+          "id": "calc-00001",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        },
+        {
+          "content": "Double-check edge cases carefully.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 2,
+          "id": "calc-00002",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ],
+      "pitfalls": [
+        {
+          "content": "Avoid off-by-one mistakes.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 2,
+          "helpfulCount": 0,
+          "id": "calc-00003",
+          "section": "pitfalls",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 3,
+      "harmfulCount": 3,
+      "helpfulCount": 5,
+      "tokenEstimate": 23
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  },
+  "kind": "optimize",
+  "name": "ace-recompute-stats",
+  "operation": "playbook-stats",
+  "playbook": {
+    "sections": {
+      "strategies": [
+        {
+          "content": "Outline the approach first.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 1,
+          "helpfulCount": 3,
+          "id": "calc-00001",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        },
+        {
+          "content": "Double-check edge cases carefully.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 2,
+          "id": "calc-00002",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ],
+      "pitfalls": [
+        {
+          "content": "Avoid off-by-one mistakes.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 2,
+          "helpfulCount": 0,
+          "id": "calc-00003",
+          "section": "pitfalls",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 0,
+      "harmfulCount": 0,
+      "helpfulCount": 0,
+      "tokenEstimate": 0
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  }
+}

@@ -57,6 +57,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `python examples/runtime_protocol.py`: process runtime protocol against the AxJS reference adapter
 - `python examples/optimizer_artifact.py`: optimizer artifact save/load/apply lifecycle
 - `python examples/gepa_local_optimizer.py`: local GEPA optimizer artifact generation
+- `python examples/ace_playbook.py`: grow an evolving context playbook with `playbook()` (offline, scripted client)
 - `python examples/mcp_scripted_tools.py`: MCP tool discovery and invocation through a scripted transport
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:

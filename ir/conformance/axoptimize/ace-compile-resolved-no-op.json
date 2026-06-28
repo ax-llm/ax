@@ -1,0 +1,144 @@
+{
+  "ace_options": {
+    "maxEpochs": 1,
+    "maxReflectorRounds": 3
+  },
+  "curator_responses": [
+    {
+      "operations": [],
+      "reasoning": "Nothing to change."
+    },
+    {
+      "operations": [],
+      "reasoning": "Nothing to change."
+    }
+  ],
+  "examples": [
+    {
+      "answer": "pong",
+      "question": "ping"
+    },
+    {
+      "answer": "pong2",
+      "question": "ping2"
+    }
+  ],
+  "expected_artifact": {
+    "feedback": [
+      {
+        "curator": {
+          "operations": [],
+          "reasoning": "Nothing to change."
+        },
+        "example": {
+          "answer": "pong",
+          "question": "ping"
+        },
+        "generatorOutput": {
+          "answer": {
+            "answer": "pong"
+          },
+          "bulletIds": [],
+          "reasoning": ""
+        },
+        "prediction": {
+          "answer": "pong"
+        },
+        "reflection": {
+          "bulletTags": [],
+          "correctApproach": "keep going",
+          "errorIdentification": "no error",
+          "keyInsight": "stable behavior",
+          "reasoning": "Answer already correct.",
+          "rootCauseAnalysis": "none"
+        },
+        "score": 1,
+        "timestamp": "2024-01-02T03:04:05.000Z"
+      },
+      {
+        "curator": {
+          "operations": [],
+          "reasoning": "Nothing to change."
+        },
+        "example": {
+          "answer": "pong2",
+          "question": "ping2"
+        },
+        "generatorOutput": {
+          "answer": {
+            "answer": "pong2"
+          },
+          "bulletIds": [],
+          "reasoning": ""
+        },
+        "prediction": {
+          "answer": "pong2"
+        },
+        "reflection": {
+          "bulletTags": [],
+          "correctApproach": "keep going",
+          "errorIdentification": "no error",
+          "keyInsight": "stable behavior",
+          "reasoning": "Answer already correct.",
+          "rootCauseAnalysis": "none"
+        },
+        "score": 1,
+        "timestamp": "2024-01-02T03:04:05.000Z"
+      }
+    ],
+    "history": [],
+    "playbook": {
+      "sections": {},
+      "stats": {
+        "bulletCount": 0,
+        "harmfulCount": 0,
+        "helpfulCount": 0,
+        "tokenEstimate": 0
+      },
+      "updatedAt": "2024-01-02T03:04:05.000Z",
+      "version": 1
+    }
+  },
+  "expected_playbook": {
+    "sections": {},
+    "stats": {
+      "bulletCount": 0,
+      "harmfulCount": 0,
+      "helpfulCount": 0,
+      "tokenEstimate": 0
+    },
+    "updatedAt": "2024-01-02T03:04:05.000Z",
+    "version": 1
+  },
+  "generator_predictions": [
+    {
+      "answer": "pong"
+    },
+    {
+      "answer": "pong2"
+    }
+  ],
+  "kind": "optimize",
+  "metric_scores": [1, 1],
+  "name": "ace-compile-resolved-no-op",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "ace-compile",
+  "reflection_responses": [
+    {
+      "bulletTags": [],
+      "correctApproach": "keep going",
+      "errorIdentification": "no error",
+      "keyInsight": "stable behavior",
+      "reasoning": "Answer already correct.",
+      "rootCauseAnalysis": "none"
+    },
+    {
+      "bulletTags": [],
+      "correctApproach": "keep going",
+      "errorIdentification": "no error",
+      "keyInsight": "stable behavior",
+      "reasoning": "Answer already correct.",
+      "rootCauseAnalysis": "none"
+    }
+  ]
+}

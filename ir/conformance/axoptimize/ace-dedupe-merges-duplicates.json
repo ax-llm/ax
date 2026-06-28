@@ -1,0 +1,78 @@
+{
+  "expected_playbook": {
+    "sections": {
+      "strategies": [
+        {
+          "content": "Re-read the prompt.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 1,
+          "helpfulCount": 3,
+          "id": "calc-00001",
+          "section": "strategies",
+          "updatedAt": "2023-12-05T00:00:00.000Z"
+        },
+        {
+          "content": "State assumptions.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 4,
+          "id": "calc-00003",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 2,
+      "harmfulCount": 1,
+      "helpfulCount": 7,
+      "tokenEstimate": 10
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  },
+  "kind": "optimize",
+  "name": "ace-dedupe-merges-duplicates",
+  "operation": "playbook-dedupe",
+  "playbook": {
+    "sections": {
+      "strategies": [
+        {
+          "content": "Re-read the prompt.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 1,
+          "id": "calc-00001",
+          "section": "strategies",
+          "updatedAt": "2023-12-02T00:00:00.000Z"
+        },
+        {
+          "content": "  re-read THE prompt.  ",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 1,
+          "helpfulCount": 2,
+          "id": "calc-00002",
+          "section": "strategies",
+          "updatedAt": "2023-12-05T00:00:00.000Z"
+        },
+        {
+          "content": "State assumptions.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 4,
+          "id": "calc-00003",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 3,
+      "harmfulCount": 1,
+      "helpfulCount": 7,
+      "tokenEstimate": 16
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  }
+}

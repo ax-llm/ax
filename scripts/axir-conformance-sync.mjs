@@ -62,14 +62,23 @@ function flagValue(flags, key, fallback = undefined) {
   return flags[key] === undefined ? fallback : flags[key];
 }
 
-function stable(value) {
-  if (Array.isArray(value)) return value.map((item) => stable(item));
+// Keys whose nested object key order is semantically meaningful and must be
+// preserved through canonicalization (e.g. ACE playbook `sections` drive the
+// order of rendered instruction blocks). Everything else is sorted so fixtures
+// stay stable regardless of producer key order.
+const STABLE_ORDER_PRESERVING_KEYS = new Set(['sections']);
+
+function stable(value, parentKey = '') {
+  if (Array.isArray(value)) return value.map((item) => stable(item, parentKey));
   if (value && typeof value === 'object') {
+    const entries = Object.entries(value).filter(
+      ([, item]) => item !== undefined
+    );
+    const ordered = STABLE_ORDER_PRESERVING_KEYS.has(parentKey)
+      ? entries
+      : entries.sort(([a], [b]) => a.localeCompare(b));
     return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, item]) => item !== undefined)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, item]) => [key, stable(item)])
+      ordered.map(([key, item]) => [key, stable(item, key)])
     );
   }
   return value;

@@ -1,0 +1,51 @@
+{
+  "expected_render": "## Context Playbook\nReusable tactics for math word problems.\n\n### strategies\n- [calc-00001] Break the problem into steps.\n- [calc-00002] Verify the final arithmetic.\n\n### pitfalls\n- [calc-00003] Do not skip unit checks.\n\n### scratch\n_(empty)_",
+  "kind": "optimize",
+  "name": "ace-render-with-description",
+  "operation": "playbook-render",
+  "playbook": {
+    "description": "  Reusable tactics for math word problems.  ",
+    "sections": {
+      "strategies": [
+        {
+          "content": "Break the problem into steps.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "calc-00001",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        },
+        {
+          "content": "Verify the final arithmetic.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "calc-00002",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ],
+      "pitfalls": [
+        {
+          "content": "Do not skip unit checks.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "calc-00003",
+          "section": "pitfalls",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ],
+      "scratch": []
+    },
+    "stats": {
+      "bulletCount": 3,
+      "harmfulCount": 0,
+      "helpfulCount": 0,
+      "tokenEstimate": 21
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  }
+}

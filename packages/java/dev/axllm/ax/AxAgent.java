@@ -336,4 +336,31 @@ public final class AxAgent implements AxProgram {
     if (!(engine instanceof OptimizerEngine optimizer)) throw new IllegalArgumentException("options.engine must implement OptimizerEngine for optimize()");
     return optimizeWith(optimizer, dataset, options);
   }
+
+  /**
+   * Build an evolving context {@link AxPlaybook} bound to an agent stage (the
+   * actor/task stage by default; pass {@code "target":"responder"} for the
+   * responder). As the playbook evolves it is injected into the live stage prompt
+   * unless {@code "apply"} is false. The evolution engine (ACE) is an
+   * implementation detail.
+   */
+  public AxPlaybook playbook(Map<String, Object> options) {
+    Map<String, Object> opts = options == null ? new LinkedHashMap<>() : new LinkedHashMap<>(options);
+    String target = String.valueOf(opts.getOrDefault("target", "actor"));
+    Object student = AxPlaybook.option(opts, "studentAI", "student_ai", "student", "client", "ai");
+    if (student == null) student = this.options.getOrDefault("ai", this.options.get("client"));
+    if (!(student instanceof AiClient)) {
+      throw new IllegalArgumentException("AxAgent.playbook(): studentAI is required when the agent has no default ai.");
+    }
+    AxGen stage = "responder".equals(target) ? this.responder : this.executor;
+    opts.put("studentAI", student);
+    AxPlaybook handle = new AxPlaybook(stage, opts);
+    if (Boolean.FALSE.equals(opts.get("apply"))) {
+      handle.setApplyHook(rendered -> {});
+      return handle;
+    }
+    String base = stage.getInstruction();
+    handle.setApplyHook(rendered -> stage.setInstruction(AxPlaybook.composeInstruction(base, rendered)));
+    return handle;
+  }
 }

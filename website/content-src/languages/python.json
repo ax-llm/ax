@@ -69,6 +69,14 @@
       "",
       "engine = AxGEPA(reflection_client)",
       "result = engine.optimize(request, evaluator)"
+    ],
+    "playbook": [
+      "from axllm import playbook",
+      "",
+      "pb = playbook(program, {\"studentAI\": student_ai})",
+      "pb.evolve(examples, metric)   # grow a playbook offline from examples",
+      "pb.update({\"example\": ex, \"prediction\": pred, \"feedback\": \"...\"})  # refine online",
+      "pb.apply_to(program)"
     ]
   },
   "snippetGroups": {

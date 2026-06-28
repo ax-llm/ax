@@ -236,6 +236,57 @@ assert any(
 print("python-optimizer-artifact-ok")
 `
 
+const pyACEPlaybookExample = `import json
+
+from axllm import ax, playbook
+
+
+# A scripted client stands in for a real provider so this example runs without
+# a key. Swap it for ai("openai", api_key=...) to grow a playbook against a live
+# model. The canned JSON satisfies the bound program AND the playbook's internal
+# reflector/curator sub-programs, so the full ACE loop is exercised offline.
+class ScriptedClient:
+    def complete(self, request):
+        return {
+            "content": json.dumps(
+                {
+                    "answer": "Ax composes typed LLM programs.",
+                    "reasoning": "The playbook lacked a brevity rule.",
+                    "errorIdentification": "Answer was too verbose.",
+                    "rootCauseAnalysis": "No guidance on conciseness.",
+                    "correctApproach": "Add a concise-answer guideline.",
+                    "keyInsight": "Prefer one-sentence answers.",
+                    "bulletTags": [],
+                    "operations": [
+                        {"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}
+                    ],
+                }
+            )
+        }
+
+
+client = ScriptedClient()
+program = ax("question:string -> answer:string", {"id": "qa", "instruction": "Answer the question."})
+
+pb = playbook(program, {"studentAI": client, "maxEpochs": 1})
+
+
+def metric(args):
+    prediction = args.get("prediction") or {}
+    answer = str(prediction.get("answer") or "")
+    return 1.0 if answer else 0.0
+
+
+examples = [{"question": "What is Ax?"}, {"question": "Why typed signatures?"}]
+result = pb.evolve(examples, metric)
+rendered = pb.render()
+state = pb.to_json()
+assert "bestScore" in result, result
+assert "playbook" in state and "artifact" in state, state
+print(json.dumps({"bestScore": result["bestScore"], "rendered": rendered}, indent=2, sort_keys=True))
+print("python-ace-playbook-ok")
+`
+
 const javaSignatureSchemaExample = `import dev.axllm.ax.*;
 import java.util.*;
 
@@ -1846,6 +1897,59 @@ public final class GEPALocalOptimizerExample {
 }
 `
 
+const javaACEPlaybookExample = `import dev.axllm.ax.*;
+import java.util.*;
+import java.util.function.Function;
+
+public final class ACEPlaybookExample {
+  // A scripted client stands in for a real provider so this example runs without
+  // a key. Swap it for Ax.ai("openai", ...) to grow a playbook against a live
+  // model. The canned JSON satisfies the bound program AND the playbook's internal
+  // reflector/curator sub-programs, so the full ACE loop is exercised offline.
+  static final class ScriptedClient implements AiClient {
+    public Map<String, Object> complete(Map<String, Object> request) {
+      String content = "{"
+          + "\"answer\":\"Ax composes typed LLM programs.\","
+          + "\"reasoning\":\"The playbook lacked a brevity rule.\","
+          + "\"errorIdentification\":\"Answer was too verbose.\","
+          + "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
+          + "\"correctApproach\":\"Add a concise-answer guideline.\","
+          + "\"keyInsight\":\"Prefer one-sentence answers.\","
+          + "\"bulletTags\":[],"
+          + "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]"
+          + "}";
+      return Map.of("content", content);
+    }
+  }
+
+  public static void main(String[] args) {
+    ScriptedClient client = new ScriptedClient();
+    AxGen program = Ax.ax("question:string -> answer:string");
+    program.setInstruction("Answer the question.");
+
+    AxPlaybook pb = Ax.playbook(program, Map.of("studentAI", client, "maxEpochs", 1));
+
+    Function<Map<String, Object>, Object> metric = a -> {
+      Object prediction = a.get("prediction");
+      if (prediction instanceof Map<?, ?> map) {
+        Object answer = map.get("answer");
+        if (answer instanceof String s && !s.isEmpty()) return 1.0;
+      }
+      return 0.0;
+    };
+
+    List<Object> examples = List.of(Map.of("question", "What is Ax?"), Map.of("question", "Why typed signatures?"));
+    Map<String, Object> result = pb.evolve(examples, metric, Map.of());
+    String rendered = pb.render();
+    Map<String, Object> state = pb.toJson();
+    if (!result.containsKey("bestScore")) throw new RuntimeException("missing bestScore: " + result);
+    if (!state.containsKey("playbook")) throw new RuntimeException("missing playbook: " + state);
+    System.out.println("rendered: " + rendered);
+    System.out.println("java-ace-playbook-ok");
+  }
+}
+`
+
 const cppProviderStreamNoKeyExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 #include <string>
@@ -2639,5 +2743,53 @@ int main() {
                    {"metadata", axllm::Core::get(artifact, "metadata")},
                }))
             << "\n";
+}
+`
+
+const cppACEPlaybookExample = `#include "axllm/axllm.hpp"
+
+#include <iostream>
+
+// A scripted client stands in for a real provider so this example runs without a
+// key. Swap it for axllm::ai("openai", ...) to grow a playbook against a live
+// model. The canned JSON satisfies the bound program AND the playbook's internal
+// reflector/curator sub-programs, so the full ACE loop is exercised offline.
+struct ScriptedClient : axllm::AIClient {
+  axllm::Value complete(axllm::Value) override {
+    return axllm::object({{"content",
+        "{\"answer\":\"Ax composes typed LLM programs.\","
+        "\"reasoning\":\"The playbook lacked a brevity rule.\","
+        "\"errorIdentification\":\"Answer was too verbose.\","
+        "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
+        "\"correctApproach\":\"Add a concise-answer guideline.\","
+        "\"keyInsight\":\"Prefer one-sentence answers.\","
+        "\"bulletTags\":[],"
+        "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]}"}});
+  }
+};
+
+int main() {
+  ScriptedClient client;
+  auto program = axllm::ax("question:string -> answer:string", axllm::object({{"id", "qa"}, {"instruction", "Answer the question."}}));
+
+  axllm::AxPlaybook pb = axllm::playbook(program, client, axllm::object({{"maxEpochs", 1}}));
+
+  axllm::AxPlaybook::MetricFn metric = [](const axllm::Value& args) -> axllm::Value {
+    axllm::Value prediction = axllm::Core::get(args, "prediction");
+    std::string answer = axllm::display(axllm::Core::get(prediction, "answer"));
+    return answer.empty() ? axllm::Value(0.0) : axllm::Value(1.0);
+  };
+
+  std::vector<axllm::Value> examples = {
+      axllm::object({{"question", "What is Ax?"}}),
+      axllm::object({{"question", "Why typed signatures?"}}),
+  };
+  axllm::Value result = pb.evolve(examples, metric);
+  std::string rendered = pb.render();
+  axllm::Value state = pb.to_json();
+  if (axllm::Core::get(result, "bestScore", axllm::Value()).is_null()) return 1;
+  if (axllm::Core::get(state, "playbook", axllm::Value()).is_null()) return 1;
+  std::cout << "rendered: " << rendered << "\n";
+  std::cout << "cpp-ace-playbook-ok\n";
 }
 `

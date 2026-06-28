@@ -98,6 +98,13 @@
       "description": "Use when writing C++ code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-cpp-refine/SKILL.md",
       "digest": "sha256:f55e0c6eca39e2b11d311958a93055b2224f2c189216a99b2813835d4c4d2ef4"
+    },
+    {
+      "name": "ax-cpp-playbook",
+      "type": "skill-md",
+      "description": "Use when writing C++ code with `axllm` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program.",
+      "url": "ax-cpp-playbook/SKILL.md",
+      "digest": "sha256:44b6ba4ac1068a0a92394a6af033f4a6ecabc6865deb052fc26ed230146b3658"
     }
   ]
 }

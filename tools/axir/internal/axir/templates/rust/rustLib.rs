@@ -3671,6 +3671,869 @@ fn ax_gepa_pareto_front(candidates: &[AxGEPACandidate], eps: f64) -> Vec<usize> 
     front
 }
 
+/// Agentic Context Engineering optimizer (Generator -> Reflector -> Curator).
+///
+/// Deterministic playbook mutations reuse the Core-owned `_ace_*` ops; the
+/// LLM-orchestrated reflect/curate steps are delegated to injected callables so
+/// the loop is reproducible under conformance with scripted responses (mirrors
+/// how `AxGEPA` accepts a reflection client).
+pub struct AxACE {
+    reflector: Option<Box<dyn FnMut(&Value) -> Value>>,
+    curator: Option<Box<dyn FnMut(&Value) -> Value>>,
+    generator: Option<Box<dyn FnMut(&Value) -> Value>>,
+    config: Map<String, Value>,
+    initial_playbook: Option<Value>,
+    now: String,
+    playbook: Value,
+    generator_history: Vec<Value>,
+    delta_history: Vec<Value>,
+    last_prediction: Value,
+}
+
+fn ace_call_core(
+    f: fn(&[CoreValue]) -> Result<CoreValue, AxError>,
+    args: &[Value],
+) -> AxResult<Value> {
+    let core_args: Vec<CoreValue> = args.iter().map(core_value_from_json).collect();
+    Ok(core_value_to_json(&f(&core_args)?))
+}
+
+fn ace_is_number(value: &Value) -> bool {
+    value.is_number()
+}
+
+impl AxACE {
+    pub fn new(options: Value) -> Self {
+        let options = if options.is_object() { options } else { json!({}) };
+        let mut config = Map::new();
+        config.insert("maxEpochs".into(), json!(1));
+        config.insert("maxReflectorRounds".into(), json!(2));
+        config.insert("maxSectionSize".into(), json!(25));
+        config.insert("maxSerializedFieldChars".into(), json!(2000));
+        config.insert("similarityThreshold".into(), json!(0.95));
+        config.insert("allowDynamicSections".into(), json!(true));
+        for key in [
+            "maxEpochs",
+            "maxReflectorRounds",
+            "maxSectionSize",
+            "maxSerializedFieldChars",
+            "similarityThreshold",
+            "allowDynamicSections",
+        ] {
+            if let Some(value) = options.get(key) {
+                if !value.is_null() {
+                    config.insert(key.into(), value.clone());
+                }
+            }
+        }
+        let now = options
+            .get("now")
+            .and_then(Value::as_str)
+            .unwrap_or("1970-01-01T00:00:00.000Z")
+            .to_string();
+        let initial_playbook = options.get("initialPlaybook").cloned().filter(|v| !v.is_null());
+        let playbook = match &initial_playbook {
+            Some(pb) => pb.clone(),
+            None => ace_call_core(_ace_empty_playbook, &[Value::Null, json!(now)])
+                .unwrap_or_else(|_| json!({})),
+        };
+        Self {
+            reflector: None,
+            curator: None,
+            generator: None,
+            config,
+            initial_playbook,
+            now,
+            playbook,
+            generator_history: Vec::new(),
+            delta_history: Vec::new(),
+            last_prediction: Value::Null,
+        }
+    }
+
+    pub fn with_callables(
+        mut self,
+        reflector: Option<Box<dyn FnMut(&Value) -> Value>>,
+        curator: Option<Box<dyn FnMut(&Value) -> Value>>,
+        generator: Option<Box<dyn FnMut(&Value) -> Value>>,
+    ) -> Self {
+        self.reflector = reflector;
+        self.curator = curator;
+        self.generator = generator;
+        self
+    }
+
+    pub fn name(&self) -> &str {
+        "ACE"
+    }
+
+    pub fn version(&self) -> &str {
+        "axir-ace-v1"
+    }
+
+    fn int_config(&self, key: &str, fallback: i64) -> i64 {
+        self.config.get(key).and_then(Value::as_i64).unwrap_or(fallback)
+    }
+
+    fn empty_playbook(&self) -> Value {
+        ace_call_core(_ace_empty_playbook, &[Value::Null, json!(self.now)])
+            .unwrap_or_else(|_| json!({}))
+    }
+
+    pub fn reset(&mut self) {
+        self.playbook = match &self.initial_playbook {
+            Some(pb) => pb.clone(),
+            None => self.empty_playbook(),
+        };
+        self.generator_history.clear();
+        self.delta_history.clear();
+    }
+
+    pub fn configure_auto(&mut self, level: &str) {
+        match level {
+            "light" => {
+                self.config.insert("maxEpochs".into(), json!(1));
+                self.config.insert("maxReflectorRounds".into(), json!(1));
+            }
+            "medium" => {
+                self.config.insert("maxEpochs".into(), json!(2));
+                self.config.insert("maxReflectorRounds".into(), json!(2));
+            }
+            "heavy" => {
+                self.config.insert("maxEpochs".into(), json!(3));
+                self.config.insert("maxReflectorRounds".into(), json!(3));
+            }
+            _ => {}
+        }
+    }
+
+    pub fn hydrate(&mut self, state: &Value) {
+        if let Some(pb) = state.get("playbook").filter(|v| !v.is_null()) {
+            self.playbook = pb.clone();
+        } else if let Some(pb) = &self.initial_playbook {
+            self.playbook = pb.clone();
+        } else {
+            self.playbook = self.empty_playbook();
+        }
+        let artifact = state.get("artifact").cloned().unwrap_or_else(|| json!({}));
+        self.generator_history = artifact
+            .get("feedback")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        self.delta_history = artifact
+            .get("history")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+    }
+
+    pub fn get_playbook(&self) -> Value {
+        self.playbook.clone()
+    }
+
+    pub fn get_artifact(&self) -> Value {
+        json!({
+            "playbook": self.playbook.clone(),
+            "feedback": Value::Array(self.generator_history.clone()),
+            "history": Value::Array(self.delta_history.clone()),
+        })
+    }
+
+    fn render_playbook(&self) -> String {
+        ace_call_core(_ace_render_playbook, &[self.playbook.clone()])
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_default()
+    }
+
+    fn generator_output(&self, prediction: &Value) -> Value {
+        let mut reasoning = String::new();
+        let mut bullet_ids: Vec<Value> = Vec::new();
+        if let Some(map) = prediction.as_object() {
+            if let Some(thought) = map.get("thought") {
+                reasoning = match thought {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+            }
+            if let Some(Value::Array(ids)) = map.get("bullet_ids") {
+                bullet_ids = ids.clone();
+            }
+        }
+        json!({
+            "reasoning": reasoning,
+            "answer": prediction.clone(),
+            "bulletIds": bullet_ids,
+        })
+    }
+
+    fn run_reflection_rounds(&mut self, example: &Value, generator_output: &Value, feedback: &Value) -> Value {
+        let rounds = self.int_config("maxReflectorRounds", 1).max(1);
+        let mut previous = Value::Null;
+        for _ in 0..rounds {
+            let reflection = self.run_reflector(example, generator_output, feedback, &previous);
+            if reflection.is_null() || reflection.as_object().map(|m| m.is_empty()).unwrap_or(true) {
+                break;
+            }
+            previous = reflection.clone();
+            let error_text = reflection
+                .get("errorIdentification")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_lowercase();
+            let error_text = error_text.trim();
+            let resolved = reflection
+                .get("metadata")
+                .and_then(|m| m.get("resolved"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if resolved
+                || error_text.is_empty()
+                || error_text.starts_with("no error")
+                || error_text.starts_with("resolved")
+            {
+                break;
+            }
+        }
+        previous
+    }
+
+    fn run_reflector(&mut self, example: &Value, generator_output: &Value, feedback: &Value, previous_reflection: &Value) -> Value {
+        let playbook_render = self.render_playbook();
+        if let Some(reflector) = self.reflector.as_mut() {
+            let payload = json!({
+                "question": example.clone(),
+                "generator_answer": generator_output.get("answer").cloned().unwrap_or(Value::Null),
+                "generator_reasoning": generator_output.get("reasoning").cloned().unwrap_or(Value::Null),
+                "playbook": playbook_render,
+                "feedback": feedback.clone(),
+                "previous_reflection": previous_reflection.clone(),
+            });
+            reflector(&payload)
+        } else {
+            Value::Null
+        }
+    }
+
+    fn run_curator(&mut self, example: &Value, reflection: &Value) -> Value {
+        if reflection.is_null() {
+            return Value::Null;
+        }
+        let playbook_render = self.render_playbook();
+        if let Some(curator) = self.curator.as_mut() {
+            let payload = json!({
+                "playbook": playbook_render,
+                "reflection": reflection.clone(),
+                "question_context": example.clone(),
+                "token_budget": 1024,
+            });
+            curator(&payload)
+        } else {
+            Value::Null
+        }
+    }
+
+    fn collect_protected_ids(operations: &[Value]) -> Vec<Value> {
+        let mut out = Vec::new();
+        for op in operations {
+            if op.get("type").and_then(Value::as_str) == Some("UPDATE") {
+                if let Some(id) = op.get("bulletId").filter(|v| !v.is_null()) {
+                    out.push(id.clone());
+                }
+            }
+        }
+        out
+    }
+
+    fn metric_feedback(score: &Value) -> Value {
+        if ace_is_number(score) {
+            json!(format!("Metric score: {}", score))
+        } else {
+            Value::Null
+        }
+    }
+
+    fn apply_operations(&mut self, resolved: &mut Vec<Value>, curator_result: &mut Option<Value>) -> AxResult<Vec<Value>> {
+        let protected = Self::collect_protected_ids(resolved);
+        let options = json!({
+            "maxSectionSize": self.config.get("maxSectionSize").cloned().unwrap_or(Value::Null),
+            "allowDynamicSections": self.config.get("allowDynamicSections").cloned().unwrap_or(Value::Null),
+            "enableAutoPrune": true,
+            "protectedBulletIds": protected,
+        });
+        let result = ace_call_core(
+            _ace_apply_curator_operations,
+            &[self.playbook.clone(), Value::Array(resolved.clone()), options, json!(self.now)],
+        )?;
+        self.playbook = result.get("playbook").cloned().unwrap_or(Value::Null);
+        let applied_ids = result
+            .get("updatedBulletIds")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let auto_removed = result
+            .get("autoRemoved")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if !auto_removed.is_empty() {
+            resolved.extend(auto_removed);
+            if let Some(cr) = curator_result.as_mut() {
+                if let Some(map) = cr.as_object_mut() {
+                    map.insert("operations".into(), Value::Array(resolved.clone()));
+                }
+            }
+        }
+        Ok(applied_ids)
+    }
+
+    fn apply_bullet_tags(&mut self, reflection: &Value) -> AxResult<()> {
+        if let Some(tags) = reflection.get("bulletTags").and_then(Value::as_array) {
+            for tag in tags {
+                self.playbook = ace_call_core(
+                    _ace_update_bullet_feedback,
+                    &[
+                        self.playbook.clone(),
+                        tag.get("id").cloned().unwrap_or(Value::Null),
+                        tag.get("tag").cloned().unwrap_or(Value::Null),
+                        json!(self.now),
+                    ],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn normalize_and_resolve(&mut self, raw_curator: &Value, generator_output: &Value, reflection: &Value) -> AxResult<Vec<Value>> {
+        let raw_operations = raw_curator.get("operations").cloned().unwrap_or(Value::Null);
+        let operations = ace_call_core(_ace_normalize_curator_operations, &[raw_operations])?;
+        let resolved = ace_call_core(
+            _ace_resolve_curator_operation_targets,
+            &[operations, self.playbook.clone(), reflection.clone(), generator_output.clone()],
+        )?;
+        Ok(resolved.as_array().cloned().unwrap_or_default())
+    }
+
+    fn process_example(&mut self, example: &Value, score: &Value, source: &str, epoch: i64, index: i64) -> AxResult<()> {
+        let prediction = self.last_prediction.clone();
+        let generator_output = self.generator_output(&prediction);
+        let feedback = Self::metric_feedback(score);
+        let reflection = self.run_reflection_rounds(example, &generator_output, &feedback);
+        let raw_curator = self.run_curator(example, &reflection);
+        let mut resolved = self.normalize_and_resolve(&raw_curator, &generator_output, &reflection)?;
+        let mut curator_result = if !raw_curator.is_null() || !resolved.is_empty() {
+            let mut map = raw_curator.as_object().cloned().unwrap_or_default();
+            map.insert("operations".into(), Value::Array(resolved.clone()));
+            Some(Value::Object(map))
+        } else {
+            None
+        };
+        let mut applied_ids: Vec<Value> = Vec::new();
+        if !resolved.is_empty() {
+            applied_ids = self.apply_operations(&mut resolved, &mut curator_result)?;
+        }
+        if !reflection.is_null() {
+            self.apply_bullet_tags(&reflection)?;
+        }
+        if !resolved.is_empty() && !applied_ids.is_empty() {
+            self.playbook = ace_call_core(_ace_dedupe_playbook, &[self.playbook.clone()])?;
+        }
+        let score_value = if ace_is_number(score) { score.clone() } else { json!(0) };
+        let feedback_event = json!({
+            "example": example.clone(),
+            "prediction": prediction,
+            "score": score_value,
+            "generatorOutput": generator_output,
+            "reflection": reflection,
+            "curator": curator_result.clone().unwrap_or(Value::Null),
+            "timestamp": self.now.clone(),
+        });
+        self.generator_history.push(feedback_event);
+        let has_ops = curator_result
+            .as_ref()
+            .and_then(|cr| cr.get("operations"))
+            .and_then(Value::as_array)
+            .map(|ops| !ops.is_empty())
+            .unwrap_or(false);
+        if !applied_ids.is_empty() && has_ops {
+            self.delta_history.push(json!({
+                "source": source,
+                "epoch": epoch,
+                "exampleIndex": index,
+                "operations": curator_result.as_ref().and_then(|cr| cr.get("operations")).cloned().unwrap_or(json!([])),
+            }));
+        }
+        Ok(())
+    }
+
+    pub fn compile(
+        &mut self,
+        examples: &[Value],
+        metric_fn: &mut dyn FnMut(&Value) -> Value,
+        options: &Value,
+    ) -> AxResult<Value> {
+        let ace_options = options
+            .get("aceOptions")
+            .or_else(|| options.get("ace_options"));
+        if let Some(ace_options) = ace_options {
+            for key in [
+                "maxEpochs",
+                "maxReflectorRounds",
+                "maxSectionSize",
+                "maxSerializedFieldChars",
+                "similarityThreshold",
+                "allowDynamicSections",
+            ] {
+                if let Some(value) = ace_options.get(key) {
+                    if !value.is_null() {
+                        self.config.insert(key.into(), value.clone());
+                    }
+                }
+            }
+        }
+        self.reset();
+        let epochs = self.int_config("maxEpochs", 1).max(1);
+        let mut best_score: Option<f64> = None;
+        for epoch in 0..epochs {
+            for (index, example) in examples.iter().enumerate() {
+                let prediction = match self.generator.as_mut() {
+                    Some(generator) => generator(example),
+                    None => json!({}),
+                };
+                self.last_prediction = prediction;
+                let score = metric_fn(example);
+                if let Some(value) = score.as_f64() {
+                    best_score = Some(best_score.map_or(value, |b| b.max(value)));
+                }
+                self.process_example(example, &score, "compile", epoch, index as i64)?;
+            }
+        }
+        Ok(json!({
+            "playbook": self.playbook.clone(),
+            "artifact": self.get_artifact(),
+            "bestScore": best_score.unwrap_or(0.0),
+            "finalConfiguration": {"strategy": "ace", "epochs": epochs},
+        }))
+    }
+
+    pub fn apply_online_update(&mut self, args: &Value) -> AxResult<Value> {
+        if self.generator.is_none() {
+            return Err(AxError::runtime("AxACE: compile must run before apply_online_update".to_string()));
+        }
+        let example = args.get("example").cloned().unwrap_or_else(|| json!({}));
+        let prediction = args.get("prediction").cloned().unwrap_or(Value::Null);
+        self.last_prediction = prediction.clone();
+        let generator_output = self.generator_output(&prediction);
+        let feedback = args.get("feedback").cloned().unwrap_or(Value::Null);
+        let reflection = self.run_reflection_rounds(&example, &generator_output, &feedback);
+        let raw_curator = self.run_curator(&example, &reflection);
+        let mut resolved = self.normalize_and_resolve(&raw_curator, &generator_output, &reflection)?;
+        let mut curator_result = if !raw_curator.is_null() || !resolved.is_empty() {
+            let mut map = raw_curator.as_object().cloned().unwrap_or_default();
+            map.insert("operations".into(), Value::Array(resolved.clone()));
+            Some(Value::Object(map))
+        } else {
+            None
+        };
+        if !reflection.is_null() {
+            self.apply_bullet_tags(&reflection)?;
+        }
+        let mut applied_ids: Vec<Value> = Vec::new();
+        if !resolved.is_empty() {
+            applied_ids = self.apply_operations(&mut resolved, &mut curator_result)?;
+            self.playbook = ace_call_core(_ace_dedupe_playbook, &[self.playbook.clone()])?;
+        }
+        let feedback_event = json!({
+            "example": example,
+            "prediction": prediction,
+            "score": 0,
+            "generatorOutput": generator_output,
+            "reflection": reflection,
+            "curator": curator_result.clone().unwrap_or(Value::Null),
+            "timestamp": self.now.clone(),
+        });
+        self.generator_history.push(feedback_event);
+        let has_ops = curator_result
+            .as_ref()
+            .and_then(|cr| cr.get("operations"))
+            .and_then(Value::as_array)
+            .map(|ops| !ops.is_empty())
+            .unwrap_or(false);
+        if !applied_ids.is_empty() && has_ops {
+            self.delta_history.push(json!({
+                "source": "online",
+                "epoch": -1,
+                "exampleIndex": (self.generator_history.len() as i64) - 1,
+                "operations": curator_result.as_ref().and_then(|cr| cr.get("operations")).cloned().unwrap_or(json!([])),
+            }));
+        }
+        Ok(curator_result.unwrap_or(Value::Null))
+    }
+}
+
+const ACE_REFLECTOR_SIGNATURE: &str =
+    "question:string, generator_answer:string, generator_reasoning?:string, \
+playbook:string, expected_answer?:string, feedback?:string, previous_reflection?:string \
+-> reasoning:string, errorIdentification:string, rootCauseAnalysis:string, \
+correctApproach:string, keyInsight:string, bulletTags:json";
+
+const ACE_CURATOR_SIGNATURE: &str =
+    "playbook:string, reflection:string, question_context:string, token_budget?:number \
+-> reasoning:string, operations:json";
+
+fn playbook_compose_instruction(base: &str, rendered: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    let base = base.trim();
+    let rendered = rendered.trim();
+    if !base.is_empty() {
+        parts.push(base);
+    }
+    if !rendered.is_empty() {
+        parts.push(rendered);
+    }
+    parts.join("\n\n")
+}
+
+fn playbook_stringify(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+fn playbook_option<'a>(options: &'a Value, keys: &[&str]) -> Option<&'a Value> {
+    for key in keys {
+        if let Some(value) = options.get(*key) {
+            if !value.is_null() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+/// A live, evolving context playbook bound to a program. Mirrors the TypeScript
+/// `AxPlaybook`: grow it offline from examples (`evolve`), keep it growing online
+/// from live feedback (`update`), render it into the program context (`apply_to`),
+/// and persist/restore it (`to_json`/`load`). The evolution engine (ACE) is hidden
+/// behind this surface, just as `optimize()` hides GEPA.
+///
+/// The bound program runs with the student client; the real reflector/curator are
+/// focused `AxGen` sub-programs driven by the teacher client. The program, the
+/// clients, the sub-programs, and the last prediction are held behind `Rc<RefCell>`
+/// so the generator/reflector/curator closures installed into `AxACE` can mutate
+/// them without statically aliasing the engine that owns those closures.
+pub struct AxPlaybook<S: AxAIClient, T: AxAIClient> {
+    engine: AxACE,
+    program: Rc<RefCell<AxGen>>,
+    base_instruction: String,
+    started: bool,
+    last_prediction: Rc<RefCell<Value>>,
+    apply_hook: Rc<RefCell<Option<Box<dyn FnMut(&str)>>>>,
+    _student: std::marker::PhantomData<S>,
+    _teacher: std::marker::PhantomData<T>,
+}
+
+/// Build an evolving context `AxPlaybook` for a program. Pass the student model
+/// under `"studentAI"` (and optionally `"teacherAI"`); the bound program runs with
+/// the student while reflection/curation use the teacher. When `teacher` is `None`
+/// the student is reused for reflection/curation.
+pub fn playbook<S: AxAIClient + 'static, T: AxAIClient + 'static>(
+    program: AxGen,
+    student: Rc<RefCell<S>>,
+    teacher: Option<Rc<RefCell<T>>>,
+    options: Value,
+) -> AxPlaybook<S, T> {
+    AxPlaybook::new(program, student, teacher, options)
+}
+
+impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
+    pub fn new(
+        program: AxGen,
+        student: Rc<RefCell<S>>,
+        teacher: Option<Rc<RefCell<T>>>,
+        options: Value,
+    ) -> Self {
+        let options = if options.is_object() { options } else { json!({}) };
+        let verbose = options.get("verbose").and_then(Value::as_bool).unwrap_or(false);
+        let base_instruction = program.get_instruction();
+
+        let mut engine_options = Map::new();
+        if let Some(now) = options.get("now").filter(|v| !v.is_null()) {
+            engine_options.insert("now".into(), now.clone());
+        }
+        for (canonical, keys) in [
+            ("maxEpochs", &["maxEpochs", "max_epochs"][..]),
+            ("maxReflectorRounds", &["maxReflectorRounds", "max_reflector_rounds"][..]),
+            ("maxSectionSize", &["maxSectionSize", "max_section_size"][..]),
+            ("allowDynamicSections", &["allowDynamicSections", "allow_dynamic_sections"][..]),
+            ("initialPlaybook", &["initialPlaybook", "initial_playbook"][..]),
+        ] {
+            if let Some(value) = playbook_option(&options, keys) {
+                engine_options.insert(canonical.into(), value.clone());
+            }
+        }
+
+        let program = Rc::new(RefCell::new(program));
+        let last_prediction = Rc::new(RefCell::new(Value::Null));
+        let apply_hook: Rc<RefCell<Option<Box<dyn FnMut(&str)>>>> = Rc::new(RefCell::new(None));
+        let reflector_program: Rc<RefCell<Option<AxGen>>> = Rc::new(RefCell::new(None));
+        let curator_program: Rc<RefCell<Option<AxGen>>> = Rc::new(RefCell::new(None));
+
+        // The reflector/curator run on the teacher when supplied, else the student.
+        // Both clients are owned by the handle behind RefCell, so we capture an Rc to
+        // whichever one drives each sub-program. Keep an Rc to the student always so
+        // the generator can run the bound program on it.
+        let teacher_for_reflect: Option<Rc<RefCell<T>>> = teacher.clone();
+        let teacher_for_curate: Option<Rc<RefCell<T>>> = teacher;
+
+        // The real LLM generator: run the bound program with the student client and
+        // inject the current base instruction so each rollout is grounded.
+        let gen_program = program.clone();
+        let gen_student = student.clone();
+        let gen_last = last_prediction.clone();
+        let gen_base = base_instruction.clone();
+        let generator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |example: &Value| {
+            let mut prog = gen_program.borrow_mut();
+            prog.set_instruction(&gen_base);
+            let prediction = {
+                let mut student = gen_student.borrow_mut();
+                prog.forward(&mut *student, example.clone())
+            };
+            let value = prediction.unwrap_or_else(|_| json!({}));
+            *gen_last.borrow_mut() = value.clone();
+            value
+        });
+
+        // The real LLM reflector: a focused AxGen sub-program driven by the teacher.
+        // The rendered playbook arrives inside the payload (the engine renders it), so
+        // the closure needs only the sub-program and the reflection client.
+        let reflect_student = student.clone();
+        let reflect_prog = reflector_program.clone();
+        let reflector: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
+            if reflect_prog.borrow().is_none() {
+                match AxGen::new(ACE_REFLECTOR_SIGNATURE) {
+                    Ok(gen) => *reflect_prog.borrow_mut() = Some(gen),
+                    Err(_) => return Value::Null,
+                }
+            }
+            let mut request = Map::new();
+            request.insert("question".into(), json!(playbook_stringify(payload.get("question").unwrap_or(&Value::Null))));
+            request.insert("generator_answer".into(), json!(playbook_stringify(payload.get("generator_answer").unwrap_or(&Value::Null))));
+            request.insert("playbook".into(), payload.get("playbook").cloned().unwrap_or_else(|| json!("")));
+            if let Some(reasoning) = payload.get("generator_reasoning").filter(|v| !v.is_null()) {
+                request.insert("generator_reasoning".into(), reasoning.clone());
+            }
+            if let Some(feedback) = payload.get("feedback").filter(|v| !v.is_null()) {
+                request.insert("feedback".into(), feedback.clone());
+            }
+            if let Some(previous) = payload.get("previous_reflection").filter(|v| !v.is_null()) {
+                request.insert("previous_reflection".into(), json!(playbook_stringify(previous)));
+            }
+            let mut prog = reflect_prog.borrow_mut();
+            let gen = prog.as_mut().expect("reflector sub-program initialized above");
+            let result = match &teacher_for_reflect {
+                Some(teacher) => gen.forward(&mut *teacher.borrow_mut(), Value::Object(request)),
+                None => gen.forward(&mut *reflect_student.borrow_mut(), Value::Object(request)),
+            };
+            match result {
+                Ok(value) => value,
+                Err(err) => {
+                    if verbose {
+                        eprintln!("[AxPlaybook] reflector error: {}", err.message);
+                    }
+                    Value::Null
+                }
+            }
+        });
+
+        // The real LLM curator: a focused AxGen sub-program driven by the teacher.
+        let curate_student = student.clone();
+        let curate_prog = curator_program.clone();
+        let curator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
+            if curate_prog.borrow().is_none() {
+                match AxGen::new(ACE_CURATOR_SIGNATURE) {
+                    Ok(gen) => *curate_prog.borrow_mut() = Some(gen),
+                    Err(_) => return Value::Null,
+                }
+            }
+            let mut request = Map::new();
+            request.insert("playbook".into(), payload.get("playbook").cloned().unwrap_or_else(|| json!("")));
+            request.insert("reflection".into(), json!(playbook_stringify(payload.get("reflection").unwrap_or(&Value::Null))));
+            request.insert("question_context".into(), json!(playbook_stringify(payload.get("question_context").unwrap_or(&Value::Null))));
+            request.insert("token_budget".into(), payload.get("token_budget").cloned().unwrap_or_else(|| json!(1024)));
+            let mut prog = curate_prog.borrow_mut();
+            let gen = prog.as_mut().expect("curator sub-program initialized above");
+            let result = match &teacher_for_curate {
+                Some(teacher) => gen.forward(&mut *teacher.borrow_mut(), Value::Object(request)),
+                None => gen.forward(&mut *curate_student.borrow_mut(), Value::Object(request)),
+            };
+            match result {
+                Ok(value) => value,
+                Err(err) => {
+                    if verbose {
+                        eprintln!("[AxPlaybook] curator error: {}", err.message);
+                    }
+                    Value::Null
+                }
+            }
+        });
+
+        let mut engine = AxACE::new(Value::Object(engine_options))
+            .with_callables(Some(reflector), Some(curator), Some(generator));
+        if let Some(auto) = options.get("auto").filter(|v| !v.is_null()) {
+            engine.configure_auto(&value_to_level(auto));
+        }
+
+        Self {
+            engine,
+            program,
+            base_instruction,
+            started: false,
+            last_prediction,
+            apply_hook,
+            _student: std::marker::PhantomData,
+            _teacher: std::marker::PhantomData,
+        }
+    }
+
+    /// Grow the playbook offline from labeled examples, scoring each rollout with
+    /// `metric_fn` ({"prediction", "example"}), then render the result into the bound
+    /// program. Returns `{bestScore, playbook}`.
+    pub fn evolve(
+        &mut self,
+        examples: &[Value],
+        metric_fn: &mut dyn FnMut(&Value) -> Value,
+        options: &Value,
+    ) -> AxResult<Value> {
+        let options = if options.is_object() { options.clone() } else { json!({}) };
+        if let Some(auto) = options.get("auto").filter(|v| !v.is_null()) {
+            self.engine.configure_auto(&value_to_level(auto));
+        }
+        let mut ace_options = Map::new();
+        if let Some(value) = playbook_option(&options, &["maxEpochs", "max_epochs"]) {
+            ace_options.insert("maxEpochs".into(), value.clone());
+        }
+        let last_prediction = self.last_prediction.clone();
+        let mut wrapped_metric = |example: &Value| -> Value {
+            let args = json!({
+                "prediction": last_prediction.borrow().clone(),
+                "example": example.clone(),
+            });
+            metric_fn(&args)
+        };
+        let result = self.engine.compile(
+            examples,
+            &mut wrapped_metric,
+            &json!({"aceOptions": Value::Object(ace_options)}),
+        )?;
+        self.started = true;
+        self.inject();
+        Ok(json!({
+            "bestScore": result.get("bestScore").cloned().unwrap_or_else(|| json!(0)),
+            "playbook": result.get("playbook").cloned().unwrap_or(Value::Null),
+        }))
+    }
+
+    /// Refine the playbook online from a single live interaction. Safe to call
+    /// without a prior `evolve`/`load`; the engine is hydrated lazily on first use.
+    pub fn update(&mut self, args: &Value) -> AxResult<Value> {
+        if !self.started {
+            self.engine.hydrate(&json!({"playbook": self.engine.get_playbook()}));
+            self.started = true;
+        }
+        let args = if args.is_object() { args.clone() } else { json!({}) };
+        let result = self.engine.apply_online_update(&args)?;
+        self.inject();
+        Ok(result)
+    }
+
+    /// Render the current playbook into a program context (defaults to the bound
+    /// program). When a different program is passed, its instruction is composed with
+    /// the rendered playbook in place.
+    pub fn apply_to(&mut self, program: Option<&mut AxGen>) {
+        match program {
+            Some(other) => {
+                let composed = playbook_compose_instruction(&other.get_instruction(), &self.render());
+                other.set_instruction(&composed);
+            }
+            None => self.inject(),
+        }
+    }
+
+    /// Return the current playbook as a markdown block.
+    pub fn render(&self) -> String {
+        ace_call_core(_ace_render_playbook, &[self.engine.get_playbook()])
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_default()
+    }
+
+    /// Return a serializable snapshot of the playbook and its history.
+    pub fn get_state(&self) -> Value {
+        json!({
+            "playbook": self.engine.get_playbook(),
+            "artifact": self.engine.get_artifact(),
+        })
+    }
+
+    /// Alias for [`get_state`](Self::get_state).
+    pub fn to_json(&self) -> Value {
+        self.get_state()
+    }
+
+    /// Restore a snapshot into this handle and render it into the bound program.
+    pub fn load(&mut self, snapshot: &Value) -> &mut Self {
+        let snapshot = if snapshot.is_object() { snapshot.clone() } else { json!({}) };
+        self.engine.hydrate(&json!({
+            "playbook": snapshot.get("playbook").cloned().unwrap_or(Value::Null),
+            "artifact": snapshot.get("artifact").cloned().unwrap_or(Value::Null),
+        }));
+        self.started = true;
+        self.inject();
+        self
+    }
+
+    /// Set the evolution intensity preset (`"light"`, `"medium"`, or `"heavy"`).
+    pub fn configure_auto(&mut self, level: &str) {
+        self.engine.configure_auto(level);
+    }
+
+    /// Clear the playbook back to its initial state.
+    pub fn reset(&mut self) {
+        self.engine.reset();
+        self.started = false;
+    }
+
+    /// Redirect playbook injection. Used to push the rendered playbook into a
+    /// pipeline stage instead of the bound program.
+    pub fn set_apply_hook(&mut self, hook: Box<dyn FnMut(&str)>) {
+        *self.apply_hook.borrow_mut() = Some(hook);
+    }
+
+    fn inject(&mut self) {
+        let rendered = self.render();
+        {
+            let mut hook = self.apply_hook.borrow_mut();
+            if let Some(hook) = hook.as_mut() {
+                hook(&rendered);
+                return;
+            }
+        }
+        let composed = playbook_compose_instruction(&self.base_instruction, &rendered);
+        self.program.borrow_mut().set_instruction(&composed);
+    }
+}
+
+fn value_to_level(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
 pub fn optimize<P: AxProgram>(
     program: &mut P,
     examples: Value,
@@ -7678,6 +8541,52 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
                 fixture.get("expected_dataset").unwrap_or(&Value::Null),
             )?;
         }
+        "playbook-empty" => {
+            let playbook = core_value_to_json(&_ace_empty_playbook(&[
+                core_value_from_json(fixture.get("description").unwrap_or(&Value::Null)),
+                CoreValue::from(fixture.get("now").and_then(Value::as_str).unwrap_or("")),
+            ])?);
+            expect_json_equal("ace empty playbook", &playbook, fixture.get("expected_playbook").unwrap_or(&Value::Null))?;
+        }
+        "playbook-render" => {
+            let rendered = core_value_to_json(&_ace_render_playbook(&[
+                core_value_from_json(fixture.get("playbook").unwrap_or(&json!({}))),
+            ])?);
+            expect_json_equal("ace rendered playbook", &rendered, fixture.get("expected_render").unwrap_or(&Value::Null))?;
+        }
+        "playbook-stats" => {
+            let playbook = core_value_to_json(&_ace_recompute_playbook_stats(&[
+                core_value_from_json(fixture.get("playbook").unwrap_or(&json!({}))),
+            ])?);
+            expect_json_equal("ace recomputed stats", &playbook, fixture.get("expected_playbook").unwrap_or(&Value::Null))?;
+        }
+        "playbook-dedupe" => {
+            let playbook = core_value_to_json(&_ace_dedupe_playbook(&[
+                core_value_from_json(fixture.get("playbook").unwrap_or(&json!({}))),
+            ])?);
+            expect_json_equal("ace deduped playbook", &playbook, fixture.get("expected_playbook").unwrap_or(&Value::Null))?;
+        }
+        "playbook-feedback" => {
+            let playbook = core_value_to_json(&_ace_update_bullet_feedback(&[
+                core_value_from_json(fixture.get("playbook").unwrap_or(&json!({}))),
+                CoreValue::from(fixture.get("bullet_id").and_then(Value::as_str).unwrap_or("")),
+                CoreValue::from(fixture.get("tag").and_then(Value::as_str).unwrap_or("")),
+                CoreValue::from(fixture.get("now").and_then(Value::as_str).unwrap_or("")),
+            ])?);
+            expect_json_equal("ace bullet feedback", &playbook, fixture.get("expected_playbook").unwrap_or(&Value::Null))?;
+        }
+        "playbook-apply-ops" => {
+            let result = core_value_to_json(&_ace_apply_curator_operations(&[
+                core_value_from_json(fixture.get("playbook").unwrap_or(&json!({}))),
+                core_value_from_json(fixture.get("operations").unwrap_or(&json!([]))),
+                core_value_from_json(fixture.get("apply_options").unwrap_or(&json!({}))),
+                CoreValue::from(fixture.get("now").and_then(Value::as_str).unwrap_or("")),
+            ])?);
+            expect_json_equal("ace applied operations", &result, fixture.get("expected_result").unwrap_or(&Value::Null))?;
+        }
+        "ace-compile" | "ace-online-update" => {
+            run_ace_fixture(fixture, operation.as_str())?;
+        }
         "score" => {
             let scores = normalize_metric_scores(fixture.get("metric_score").unwrap_or(&Value::Null));
             let scalar = scalarize_scores(&scores, fixture.get("score_options").unwrap_or(&json!({})));
@@ -8643,6 +9552,91 @@ fn engine_transcripts(fixture: &Value) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+fn run_ace_fixture(fixture: &Value, operation: &str) -> AxResult<()> {
+    let mut reflections: std::collections::VecDeque<Value> = fixture
+        .get("reflection_responses")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into();
+    let mut curators: std::collections::VecDeque<Value> = fixture
+        .get("curator_responses")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into();
+    let mut predictions: std::collections::VecDeque<Value> = fixture
+        .get("generator_predictions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into();
+    let mut scores: std::collections::VecDeque<Value> = fixture
+        .get("metric_scores")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into();
+
+    let reflector: Box<dyn FnMut(&Value) -> Value> =
+        Box::new(move |_payload: &Value| reflections.pop_front().unwrap_or(Value::Null));
+    let curator: Box<dyn FnMut(&Value) -> Value> =
+        Box::new(move |_payload: &Value| curators.pop_front().unwrap_or(Value::Null));
+    let generator: Box<dyn FnMut(&Value) -> Value> =
+        Box::new(move |_example: &Value| predictions.pop_front().unwrap_or_else(|| json!({})));
+    let mut metric = move |_example: &Value| scores.pop_front().unwrap_or(json!(0));
+
+    let mut options = fixture.get("ace_options").cloned().unwrap_or_else(|| json!({}));
+    if let Some(map) = options.as_object_mut() {
+        map.insert(
+            "now".into(),
+            json!(fixture.get("now").and_then(Value::as_str).unwrap_or("1970-01-01T00:00:00.000Z")),
+        );
+        if let Some(initial) = fixture.get("initial_playbook").filter(|v| !v.is_null()) {
+            map.insert("initialPlaybook".into(), initial.clone());
+        }
+    }
+    let mut ace = AxACE::new(options).with_callables(Some(reflector), Some(curator), Some(generator));
+
+    if operation == "ace-compile" {
+        let examples = fixture
+            .get("examples")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let result = ace.compile(&examples, &mut metric, &json!({}))?;
+        if let Some(expected) = fixture.get("expected_playbook") {
+            expect_json_equal("ace compile playbook", &ace.get_playbook(), expected)?;
+        }
+        if let Some(expected) = fixture.get("expected_artifact") {
+            expect_json_equal("ace compile artifact", &ace.get_artifact(), expected)?;
+        }
+        if let Some(expected) = fixture.get("expected_artifact_subset") {
+            expect_json_subset("ace compile artifact", &ace.get_artifact(), expected)?;
+        }
+        if let Some(expected) = fixture.get("expected_result_subset") {
+            expect_json_subset("ace compile result", &result, expected)?;
+        }
+        return Ok(());
+    }
+
+    let update = fixture.get("update").cloned().unwrap_or_else(|| json!({}));
+    let curator_result = ace.apply_online_update(&update)?;
+    if let Some(expected) = fixture.get("expected_playbook") {
+        expect_json_equal("ace online playbook", &ace.get_playbook(), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_artifact") {
+        expect_json_equal("ace online artifact", &ace.get_artifact(), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_artifact_subset") {
+        expect_json_subset("ace online artifact", &ace.get_artifact(), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_curator") {
+        expect_json_equal("ace online curator", &curator_result, expected)?;
+    }
+    Ok(())
 }
 
 fn conformance_gepa_result(fixture: &Value) -> AxResult<(Value, Vec<Value>)> {

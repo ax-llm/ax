@@ -460,6 +460,7 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 		"axflow_program_graph",
 		"optimizer_artifact",
 		"gepa_local_optimizer",
+		"ace_playbook",
 		"mcp_scripted_tools",
 		"mcp_sse_roundtrip",
 	} {
@@ -548,6 +549,7 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"axflow_program_graph",
 		"optimizer_artifact",
 		"gepa_local_optimizer",
+		"ace_playbook",
 		"mcp_scripted_tools",
 		"mcp_sse_roundtrip",
 	} {
@@ -687,6 +689,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"axflow_program_graph.py",
 		"optimizer_artifact.py",
 		"gepa_local_optimizer.py",
+		"ace_playbook.py",
 		"mcp_scripted_tools.py",
 		"mcp_sse_roundtrip.py",
 	} {
@@ -820,6 +823,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"AxFlowProgramGraphExample",
 		"OptimizerArtifactExample",
 		"GEPALocalOptimizerExample",
+		"ACEPlaybookExample",
 		"AxMCPScriptedToolsExample",
 		"AxMCPSseRoundtripExample",
 	} {
@@ -1179,6 +1183,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		"axflow_program_graph",
 		"optimizer_artifact",
 		"gepa_local_optimizer",
+		"ace_playbook",
 		"mcp_scripted_tools",
 	}
 	for _, example := range examples {

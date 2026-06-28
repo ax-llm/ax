@@ -432,6 +432,18 @@ struct Core {
   static Value _prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available);
   static Value _normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components);
   static Value _build_optimizer_evidence_batch(Value eval_result, Value components);
+  static Value _ace_estimate_token_count(Value text);
+  static Value _ace_recompute_playbook_stats(Value playbook);
+  static Value _ace_empty_playbook(Value description, Value now);
+  static Value _ace_render_playbook(Value playbook);
+  static Value _ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now);
+  static Value _ace_dedupe_playbook(Value playbook);
+  static Value _ace_prune_section_for_addition(Value section, Value protected_ids);
+  static Value _ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now);
+  static Value _ace_normalize_curator_operations(Value operations);
+  static Value _ace_locate_bullet_section(Value playbook, Value bullet_id);
+  static Value _ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output);
+  static Value _ace_dequeue_section_candidate(Value section_queues, Value section, Value used_ids, Value playbook);
   static Value _agent_factory(Value signature, Value options);
   static Value _optimization_component(Value id, Value owner, Value kind, Value current, Value description, Value constraints, Value depends_on, Value preserve, Value format, Value validation);
   static Value _optimized_artifact(Value optimizer_name, Value optimizer_version, Value component_map, Value metadata);
@@ -1170,6 +1182,92 @@ class AxBootstrapFewShot : public OptimizerEngine {
   Value options_;
 };
 
+// AxACE is the Agentic Context Engineering optimizer (Generator -> Reflector ->
+// Curator). Deterministic playbook mutations reuse the Core-owned _ace_* ops;
+// the LLM-orchestrated reflect/curate steps are delegated to injected callables
+// so the loop is reproducible under conformance with scripted responses.
+class AxACE {
+ public:
+  using AceCallable = std::function<Value(const Value&)>;
+
+  explicit AxACE(Value options = Value::object());
+  void set_callables(AceCallable reflector, AceCallable curator, AceCallable generator);
+  std::string name() const;
+  std::string version() const;
+  void reset();
+  void configure_auto(const std::string& level);
+  void hydrate(const Value& state);
+  Value get_playbook() const;
+  Value get_artifact() const;
+  Value compile(const std::vector<Value>& examples, const AceCallable& metric_fn, Value options = Value::object());
+  Value apply_online_update(Value args);
+
+ private:
+  AceCallable reflector_;
+  AceCallable curator_;
+  AceCallable generator_;
+  Value config_;
+  Value initial_playbook_;
+  std::string now_;
+  Value playbook_;
+  std::vector<Value> generator_history_;
+  std::vector<Value> delta_history_;
+  Value last_prediction_;
+  bool has_generator_ = false;
+
+  Value empty_playbook() const;
+  int int_config(const std::string& key, int fallback) const;
+  std::string render_playbook() const;
+  Value generator_output(const Value& prediction) const;
+  Value run_reflection_rounds(const Value& example, const Value& generator_output, const Value& feedback);
+  Value run_reflector(const Value& example, const Value& generator_output, const Value& feedback, const Value& previous_reflection);
+  Value run_curator(const Value& example, const Value& reflection);
+  std::vector<Value> normalize_and_resolve(const Value& raw_curator, const Value& generator_output, const Value& reflection);
+  std::vector<Value> apply_operations(std::vector<Value>& resolved, Value& curator_result);
+  void apply_bullet_tags(const Value& reflection);
+};
+
+// AxPlaybook is a live, evolving context playbook bound to a program. It mirrors
+// the TypeScript AxPlaybook: grow it offline from examples (evolve), keep it
+// growing online from live feedback (update), render it into the program context
+// (apply_to), and persist/restore it (to_json/load). The evolution engine (ACE)
+// is an implementation detail of this surface, just as optimize() hides GEPA.
+class AxPlaybook {
+ public:
+  using MetricFn = std::function<Value(const Value&)>;
+
+  AxPlaybook(AxGen& program, AIClient& student, AIClient* teacher = nullptr, Value options = Value::object());
+  Value evolve(const std::vector<Value>& examples, const MetricFn& metric_fn, Value options = Value::object());
+  Value update(Value args);
+  void apply_to(AxGen* program = nullptr);
+  std::string render() const;
+  Value get_state() const;
+  Value to_json() const;
+  AxPlaybook& load(Value snapshot);
+  void configure_auto(const std::string& level);
+  void reset();
+  void set_apply_hook(std::function<void(const std::string&)> hook);
+
+ private:
+  AxGen* program_;
+  AxACE engine_;
+  AIClient* student_;
+  AIClient* teacher_;
+  bool verbose_;
+  std::string base_instruction_;
+  bool started_ = false;
+  Value last_prediction_;
+  std::unique_ptr<AxGen> reflector_program_;
+  std::unique_ptr<AxGen> curator_program_;
+  std::function<void(const std::string&)> apply_hook_;
+
+  Value run_generator(const Value& example);
+  Value run_reflector(const Value& payload);
+  Value run_curator(const Value& payload);
+  void bind_callables();
+  void inject();
+};
+
 class AxAgent : public AxProgram {
  public:
   explicit AxAgent(Value signature, Value options = Value::object());
@@ -1208,6 +1306,7 @@ class AxAgent : public AxProgram {
   Value optimize_with(OptimizerEngine& engine, Value dataset, Value options = Value::object());
   Value optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options = Value::object());
   Value optimize(Value dataset = Value::array(), Value options = Value::object());
+  AxPlaybook playbook(AIClient& student, Value options = Value::object());
 
  private:
   Value state_;
@@ -1241,6 +1340,7 @@ AxFlow flow(Value options = Value::object());
 Value optimize(AxGen& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxFlow& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxAgent& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
+AxPlaybook playbook(AxGen& program, AIClient& student, Value options = Value::object(), AIClient* teacher = nullptr);
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options = Value::object());
 std::shared_ptr<AxAIService> ai(const char* provider, Value options = Value::object());
 Value to_json_schema(Value fields, const std::string& title = "Schema", Value options = Value::object());

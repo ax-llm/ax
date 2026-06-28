@@ -98,6 +98,13 @@
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-go-refine/SKILL.md",
       "digest": "sha256:9e0776ab11d0d3faa5df65e1b500f7d31789b088bced95e5a27facbd5c2ed9e4"
+    },
+    {
+      "name": "ax-go-playbook",
+      "type": "skill-md",
+      "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program.",
+      "url": "ax-go-playbook/SKILL.md",
+      "digest": "sha256:0eab7f391db8887a7e35e34d4820eba80028aea24ef5b88abac25a4006359417"
     }
   ]
 }

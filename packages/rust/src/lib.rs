@@ -4067,6 +4067,1009 @@ fn ax_gepa_pareto_front(candidates: &[AxGEPACandidate], eps: f64) -> Vec<usize> 
     front
 }
 
+/// Agentic Context Engineering optimizer (Generator -> Reflector -> Curator).
+///
+/// Deterministic playbook mutations reuse the Core-owned `_ace_*` ops; the
+/// LLM-orchestrated reflect/curate steps are delegated to injected callables so
+/// the loop is reproducible under conformance with scripted responses (mirrors
+/// how `AxGEPA` accepts a reflection client).
+pub struct AxACE {
+    reflector: Option<Box<dyn FnMut(&Value) -> Value>>,
+    curator: Option<Box<dyn FnMut(&Value) -> Value>>,
+    generator: Option<Box<dyn FnMut(&Value) -> Value>>,
+    config: Map<String, Value>,
+    initial_playbook: Option<Value>,
+    now: String,
+    playbook: Value,
+    generator_history: Vec<Value>,
+    delta_history: Vec<Value>,
+    last_prediction: Value,
+}
+
+fn ace_call_core(
+    f: fn(&[CoreValue]) -> Result<CoreValue, AxError>,
+    args: &[Value],
+) -> AxResult<Value> {
+    let core_args: Vec<CoreValue> = args.iter().map(core_value_from_json).collect();
+    Ok(core_value_to_json(&f(&core_args)?))
+}
+
+fn ace_is_number(value: &Value) -> bool {
+    value.is_number()
+}
+
+impl AxACE {
+    pub fn new(options: Value) -> Self {
+        let options = if options.is_object() {
+            options
+        } else {
+            json!({})
+        };
+        let mut config = Map::new();
+        config.insert("maxEpochs".into(), json!(1));
+        config.insert("maxReflectorRounds".into(), json!(2));
+        config.insert("maxSectionSize".into(), json!(25));
+        config.insert("maxSerializedFieldChars".into(), json!(2000));
+        config.insert("similarityThreshold".into(), json!(0.95));
+        config.insert("allowDynamicSections".into(), json!(true));
+        for key in [
+            "maxEpochs",
+            "maxReflectorRounds",
+            "maxSectionSize",
+            "maxSerializedFieldChars",
+            "similarityThreshold",
+            "allowDynamicSections",
+        ] {
+            if let Some(value) = options.get(key) {
+                if !value.is_null() {
+                    config.insert(key.into(), value.clone());
+                }
+            }
+        }
+        let now = options
+            .get("now")
+            .and_then(Value::as_str)
+            .unwrap_or("1970-01-01T00:00:00.000Z")
+            .to_string();
+        let initial_playbook = options
+            .get("initialPlaybook")
+            .cloned()
+            .filter(|v| !v.is_null());
+        let playbook = match &initial_playbook {
+            Some(pb) => pb.clone(),
+            None => ace_call_core(_ace_empty_playbook, &[Value::Null, json!(now)])
+                .unwrap_or_else(|_| json!({})),
+        };
+        Self {
+            reflector: None,
+            curator: None,
+            generator: None,
+            config,
+            initial_playbook,
+            now,
+            playbook,
+            generator_history: Vec::new(),
+            delta_history: Vec::new(),
+            last_prediction: Value::Null,
+        }
+    }
+
+    pub fn with_callables(
+        mut self,
+        reflector: Option<Box<dyn FnMut(&Value) -> Value>>,
+        curator: Option<Box<dyn FnMut(&Value) -> Value>>,
+        generator: Option<Box<dyn FnMut(&Value) -> Value>>,
+    ) -> Self {
+        self.reflector = reflector;
+        self.curator = curator;
+        self.generator = generator;
+        self
+    }
+
+    pub fn name(&self) -> &str {
+        "ACE"
+    }
+
+    pub fn version(&self) -> &str {
+        "axir-ace-v1"
+    }
+
+    fn int_config(&self, key: &str, fallback: i64) -> i64 {
+        self.config
+            .get(key)
+            .and_then(Value::as_i64)
+            .unwrap_or(fallback)
+    }
+
+    fn empty_playbook(&self) -> Value {
+        ace_call_core(_ace_empty_playbook, &[Value::Null, json!(self.now)])
+            .unwrap_or_else(|_| json!({}))
+    }
+
+    pub fn reset(&mut self) {
+        self.playbook = match &self.initial_playbook {
+            Some(pb) => pb.clone(),
+            None => self.empty_playbook(),
+        };
+        self.generator_history.clear();
+        self.delta_history.clear();
+    }
+
+    pub fn configure_auto(&mut self, level: &str) {
+        match level {
+            "light" => {
+                self.config.insert("maxEpochs".into(), json!(1));
+                self.config.insert("maxReflectorRounds".into(), json!(1));
+            }
+            "medium" => {
+                self.config.insert("maxEpochs".into(), json!(2));
+                self.config.insert("maxReflectorRounds".into(), json!(2));
+            }
+            "heavy" => {
+                self.config.insert("maxEpochs".into(), json!(3));
+                self.config.insert("maxReflectorRounds".into(), json!(3));
+            }
+            _ => {}
+        }
+    }
+
+    pub fn hydrate(&mut self, state: &Value) {
+        if let Some(pb) = state.get("playbook").filter(|v| !v.is_null()) {
+            self.playbook = pb.clone();
+        } else if let Some(pb) = &self.initial_playbook {
+            self.playbook = pb.clone();
+        } else {
+            self.playbook = self.empty_playbook();
+        }
+        let artifact = state.get("artifact").cloned().unwrap_or_else(|| json!({}));
+        self.generator_history = artifact
+            .get("feedback")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        self.delta_history = artifact
+            .get("history")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+    }
+
+    pub fn get_playbook(&self) -> Value {
+        self.playbook.clone()
+    }
+
+    pub fn get_artifact(&self) -> Value {
+        json!({
+            "playbook": self.playbook.clone(),
+            "feedback": Value::Array(self.generator_history.clone()),
+            "history": Value::Array(self.delta_history.clone()),
+        })
+    }
+
+    fn render_playbook(&self) -> String {
+        ace_call_core(_ace_render_playbook, &[self.playbook.clone()])
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_default()
+    }
+
+    fn generator_output(&self, prediction: &Value) -> Value {
+        let mut reasoning = String::new();
+        let mut bullet_ids: Vec<Value> = Vec::new();
+        if let Some(map) = prediction.as_object() {
+            if let Some(thought) = map.get("thought") {
+                reasoning = match thought {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+            }
+            if let Some(Value::Array(ids)) = map.get("bullet_ids") {
+                bullet_ids = ids.clone();
+            }
+        }
+        json!({
+            "reasoning": reasoning,
+            "answer": prediction.clone(),
+            "bulletIds": bullet_ids,
+        })
+    }
+
+    fn run_reflection_rounds(
+        &mut self,
+        example: &Value,
+        generator_output: &Value,
+        feedback: &Value,
+    ) -> Value {
+        let rounds = self.int_config("maxReflectorRounds", 1).max(1);
+        let mut previous = Value::Null;
+        for _ in 0..rounds {
+            let reflection = self.run_reflector(example, generator_output, feedback, &previous);
+            if reflection.is_null() || reflection.as_object().map(|m| m.is_empty()).unwrap_or(true)
+            {
+                break;
+            }
+            previous = reflection.clone();
+            let error_text = reflection
+                .get("errorIdentification")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_lowercase();
+            let error_text = error_text.trim();
+            let resolved = reflection
+                .get("metadata")
+                .and_then(|m| m.get("resolved"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if resolved
+                || error_text.is_empty()
+                || error_text.starts_with("no error")
+                || error_text.starts_with("resolved")
+            {
+                break;
+            }
+        }
+        previous
+    }
+
+    fn run_reflector(
+        &mut self,
+        example: &Value,
+        generator_output: &Value,
+        feedback: &Value,
+        previous_reflection: &Value,
+    ) -> Value {
+        let playbook_render = self.render_playbook();
+        if let Some(reflector) = self.reflector.as_mut() {
+            let payload = json!({
+                "question": example.clone(),
+                "generator_answer": generator_output.get("answer").cloned().unwrap_or(Value::Null),
+                "generator_reasoning": generator_output.get("reasoning").cloned().unwrap_or(Value::Null),
+                "playbook": playbook_render,
+                "feedback": feedback.clone(),
+                "previous_reflection": previous_reflection.clone(),
+            });
+            reflector(&payload)
+        } else {
+            Value::Null
+        }
+    }
+
+    fn run_curator(&mut self, example: &Value, reflection: &Value) -> Value {
+        if reflection.is_null() {
+            return Value::Null;
+        }
+        let playbook_render = self.render_playbook();
+        if let Some(curator) = self.curator.as_mut() {
+            let payload = json!({
+                "playbook": playbook_render,
+                "reflection": reflection.clone(),
+                "question_context": example.clone(),
+                "token_budget": 1024,
+            });
+            curator(&payload)
+        } else {
+            Value::Null
+        }
+    }
+
+    fn collect_protected_ids(operations: &[Value]) -> Vec<Value> {
+        let mut out = Vec::new();
+        for op in operations {
+            if op.get("type").and_then(Value::as_str) == Some("UPDATE") {
+                if let Some(id) = op.get("bulletId").filter(|v| !v.is_null()) {
+                    out.push(id.clone());
+                }
+            }
+        }
+        out
+    }
+
+    fn metric_feedback(score: &Value) -> Value {
+        if ace_is_number(score) {
+            json!(format!("Metric score: {}", score))
+        } else {
+            Value::Null
+        }
+    }
+
+    fn apply_operations(
+        &mut self,
+        resolved: &mut Vec<Value>,
+        curator_result: &mut Option<Value>,
+    ) -> AxResult<Vec<Value>> {
+        let protected = Self::collect_protected_ids(resolved);
+        let options = json!({
+            "maxSectionSize": self.config.get("maxSectionSize").cloned().unwrap_or(Value::Null),
+            "allowDynamicSections": self.config.get("allowDynamicSections").cloned().unwrap_or(Value::Null),
+            "enableAutoPrune": true,
+            "protectedBulletIds": protected,
+        });
+        let result = ace_call_core(
+            _ace_apply_curator_operations,
+            &[
+                self.playbook.clone(),
+                Value::Array(resolved.clone()),
+                options,
+                json!(self.now),
+            ],
+        )?;
+        self.playbook = result.get("playbook").cloned().unwrap_or(Value::Null);
+        let applied_ids = result
+            .get("updatedBulletIds")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let auto_removed = result
+            .get("autoRemoved")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if !auto_removed.is_empty() {
+            resolved.extend(auto_removed);
+            if let Some(cr) = curator_result.as_mut() {
+                if let Some(map) = cr.as_object_mut() {
+                    map.insert("operations".into(), Value::Array(resolved.clone()));
+                }
+            }
+        }
+        Ok(applied_ids)
+    }
+
+    fn apply_bullet_tags(&mut self, reflection: &Value) -> AxResult<()> {
+        if let Some(tags) = reflection.get("bulletTags").and_then(Value::as_array) {
+            for tag in tags {
+                self.playbook = ace_call_core(
+                    _ace_update_bullet_feedback,
+                    &[
+                        self.playbook.clone(),
+                        tag.get("id").cloned().unwrap_or(Value::Null),
+                        tag.get("tag").cloned().unwrap_or(Value::Null),
+                        json!(self.now),
+                    ],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn normalize_and_resolve(
+        &mut self,
+        raw_curator: &Value,
+        generator_output: &Value,
+        reflection: &Value,
+    ) -> AxResult<Vec<Value>> {
+        let raw_operations = raw_curator
+            .get("operations")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let operations = ace_call_core(_ace_normalize_curator_operations, &[raw_operations])?;
+        let resolved = ace_call_core(
+            _ace_resolve_curator_operation_targets,
+            &[
+                operations,
+                self.playbook.clone(),
+                reflection.clone(),
+                generator_output.clone(),
+            ],
+        )?;
+        Ok(resolved.as_array().cloned().unwrap_or_default())
+    }
+
+    fn process_example(
+        &mut self,
+        example: &Value,
+        score: &Value,
+        source: &str,
+        epoch: i64,
+        index: i64,
+    ) -> AxResult<()> {
+        let prediction = self.last_prediction.clone();
+        let generator_output = self.generator_output(&prediction);
+        let feedback = Self::metric_feedback(score);
+        let reflection = self.run_reflection_rounds(example, &generator_output, &feedback);
+        let raw_curator = self.run_curator(example, &reflection);
+        let mut resolved =
+            self.normalize_and_resolve(&raw_curator, &generator_output, &reflection)?;
+        let mut curator_result = if !raw_curator.is_null() || !resolved.is_empty() {
+            let mut map = raw_curator.as_object().cloned().unwrap_or_default();
+            map.insert("operations".into(), Value::Array(resolved.clone()));
+            Some(Value::Object(map))
+        } else {
+            None
+        };
+        let mut applied_ids: Vec<Value> = Vec::new();
+        if !resolved.is_empty() {
+            applied_ids = self.apply_operations(&mut resolved, &mut curator_result)?;
+        }
+        if !reflection.is_null() {
+            self.apply_bullet_tags(&reflection)?;
+        }
+        if !resolved.is_empty() && !applied_ids.is_empty() {
+            self.playbook = ace_call_core(_ace_dedupe_playbook, &[self.playbook.clone()])?;
+        }
+        let score_value = if ace_is_number(score) {
+            score.clone()
+        } else {
+            json!(0)
+        };
+        let feedback_event = json!({
+            "example": example.clone(),
+            "prediction": prediction,
+            "score": score_value,
+            "generatorOutput": generator_output,
+            "reflection": reflection,
+            "curator": curator_result.clone().unwrap_or(Value::Null),
+            "timestamp": self.now.clone(),
+        });
+        self.generator_history.push(feedback_event);
+        let has_ops = curator_result
+            .as_ref()
+            .and_then(|cr| cr.get("operations"))
+            .and_then(Value::as_array)
+            .map(|ops| !ops.is_empty())
+            .unwrap_or(false);
+        if !applied_ids.is_empty() && has_ops {
+            self.delta_history.push(json!({
+                "source": source,
+                "epoch": epoch,
+                "exampleIndex": index,
+                "operations": curator_result.as_ref().and_then(|cr| cr.get("operations")).cloned().unwrap_or(json!([])),
+            }));
+        }
+        Ok(())
+    }
+
+    pub fn compile(
+        &mut self,
+        examples: &[Value],
+        metric_fn: &mut dyn FnMut(&Value) -> Value,
+        options: &Value,
+    ) -> AxResult<Value> {
+        let ace_options = options
+            .get("aceOptions")
+            .or_else(|| options.get("ace_options"));
+        if let Some(ace_options) = ace_options {
+            for key in [
+                "maxEpochs",
+                "maxReflectorRounds",
+                "maxSectionSize",
+                "maxSerializedFieldChars",
+                "similarityThreshold",
+                "allowDynamicSections",
+            ] {
+                if let Some(value) = ace_options.get(key) {
+                    if !value.is_null() {
+                        self.config.insert(key.into(), value.clone());
+                    }
+                }
+            }
+        }
+        self.reset();
+        let epochs = self.int_config("maxEpochs", 1).max(1);
+        let mut best_score: Option<f64> = None;
+        for epoch in 0..epochs {
+            for (index, example) in examples.iter().enumerate() {
+                let prediction = match self.generator.as_mut() {
+                    Some(generator) => generator(example),
+                    None => json!({}),
+                };
+                self.last_prediction = prediction;
+                let score = metric_fn(example);
+                if let Some(value) = score.as_f64() {
+                    best_score = Some(best_score.map_or(value, |b| b.max(value)));
+                }
+                self.process_example(example, &score, "compile", epoch, index as i64)?;
+            }
+        }
+        Ok(json!({
+            "playbook": self.playbook.clone(),
+            "artifact": self.get_artifact(),
+            "bestScore": best_score.unwrap_or(0.0),
+            "finalConfiguration": {"strategy": "ace", "epochs": epochs},
+        }))
+    }
+
+    pub fn apply_online_update(&mut self, args: &Value) -> AxResult<Value> {
+        if self.generator.is_none() {
+            return Err(AxError::runtime(
+                "AxACE: compile must run before apply_online_update".to_string(),
+            ));
+        }
+        let example = args.get("example").cloned().unwrap_or_else(|| json!({}));
+        let prediction = args.get("prediction").cloned().unwrap_or(Value::Null);
+        self.last_prediction = prediction.clone();
+        let generator_output = self.generator_output(&prediction);
+        let feedback = args.get("feedback").cloned().unwrap_or(Value::Null);
+        let reflection = self.run_reflection_rounds(&example, &generator_output, &feedback);
+        let raw_curator = self.run_curator(&example, &reflection);
+        let mut resolved =
+            self.normalize_and_resolve(&raw_curator, &generator_output, &reflection)?;
+        let mut curator_result = if !raw_curator.is_null() || !resolved.is_empty() {
+            let mut map = raw_curator.as_object().cloned().unwrap_or_default();
+            map.insert("operations".into(), Value::Array(resolved.clone()));
+            Some(Value::Object(map))
+        } else {
+            None
+        };
+        if !reflection.is_null() {
+            self.apply_bullet_tags(&reflection)?;
+        }
+        let mut applied_ids: Vec<Value> = Vec::new();
+        if !resolved.is_empty() {
+            applied_ids = self.apply_operations(&mut resolved, &mut curator_result)?;
+            self.playbook = ace_call_core(_ace_dedupe_playbook, &[self.playbook.clone()])?;
+        }
+        let feedback_event = json!({
+            "example": example,
+            "prediction": prediction,
+            "score": 0,
+            "generatorOutput": generator_output,
+            "reflection": reflection,
+            "curator": curator_result.clone().unwrap_or(Value::Null),
+            "timestamp": self.now.clone(),
+        });
+        self.generator_history.push(feedback_event);
+        let has_ops = curator_result
+            .as_ref()
+            .and_then(|cr| cr.get("operations"))
+            .and_then(Value::as_array)
+            .map(|ops| !ops.is_empty())
+            .unwrap_or(false);
+        if !applied_ids.is_empty() && has_ops {
+            self.delta_history.push(json!({
+                "source": "online",
+                "epoch": -1,
+                "exampleIndex": (self.generator_history.len() as i64) - 1,
+                "operations": curator_result.as_ref().and_then(|cr| cr.get("operations")).cloned().unwrap_or(json!([])),
+            }));
+        }
+        Ok(curator_result.unwrap_or(Value::Null))
+    }
+}
+
+const ACE_REFLECTOR_SIGNATURE: &str =
+    "question:string, generator_answer:string, generator_reasoning?:string, \
+playbook:string, expected_answer?:string, feedback?:string, previous_reflection?:string \
+-> reasoning:string, errorIdentification:string, rootCauseAnalysis:string, \
+correctApproach:string, keyInsight:string, bulletTags:json";
+
+const ACE_CURATOR_SIGNATURE: &str =
+    "playbook:string, reflection:string, question_context:string, token_budget?:number \
+-> reasoning:string, operations:json";
+
+fn playbook_compose_instruction(base: &str, rendered: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    let base = base.trim();
+    let rendered = rendered.trim();
+    if !base.is_empty() {
+        parts.push(base);
+    }
+    if !rendered.is_empty() {
+        parts.push(rendered);
+    }
+    parts.join("\n\n")
+}
+
+fn playbook_stringify(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+fn playbook_option<'a>(options: &'a Value, keys: &[&str]) -> Option<&'a Value> {
+    for key in keys {
+        if let Some(value) = options.get(*key) {
+            if !value.is_null() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+/// A live, evolving context playbook bound to a program. Mirrors the TypeScript
+/// `AxPlaybook`: grow it offline from examples (`evolve`), keep it growing online
+/// from live feedback (`update`), render it into the program context (`apply_to`),
+/// and persist/restore it (`to_json`/`load`). The evolution engine (ACE) is hidden
+/// behind this surface, just as `optimize()` hides GEPA.
+///
+/// The bound program runs with the student client; the real reflector/curator are
+/// focused `AxGen` sub-programs driven by the teacher client. The program, the
+/// clients, the sub-programs, and the last prediction are held behind `Rc<RefCell>`
+/// so the generator/reflector/curator closures installed into `AxACE` can mutate
+/// them without statically aliasing the engine that owns those closures.
+pub struct AxPlaybook<S: AxAIClient, T: AxAIClient> {
+    engine: AxACE,
+    program: Rc<RefCell<AxGen>>,
+    base_instruction: String,
+    started: bool,
+    last_prediction: Rc<RefCell<Value>>,
+    apply_hook: Rc<RefCell<Option<Box<dyn FnMut(&str)>>>>,
+    _student: std::marker::PhantomData<S>,
+    _teacher: std::marker::PhantomData<T>,
+}
+
+/// Build an evolving context `AxPlaybook` for a program. Pass the student model
+/// under `"studentAI"` (and optionally `"teacherAI"`); the bound program runs with
+/// the student while reflection/curation use the teacher. When `teacher` is `None`
+/// the student is reused for reflection/curation.
+pub fn playbook<S: AxAIClient + 'static, T: AxAIClient + 'static>(
+    program: AxGen,
+    student: Rc<RefCell<S>>,
+    teacher: Option<Rc<RefCell<T>>>,
+    options: Value,
+) -> AxPlaybook<S, T> {
+    AxPlaybook::new(program, student, teacher, options)
+}
+
+impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
+    pub fn new(
+        program: AxGen,
+        student: Rc<RefCell<S>>,
+        teacher: Option<Rc<RefCell<T>>>,
+        options: Value,
+    ) -> Self {
+        let options = if options.is_object() {
+            options
+        } else {
+            json!({})
+        };
+        let verbose = options
+            .get("verbose")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let base_instruction = program.get_instruction();
+
+        let mut engine_options = Map::new();
+        if let Some(now) = options.get("now").filter(|v| !v.is_null()) {
+            engine_options.insert("now".into(), now.clone());
+        }
+        for (canonical, keys) in [
+            ("maxEpochs", &["maxEpochs", "max_epochs"][..]),
+            (
+                "maxReflectorRounds",
+                &["maxReflectorRounds", "max_reflector_rounds"][..],
+            ),
+            (
+                "maxSectionSize",
+                &["maxSectionSize", "max_section_size"][..],
+            ),
+            (
+                "allowDynamicSections",
+                &["allowDynamicSections", "allow_dynamic_sections"][..],
+            ),
+            (
+                "initialPlaybook",
+                &["initialPlaybook", "initial_playbook"][..],
+            ),
+        ] {
+            if let Some(value) = playbook_option(&options, keys) {
+                engine_options.insert(canonical.into(), value.clone());
+            }
+        }
+
+        let program = Rc::new(RefCell::new(program));
+        let last_prediction = Rc::new(RefCell::new(Value::Null));
+        let apply_hook: Rc<RefCell<Option<Box<dyn FnMut(&str)>>>> = Rc::new(RefCell::new(None));
+        let reflector_program: Rc<RefCell<Option<AxGen>>> = Rc::new(RefCell::new(None));
+        let curator_program: Rc<RefCell<Option<AxGen>>> = Rc::new(RefCell::new(None));
+
+        // The reflector/curator run on the teacher when supplied, else the student.
+        // Both clients are owned by the handle behind RefCell, so we capture an Rc to
+        // whichever one drives each sub-program. Keep an Rc to the student always so
+        // the generator can run the bound program on it.
+        let teacher_for_reflect: Option<Rc<RefCell<T>>> = teacher.clone();
+        let teacher_for_curate: Option<Rc<RefCell<T>>> = teacher;
+
+        // The real LLM generator: run the bound program with the student client and
+        // inject the current base instruction so each rollout is grounded.
+        let gen_program = program.clone();
+        let gen_student = student.clone();
+        let gen_last = last_prediction.clone();
+        let gen_base = base_instruction.clone();
+        let generator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |example: &Value| {
+            let mut prog = gen_program.borrow_mut();
+            prog.set_instruction(&gen_base);
+            let prediction = {
+                let mut student = gen_student.borrow_mut();
+                prog.forward(&mut *student, example.clone())
+            };
+            let value = prediction.unwrap_or_else(|_| json!({}));
+            *gen_last.borrow_mut() = value.clone();
+            value
+        });
+
+        // The real LLM reflector: a focused AxGen sub-program driven by the teacher.
+        // The rendered playbook arrives inside the payload (the engine renders it), so
+        // the closure needs only the sub-program and the reflection client.
+        let reflect_student = student.clone();
+        let reflect_prog = reflector_program.clone();
+        let reflector: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
+            if reflect_prog.borrow().is_none() {
+                match AxGen::new(ACE_REFLECTOR_SIGNATURE) {
+                    Ok(gen) => *reflect_prog.borrow_mut() = Some(gen),
+                    Err(_) => return Value::Null,
+                }
+            }
+            let mut request = Map::new();
+            request.insert(
+                "question".into(),
+                json!(playbook_stringify(
+                    payload.get("question").unwrap_or(&Value::Null)
+                )),
+            );
+            request.insert(
+                "generator_answer".into(),
+                json!(playbook_stringify(
+                    payload.get("generator_answer").unwrap_or(&Value::Null)
+                )),
+            );
+            request.insert(
+                "playbook".into(),
+                payload
+                    .get("playbook")
+                    .cloned()
+                    .unwrap_or_else(|| json!("")),
+            );
+            if let Some(reasoning) = payload.get("generator_reasoning").filter(|v| !v.is_null()) {
+                request.insert("generator_reasoning".into(), reasoning.clone());
+            }
+            if let Some(feedback) = payload.get("feedback").filter(|v| !v.is_null()) {
+                request.insert("feedback".into(), feedback.clone());
+            }
+            if let Some(previous) = payload.get("previous_reflection").filter(|v| !v.is_null()) {
+                request.insert(
+                    "previous_reflection".into(),
+                    json!(playbook_stringify(previous)),
+                );
+            }
+            let mut prog = reflect_prog.borrow_mut();
+            let gen = prog
+                .as_mut()
+                .expect("reflector sub-program initialized above");
+            let result = match &teacher_for_reflect {
+                Some(teacher) => gen.forward(&mut *teacher.borrow_mut(), Value::Object(request)),
+                None => gen.forward(&mut *reflect_student.borrow_mut(), Value::Object(request)),
+            };
+            match result {
+                Ok(value) => value,
+                Err(err) => {
+                    if verbose {
+                        eprintln!("[AxPlaybook] reflector error: {}", err.message);
+                    }
+                    Value::Null
+                }
+            }
+        });
+
+        // The real LLM curator: a focused AxGen sub-program driven by the teacher.
+        let curate_student = student.clone();
+        let curate_prog = curator_program.clone();
+        let curator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
+            if curate_prog.borrow().is_none() {
+                match AxGen::new(ACE_CURATOR_SIGNATURE) {
+                    Ok(gen) => *curate_prog.borrow_mut() = Some(gen),
+                    Err(_) => return Value::Null,
+                }
+            }
+            let mut request = Map::new();
+            request.insert(
+                "playbook".into(),
+                payload
+                    .get("playbook")
+                    .cloned()
+                    .unwrap_or_else(|| json!("")),
+            );
+            request.insert(
+                "reflection".into(),
+                json!(playbook_stringify(
+                    payload.get("reflection").unwrap_or(&Value::Null)
+                )),
+            );
+            request.insert(
+                "question_context".into(),
+                json!(playbook_stringify(
+                    payload.get("question_context").unwrap_or(&Value::Null)
+                )),
+            );
+            request.insert(
+                "token_budget".into(),
+                payload
+                    .get("token_budget")
+                    .cloned()
+                    .unwrap_or_else(|| json!(1024)),
+            );
+            let mut prog = curate_prog.borrow_mut();
+            let gen = prog
+                .as_mut()
+                .expect("curator sub-program initialized above");
+            let result = match &teacher_for_curate {
+                Some(teacher) => gen.forward(&mut *teacher.borrow_mut(), Value::Object(request)),
+                None => gen.forward(&mut *curate_student.borrow_mut(), Value::Object(request)),
+            };
+            match result {
+                Ok(value) => value,
+                Err(err) => {
+                    if verbose {
+                        eprintln!("[AxPlaybook] curator error: {}", err.message);
+                    }
+                    Value::Null
+                }
+            }
+        });
+
+        let mut engine = AxACE::new(Value::Object(engine_options)).with_callables(
+            Some(reflector),
+            Some(curator),
+            Some(generator),
+        );
+        if let Some(auto) = options.get("auto").filter(|v| !v.is_null()) {
+            engine.configure_auto(&value_to_level(auto));
+        }
+
+        Self {
+            engine,
+            program,
+            base_instruction,
+            started: false,
+            last_prediction,
+            apply_hook,
+            _student: std::marker::PhantomData,
+            _teacher: std::marker::PhantomData,
+        }
+    }
+
+    /// Grow the playbook offline from labeled examples, scoring each rollout with
+    /// `metric_fn` ({"prediction", "example"}), then render the result into the bound
+    /// program. Returns `{bestScore, playbook}`.
+    pub fn evolve(
+        &mut self,
+        examples: &[Value],
+        metric_fn: &mut dyn FnMut(&Value) -> Value,
+        options: &Value,
+    ) -> AxResult<Value> {
+        let options = if options.is_object() {
+            options.clone()
+        } else {
+            json!({})
+        };
+        if let Some(auto) = options.get("auto").filter(|v| !v.is_null()) {
+            self.engine.configure_auto(&value_to_level(auto));
+        }
+        let mut ace_options = Map::new();
+        if let Some(value) = playbook_option(&options, &["maxEpochs", "max_epochs"]) {
+            ace_options.insert("maxEpochs".into(), value.clone());
+        }
+        let last_prediction = self.last_prediction.clone();
+        let mut wrapped_metric = |example: &Value| -> Value {
+            let args = json!({
+                "prediction": last_prediction.borrow().clone(),
+                "example": example.clone(),
+            });
+            metric_fn(&args)
+        };
+        let result = self.engine.compile(
+            examples,
+            &mut wrapped_metric,
+            &json!({"aceOptions": Value::Object(ace_options)}),
+        )?;
+        self.started = true;
+        self.inject();
+        Ok(json!({
+            "bestScore": result.get("bestScore").cloned().unwrap_or_else(|| json!(0)),
+            "playbook": result.get("playbook").cloned().unwrap_or(Value::Null),
+        }))
+    }
+
+    /// Refine the playbook online from a single live interaction. Safe to call
+    /// without a prior `evolve`/`load`; the engine is hydrated lazily on first use.
+    pub fn update(&mut self, args: &Value) -> AxResult<Value> {
+        if !self.started {
+            self.engine
+                .hydrate(&json!({"playbook": self.engine.get_playbook()}));
+            self.started = true;
+        }
+        let args = if args.is_object() {
+            args.clone()
+        } else {
+            json!({})
+        };
+        let result = self.engine.apply_online_update(&args)?;
+        self.inject();
+        Ok(result)
+    }
+
+    /// Render the current playbook into a program context (defaults to the bound
+    /// program). When a different program is passed, its instruction is composed with
+    /// the rendered playbook in place.
+    pub fn apply_to(&mut self, program: Option<&mut AxGen>) {
+        match program {
+            Some(other) => {
+                let composed =
+                    playbook_compose_instruction(&other.get_instruction(), &self.render());
+                other.set_instruction(&composed);
+            }
+            None => self.inject(),
+        }
+    }
+
+    /// Return the current playbook as a markdown block.
+    pub fn render(&self) -> String {
+        ace_call_core(_ace_render_playbook, &[self.engine.get_playbook()])
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_default()
+    }
+
+    /// Return a serializable snapshot of the playbook and its history.
+    pub fn get_state(&self) -> Value {
+        json!({
+            "playbook": self.engine.get_playbook(),
+            "artifact": self.engine.get_artifact(),
+        })
+    }
+
+    /// Alias for [`get_state`](Self::get_state).
+    pub fn to_json(&self) -> Value {
+        self.get_state()
+    }
+
+    /// Restore a snapshot into this handle and render it into the bound program.
+    pub fn load(&mut self, snapshot: &Value) -> &mut Self {
+        let snapshot = if snapshot.is_object() {
+            snapshot.clone()
+        } else {
+            json!({})
+        };
+        self.engine.hydrate(&json!({
+            "playbook": snapshot.get("playbook").cloned().unwrap_or(Value::Null),
+            "artifact": snapshot.get("artifact").cloned().unwrap_or(Value::Null),
+        }));
+        self.started = true;
+        self.inject();
+        self
+    }
+
+    /// Set the evolution intensity preset (`"light"`, `"medium"`, or `"heavy"`).
+    pub fn configure_auto(&mut self, level: &str) {
+        self.engine.configure_auto(level);
+    }
+
+    /// Clear the playbook back to its initial state.
+    pub fn reset(&mut self) {
+        self.engine.reset();
+        self.started = false;
+    }
+
+    /// Redirect playbook injection. Used to push the rendered playbook into a
+    /// pipeline stage instead of the bound program.
+    pub fn set_apply_hook(&mut self, hook: Box<dyn FnMut(&str)>) {
+        *self.apply_hook.borrow_mut() = Some(hook);
+    }
+
+    fn inject(&mut self) {
+        let rendered = self.render();
+        {
+            let mut hook = self.apply_hook.borrow_mut();
+            if let Some(hook) = hook.as_mut() {
+                hook(&rendered);
+                return;
+            }
+        }
+        let composed = playbook_compose_instruction(&self.base_instruction, &rendered);
+        self.program.borrow_mut().set_instruction(&composed);
+    }
+}
+
+fn value_to_level(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
 pub fn optimize<P: AxProgram>(
     program: &mut P,
     examples: Value,
@@ -8683,6 +9686,82 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
                 fixture.get("expected_dataset").unwrap_or(&Value::Null),
             )?;
         }
+        "playbook-empty" => {
+            let playbook = core_value_to_json(&_ace_empty_playbook(&[
+                core_value_from_json(fixture.get("description").unwrap_or(&Value::Null)),
+                CoreValue::from(fixture.get("now").and_then(Value::as_str).unwrap_or("")),
+            ])?);
+            expect_json_equal(
+                "ace empty playbook",
+                &playbook,
+                fixture.get("expected_playbook").unwrap_or(&Value::Null),
+            )?;
+        }
+        "playbook-render" => {
+            let rendered = core_value_to_json(&_ace_render_playbook(&[core_value_from_json(
+                fixture.get("playbook").unwrap_or(&json!({})),
+            )])?);
+            expect_json_equal(
+                "ace rendered playbook",
+                &rendered,
+                fixture.get("expected_render").unwrap_or(&Value::Null),
+            )?;
+        }
+        "playbook-stats" => {
+            let playbook =
+                core_value_to_json(&_ace_recompute_playbook_stats(&[core_value_from_json(
+                    fixture.get("playbook").unwrap_or(&json!({})),
+                )])?);
+            expect_json_equal(
+                "ace recomputed stats",
+                &playbook,
+                fixture.get("expected_playbook").unwrap_or(&Value::Null),
+            )?;
+        }
+        "playbook-dedupe" => {
+            let playbook = core_value_to_json(&_ace_dedupe_playbook(&[core_value_from_json(
+                fixture.get("playbook").unwrap_or(&json!({})),
+            )])?);
+            expect_json_equal(
+                "ace deduped playbook",
+                &playbook,
+                fixture.get("expected_playbook").unwrap_or(&Value::Null),
+            )?;
+        }
+        "playbook-feedback" => {
+            let playbook = core_value_to_json(&_ace_update_bullet_feedback(&[
+                core_value_from_json(fixture.get("playbook").unwrap_or(&json!({}))),
+                CoreValue::from(
+                    fixture
+                        .get("bullet_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or(""),
+                ),
+                CoreValue::from(fixture.get("tag").and_then(Value::as_str).unwrap_or("")),
+                CoreValue::from(fixture.get("now").and_then(Value::as_str).unwrap_or("")),
+            ])?);
+            expect_json_equal(
+                "ace bullet feedback",
+                &playbook,
+                fixture.get("expected_playbook").unwrap_or(&Value::Null),
+            )?;
+        }
+        "playbook-apply-ops" => {
+            let result = core_value_to_json(&_ace_apply_curator_operations(&[
+                core_value_from_json(fixture.get("playbook").unwrap_or(&json!({}))),
+                core_value_from_json(fixture.get("operations").unwrap_or(&json!([]))),
+                core_value_from_json(fixture.get("apply_options").unwrap_or(&json!({}))),
+                CoreValue::from(fixture.get("now").and_then(Value::as_str).unwrap_or("")),
+            ])?);
+            expect_json_equal(
+                "ace applied operations",
+                &result,
+                fixture.get("expected_result").unwrap_or(&Value::Null),
+            )?;
+        }
+        "ace-compile" | "ace-online-update" => {
+            run_ace_fixture(fixture, operation.as_str())?;
+        }
         "score" => {
             let scores =
                 normalize_metric_scores(fixture.get("metric_score").unwrap_or(&Value::Null));
@@ -9791,6 +10870,98 @@ fn engine_transcripts(fixture: &Value) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+fn run_ace_fixture(fixture: &Value, operation: &str) -> AxResult<()> {
+    let mut reflections: std::collections::VecDeque<Value> = fixture
+        .get("reflection_responses")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into();
+    let mut curators: std::collections::VecDeque<Value> = fixture
+        .get("curator_responses")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into();
+    let mut predictions: std::collections::VecDeque<Value> = fixture
+        .get("generator_predictions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into();
+    let mut scores: std::collections::VecDeque<Value> = fixture
+        .get("metric_scores")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into();
+
+    let reflector: Box<dyn FnMut(&Value) -> Value> =
+        Box::new(move |_payload: &Value| reflections.pop_front().unwrap_or(Value::Null));
+    let curator: Box<dyn FnMut(&Value) -> Value> =
+        Box::new(move |_payload: &Value| curators.pop_front().unwrap_or(Value::Null));
+    let generator: Box<dyn FnMut(&Value) -> Value> =
+        Box::new(move |_example: &Value| predictions.pop_front().unwrap_or_else(|| json!({})));
+    let mut metric = move |_example: &Value| scores.pop_front().unwrap_or(json!(0));
+
+    let mut options = fixture
+        .get("ace_options")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    if let Some(map) = options.as_object_mut() {
+        map.insert(
+            "now".into(),
+            json!(fixture
+                .get("now")
+                .and_then(Value::as_str)
+                .unwrap_or("1970-01-01T00:00:00.000Z")),
+        );
+        if let Some(initial) = fixture.get("initial_playbook").filter(|v| !v.is_null()) {
+            map.insert("initialPlaybook".into(), initial.clone());
+        }
+    }
+    let mut ace =
+        AxACE::new(options).with_callables(Some(reflector), Some(curator), Some(generator));
+
+    if operation == "ace-compile" {
+        let examples = fixture
+            .get("examples")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let result = ace.compile(&examples, &mut metric, &json!({}))?;
+        if let Some(expected) = fixture.get("expected_playbook") {
+            expect_json_equal("ace compile playbook", &ace.get_playbook(), expected)?;
+        }
+        if let Some(expected) = fixture.get("expected_artifact") {
+            expect_json_equal("ace compile artifact", &ace.get_artifact(), expected)?;
+        }
+        if let Some(expected) = fixture.get("expected_artifact_subset") {
+            expect_json_subset("ace compile artifact", &ace.get_artifact(), expected)?;
+        }
+        if let Some(expected) = fixture.get("expected_result_subset") {
+            expect_json_subset("ace compile result", &result, expected)?;
+        }
+        return Ok(());
+    }
+
+    let update = fixture.get("update").cloned().unwrap_or_else(|| json!({}));
+    let curator_result = ace.apply_online_update(&update)?;
+    if let Some(expected) = fixture.get("expected_playbook") {
+        expect_json_equal("ace online playbook", &ace.get_playbook(), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_artifact") {
+        expect_json_equal("ace online artifact", &ace.get_artifact(), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_artifact_subset") {
+        expect_json_subset("ace online artifact", &ace.get_artifact(), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_curator") {
+        expect_json_equal("ace online curator", &curator_result, expected)?;
+    }
+    Ok(())
 }
 
 fn conformance_gepa_result(fixture: &Value) -> AxResult<(Value, Vec<Value>)> {
@@ -32829,6 +34000,1703 @@ fn _build_optimizer_evidence_batch(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
+fn _ace_estimate_token_count(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_estimate_token_count");
+    let mut v_text = core_arg(args, 0);
+    let mut v_done = CoreValue::Null;
+    let mut v_len = CoreValue::Null;
+    let mut v_remaining = CoreValue::Null;
+    let mut v_remaining_next = CoreValue::Null;
+    let mut v_tokens = CoreValue::Null;
+    let mut v_tokens_next = CoreValue::Null;
+    v_len = core_len(&[v_text.clone()])?;
+    v_tokens = CoreValue::Num(0f64);
+    v_remaining = v_len.clone();
+    loop {
+        v_done = core_lte(&[v_remaining.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_tokens_next = core_add(&[v_tokens.clone(), CoreValue::Num(1f64)])?;
+        v_tokens = v_tokens_next.clone();
+        v_remaining_next = core_add(&[v_remaining.clone(), CoreValue::Num(-4f64)])?;
+        v_remaining = v_remaining_next.clone();
+    }
+    return Ok(v_tokens.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_recompute_playbook_stats(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_recompute_playbook_stats");
+    let mut v_playbook = core_arg(args, 0);
+    let mut v_bullet = CoreValue::Null;
+    let mut v_bullet_count = CoreValue::Null;
+    let mut v_bullet_count_next = CoreValue::Null;
+    let mut v_bullet_tokens = CoreValue::Null;
+    let mut v_bullets = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_harmful = CoreValue::Null;
+    let mut v_harmful_count = CoreValue::Null;
+    let mut v_harmful_count_next = CoreValue::Null;
+    let mut v_helpful = CoreValue::Null;
+    let mut v_helpful_count = CoreValue::Null;
+    let mut v_helpful_count_next = CoreValue::Null;
+    let mut v_section_lists = CoreValue::Null;
+    let mut v_sections = CoreValue::Null;
+    let mut v_stats = CoreValue::Null;
+    let mut v_token_estimate = CoreValue::Null;
+    let mut v_token_estimate_next = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_sections = core_get(
+        &v_playbook,
+        &CoreValue::from("sections"),
+        v_empty_map.clone(),
+    );
+    v_bullet_count = CoreValue::Num(0f64);
+    v_helpful_count = CoreValue::Num(0f64);
+    v_harmful_count = CoreValue::Num(0f64);
+    v_token_estimate = CoreValue::Num(0f64);
+    v_section_lists = core_map_values(&[v_sections.clone()])?;
+    for v_bullets in core_iter(&v_section_lists)? {
+        let mut v_bullets = v_bullets;
+        for v_bullet in core_iter(&v_bullets)? {
+            let mut v_bullet = v_bullet;
+            v_bullet_count_next = core_add(&[v_bullet_count.clone(), CoreValue::Num(1f64)])?;
+            v_bullet_count = v_bullet_count_next.clone();
+            v_helpful = core_get(
+                &v_bullet,
+                &CoreValue::from("helpfulCount"),
+                CoreValue::Num(0f64),
+            );
+            v_harmful = core_get(
+                &v_bullet,
+                &CoreValue::from("harmfulCount"),
+                CoreValue::Num(0f64),
+            );
+            v_helpful_count_next = core_add(&[v_helpful_count.clone(), v_helpful.clone()])?;
+            v_helpful_count = v_helpful_count_next.clone();
+            v_harmful_count_next = core_add(&[v_harmful_count.clone(), v_harmful.clone()])?;
+            v_harmful_count = v_harmful_count_next.clone();
+            v_content = core_get(&v_bullet, &CoreValue::from("content"), CoreValue::from(""));
+            v_bullet_tokens = _ace_estimate_token_count(&[v_content.clone()])?;
+            v_token_estimate_next = core_add(&[v_token_estimate.clone(), v_bullet_tokens.clone()])?;
+            v_token_estimate = v_token_estimate_next.clone();
+        }
+    }
+    v_stats = CoreValue::new_map();
+    core_set(
+        &v_stats,
+        CoreValue::from("bulletCount"),
+        v_bullet_count.clone(),
+    )?;
+    core_set(
+        &v_stats,
+        CoreValue::from("helpfulCount"),
+        v_helpful_count.clone(),
+    )?;
+    core_set(
+        &v_stats,
+        CoreValue::from("harmfulCount"),
+        v_harmful_count.clone(),
+    )?;
+    core_set(
+        &v_stats,
+        CoreValue::from("tokenEstimate"),
+        v_token_estimate.clone(),
+    )?;
+    core_set(&v_playbook, CoreValue::from("stats"), v_stats.clone())?;
+    return Ok(v_playbook.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_empty_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_empty_playbook");
+    let mut v_description = core_arg(args, 0);
+    let mut v_now = core_arg(args, 1);
+    let mut v_has_description = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_sections = CoreValue::Null;
+    let mut v_stats = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("version"), CoreValue::Num(1f64))?;
+    v_sections = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("sections"), v_sections.clone())?;
+    v_stats = CoreValue::new_map();
+    core_set(
+        &v_stats,
+        CoreValue::from("bulletCount"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(
+        &v_stats,
+        CoreValue::from("helpfulCount"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(
+        &v_stats,
+        CoreValue::from("harmfulCount"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(
+        &v_stats,
+        CoreValue::from("tokenEstimate"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(&v_out, CoreValue::from("stats"), v_stats.clone())?;
+    core_set(&v_out, CoreValue::from("updatedAt"), v_now.clone())?;
+    v_has_description = core_is_not_none(&[v_description.clone()])?;
+    if core_truthy(&v_has_description) {
+        core_set(
+            &v_out,
+            CoreValue::from("description"),
+            v_description.clone(),
+        )?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_render_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_render_playbook");
+    let mut v_playbook = core_arg(args, 0);
+    let mut v_block = CoreValue::Null;
+    let mut v_block_empty = CoreValue::Null;
+    let mut v_block_with_body = CoreValue::Null;
+    let mut v_body = CoreValue::Null;
+    let mut v_bullet = CoreValue::Null;
+    let mut v_bullet_lines = CoreValue::Null;
+    let mut v_bullets = CoreValue::Null;
+    let mut v_combined = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_has_body = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_header = CoreValue::Null;
+    let mut v_header_with_description = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_joined_sections = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_section_blocks = CoreValue::Null;
+    let mut v_section_name = CoreValue::Null;
+    let mut v_section_names = CoreValue::Null;
+    let mut v_sections = CoreValue::Null;
+    let mut v_trimmed_description = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_description = core_get(
+        &v_playbook,
+        &CoreValue::from("description"),
+        CoreValue::Null,
+    );
+    v_has_description = core_is_not_none(&[v_description.clone()])?;
+    v_header = CoreValue::from("## Context Playbook\n");
+    if core_truthy(&v_has_description) {
+        v_trimmed_description = core_string_trim(&v_description);
+        v_header_with_description = core_string_format(&[
+            CoreValue::from("## Context Playbook\n{}\n"),
+            v_trimmed_description.clone(),
+        ])?;
+        v_header = v_header_with_description.clone();
+    }
+    v_sections = core_get(
+        &v_playbook,
+        &CoreValue::from("sections"),
+        v_empty_map.clone(),
+    );
+    v_section_names = core_map_keys(&[v_sections.clone()])?;
+    v_section_blocks = CoreValue::new_list();
+    for v_section_name in core_iter(&v_section_names)? {
+        let mut v_section_name = v_section_name;
+        v_bullets = core_get(&v_sections, &v_section_name.clone(), CoreValue::Null);
+        v_bullet_lines = CoreValue::new_list();
+        for v_bullet in core_iter(&v_bullets)? {
+            let mut v_bullet = v_bullet;
+            v_id = core_get(&v_bullet, &CoreValue::from("id"), CoreValue::from(""));
+            v_content = core_get(&v_bullet, &CoreValue::from("content"), CoreValue::from(""));
+            v_line = core_string_format(&[
+                CoreValue::from("- [{}] {}"),
+                v_id.clone(),
+                v_content.clone(),
+            ])?;
+            core_append(&v_bullet_lines, v_line.clone())?;
+        }
+        v_body = core_string_join(&CoreValue::from("\n"), &v_bullet_lines)?;
+        v_has_body = core_ne(&[v_body.clone(), CoreValue::from("")])?;
+        v_block = CoreValue::from("");
+        if core_truthy(&v_has_body) {
+            v_block_with_body = core_string_format(&[
+                CoreValue::from("### {}\n{}"),
+                v_section_name.clone(),
+                v_body.clone(),
+            ])?;
+            v_block = v_block_with_body.clone();
+        } else {
+            v_block_empty = core_string_format(&[
+                CoreValue::from("### {}\n_(empty)_"),
+                v_section_name.clone(),
+            ])?;
+            v_block = v_block_empty.clone();
+        }
+        core_append(&v_section_blocks, v_block.clone())?;
+    }
+    v_joined_sections = core_string_join(&CoreValue::from("\n\n"), &v_section_blocks)?;
+    v_combined = core_string_format(&[
+        CoreValue::from("{}\n{}"),
+        v_header.clone(),
+        v_joined_sections.clone(),
+    ])?;
+    v_result = core_string_trim(&v_combined);
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_update_bullet_feedback(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_update_bullet_feedback");
+    let mut v_playbook = core_arg(args, 0);
+    let mut v_bullet_id = core_arg(args, 1);
+    let mut v_tag = core_arg(args, 2);
+    let mut v_now = core_arg(args, 3);
+    let mut v_already_found = CoreValue::Null;
+    let mut v_bullet = CoreValue::Null;
+    let mut v_bullets = CoreValue::Null;
+    let mut v_current_id = CoreValue::Null;
+    let mut v_did_find = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_harmful = CoreValue::Null;
+    let mut v_harmful_next = CoreValue::Null;
+    let mut v_helpful = CoreValue::Null;
+    let mut v_helpful_next = CoreValue::Null;
+    let mut v_is_harmful = CoreValue::Null;
+    let mut v_is_helpful = CoreValue::Null;
+    let mut v_match = CoreValue::Null;
+    let mut v_section_name = CoreValue::Null;
+    let mut v_section_names = CoreValue::Null;
+    let mut v_sections = CoreValue::Null;
+    let mut v_still_open = CoreValue::Null;
+    let mut v_updated = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_sections = core_get(
+        &v_playbook,
+        &CoreValue::from("sections"),
+        v_empty_map.clone(),
+    );
+    v_section_names = core_map_keys(&[v_sections.clone()])?;
+    v_found = CoreValue::Bool(false);
+    for v_section_name in core_iter(&v_section_names)? {
+        let mut v_section_name = v_section_name;
+        v_already_found = v_found.clone();
+        if core_truthy(&v_already_found) {
+        } else {
+            v_bullets = core_get(&v_sections, &v_section_name.clone(), CoreValue::Null);
+            for v_bullet in core_iter(&v_bullets)? {
+                let mut v_bullet = v_bullet;
+                v_current_id = core_get(&v_bullet, &CoreValue::from("id"), CoreValue::from(""));
+                v_match = core_eq(&[v_bullet_id.clone(), v_current_id.clone()])?;
+                v_still_open = core_not(&[v_found.clone()])?;
+                if core_truthy(&v_match) {
+                    if core_truthy(&v_still_open) {
+                        v_is_helpful = core_eq(&[v_tag.clone(), CoreValue::from("helpful")])?;
+                        if core_truthy(&v_is_helpful) {
+                            v_helpful = core_get(
+                                &v_bullet,
+                                &CoreValue::from("helpfulCount"),
+                                CoreValue::Num(0f64),
+                            );
+                            v_helpful_next = core_add(&[v_helpful.clone(), CoreValue::Num(1f64)])?;
+                            core_set(
+                                &v_bullet,
+                                CoreValue::from("helpfulCount"),
+                                v_helpful_next.clone(),
+                            )?;
+                        }
+                        v_is_harmful = core_eq(&[v_tag.clone(), CoreValue::from("harmful")])?;
+                        if core_truthy(&v_is_harmful) {
+                            v_harmful = core_get(
+                                &v_bullet,
+                                &CoreValue::from("harmfulCount"),
+                                CoreValue::Num(0f64),
+                            );
+                            v_harmful_next = core_add(&[v_harmful.clone(), CoreValue::Num(1f64)])?;
+                            core_set(
+                                &v_bullet,
+                                CoreValue::from("harmfulCount"),
+                                v_harmful_next.clone(),
+                            )?;
+                        }
+                        core_set(&v_bullet, CoreValue::from("updatedAt"), v_now.clone())?;
+                        v_found = CoreValue::Bool(true);
+                    }
+                }
+            }
+        }
+    }
+    v_did_find = v_found.clone();
+    if core_truthy(&v_did_find) {
+        v_updated = _ace_recompute_playbook_stats(&[v_playbook.clone()])?;
+        return Ok(v_updated.clone());
+    }
+    return Ok(v_playbook.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_dedupe_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_dedupe_playbook");
+    let mut v_playbook = core_arg(args, 0);
+    let mut v_bullet = CoreValue::Null;
+    let mut v_bullet_harmful = CoreValue::Null;
+    let mut v_bullet_helpful = CoreValue::Null;
+    let mut v_bullet_updated_at = CoreValue::Null;
+    let mut v_bullets = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_existing = CoreValue::Null;
+    let mut v_existing_harmful = CoreValue::Null;
+    let mut v_existing_helpful = CoreValue::Null;
+    let mut v_has_existing = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_merged_harmful = CoreValue::Null;
+    let mut v_merged_helpful = CoreValue::Null;
+    let mut v_recomputed = CoreValue::Null;
+    let mut v_section_name = CoreValue::Null;
+    let mut v_section_names = CoreValue::Null;
+    let mut v_sections = CoreValue::Null;
+    let mut v_seen = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_unique = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_sections = core_get(
+        &v_playbook,
+        &CoreValue::from("sections"),
+        v_empty_map.clone(),
+    );
+    v_section_names = core_map_keys(&[v_sections.clone()])?;
+    for v_section_name in core_iter(&v_section_names)? {
+        let mut v_section_name = v_section_name;
+        v_bullets = core_get(&v_sections, &v_section_name.clone(), CoreValue::Null);
+        v_seen = CoreValue::new_map();
+        v_unique = CoreValue::new_list();
+        for v_bullet in core_iter(&v_bullets)? {
+            let mut v_bullet = v_bullet;
+            v_content = core_get(&v_bullet, &CoreValue::from("content"), CoreValue::from(""));
+            v_trimmed = core_string_trim(&v_content);
+            v_key = core_string_lower(&[v_trimmed.clone()])?;
+            v_has_existing = core_map_contains(&[v_seen.clone(), v_key.clone()])?;
+            if core_truthy(&v_has_existing) {
+                v_existing = core_get(&v_seen, &v_key.clone(), CoreValue::Null);
+                v_existing_helpful = core_get(
+                    &v_existing,
+                    &CoreValue::from("helpfulCount"),
+                    CoreValue::Num(0f64),
+                );
+                v_bullet_helpful = core_get(
+                    &v_bullet,
+                    &CoreValue::from("helpfulCount"),
+                    CoreValue::Num(0f64),
+                );
+                v_merged_helpful =
+                    core_add(&[v_existing_helpful.clone(), v_bullet_helpful.clone()])?;
+                core_set(
+                    &v_existing,
+                    CoreValue::from("helpfulCount"),
+                    v_merged_helpful.clone(),
+                )?;
+                v_existing_harmful = core_get(
+                    &v_existing,
+                    &CoreValue::from("harmfulCount"),
+                    CoreValue::Num(0f64),
+                );
+                v_bullet_harmful = core_get(
+                    &v_bullet,
+                    &CoreValue::from("harmfulCount"),
+                    CoreValue::Num(0f64),
+                );
+                v_merged_harmful =
+                    core_add(&[v_existing_harmful.clone(), v_bullet_harmful.clone()])?;
+                core_set(
+                    &v_existing,
+                    CoreValue::from("harmfulCount"),
+                    v_merged_harmful.clone(),
+                )?;
+                v_bullet_updated_at = core_get(
+                    &v_bullet,
+                    &CoreValue::from("updatedAt"),
+                    CoreValue::from(""),
+                );
+                core_set(
+                    &v_existing,
+                    CoreValue::from("updatedAt"),
+                    v_bullet_updated_at.clone(),
+                )?;
+            } else {
+                core_set(&v_seen, v_key.clone(), v_bullet.clone())?;
+                core_append(&v_unique, v_bullet.clone())?;
+            }
+        }
+        core_set(&v_sections, v_section_name.clone(), v_unique.clone())?;
+    }
+    core_set(&v_playbook, CoreValue::from("sections"), v_sections.clone())?;
+    v_recomputed = _ace_recompute_playbook_stats(&[v_playbook.clone()])?;
+    return Ok(v_recomputed.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_prune_section_for_addition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_prune_section_for_addition");
+    let mut v_section = core_arg(args, 0);
+    let mut v_protected_ids = core_arg(args, 1);
+    let mut v_bullet = CoreValue::Null;
+    let mut v_candidate_helpful = CoreValue::Null;
+    let mut v_candidate_index = CoreValue::Null;
+    let mut v_candidate_net = CoreValue::Null;
+    let mut v_candidate_recency = CoreValue::Null;
+    let mut v_created_at = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_cursor_next = CoreValue::Null;
+    let mut v_harmful = CoreValue::Null;
+    let mut v_harmful_weighted = CoreValue::Null;
+    let mut v_has_candidate = CoreValue::Null;
+    let mut v_helpful = CoreValue::Null;
+    let mut v_helpful_equal = CoreValue::Null;
+    let mut v_helpful_lower = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_index_next = CoreValue::Null;
+    let mut v_is_protected = CoreValue::Null;
+    let mut v_is_target = CoreValue::Null;
+    let mut v_is_worse = CoreValue::Null;
+    let mut v_negative_harmful = CoreValue::Null;
+    let mut v_net_equal = CoreValue::Null;
+    let mut v_net_lower = CoreValue::Null;
+    let mut v_net_score = CoreValue::Null;
+    let mut v_new_section = CoreValue::Null;
+    let mut v_no_candidate = CoreValue::Null;
+    let mut v_not_protected = CoreValue::Null;
+    let mut v_null_pruned = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_pruned = CoreValue::Null;
+    let mut v_recency = CoreValue::Null;
+    let mut v_recency_lower = CoreValue::Null;
+    v_candidate_index = CoreValue::Num(-1f64);
+    v_candidate_net = CoreValue::Num(0f64);
+    v_candidate_helpful = CoreValue::Num(0f64);
+    v_candidate_recency = CoreValue::Num(0f64);
+    v_index = CoreValue::Num(0f64);
+    for v_bullet in core_iter(&v_section)? {
+        let mut v_bullet = v_bullet;
+        v_id = core_get(&v_bullet, &CoreValue::from("id"), CoreValue::from(""));
+        v_is_protected = core_contains(&[v_protected_ids.clone(), v_id.clone()])?;
+        v_not_protected = core_not(&[v_is_protected.clone()])?;
+        if core_truthy(&v_not_protected) {
+            v_helpful = core_get(
+                &v_bullet,
+                &CoreValue::from("helpfulCount"),
+                CoreValue::Num(0f64),
+            );
+            v_harmful = core_get(
+                &v_bullet,
+                &CoreValue::from("harmfulCount"),
+                CoreValue::Num(0f64),
+            );
+            v_harmful_weighted = core_mul(&[v_harmful.clone(), CoreValue::Num(2f64)])?;
+            v_negative_harmful = core_mul(&[v_harmful_weighted.clone(), CoreValue::Num(-1f64)])?;
+            v_net_score = core_add(&[v_helpful.clone(), v_negative_harmful.clone()])?;
+            v_created_at = core_get(
+                &v_bullet,
+                &CoreValue::from("createdAt"),
+                CoreValue::from(""),
+            );
+            v_recency = core_get(
+                &v_bullet,
+                &CoreValue::from("updatedAt"),
+                v_created_at.clone(),
+            );
+            v_no_candidate = core_lt(&[v_candidate_index.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_no_candidate) {
+                v_candidate_index = v_index.clone();
+                v_candidate_net = v_net_score.clone();
+                v_candidate_helpful = v_helpful.clone();
+                v_candidate_recency = v_recency.clone();
+            } else {
+                v_net_lower = core_lt(&[v_net_score.clone(), v_candidate_net.clone()])?;
+                v_net_equal = core_eq(&[v_net_score.clone(), v_candidate_net.clone()])?;
+                v_helpful_lower = core_lt(&[v_helpful.clone(), v_candidate_helpful.clone()])?;
+                v_helpful_equal = core_eq(&[v_helpful.clone(), v_candidate_helpful.clone()])?;
+                v_recency_lower = core_lt(&[v_recency.clone(), v_candidate_recency.clone()])?;
+                v_is_worse = v_net_lower.clone();
+                if core_truthy(&v_net_equal) {
+                    if core_truthy(&v_helpful_lower) {
+                        v_is_worse = CoreValue::Bool(true);
+                    }
+                    if core_truthy(&v_helpful_equal) {
+                        if core_truthy(&v_recency_lower) {
+                            v_is_worse = CoreValue::Bool(true);
+                        }
+                    }
+                }
+                if core_truthy(&v_is_worse) {
+                    v_candidate_index = v_index.clone();
+                    v_candidate_net = v_net_score.clone();
+                    v_candidate_helpful = v_helpful.clone();
+                    v_candidate_recency = v_recency.clone();
+                }
+            }
+        }
+        v_index_next = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+        v_index = v_index_next.clone();
+    }
+    v_out = CoreValue::new_map();
+    v_has_candidate = core_gte(&[v_candidate_index.clone(), CoreValue::Num(0f64)])?;
+    v_new_section = CoreValue::new_list();
+    if core_truthy(&v_has_candidate) {
+        v_pruned = core_none(&[])?;
+        v_cursor = CoreValue::Num(0f64);
+        for v_bullet in core_iter(&v_section)? {
+            let mut v_bullet = v_bullet;
+            v_is_target = core_eq(&[v_cursor.clone(), v_candidate_index.clone()])?;
+            if core_truthy(&v_is_target) {
+                v_pruned = v_bullet.clone();
+            } else {
+                core_append(&v_new_section, v_bullet.clone())?;
+            }
+            v_cursor_next = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+            v_cursor = v_cursor_next.clone();
+        }
+        core_set(&v_out, CoreValue::from("pruned"), v_pruned.clone())?;
+        core_set(&v_out, CoreValue::from("section"), v_new_section.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_null_pruned = core_none(&[])?;
+    core_set(&v_out, CoreValue::from("pruned"), v_null_pruned.clone())?;
+    core_set(&v_out, CoreValue::from("section"), v_section.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_apply_curator_operations(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_apply_curator_operations");
+    let mut v_playbook = core_arg(args, 0);
+    let mut v_operations = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_now = core_arg(args, 3);
+    let mut v_allow_dynamic = CoreValue::Null;
+    let mut v_at_capacity = CoreValue::Null;
+    let mut v_at_capacity_raw = CoreValue::Null;
+    let mut v_auto_removed = CoreValue::Null;
+    let mut v_bullet = CoreValue::Null;
+    let mut v_bullet_id = CoreValue::Null;
+    let mut v_bullet_id_update = CoreValue::Null;
+    let mut v_bullet_match = CoreValue::Null;
+    let mut v_bullet_metadata = CoreValue::Null;
+    let mut v_bullet_remove_match = CoreValue::Null;
+    let mut v_candidate_bullet_id = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_content_is_string = CoreValue::Null;
+    let mut v_did_remove = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_enable_auto_prune = CoreValue::Null;
+    let mut v_existing_metadata = CoreValue::Null;
+    let mut v_has_bullet_id = CoreValue::Null;
+    let mut v_has_content = CoreValue::Null;
+    let mut v_has_max = CoreValue::Null;
+    let mut v_has_metadata = CoreValue::Null;
+    let mut v_has_metadata_update = CoreValue::Null;
+    let mut v_has_pruned = CoreValue::Null;
+    let mut v_has_section_name = CoreValue::Null;
+    let mut v_is_add = CoreValue::Null;
+    let mut v_is_remove = CoreValue::Null;
+    let mut v_is_update = CoreValue::Null;
+    let mut v_kept = CoreValue::Null;
+    let mut v_max_section_size = CoreValue::Null;
+    let mut v_merged_metadata = CoreValue::Null;
+    let mut v_missing_bullet_id = CoreValue::Null;
+    let mut v_missing_section = CoreValue::Null;
+    let mut v_new_section_list = CoreValue::Null;
+    let mut v_none_value = CoreValue::Null;
+    let mut v_op = CoreValue::Null;
+    let mut v_op_bullet_id = CoreValue::Null;
+    let mut v_op_content = CoreValue::Null;
+    let mut v_op_metadata = CoreValue::Null;
+    let mut v_op_metadata_update = CoreValue::Null;
+    let mut v_op_type = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_opts_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_proceed = CoreValue::Null;
+    let mut v_protected_ids = CoreValue::Null;
+    let mut v_prune_result = CoreValue::Null;
+    let mut v_pruned = CoreValue::Null;
+    let mut v_pruned_id = CoreValue::Null;
+    let mut v_pruned_metadata = CoreValue::Null;
+    let mut v_pruned_section = CoreValue::Null;
+    let mut v_raw_content = CoreValue::Null;
+    let mut v_recomputed = CoreValue::Null;
+    let mut v_removal = CoreValue::Null;
+    let mut v_removal_metadata = CoreValue::Null;
+    let mut v_remove_candidate_id = CoreValue::Null;
+    let mut v_remove_id = CoreValue::Null;
+    let mut v_removed_id = CoreValue::Null;
+    let mut v_section = CoreValue::Null;
+    let mut v_section_exists = CoreValue::Null;
+    let mut v_section_len = CoreValue::Null;
+    let mut v_section_name = CoreValue::Null;
+    let mut v_section_now_exists = CoreValue::Null;
+    let mut v_sections = CoreValue::Null;
+    let mut v_target_id = CoreValue::Null;
+    let mut v_updated_bullets = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_opts = v_options.clone();
+    v_opts_missing = core_is_none(&[v_options.clone()])?;
+    if core_truthy(&v_opts_missing) {
+        v_opts = v_empty_map.clone();
+    }
+    v_allow_dynamic = core_get(
+        &v_opts,
+        &CoreValue::from("allowDynamicSections"),
+        CoreValue::Bool(true),
+    );
+    v_enable_auto_prune = core_get(
+        &v_opts,
+        &CoreValue::from("enableAutoPrune"),
+        CoreValue::Bool(false),
+    );
+    v_has_max = core_map_contains(&[v_opts.clone(), CoreValue::from("maxSectionSize")])?;
+    v_max_section_size = core_get(
+        &v_opts,
+        &CoreValue::from("maxSectionSize"),
+        CoreValue::Num(0f64),
+    );
+    v_protected_ids = core_get(
+        &v_opts,
+        &CoreValue::from("protectedBulletIds"),
+        v_empty_list.clone(),
+    );
+    v_updated_bullets = CoreValue::new_list();
+    v_auto_removed = CoreValue::new_list();
+    v_sections = core_get(
+        &v_playbook,
+        &CoreValue::from("sections"),
+        v_empty_map.clone(),
+    );
+    for v_op in core_iter(&v_operations)? {
+        let mut v_op = v_op;
+        v_section_name = core_get(&v_op, &CoreValue::from("section"), CoreValue::from(""));
+        v_has_section_name = core_ne(&[v_section_name.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_section_name) {
+            v_section_exists = core_map_contains(&[v_sections.clone(), v_section_name.clone()])?;
+            v_missing_section = core_not(&[v_section_exists.clone()])?;
+            if core_truthy(&v_missing_section) {
+                if core_truthy(&v_allow_dynamic) {
+                    v_new_section_list = CoreValue::new_list();
+                    core_set(
+                        &v_sections,
+                        v_section_name.clone(),
+                        v_new_section_list.clone(),
+                    )?;
+                }
+            }
+            v_section_now_exists =
+                core_map_contains(&[v_sections.clone(), v_section_name.clone()])?;
+            if core_truthy(&v_section_now_exists) {
+                v_section = core_get(&v_sections, &v_section_name.clone(), CoreValue::Null);
+                v_op_type = core_get(&v_op, &CoreValue::from("type"), CoreValue::from(""));
+                v_is_add = core_eq(&[v_op_type.clone(), CoreValue::from("ADD")])?;
+                if core_truthy(&v_is_add) {
+                    v_raw_content =
+                        core_get(&v_op, &CoreValue::from("content"), CoreValue::from(""));
+                    v_content = core_string_trim(&v_raw_content);
+                    v_has_content = core_ne(&[v_content.clone(), CoreValue::from("")])?;
+                    if core_truthy(&v_has_content) {
+                        v_section_len = core_len(&[v_section.clone()])?;
+                        v_at_capacity_raw =
+                            core_gte(&[v_section_len.clone(), v_max_section_size.clone()])?;
+                        v_at_capacity = CoreValue::Bool(false);
+                        if core_truthy(&v_has_max) {
+                            if core_truthy(&v_at_capacity_raw) {
+                                v_at_capacity = CoreValue::Bool(true);
+                            }
+                        }
+                        v_proceed = CoreValue::Bool(true);
+                        if core_truthy(&v_at_capacity) {
+                            if core_truthy(&v_enable_auto_prune) {
+                                v_prune_result = _ace_prune_section_for_addition(&[
+                                    v_section.clone(),
+                                    v_protected_ids.clone(),
+                                ])?;
+                                v_pruned = core_get(
+                                    &v_prune_result,
+                                    &CoreValue::from("pruned"),
+                                    CoreValue::Null,
+                                );
+                                v_has_pruned = core_is_not_none(&[v_pruned.clone()])?;
+                                if core_truthy(&v_has_pruned) {
+                                    v_pruned_section = core_get(
+                                        &v_prune_result,
+                                        &CoreValue::from("section"),
+                                        CoreValue::Null,
+                                    );
+                                    v_section = v_pruned_section.clone();
+                                    core_set(
+                                        &v_sections,
+                                        v_section_name.clone(),
+                                        v_section.clone(),
+                                    )?;
+                                    v_pruned_id = core_get(
+                                        &v_pruned,
+                                        &CoreValue::from("id"),
+                                        CoreValue::from(""),
+                                    );
+                                    core_append(&v_updated_bullets, v_pruned_id.clone())?;
+                                    v_removal = CoreValue::new_map();
+                                    core_set(
+                                        &v_removal,
+                                        CoreValue::from("type"),
+                                        CoreValue::from("REMOVE"),
+                                    )?;
+                                    core_set(
+                                        &v_removal,
+                                        CoreValue::from("section"),
+                                        v_section_name.clone(),
+                                    )?;
+                                    core_set(
+                                        &v_removal,
+                                        CoreValue::from("bulletId"),
+                                        v_pruned_id.clone(),
+                                    )?;
+                                    v_pruned_metadata = core_get(
+                                        &v_pruned,
+                                        &CoreValue::from("metadata"),
+                                        v_empty_map.clone(),
+                                    );
+                                    v_removal_metadata = core_map_merge(&[
+                                        v_empty_map.clone(),
+                                        v_pruned_metadata.clone(),
+                                    ])?;
+                                    core_set(
+                                        &v_removal_metadata,
+                                        CoreValue::from("autoPruned"),
+                                        CoreValue::Bool(true),
+                                    )?;
+                                    core_set(
+                                        &v_removal_metadata,
+                                        CoreValue::from("removedAt"),
+                                        v_now.clone(),
+                                    )?;
+                                    core_set(
+                                        &v_removal,
+                                        CoreValue::from("metadata"),
+                                        v_removal_metadata.clone(),
+                                    )?;
+                                    core_append(&v_auto_removed, v_removal.clone())?;
+                                } else {
+                                    v_proceed = CoreValue::Bool(false);
+                                }
+                            } else {
+                                v_proceed = CoreValue::Bool(false);
+                            }
+                        }
+                        if core_truthy(&v_proceed) {
+                            v_op_bullet_id =
+                                core_get(&v_op, &CoreValue::from("bulletId"), CoreValue::Null);
+                            v_has_bullet_id = core_is_not_none(&[v_op_bullet_id.clone()])?;
+                            v_bullet_id = v_op_bullet_id.clone();
+                            v_missing_bullet_id = core_not(&[v_has_bullet_id.clone()])?;
+                            if core_truthy(&v_missing_bullet_id) {
+                                v_bullet_id = v_section_name.clone();
+                            }
+                            v_bullet = CoreValue::new_map();
+                            core_set(&v_bullet, CoreValue::from("id"), v_bullet_id.clone())?;
+                            core_set(
+                                &v_bullet,
+                                CoreValue::from("section"),
+                                v_section_name.clone(),
+                            )?;
+                            core_set(&v_bullet, CoreValue::from("content"), v_content.clone())?;
+                            core_set(
+                                &v_bullet,
+                                CoreValue::from("helpfulCount"),
+                                CoreValue::Num(0f64),
+                            )?;
+                            core_set(
+                                &v_bullet,
+                                CoreValue::from("harmfulCount"),
+                                CoreValue::Num(0f64),
+                            )?;
+                            core_set(&v_bullet, CoreValue::from("createdAt"), v_now.clone())?;
+                            core_set(&v_bullet, CoreValue::from("updatedAt"), v_now.clone())?;
+                            v_op_metadata =
+                                core_get(&v_op, &CoreValue::from("metadata"), CoreValue::Null);
+                            v_has_metadata = core_is_not_none(&[v_op_metadata.clone()])?;
+                            if core_truthy(&v_has_metadata) {
+                                v_bullet_metadata =
+                                    core_map_merge(&[v_empty_map.clone(), v_op_metadata.clone()])?;
+                                core_set(
+                                    &v_bullet,
+                                    CoreValue::from("metadata"),
+                                    v_bullet_metadata.clone(),
+                                )?;
+                            }
+                            core_append(&v_section, v_bullet.clone())?;
+                            core_set(&v_sections, v_section_name.clone(), v_section.clone())?;
+                            core_append(&v_updated_bullets, v_bullet_id.clone())?;
+                        }
+                    }
+                }
+                v_is_update = core_eq(&[v_op_type.clone(), CoreValue::from("UPDATE")])?;
+                if core_truthy(&v_is_update) {
+                    v_target_id = core_get(&v_op, &CoreValue::from("bulletId"), CoreValue::Null);
+                    for v_bullet in core_iter(&v_section)? {
+                        let mut v_bullet = v_bullet;
+                        v_candidate_bullet_id =
+                            core_get(&v_bullet, &CoreValue::from("id"), CoreValue::from(""));
+                        v_bullet_match =
+                            core_eq(&[v_candidate_bullet_id.clone(), v_target_id.clone()])?;
+                        if core_truthy(&v_bullet_match) {
+                            v_op_content =
+                                core_get(&v_op, &CoreValue::from("content"), CoreValue::Null);
+                            v_content_is_string =
+                                core_type_is(&v_op_content, CoreValue::from("string"));
+                            if core_truthy(&v_content_is_string) {
+                                core_set(
+                                    &v_bullet,
+                                    CoreValue::from("content"),
+                                    v_op_content.clone(),
+                                )?;
+                            }
+                            core_set(&v_bullet, CoreValue::from("updatedAt"), v_now.clone())?;
+                            v_op_metadata_update =
+                                core_get(&v_op, &CoreValue::from("metadata"), CoreValue::Null);
+                            v_has_metadata_update =
+                                core_is_not_none(&[v_op_metadata_update.clone()])?;
+                            if core_truthy(&v_has_metadata_update) {
+                                v_existing_metadata = core_get(
+                                    &v_bullet,
+                                    &CoreValue::from("metadata"),
+                                    v_empty_map.clone(),
+                                );
+                                v_merged_metadata = core_map_merge(&[
+                                    v_existing_metadata.clone(),
+                                    v_op_metadata_update.clone(),
+                                ])?;
+                                core_set(
+                                    &v_bullet,
+                                    CoreValue::from("metadata"),
+                                    v_merged_metadata.clone(),
+                                )?;
+                            }
+                            v_bullet_id_update =
+                                core_get(&v_bullet, &CoreValue::from("id"), CoreValue::from(""));
+                            core_append(&v_updated_bullets, v_bullet_id_update.clone())?;
+                        }
+                    }
+                }
+                v_is_remove = core_eq(&[v_op_type.clone(), CoreValue::from("REMOVE")])?;
+                if core_truthy(&v_is_remove) {
+                    v_remove_id = core_get(&v_op, &CoreValue::from("bulletId"), CoreValue::Null);
+                    v_kept = CoreValue::new_list();
+                    v_none_value = core_none(&[])?;
+                    v_removed_id = v_none_value.clone();
+                    for v_bullet in core_iter(&v_section)? {
+                        let mut v_bullet = v_bullet;
+                        v_remove_candidate_id =
+                            core_get(&v_bullet, &CoreValue::from("id"), CoreValue::from(""));
+                        v_bullet_remove_match =
+                            core_eq(&[v_remove_candidate_id.clone(), v_remove_id.clone()])?;
+                        if core_truthy(&v_bullet_remove_match) {
+                            v_removed_id = v_remove_candidate_id.clone();
+                        } else {
+                            core_append(&v_kept, v_bullet.clone())?;
+                        }
+                    }
+                    core_set(&v_sections, v_section_name.clone(), v_kept.clone())?;
+                    v_did_remove = core_is_not_none(&[v_removed_id.clone()])?;
+                    if core_truthy(&v_did_remove) {
+                        core_append(&v_updated_bullets, v_removed_id.clone())?;
+                    }
+                }
+            }
+        }
+    }
+    core_set(&v_playbook, CoreValue::from("sections"), v_sections.clone())?;
+    v_recomputed = _ace_recompute_playbook_stats(&[v_playbook.clone()])?;
+    core_set(&v_recomputed, CoreValue::from("updatedAt"), v_now.clone())?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("playbook"), v_recomputed.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("updatedBulletIds"),
+        v_updated_bullets.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("autoRemoved"),
+        v_auto_removed.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_normalize_curator_operations(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_normalize_curator_operations");
+    let mut v_operations = core_arg(args, 0);
+    let mut v_already_seen = CoreValue::Null;
+    let mut v_bullet_id = CoreValue::Null;
+    let mut v_bullet_id_is_string = CoreValue::Null;
+    let mut v_bullet_id_key = CoreValue::Null;
+    let mut v_bullet_id_nonempty = CoreValue::Null;
+    let mut v_bullet_id_raw = CoreValue::Null;
+    let mut v_bullet_id_source = CoreValue::Null;
+    let mut v_bullet_id_trimmed = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_content_empty = CoreValue::Null;
+    let mut v_content_is_string = CoreValue::Null;
+    let mut v_content_raw = CoreValue::Null;
+    let mut v_content_trimmed = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_metadata = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_fresh = CoreValue::Null;
+    let mut v_has_bullet_id = CoreValue::Null;
+    let mut v_has_bullet_id_field = CoreValue::Null;
+    let mut v_has_inner = CoreValue::Null;
+    let mut v_has_operations = CoreValue::Null;
+    let mut v_id_field = CoreValue::Null;
+    let mut v_inner = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_is_remove = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_is_update = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_key_a = CoreValue::Null;
+    let mut v_key_b = CoreValue::Null;
+    let mut v_lowered = CoreValue::Null;
+    let mut v_metadata_copy = CoreValue::Null;
+    let mut v_metadata_is_object = CoreValue::Null;
+    let mut v_metadata_raw = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_none_value = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_normalized_entry = CoreValue::Null;
+    let mut v_normalized_from_object = CoreValue::Null;
+    let mut v_normalized_from_string = CoreValue::Null;
+    let mut v_not_remove = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_parsed_is_none = CoreValue::Null;
+    let mut v_section = CoreValue::Null;
+    let mut v_section_is_string = CoreValue::Null;
+    let mut v_section_nonempty = CoreValue::Null;
+    let mut v_section_raw = CoreValue::Null;
+    let mut v_section_trimmed = CoreValue::Null;
+    let mut v_seen = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_type_is_string = CoreValue::Null;
+    let mut v_type_lower = CoreValue::Null;
+    let mut v_type_raw = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_has_operations = core_is_not_none(&[v_operations.clone()])?;
+    v_missing = core_not(&[v_has_operations.clone()])?;
+    if core_truthy(&v_missing) {
+        return Ok(v_empty_list.clone());
+    }
+    v_is_list = core_type_is(&v_operations, CoreValue::from("list"));
+    if core_truthy(&v_is_list) {
+        v_normalized = CoreValue::new_list();
+        v_seen = CoreValue::new_map();
+        for v_entry in core_iter(&v_operations)? {
+            let mut v_entry = v_entry;
+            v_is_object = core_type_is(&v_entry, CoreValue::from("object"));
+            if core_truthy(&v_is_object) {
+                v_type_raw = core_get(&v_entry, &CoreValue::from("type"), CoreValue::from("ADD"));
+                v_type_is_string = core_type_is(&v_type_raw, CoreValue::from("string"));
+                v_type_lower = CoreValue::from("add");
+                if core_truthy(&v_type_is_string) {
+                    v_lowered = core_string_lower(&[v_type_raw.clone()])?;
+                    v_type_lower = v_lowered.clone();
+                }
+                v_is_update = core_eq(&[v_type_lower.clone(), CoreValue::from("update")])?;
+                v_is_remove = core_eq(&[v_type_lower.clone(), CoreValue::from("remove")])?;
+                v_type = CoreValue::from("ADD");
+                if core_truthy(&v_is_update) {
+                    v_type = CoreValue::from("UPDATE");
+                }
+                if core_truthy(&v_is_remove) {
+                    v_type = CoreValue::from("REMOVE");
+                }
+                v_section_raw = core_get(
+                    &v_entry,
+                    &CoreValue::from("section"),
+                    CoreValue::from("Guidelines"),
+                );
+                v_section_is_string = core_type_is(&v_section_raw, CoreValue::from("string"));
+                v_section = CoreValue::from("Guidelines");
+                if core_truthy(&v_section_is_string) {
+                    v_section_trimmed = core_string_trim(&v_section_raw);
+                    v_section_nonempty =
+                        core_ne(&[v_section_trimmed.clone(), CoreValue::from("")])?;
+                    if core_truthy(&v_section_nonempty) {
+                        v_section = v_section_trimmed.clone();
+                    }
+                }
+                v_content_raw =
+                    core_get(&v_entry, &CoreValue::from("content"), CoreValue::from(""));
+                v_content_is_string = core_type_is(&v_content_raw, CoreValue::from("string"));
+                v_content = CoreValue::from("");
+                if core_truthy(&v_content_is_string) {
+                    v_content_trimmed = core_string_trim(&v_content_raw);
+                    v_content = v_content_trimmed.clone();
+                }
+                v_not_remove = core_ne(&[v_type.clone(), CoreValue::from("REMOVE")])?;
+                v_content_empty = core_eq(&[v_content.clone(), CoreValue::from("")])?;
+                v_keep = CoreValue::Bool(true);
+                if core_truthy(&v_not_remove) {
+                    if core_truthy(&v_content_empty) {
+                        v_keep = CoreValue::Bool(false);
+                    }
+                }
+                if core_truthy(&v_keep) {
+                    v_bullet_id_raw =
+                        core_get(&v_entry, &CoreValue::from("bulletId"), CoreValue::Null);
+                    v_has_bullet_id_field = core_is_not_none(&[v_bullet_id_raw.clone()])?;
+                    v_bullet_id_source = v_bullet_id_raw.clone();
+                    if core_truthy(&v_has_bullet_id_field) {
+                    } else {
+                        v_id_field = core_get(&v_entry, &CoreValue::from("id"), CoreValue::Null);
+                        v_bullet_id_source = v_id_field.clone();
+                    }
+                    v_bullet_id_is_string =
+                        core_type_is(&v_bullet_id_source, CoreValue::from("string"));
+                    v_none_value = core_none(&[])?;
+                    v_bullet_id = v_none_value.clone();
+                    if core_truthy(&v_bullet_id_is_string) {
+                        v_bullet_id_trimmed = core_string_trim(&v_bullet_id_source);
+                        v_bullet_id_nonempty =
+                            core_ne(&[v_bullet_id_trimmed.clone(), CoreValue::from("")])?;
+                        if core_truthy(&v_bullet_id_nonempty) {
+                            v_bullet_id = v_bullet_id_trimmed.clone();
+                        }
+                    }
+                    v_bullet_id_key = CoreValue::from("");
+                    v_has_bullet_id = core_is_not_none(&[v_bullet_id.clone()])?;
+                    if core_truthy(&v_has_bullet_id) {
+                        v_bullet_id_key = v_bullet_id.clone();
+                    }
+                    v_key_a = core_string_format(&[
+                        CoreValue::from("{}:{}"),
+                        v_type.clone(),
+                        v_section.clone(),
+                    ])?;
+                    v_key_b = core_string_format(&[
+                        CoreValue::from("{}:{}"),
+                        v_content.clone(),
+                        v_bullet_id_key.clone(),
+                    ])?;
+                    v_key = core_string_format(&[
+                        CoreValue::from("{}:{}"),
+                        v_key_a.clone(),
+                        v_key_b.clone(),
+                    ])?;
+                    v_already_seen = core_map_contains(&[v_seen.clone(), v_key.clone()])?;
+                    v_fresh = core_not(&[v_already_seen.clone()])?;
+                    if core_truthy(&v_fresh) {
+                        core_set(&v_seen, v_key.clone(), CoreValue::Bool(true))?;
+                        v_normalized_entry = CoreValue::new_map();
+                        core_set(&v_normalized_entry, CoreValue::from("type"), v_type.clone())?;
+                        core_set(
+                            &v_normalized_entry,
+                            CoreValue::from("section"),
+                            v_section.clone(),
+                        )?;
+                        if core_truthy(&v_not_remove) {
+                            core_set(
+                                &v_normalized_entry,
+                                CoreValue::from("content"),
+                                v_content.clone(),
+                            )?;
+                        }
+                        if core_truthy(&v_has_bullet_id) {
+                            core_set(
+                                &v_normalized_entry,
+                                CoreValue::from("bulletId"),
+                                v_bullet_id.clone(),
+                            )?;
+                        }
+                        v_metadata_raw =
+                            core_get(&v_entry, &CoreValue::from("metadata"), CoreValue::Null);
+                        v_metadata_is_object =
+                            core_type_is(&v_metadata_raw, CoreValue::from("object"));
+                        if core_truthy(&v_metadata_is_object) {
+                            v_empty_metadata = CoreValue::new_map();
+                            v_metadata_copy = core_map_merge(&[
+                                v_empty_metadata.clone(),
+                                v_metadata_raw.clone(),
+                            ])?;
+                            core_set(
+                                &v_normalized_entry,
+                                CoreValue::from("metadata"),
+                                v_metadata_copy.clone(),
+                            )?;
+                        }
+                        core_append(&v_normalized, v_normalized_entry.clone())?;
+                    }
+                }
+            }
+        }
+        return Ok(v_normalized.clone());
+    }
+    v_is_string = core_type_is(&v_operations, CoreValue::from("string"));
+    if core_truthy(&v_is_string) {
+        v_parsed = core_json_parse(&[v_operations.clone()])?;
+        v_parsed_is_none = core_is_none(&[v_parsed.clone()])?;
+        if core_truthy(&v_parsed_is_none) {
+            return Ok(v_empty_list.clone());
+        }
+        v_normalized_from_string = _ace_normalize_curator_operations(&[v_parsed.clone()])?;
+        return Ok(v_normalized_from_string.clone());
+    }
+    v_is_object = core_type_is(&v_operations, CoreValue::from("object"));
+    if core_truthy(&v_is_object) {
+        v_inner = core_get(
+            &v_operations,
+            &CoreValue::from("operations"),
+            CoreValue::Null,
+        );
+        v_has_inner = core_is_not_none(&[v_inner.clone()])?;
+        if core_truthy(&v_has_inner) {
+            v_normalized_from_object = _ace_normalize_curator_operations(&[v_inner.clone()])?;
+            return Ok(v_normalized_from_object.clone());
+        }
+        return Ok(v_empty_list.clone());
+    }
+    return Ok(v_empty_list.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_locate_bullet_section(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_locate_bullet_section");
+    let mut v_playbook = core_arg(args, 0);
+    let mut v_bullet_id = core_arg(args, 1);
+    let mut v_already = CoreValue::Null;
+    let mut v_bullet = CoreValue::Null;
+    let mut v_bullets = CoreValue::Null;
+    let mut v_current_id = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_hit = CoreValue::Null;
+    let mut v_match = CoreValue::Null;
+    let mut v_none_value = CoreValue::Null;
+    let mut v_open = CoreValue::Null;
+    let mut v_section_name = CoreValue::Null;
+    let mut v_section_names = CoreValue::Null;
+    let mut v_sections = CoreValue::Null;
+    let mut v_still_open = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_sections = core_get(
+        &v_playbook,
+        &CoreValue::from("sections"),
+        v_empty_map.clone(),
+    );
+    v_section_names = core_map_keys(&[v_sections.clone()])?;
+    v_none_value = core_none(&[])?;
+    v_found = v_none_value.clone();
+    for v_section_name in core_iter(&v_section_names)? {
+        let mut v_section_name = v_section_name;
+        v_already = core_is_not_none(&[v_found.clone()])?;
+        v_still_open = core_not(&[v_already.clone()])?;
+        if core_truthy(&v_still_open) {
+            v_bullets = core_get(&v_sections, &v_section_name.clone(), CoreValue::Null);
+            for v_bullet in core_iter(&v_bullets)? {
+                let mut v_bullet = v_bullet;
+                v_open = core_is_none(&[v_found.clone()])?;
+                if core_truthy(&v_open) {
+                    v_current_id = core_get(&v_bullet, &CoreValue::from("id"), CoreValue::from(""));
+                    v_match = core_eq(&[v_current_id.clone(), v_bullet_id.clone()])?;
+                    if core_truthy(&v_match) {
+                        v_hit = CoreValue::new_map();
+                        core_set(&v_hit, CoreValue::from("section"), v_section_name.clone())?;
+                        core_set(&v_hit, CoreValue::from("id"), v_current_id.clone())?;
+                        v_found = v_hit.clone();
+                    }
+                }
+            }
+        }
+    }
+    return Ok(v_found.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_resolve_curator_operation_targets(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_resolve_curator_operation_targets");
+    let mut v_operations = core_arg(args, 0);
+    let mut v_playbook = core_arg(args, 1);
+    let mut v_reflection = core_arg(args, 2);
+    let mut v_generator_output = core_arg(args, 3);
+    let mut v_already_used = CoreValue::Null;
+    let mut v_bullet_id = CoreValue::Null;
+    let mut v_bullet_tags = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_candidate_found = CoreValue::Null;
+    let mut v_current_bullet_id = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_op = CoreValue::Null;
+    let mut v_existing_bullet_id = CoreValue::Null;
+    let mut v_existing_is_string = CoreValue::Null;
+    let mut v_final_bullet_id = CoreValue::Null;
+    let mut v_final_has_bullet_id = CoreValue::Null;
+    let mut v_gen_already_used = CoreValue::Null;
+    let mut v_gen_found = CoreValue::Null;
+    let mut v_gen_generator = CoreValue::Null;
+    let mut v_gen_generator_list = CoreValue::Null;
+    let mut v_gen_harmful = CoreValue::Null;
+    let mut v_gen_has_queue = CoreValue::Null;
+    let mut v_gen_id_is_string = CoreValue::Null;
+    let mut v_gen_located = CoreValue::Null;
+    let mut v_gen_located_id = CoreValue::Null;
+    let mut v_gen_missing_queue = CoreValue::Null;
+    let mut v_gen_new_queue = CoreValue::Null;
+    let mut v_gen_not_used = CoreValue::Null;
+    let mut v_gen_primary = CoreValue::Null;
+    let mut v_gen_queue = CoreValue::Null;
+    let mut v_gen_section = CoreValue::Null;
+    let mut v_generator_bullet_ids = CoreValue::Null;
+    let mut v_generator_list = CoreValue::Null;
+    let mut v_generator_present = CoreValue::Null;
+    let mut v_harmful_list = CoreValue::Null;
+    let mut v_has_bullet_id = CoreValue::Null;
+    let mut v_has_existing = CoreValue::Null;
+    let mut v_has_queue = CoreValue::Null;
+    let mut v_is_empty = CoreValue::Null;
+    let mut v_is_harmful = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
+    let mut v_located = CoreValue::Null;
+    let mut v_located_found = CoreValue::Null;
+    let mut v_located_id = CoreValue::Null;
+    let mut v_located_section = CoreValue::Null;
+    let mut v_missing_bullet_id = CoreValue::Null;
+    let mut v_missing_queue = CoreValue::Null;
+    let mut v_needs_target = CoreValue::Null;
+    let mut v_new_queue = CoreValue::Null;
+    let mut v_not_used = CoreValue::Null;
+    let mut v_op = CoreValue::Null;
+    let mut v_op_count = CoreValue::Null;
+    let mut v_op_is_remove = CoreValue::Null;
+    let mut v_op_is_update = CoreValue::Null;
+    let mut v_op_section = CoreValue::Null;
+    let mut v_op_type = CoreValue::Null;
+    let mut v_primary_list = CoreValue::Null;
+    let mut v_priority = CoreValue::Null;
+    let mut v_priority_list = CoreValue::Null;
+    let mut v_queue = CoreValue::Null;
+    let mut v_reflection_present = CoreValue::Null;
+    let mut v_resolved = CoreValue::Null;
+    let mut v_resolved_op = CoreValue::Null;
+    let mut v_section_queues = CoreValue::Null;
+    let mut v_tag = CoreValue::Null;
+    let mut v_tag_id = CoreValue::Null;
+    let mut v_tag_id_is_string = CoreValue::Null;
+    let mut v_tag_value = CoreValue::Null;
+    let mut v_used_ids = CoreValue::Null;
+    v_op_count = core_len(&[v_operations.clone()])?;
+    v_is_empty = core_eq(&[v_op_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_is_empty) {
+        return Ok(v_operations.clone());
+    }
+    v_used_ids = CoreValue::new_map();
+    for v_op in core_iter(&v_operations)? {
+        let mut v_op = v_op;
+        v_existing_bullet_id = core_get(&v_op, &CoreValue::from("bulletId"), CoreValue::Null);
+        v_has_existing = core_is_not_none(&[v_existing_bullet_id.clone()])?;
+        if core_truthy(&v_has_existing) {
+            v_existing_is_string = core_type_is(&v_existing_bullet_id, CoreValue::from("string"));
+            if core_truthy(&v_existing_is_string) {
+                core_set(
+                    &v_used_ids,
+                    v_existing_bullet_id.clone(),
+                    CoreValue::Bool(true),
+                )?;
+            }
+        }
+    }
+    v_section_queues = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_reflection_present = core_is_not_none(&[v_reflection.clone()])?;
+    if core_truthy(&v_reflection_present) {
+        v_bullet_tags = core_get(
+            &v_reflection,
+            &CoreValue::from("bulletTags"),
+            v_empty_list.clone(),
+        );
+        for v_tag in core_iter(&v_bullet_tags)? {
+            let mut v_tag = v_tag;
+            v_tag_id = core_get(&v_tag, &CoreValue::from("id"), CoreValue::Null);
+            v_tag_id_is_string = core_type_is(&v_tag_id, CoreValue::from("string"));
+            if core_truthy(&v_tag_id_is_string) {
+                v_already_used = core_map_contains(&[v_used_ids.clone(), v_tag_id.clone()])?;
+                v_not_used = core_not(&[v_already_used.clone()])?;
+                if core_truthy(&v_not_used) {
+                    v_located =
+                        _ace_locate_bullet_section(&[v_playbook.clone(), v_tag_id.clone()])?;
+                    v_located_found = core_is_not_none(&[v_located.clone()])?;
+                    if core_truthy(&v_located_found) {
+                        v_located_section =
+                            core_get(&v_located, &CoreValue::from("section"), CoreValue::Null);
+                        v_located_id =
+                            core_get(&v_located, &CoreValue::from("id"), CoreValue::Null);
+                        v_tag_value =
+                            core_get(&v_tag, &CoreValue::from("tag"), CoreValue::from(""));
+                        v_is_harmful = core_eq(&[v_tag_value.clone(), CoreValue::from("harmful")])?;
+                        v_priority = CoreValue::from("primary");
+                        if core_truthy(&v_is_harmful) {
+                            v_priority = CoreValue::from("harmful");
+                        }
+                        v_has_queue = core_map_contains(&[
+                            v_section_queues.clone(),
+                            v_located_section.clone(),
+                        ])?;
+                        v_missing_queue = core_not(&[v_has_queue.clone()])?;
+                        if core_truthy(&v_missing_queue) {
+                            v_new_queue = CoreValue::new_map();
+                            v_harmful_list = CoreValue::new_list();
+                            core_set(
+                                &v_new_queue,
+                                CoreValue::from("harmful"),
+                                v_harmful_list.clone(),
+                            )?;
+                            v_primary_list = CoreValue::new_list();
+                            core_set(
+                                &v_new_queue,
+                                CoreValue::from("primary"),
+                                v_primary_list.clone(),
+                            )?;
+                            v_generator_list = CoreValue::new_list();
+                            core_set(
+                                &v_new_queue,
+                                CoreValue::from("generator"),
+                                v_generator_list.clone(),
+                            )?;
+                            core_set(
+                                &v_section_queues,
+                                v_located_section.clone(),
+                                v_new_queue.clone(),
+                            )?;
+                        }
+                        v_queue = core_get(
+                            &v_section_queues,
+                            &v_located_section.clone(),
+                            CoreValue::Null,
+                        );
+                        v_priority_list = core_get(&v_queue, &v_priority.clone(), CoreValue::Null);
+                        core_append(&v_priority_list, v_located_id.clone())?;
+                        core_set(&v_queue, v_priority.clone(), v_priority_list.clone())?;
+                        core_set(
+                            &v_section_queues,
+                            v_located_section.clone(),
+                            v_queue.clone(),
+                        )?;
+                    }
+                }
+            }
+        }
+    }
+    v_generator_present = core_is_not_none(&[v_generator_output.clone()])?;
+    if core_truthy(&v_generator_present) {
+        v_generator_bullet_ids = core_get(
+            &v_generator_output,
+            &CoreValue::from("bulletIds"),
+            v_empty_list.clone(),
+        );
+        for v_bullet_id in core_iter(&v_generator_bullet_ids)? {
+            let mut v_bullet_id = v_bullet_id;
+            v_gen_id_is_string = core_type_is(&v_bullet_id, CoreValue::from("string"));
+            if core_truthy(&v_gen_id_is_string) {
+                v_gen_already_used = core_map_contains(&[v_used_ids.clone(), v_bullet_id.clone()])?;
+                v_gen_not_used = core_not(&[v_gen_already_used.clone()])?;
+                if core_truthy(&v_gen_not_used) {
+                    v_gen_located =
+                        _ace_locate_bullet_section(&[v_playbook.clone(), v_bullet_id.clone()])?;
+                    v_gen_found = core_is_not_none(&[v_gen_located.clone()])?;
+                    if core_truthy(&v_gen_found) {
+                        v_gen_section =
+                            core_get(&v_gen_located, &CoreValue::from("section"), CoreValue::Null);
+                        v_gen_located_id =
+                            core_get(&v_gen_located, &CoreValue::from("id"), CoreValue::Null);
+                        v_gen_has_queue =
+                            core_map_contains(&[v_section_queues.clone(), v_gen_section.clone()])?;
+                        v_gen_missing_queue = core_not(&[v_gen_has_queue.clone()])?;
+                        if core_truthy(&v_gen_missing_queue) {
+                            v_gen_new_queue = CoreValue::new_map();
+                            v_gen_harmful = CoreValue::new_list();
+                            core_set(
+                                &v_gen_new_queue,
+                                CoreValue::from("harmful"),
+                                v_gen_harmful.clone(),
+                            )?;
+                            v_gen_primary = CoreValue::new_list();
+                            core_set(
+                                &v_gen_new_queue,
+                                CoreValue::from("primary"),
+                                v_gen_primary.clone(),
+                            )?;
+                            v_gen_generator = CoreValue::new_list();
+                            core_set(
+                                &v_gen_new_queue,
+                                CoreValue::from("generator"),
+                                v_gen_generator.clone(),
+                            )?;
+                            core_set(
+                                &v_section_queues,
+                                v_gen_section.clone(),
+                                v_gen_new_queue.clone(),
+                            )?;
+                        }
+                        v_gen_queue =
+                            core_get(&v_section_queues, &v_gen_section.clone(), CoreValue::Null);
+                        v_gen_generator_list =
+                            core_get(&v_gen_queue, &CoreValue::from("generator"), CoreValue::Null);
+                        core_append(&v_gen_generator_list, v_gen_located_id.clone())?;
+                        core_set(
+                            &v_gen_queue,
+                            CoreValue::from("generator"),
+                            v_gen_generator_list.clone(),
+                        )?;
+                        core_set(
+                            &v_section_queues,
+                            v_gen_section.clone(),
+                            v_gen_queue.clone(),
+                        )?;
+                    }
+                }
+            }
+        }
+    }
+    v_resolved = CoreValue::new_list();
+    for v_op in core_iter(&v_operations)? {
+        let mut v_op = v_op;
+        v_op_type = core_get(&v_op, &CoreValue::from("type"), CoreValue::from(""));
+        v_op_is_update = core_eq(&[v_op_type.clone(), CoreValue::from("UPDATE")])?;
+        v_op_is_remove = core_eq(&[v_op_type.clone(), CoreValue::from("REMOVE")])?;
+        v_needs_target = core_or(&[v_op_is_update.clone(), v_op_is_remove.clone()])?;
+        v_current_bullet_id = core_get(&v_op, &CoreValue::from("bulletId"), CoreValue::Null);
+        v_has_bullet_id = core_is_not_none(&[v_current_bullet_id.clone()])?;
+        v_missing_bullet_id = core_not(&[v_has_bullet_id.clone()])?;
+        v_empty_op = CoreValue::new_map();
+        v_resolved_op = core_map_merge(&[v_empty_op.clone(), v_op.clone()])?;
+        if core_truthy(&v_needs_target) {
+            if core_truthy(&v_missing_bullet_id) {
+                v_op_section = core_get(&v_op, &CoreValue::from("section"), CoreValue::from(""));
+                v_candidate = _ace_dequeue_section_candidate(&[
+                    v_section_queues.clone(),
+                    v_op_section.clone(),
+                    v_used_ids.clone(),
+                    v_playbook.clone(),
+                ])?;
+                v_candidate_found = core_is_not_none(&[v_candidate.clone()])?;
+                if core_truthy(&v_candidate_found) {
+                    core_set(
+                        &v_resolved_op,
+                        CoreValue::from("bulletId"),
+                        v_candidate.clone(),
+                    )?;
+                    core_set(&v_used_ids, v_candidate.clone(), CoreValue::Bool(true))?;
+                }
+            }
+        }
+        v_final_bullet_id = core_get(
+            &v_resolved_op,
+            &CoreValue::from("bulletId"),
+            CoreValue::Null,
+        );
+        v_final_has_bullet_id = core_is_not_none(&[v_final_bullet_id.clone()])?;
+        v_keep = CoreValue::Bool(true);
+        if core_truthy(&v_needs_target) {
+            v_keep = v_final_has_bullet_id.clone();
+        }
+        if core_truthy(&v_keep) {
+            core_append(&v_resolved, v_resolved_op.clone())?;
+        }
+    }
+    return Ok(v_resolved.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_dequeue_section_candidate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_dequeue_section_candidate");
+    let mut v_section_queues = core_arg(args, 0);
+    let mut v_section = core_arg(args, 1);
+    let mut v_used_ids = core_arg(args, 2);
+    let mut v_playbook = core_arg(args, 3);
+    let mut v_bullet = CoreValue::Null;
+    let mut v_bullet_id = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_fallback_bullets = CoreValue::Null;
+    let mut v_fallback_present = CoreValue::Null;
+    let mut v_generator_list = CoreValue::Null;
+    let mut v_harmful_list = CoreValue::Null;
+    let mut v_has_queue = CoreValue::Null;
+    let mut v_none_value = CoreValue::Null;
+    let mut v_not_used = CoreValue::Null;
+    let mut v_open = CoreValue::Null;
+    let mut v_picked = CoreValue::Null;
+    let mut v_primary_list = CoreValue::Null;
+    let mut v_queue = CoreValue::Null;
+    let mut v_sections = CoreValue::Null;
+    let mut v_still_open = CoreValue::Null;
+    let mut v_used = CoreValue::Null;
+    v_none_value = core_none(&[])?;
+    v_picked = v_none_value.clone();
+    v_has_queue = core_map_contains(&[v_section_queues.clone(), v_section.clone()])?;
+    if core_truthy(&v_has_queue) {
+        v_queue = core_get(&v_section_queues, &v_section.clone(), CoreValue::Null);
+        v_empty_list = CoreValue::new_list();
+        v_harmful_list = core_get(&v_queue, &CoreValue::from("harmful"), v_empty_list.clone());
+        for v_candidate in core_iter(&v_harmful_list)? {
+            let mut v_candidate = v_candidate;
+            v_open = core_is_none(&[v_picked.clone()])?;
+            if core_truthy(&v_open) {
+                v_used = core_map_contains(&[v_used_ids.clone(), v_candidate.clone()])?;
+                v_not_used = core_not(&[v_used.clone()])?;
+                if core_truthy(&v_not_used) {
+                    v_picked = v_candidate.clone();
+                }
+            }
+        }
+        v_primary_list = core_get(&v_queue, &CoreValue::from("primary"), v_empty_list.clone());
+        for v_candidate in core_iter(&v_primary_list)? {
+            let mut v_candidate = v_candidate;
+            v_open = core_is_none(&[v_picked.clone()])?;
+            if core_truthy(&v_open) {
+                v_used = core_map_contains(&[v_used_ids.clone(), v_candidate.clone()])?;
+                v_not_used = core_not(&[v_used.clone()])?;
+                if core_truthy(&v_not_used) {
+                    v_picked = v_candidate.clone();
+                }
+            }
+        }
+        v_generator_list = core_get(
+            &v_queue,
+            &CoreValue::from("generator"),
+            v_empty_list.clone(),
+        );
+        for v_candidate in core_iter(&v_generator_list)? {
+            let mut v_candidate = v_candidate;
+            v_open = core_is_none(&[v_picked.clone()])?;
+            if core_truthy(&v_open) {
+                v_used = core_map_contains(&[v_used_ids.clone(), v_candidate.clone()])?;
+                v_not_used = core_not(&[v_used.clone()])?;
+                if core_truthy(&v_not_used) {
+                    v_picked = v_candidate.clone();
+                }
+            }
+        }
+    }
+    v_still_open = core_is_none(&[v_picked.clone()])?;
+    if core_truthy(&v_still_open) {
+        v_empty_map = CoreValue::new_map();
+        v_sections = core_get(
+            &v_playbook,
+            &CoreValue::from("sections"),
+            v_empty_map.clone(),
+        );
+        v_fallback_bullets = core_get(&v_sections, &v_section.clone(), CoreValue::Null);
+        v_fallback_present = core_is_not_none(&[v_fallback_bullets.clone()])?;
+        if core_truthy(&v_fallback_present) {
+            for v_bullet in core_iter(&v_fallback_bullets)? {
+                let mut v_bullet = v_bullet;
+                v_open = core_is_none(&[v_picked.clone()])?;
+                if core_truthy(&v_open) {
+                    v_bullet_id = core_get(&v_bullet, &CoreValue::from("id"), CoreValue::from(""));
+                    v_used = core_map_contains(&[v_used_ids.clone(), v_bullet_id.clone()])?;
+                    v_not_used = core_not(&[v_used.clone()])?;
+                    if core_truthy(&v_not_used) {
+                        v_picked = v_bullet_id.clone();
+                    }
+                }
+            }
+        }
+    }
+    return Ok(v_picked.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_agent_factory");
     let mut v_signature = core_arg(args, 0);
@@ -50374,4 +53242,4 @@ fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_response.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (398 of 398 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (410 of 410 core functions)

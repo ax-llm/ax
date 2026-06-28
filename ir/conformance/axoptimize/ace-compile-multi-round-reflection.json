@@ -1,0 +1,204 @@
+{
+  "ace_options": {
+    "maxEpochs": 1,
+    "maxReflectorRounds": 3
+  },
+  "curator_responses": [
+    {
+      "operations": [
+        {
+          "bulletId": "strategies-00001",
+          "content": "Explain reasoning first, then answer concisely.",
+          "section": "Strategies",
+          "type": "ADD"
+        }
+      ],
+      "reasoning": "Capture the reasoning-first insight."
+    },
+    {
+      "operations": [],
+      "reasoning": "Nothing to change."
+    }
+  ],
+  "examples": [
+    {
+      "answer": "Rayleigh scattering.",
+      "question": "Why is the sky blue?"
+    },
+    {
+      "answer": "pong",
+      "question": "ping"
+    }
+  ],
+  "expected_artifact": {
+    "feedback": [
+      {
+        "curator": {
+          "operations": [
+            {
+              "bulletId": "strategies-00001",
+              "content": "Explain reasoning first, then answer concisely.",
+              "section": "Strategies",
+              "type": "ADD"
+            }
+          ],
+          "reasoning": "Capture the reasoning-first insight."
+        },
+        "example": {
+          "answer": "Rayleigh scattering.",
+          "question": "Why is the sky blue?"
+        },
+        "generatorOutput": {
+          "answer": {
+            "answer": "Rayleigh scattering."
+          },
+          "bulletIds": [],
+          "reasoning": ""
+        },
+        "prediction": {
+          "answer": "Rayleigh scattering."
+        },
+        "reflection": {
+          "bulletTags": [],
+          "correctApproach": "Explain reasoning then answer concisely",
+          "errorIdentification": "no error",
+          "keyInsight": "Reasoning first, then a concise answer",
+          "reasoning": "Second pass: refined insight.",
+          "rootCauseAnalysis": "resolved after refinement"
+        },
+        "score": 0.4,
+        "timestamp": "2024-01-02T03:04:05.000Z"
+      },
+      {
+        "curator": {
+          "operations": [],
+          "reasoning": "Nothing to change."
+        },
+        "example": {
+          "answer": "pong",
+          "question": "ping"
+        },
+        "generatorOutput": {
+          "answer": {
+            "answer": "pong"
+          },
+          "bulletIds": [],
+          "reasoning": ""
+        },
+        "prediction": {
+          "answer": "pong"
+        },
+        "reflection": {
+          "bulletTags": [],
+          "correctApproach": "keep going",
+          "errorIdentification": "no error",
+          "keyInsight": "stable behavior",
+          "reasoning": "Answer already correct.",
+          "rootCauseAnalysis": "none"
+        },
+        "score": 1,
+        "timestamp": "2024-01-02T03:04:05.000Z"
+      }
+    ],
+    "history": [
+      {
+        "epoch": 0,
+        "exampleIndex": 0,
+        "operations": [
+          {
+            "bulletId": "strategies-00001",
+            "content": "Explain reasoning first, then answer concisely.",
+            "section": "Strategies",
+            "type": "ADD"
+          }
+        ],
+        "source": "compile"
+      }
+    ],
+    "playbook": {
+      "sections": {
+        "Strategies": [
+          {
+            "content": "Explain reasoning first, then answer concisely.",
+            "createdAt": "2024-01-02T03:04:05.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 0,
+            "id": "strategies-00001",
+            "section": "Strategies",
+            "updatedAt": "2024-01-02T03:04:05.000Z"
+          }
+        ]
+      },
+      "stats": {
+        "bulletCount": 1,
+        "harmfulCount": 0,
+        "helpfulCount": 0,
+        "tokenEstimate": 12
+      },
+      "updatedAt": "2024-01-02T03:04:05.000Z",
+      "version": 1
+    }
+  },
+  "expected_playbook": {
+    "sections": {
+      "Strategies": [
+        {
+          "content": "Explain reasoning first, then answer concisely.",
+          "createdAt": "2024-01-02T03:04:05.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "strategies-00001",
+          "section": "Strategies",
+          "updatedAt": "2024-01-02T03:04:05.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 1,
+      "harmfulCount": 0,
+      "helpfulCount": 0,
+      "tokenEstimate": 12
+    },
+    "updatedAt": "2024-01-02T03:04:05.000Z",
+    "version": 1
+  },
+  "generator_predictions": [
+    {
+      "answer": "Rayleigh scattering."
+    },
+    {
+      "answer": "pong"
+    }
+  ],
+  "kind": "optimize",
+  "metric_scores": [0.4, 1],
+  "name": "ace-compile-multi-round-reflection",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "ace-compile",
+  "reflection_responses": [
+    {
+      "bulletTags": [],
+      "correctApproach": "Explain reasoning before answering",
+      "errorIdentification": "Answer lacks justification",
+      "keyInsight": "Show the work",
+      "reasoning": "Initial pass: answer too terse.",
+      "rootCauseAnalysis": "No reasoning step"
+    },
+    {
+      "bulletTags": [],
+      "correctApproach": "Explain reasoning then answer concisely",
+      "errorIdentification": "no error",
+      "keyInsight": "Reasoning first, then a concise answer",
+      "reasoning": "Second pass: refined insight.",
+      "rootCauseAnalysis": "resolved after refinement"
+    },
+    {
+      "bulletTags": [],
+      "correctApproach": "keep going",
+      "errorIdentification": "no error",
+      "keyInsight": "stable behavior",
+      "reasoning": "Answer already correct.",
+      "rootCauseAnalysis": "none"
+    }
+  ]
+}

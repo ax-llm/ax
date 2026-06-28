@@ -11,6 +11,13 @@ from typing import Any
 from .gen import (
     AxGen,
     _core_ai_complete_once,
+    _ace_apply_curator_operations,
+    _ace_dedupe_playbook,
+    _ace_empty_playbook,
+    _ace_normalize_curator_operations,
+    _ace_render_playbook,
+    _ace_resolve_curator_operation_targets,
+    _ace_update_bullet_feedback,
     _adjust_optimization_score_for_actions,
     _build_optimization_eval_result,
     _build_optimization_eval_row,
@@ -582,6 +589,583 @@ class AxGEPA(OptimizerEngine):
         }
 
 
+_ACE_DEFAULT_CONFIG = {
+    "maxEpochs": 1,
+    "maxReflectorRounds": 2,
+    "maxSectionSize": 25,
+    "maxSerializedFieldChars": 2000,
+    "similarityThreshold": 0.95,
+    "allowDynamicSections": True,
+}
+
+
+def _ace_clone(value):
+    return copy.deepcopy(value)
+
+
+def _ace_option(options, *keys, default=None):
+    for key in keys:
+        if isinstance(options, dict) and key in options and options.get(key) is not None:
+            return options.get(key)
+    return default
+
+
+class AxACE:
+    """Agentic Context Engineering optimizer (Generator -> Reflector -> Curator).
+
+    The deterministic playbook mutations reuse the Core-owned `_ace_*` ops; the
+    LLM-orchestrated reflect/curate steps are delegated to injected callables so
+    the loop is reproducible under conformance with scripted responses (mirrors
+    how AxGEPA accepts a reflection_client)."""
+
+    name = "ACE"
+    version = "axir-ace-v1"
+
+    def __init__(self, reflector=None, curator=None, generator=None, **options):
+        self.reflector = reflector
+        self.curator = curator
+        self.generator = generator
+        self.options = dict(options or {})
+        self.config = dict(_ACE_DEFAULT_CONFIG)
+        for key in _ACE_DEFAULT_CONFIG:
+            value = _ace_option(self.options, key, default=None)
+            if value is not None:
+                self.config[key] = value
+        self.initial_playbook = self.options.get("initialPlaybook") or self.options.get("initial_playbook")
+        self.student_ai = _ace_option(self.options, "studentAI", "student_ai", "student", "client", "ai")
+        self.teacher_ai = _ace_option(self.options, "teacherAI", "teacher_ai", "teacher", default=self.student_ai)
+        self.metric_fn = _ace_option(self.options, "metricFn", "metric_fn", "metric")
+        self.program = None
+        self.base_instruction = None
+        self.generator_history = []
+        self.delta_history = []
+        self.playbook = (
+            _ace_clone(self.initial_playbook)
+            if self.initial_playbook is not None
+            else _ace_empty_playbook(None, self._now())
+        )
+
+    def _now(self):
+        return self.options.get("now") or "1970-01-01T00:00:00.000Z"
+
+    def reset(self):
+        self.playbook = (
+            _ace_clone(self.initial_playbook)
+            if self.initial_playbook is not None
+            else _ace_empty_playbook(None, self._now())
+        )
+        self.base_instruction = None
+        self.generator_history = []
+        self.delta_history = []
+
+    def configure_auto(self, level):
+        if level == "light":
+            self.config["maxEpochs"] = 1
+            self.config["maxReflectorRounds"] = 1
+        elif level == "medium":
+            self.config["maxEpochs"] = 2
+            self.config["maxReflectorRounds"] = 2
+        elif level == "heavy":
+            self.config["maxEpochs"] = 3
+            self.config["maxReflectorRounds"] = 3
+
+    def hydrate(self, program, state=None):
+        state = state or {}
+        self.program = program
+        self.base_instruction = state.get("baseInstruction")
+        if self.base_instruction is None and program is not None and hasattr(program, "get_signature"):
+            try:
+                self.base_instruction = program.get_signature().get_description()
+            except Exception:
+                self.base_instruction = None
+        playbook = state.get("playbook")
+        if playbook is not None:
+            self.playbook = _ace_clone(playbook)
+        elif self.initial_playbook is not None:
+            self.playbook = _ace_clone(self.initial_playbook)
+        else:
+            self.playbook = _ace_empty_playbook(None, self._now())
+        artifact = state.get("artifact") or {}
+        self.generator_history = _ace_clone(artifact.get("feedback") or [])
+        self.delta_history = _ace_clone(artifact.get("history") or [])
+
+    def get_playbook(self):
+        return _ace_clone(self.playbook)
+
+    def get_base_instruction(self):
+        return self.base_instruction
+
+    def get_artifact(self):
+        return self._create_artifact()
+
+    def create_artifact(self):
+        return self._create_artifact()
+
+    def _create_artifact(self):
+        return {
+            "playbook": _ace_clone(self.playbook),
+            "feedback": _ace_clone(self.generator_history),
+            "history": _ace_clone(self.delta_history),
+        }
+
+    def _render_playbook(self):
+        return _ace_render_playbook(_ace_clone(self.playbook))
+
+    def _generator_output(self, prediction, example):
+        reasoning = ""
+        bullet_ids = []
+        if isinstance(prediction, dict):
+            thought = prediction.get("thought")
+            if thought is not None:
+                reasoning = str(thought)
+            ids = prediction.get("bullet_ids")
+            if isinstance(ids, list):
+                bullet_ids = list(ids)
+        return {
+            "reasoning": reasoning,
+            "answer": prediction,
+            "bulletIds": bullet_ids,
+        }
+
+    def _run_generator(self, program, example):
+        if self.generator is not None:
+            return self.generator(example)
+        if program is not None and hasattr(program, "forward"):
+            return program.forward(self.student_ai, example)
+        return {}
+
+    def _run_metric(self, metric_fn, prediction, example):
+        fn = metric_fn or self.metric_fn
+        if fn is None:
+            return 0
+        return fn({"prediction": prediction, "example": example})
+
+    def _run_reflection_rounds(self, example, generator_output, feedback):
+        rounds = max(int(self.config.get("maxReflectorRounds", 1) or 1), 1)
+        previous = None
+        for _ in range(rounds):
+            reflection = self._run_reflector(example, generator_output, feedback, previous)
+            if not reflection:
+                break
+            previous = reflection
+            error_text = str(reflection.get("errorIdentification") or "").lower().strip()
+            metadata = reflection.get("metadata") if isinstance(reflection, dict) else None
+            resolved = metadata.get("resolved") if isinstance(metadata, dict) else None
+            if resolved is True or error_text == "" or error_text.startswith("no error") or error_text.startswith("resolved"):
+                break
+        return previous
+
+    def _run_reflector(self, example, generator_output, feedback, previous_reflection):
+        if self.reflector is None:
+            return None
+        payload = {
+            "question": example,
+            "generator_answer": generator_output.get("answer"),
+            "generator_reasoning": generator_output.get("reasoning"),
+            "playbook": self._render_playbook(),
+            "feedback": feedback,
+            "previous_reflection": previous_reflection,
+        }
+        return self.reflector(payload)
+
+    def _run_curator(self, example, reflection):
+        if reflection is None:
+            return None
+        if self.curator is None:
+            return None
+        payload = {
+            "playbook": self._render_playbook(),
+            "reflection": reflection,
+            "question_context": example,
+            "token_budget": 1024,
+        }
+        return self.curator(payload)
+
+    def _collect_protected_ids(self, operations):
+        protected = []
+        for op in operations:
+            if op.get("type") == "UPDATE" and op.get("bulletId"):
+                protected.append(op.get("bulletId"))
+        return protected
+
+    def _process_example(self, program, example, score, source, epoch, index):
+        prediction = self._last_prediction
+        generator_output = self._generator_output(prediction, example)
+        reflection = self._run_reflection_rounds(example, generator_output, self._metric_feedback(score))
+        raw_curator = self._run_curator(example, reflection)
+        operations = _ace_normalize_curator_operations(
+            raw_curator.get("operations") if isinstance(raw_curator, dict) else None
+        )
+        resolved = _ace_resolve_curator_operation_targets(operations, self.playbook, reflection, generator_output)
+        curator_result = None
+        if raw_curator is not None or resolved:
+            curator_result = dict(raw_curator or {})
+            curator_result["operations"] = resolved
+        applied_ids = []
+        if resolved:
+            protected = self._collect_protected_ids(resolved)
+            result = _ace_apply_curator_operations(
+                self.playbook,
+                resolved,
+                {
+                    "maxSectionSize": self.config.get("maxSectionSize"),
+                    "allowDynamicSections": self.config.get("allowDynamicSections"),
+                    "enableAutoPrune": True,
+                    "protectedBulletIds": protected,
+                },
+                self._now(),
+            )
+            self.playbook = result.get("playbook")
+            applied_ids = result.get("updatedBulletIds") or []
+            auto_removed = result.get("autoRemoved") or []
+            if auto_removed:
+                resolved = list(resolved) + list(auto_removed)
+                if curator_result is not None:
+                    curator_result["operations"] = resolved
+        if isinstance(reflection, dict):
+            for tag in reflection.get("bulletTags") or []:
+                self.playbook = _ace_update_bullet_feedback(self.playbook, tag.get("id"), tag.get("tag"), self._now())
+        if resolved and applied_ids:
+            self.playbook = _ace_dedupe_playbook(self.playbook)
+        feedback_event = {
+            "example": example,
+            "prediction": prediction,
+            "score": score if isinstance(score, (int, float)) else 0,
+            "generatorOutput": generator_output,
+            "reflection": reflection,
+            "curator": curator_result,
+            "timestamp": self._now(),
+        }
+        self.generator_history.append(feedback_event)
+        if applied_ids and curator_result and curator_result.get("operations"):
+            self.delta_history.append({
+                "source": source,
+                "epoch": epoch,
+                "exampleIndex": index,
+                "operations": curator_result.get("operations"),
+            })
+        return curator_result, applied_ids
+
+    def _metric_feedback(self, score):
+        if not isinstance(score, (int, float)):
+            return None
+        return "Metric score: " + str(score)
+
+    def compile(self, program, examples, metric_fn=None, options=None):
+        options = dict(options or {})
+        ace_options = options.get("aceOptions") or options.get("ace_options")
+        if isinstance(ace_options, dict):
+            for key in _ACE_DEFAULT_CONFIG:
+                if ace_options.get(key) is not None:
+                    self.config[key] = ace_options.get(key)
+            if ace_options.get("initialPlaybook") is not None:
+                self.initial_playbook = ace_options.get("initialPlaybook")
+        self.reset()
+        self.program = program
+        if program is not None and hasattr(program, "get_signature"):
+            try:
+                self.base_instruction = program.get_signature().get_description()
+            except Exception:
+                self.base_instruction = None
+        examples = list(examples or [])
+        epochs = max(int(self.config.get("maxEpochs", 1) or 1), 1)
+        best_score = None
+        for epoch in range(epochs):
+            for index, example in enumerate(examples):
+                prediction = self._run_generator(program, example)
+                self._last_prediction = prediction
+                score = self._run_metric(metric_fn, prediction, example)
+                if isinstance(score, (int, float)):
+                    best_score = score if best_score is None else max(best_score, score)
+                self._process_example(program, example, score, "compile", epoch, index)
+        artifact = self._create_artifact()
+        return {
+            "playbook": _ace_clone(self.playbook),
+            "artifact": artifact,
+            "bestScore": best_score if isinstance(best_score, (int, float)) else 0,
+            "finalConfiguration": {"strategy": "ace", "epochs": epochs},
+        }
+
+    def apply_online_update(self, args):
+        args = dict(args or {})
+        if self.program is None and self.generator is None:
+            raise RuntimeError("AxACE: compile must run before apply_online_update")
+        example = args.get("example")
+        prediction = args.get("prediction")
+        self._last_prediction = prediction
+        generator_output = self._generator_output(prediction, example)
+        reflection = self._run_reflection_rounds(example, generator_output, args.get("feedback"))
+        raw_curator = self._run_curator(example, reflection)
+        operations = _ace_normalize_curator_operations(
+            raw_curator.get("operations") if isinstance(raw_curator, dict) else None
+        )
+        resolved = _ace_resolve_curator_operation_targets(operations, self.playbook, reflection, generator_output)
+        curator_result = None
+        if raw_curator is not None or resolved:
+            curator_result = dict(raw_curator or {})
+            curator_result["operations"] = resolved
+        if isinstance(reflection, dict):
+            for tag in reflection.get("bulletTags") or []:
+                self.playbook = _ace_update_bullet_feedback(self.playbook, tag.get("id"), tag.get("tag"), self._now())
+        applied_ids = []
+        if resolved:
+            protected = self._collect_protected_ids(resolved)
+            result = _ace_apply_curator_operations(
+                self.playbook,
+                resolved,
+                {
+                    "maxSectionSize": self.config.get("maxSectionSize"),
+                    "allowDynamicSections": self.config.get("allowDynamicSections"),
+                    "enableAutoPrune": True,
+                    "protectedBulletIds": protected,
+                },
+                self._now(),
+            )
+            self.playbook = result.get("playbook")
+            applied_ids = result.get("updatedBulletIds") or []
+            auto_removed = result.get("autoRemoved") or []
+            if auto_removed:
+                resolved = list(resolved) + list(auto_removed)
+                if curator_result is not None:
+                    curator_result["operations"] = resolved
+            self.playbook = _ace_dedupe_playbook(self.playbook)
+        feedback_event = {
+            "example": example,
+            "prediction": prediction,
+            "score": 0,
+            "generatorOutput": generator_output,
+            "reflection": reflection,
+            "curator": curator_result,
+            "timestamp": self._now(),
+        }
+        self.generator_history.append(feedback_event)
+        if applied_ids and curator_result and curator_result.get("operations"):
+            self.delta_history.append({
+                "source": "online",
+                "epoch": -1,
+                "exampleIndex": len(self.generator_history) - 1,
+                "operations": curator_result.get("operations"),
+            })
+        return curator_result
+
+
+_ACE_REFLECTOR_SIGNATURE = (
+    "question:string, generator_answer:string, generator_reasoning?:string, "
+    "playbook:string, expected_answer?:string, feedback?:string, previous_reflection?:string "
+    "-> reasoning:string, errorIdentification:string, rootCauseAnalysis:string, "
+    "correctApproach:string, keyInsight:string, bulletTags:json"
+)
+
+_ACE_CURATOR_SIGNATURE = (
+    "playbook:string, reflection:string, question_context:string, token_budget?:number "
+    "-> reasoning:string, operations:json"
+)
+
+
+def _playbook_option(options, *keys, default=None):
+    for key in keys:
+        if isinstance(options, dict) and key in options and options.get(key) is not None:
+            return options.get(key)
+    return default
+
+
+def _playbook_stringify(value):
+    try:
+        return _core_json_stringify(value)
+    except Exception:
+        return json.dumps(str(value))
+
+
+def _playbook_compose_instruction(base, rendered):
+    parts = [str(base or "").strip(), "", str(rendered or "")]
+    return "\n\n".join(part for part in parts if part and part.strip())
+
+
+class AxPlaybook:
+    """A live, evolving context playbook bound to a program.
+
+    Mirrors the TypeScript ``AxPlaybook``: grow it offline from examples
+    (``evolve``), keep it growing online from live feedback (``update``), render
+    it into the program context (``apply_to``), and persist/restore it
+    (``to_json``/``load``). The evolution engine (ACE) is hidden behind this
+    surface, just as ``optimize()`` hides GEPA."""
+
+    def __init__(self, program, options: dict[str, Any] | None = None):
+        opts = dict(options or {})
+        self.program = program
+        self.student_ai = _playbook_option(opts, "studentAI", "student_ai", "student", "client", "ai")
+        self.teacher_ai = _playbook_option(opts, "teacherAI", "teacher_ai", "teacher", default=self.student_ai)
+        if self.student_ai is None:
+            raise ValueError("playbook() requires studentAI or client")
+        self.verbose = bool(opts.get("verbose"))
+        self._reflector_program = None
+        self._curator_program = None
+        engine_options = {
+            "now": opts.get("now"),
+            "maxEpochs": _playbook_option(opts, "maxEpochs", "max_epochs"),
+            "maxReflectorRounds": _playbook_option(opts, "maxReflectorRounds", "max_reflector_rounds"),
+            "maxSectionSize": _playbook_option(opts, "maxSectionSize", "max_section_size"),
+            "allowDynamicSections": _playbook_option(opts, "allowDynamicSections", "allow_dynamic_sections"),
+            "initialPlaybook": _playbook_option(opts, "initialPlaybook", "initial_playbook"),
+        }
+        engine_options = {key: value for key, value in engine_options.items() if value is not None}
+        self.engine = AxACE(
+            reflector=self._run_reflector,
+            curator=self._run_curator,
+            generator=self._run_generator,
+            **engine_options,
+        )
+        auto = opts.get("auto")
+        if auto:
+            self.engine.configure_auto(auto)
+        self.base_instruction = None
+        if program is not None and hasattr(program, "signature") and hasattr(program.signature, "get_description"):
+            self.base_instruction = program.signature.get_description()
+        self.started = False
+        self._apply_hook = None
+
+    # The real LLM generator: run the bound program with the student client.
+    def _run_generator(self, example):
+        if self.program is None or not hasattr(self.program, "forward"):
+            return {}
+        self._inject()
+        return self.program.forward(self.student_ai, example)
+
+    def _get_reflector_program(self):
+        if self._reflector_program is None:
+            self._reflector_program = AxGen(_ACE_REFLECTOR_SIGNATURE, {"validation_retries": 1, "id": "ace.reflector"})
+        return self._reflector_program
+
+    def _get_curator_program(self):
+        if self._curator_program is None:
+            self._curator_program = AxGen(_ACE_CURATOR_SIGNATURE, {"validation_retries": 1, "id": "ace.curator"})
+        return self._curator_program
+
+    # The real LLM reflector: a focused AxGen sub-program driven by the teacher.
+    def _run_reflector(self, payload):
+        payload = dict(payload or {})
+        reflector = self._get_reflector_program()
+        reflector_ai = self.teacher_ai or self.student_ai
+        request = {
+            "question": _playbook_stringify(payload.get("question")),
+            "generator_answer": _playbook_stringify(payload.get("generator_answer")),
+            "generator_reasoning": payload.get("generator_reasoning"),
+            "playbook": payload.get("playbook"),
+            "feedback": payload.get("feedback"),
+            "previous_reflection": (
+                _playbook_stringify(payload.get("previous_reflection"))
+                if payload.get("previous_reflection") is not None
+                else None
+            ),
+        }
+        request = {key: value for key, value in request.items() if value is not None}
+        try:
+            return reflector.forward(reflector_ai, request)
+        except Exception as exc:
+            if self.verbose:
+                print("[AxPlaybook] reflector error:", exc)
+            return None
+
+    # The real LLM curator: a focused AxGen sub-program driven by the teacher.
+    def _run_curator(self, payload):
+        payload = dict(payload or {})
+        curator = self._get_curator_program()
+        curator_ai = self.teacher_ai or self.student_ai
+        request = {
+            "playbook": payload.get("playbook"),
+            "reflection": _playbook_stringify(payload.get("reflection")),
+            "question_context": _playbook_stringify(payload.get("question_context")),
+            "token_budget": payload.get("token_budget", 1024),
+        }
+        request = {key: value for key, value in request.items() if value is not None}
+        try:
+            return curator.forward(curator_ai, request)
+        except Exception as exc:
+            if self.verbose:
+                print("[AxPlaybook] curator error:", exc)
+            return None
+
+    def evolve(self, examples, metric_fn, options: dict[str, Any] | None = None):
+        opts = dict(options or {})
+        if opts.get("auto"):
+            self.engine.configure_auto(opts.get("auto"))
+        ace_options = {}
+        if _playbook_option(opts, "maxEpochs", "max_epochs") is not None:
+            ace_options["maxEpochs"] = _playbook_option(opts, "maxEpochs", "max_epochs")
+        result = self.engine.compile(self.program, list(examples or []), metric_fn, {"aceOptions": ace_options})
+        self.started = True
+        self._inject()
+        return {"bestScore": result.get("bestScore"), "playbook": result.get("playbook")}
+
+    def update(self, args: dict[str, Any]):
+        if not self.started:
+            self.engine.hydrate(self.program, {
+                "baseInstruction": self.base_instruction,
+                "playbook": self.engine.get_playbook(),
+            })
+            self.started = True
+        result = self.engine.apply_online_update(args or {})
+        self._inject()
+        return result
+
+    def apply_to(self, program=None):
+        if program is not None and program is not self.program:
+            base = None
+            if hasattr(program, "signature") and hasattr(program.signature, "get_description"):
+                base = program.signature.get_description()
+            composed = _playbook_compose_instruction(base, self.render())
+            if hasattr(program, "signature"):
+                program.signature.description = composed
+            return
+        self._inject()
+
+    def render(self):
+        return _ace_render_playbook(self.engine.get_playbook())
+
+    def get_state(self):
+        return {"playbook": self.engine.get_playbook(), "artifact": self.engine.get_artifact()}
+
+    def to_json(self):
+        return self.get_state()
+
+    def load(self, snapshot: dict[str, Any]):
+        snapshot = dict(snapshot or {})
+        self.engine.hydrate(self.program, {
+            "baseInstruction": self.base_instruction,
+            "playbook": snapshot.get("playbook"),
+            "artifact": snapshot.get("artifact"),
+        })
+        self.started = True
+        self._inject()
+        return self
+
+    def configure_auto(self, level):
+        self.engine.configure_auto(level)
+
+    def reset(self):
+        self.engine.reset()
+        self.started = False
+
+    # Used by agent.playbook() to redirect injection into a pipeline stage.
+    def _set_apply_hook(self, hook):
+        self._apply_hook = hook
+
+    def _inject(self):
+        rendered = self.render()
+        if self._apply_hook is not None:
+            self._apply_hook(rendered)
+            return
+        if self.program is not None and hasattr(self.program, "signature"):
+            base = self.base_instruction
+            if base is None and hasattr(self.program.signature, "get_description"):
+                base = self.program.signature.get_description()
+            self.program.signature.description = _playbook_compose_instruction(base, rendered)
+
+
+def playbook(program, options: dict[str, Any] | None = None) -> AxPlaybook:
+    return AxPlaybook(program, options)
+
+
 def _optimize_option(options, *keys, default=None):
     for key in keys:
         if key in options and options.get(key) is not None:
@@ -897,6 +1481,29 @@ class AxAgent:
         if engine is None:
             raise ValueError("options.engine must implement OptimizerEngine for optimize()")
         return self.optimize_with(engine, dataset or [], opts)
+
+    def playbook(self, options: dict[str, Any] | None = None) -> "AxPlaybook":
+        opts = dict(options or {})
+        target = opts.get("target", "actor")
+        student = _playbook_option(opts, "studentAI", "student_ai", "student", "client", "ai")
+        if student is None:
+            student = self.options.get("ai") or self.options.get("client")
+        if student is None:
+            raise ValueError("AxAgent.playbook(): studentAI is required when the agent has no default ai.")
+        stage = self.responder if target == "responder" else self.executor
+        handle_options = dict(opts)
+        handle_options["studentAI"] = student
+        handle = AxPlaybook(stage, handle_options)
+        if opts.get("apply") is False:
+            handle._set_apply_hook(lambda _rendered: None)
+            return handle
+        base = stage.signature.get_description() if hasattr(stage.signature, "get_description") else None
+
+        def _apply(rendered):
+            stage.signature.description = _playbook_compose_instruction(base, rendered)
+
+        handle._set_apply_hook(_apply)
+        return handle
 
 
 def agent(signature, config: dict[str, Any] | None = None) -> AxAgent:

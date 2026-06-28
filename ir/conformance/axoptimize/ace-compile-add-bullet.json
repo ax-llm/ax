@@ -1,0 +1,196 @@
+{
+  "ace_options": {
+    "maxEpochs": 1,
+    "maxReflectorRounds": 1
+  },
+  "curator_responses": [
+    {
+      "operations": [
+        {
+          "bulletId": "guidelines-00001",
+          "content": "Always cite your sources.",
+          "section": "Guidelines",
+          "type": "ADD"
+        }
+      ],
+      "reasoning": "Add a citation guideline."
+    },
+    {
+      "operations": [],
+      "reasoning": "Nothing to change."
+    }
+  ],
+  "examples": [
+    {
+      "answer": "Paris",
+      "question": "What is the capital of France?"
+    },
+    {
+      "answer": "pong",
+      "question": "ping"
+    }
+  ],
+  "expected_artifact": {
+    "feedback": [
+      {
+        "curator": {
+          "operations": [
+            {
+              "bulletId": "guidelines-00001",
+              "content": "Always cite your sources.",
+              "section": "Guidelines",
+              "type": "ADD"
+            }
+          ],
+          "reasoning": "Add a citation guideline."
+        },
+        "example": {
+          "answer": "Paris",
+          "question": "What is the capital of France?"
+        },
+        "generatorOutput": {
+          "answer": {
+            "answer": "Paris"
+          },
+          "bulletIds": [],
+          "reasoning": ""
+        },
+        "prediction": {
+          "answer": "Paris"
+        },
+        "reflection": {
+          "bulletTags": [],
+          "correctApproach": "Always cite sources",
+          "errorIdentification": "Missing citations in the answer",
+          "keyInsight": "Citations build trust",
+          "reasoning": "Generator omitted citations.",
+          "rootCauseAnalysis": "No instruction to cite sources"
+        },
+        "score": 0.5,
+        "timestamp": "2024-01-02T03:04:05.000Z"
+      },
+      {
+        "curator": {
+          "operations": [],
+          "reasoning": "Nothing to change."
+        },
+        "example": {
+          "answer": "pong",
+          "question": "ping"
+        },
+        "generatorOutput": {
+          "answer": {
+            "answer": "pong"
+          },
+          "bulletIds": [],
+          "reasoning": ""
+        },
+        "prediction": {
+          "answer": "pong"
+        },
+        "reflection": {
+          "bulletTags": [],
+          "correctApproach": "keep going",
+          "errorIdentification": "no error",
+          "keyInsight": "stable behavior",
+          "reasoning": "Answer already correct.",
+          "rootCauseAnalysis": "none"
+        },
+        "score": 1,
+        "timestamp": "2024-01-02T03:04:05.000Z"
+      }
+    ],
+    "history": [
+      {
+        "epoch": 0,
+        "exampleIndex": 0,
+        "operations": [
+          {
+            "bulletId": "guidelines-00001",
+            "content": "Always cite your sources.",
+            "section": "Guidelines",
+            "type": "ADD"
+          }
+        ],
+        "source": "compile"
+      }
+    ],
+    "playbook": {
+      "sections": {
+        "Guidelines": [
+          {
+            "content": "Always cite your sources.",
+            "createdAt": "2024-01-02T03:04:05.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 0,
+            "id": "guidelines-00001",
+            "section": "Guidelines",
+            "updatedAt": "2024-01-02T03:04:05.000Z"
+          }
+        ]
+      },
+      "stats": {
+        "bulletCount": 1,
+        "harmfulCount": 0,
+        "helpfulCount": 0,
+        "tokenEstimate": 7
+      },
+      "updatedAt": "2024-01-02T03:04:05.000Z",
+      "version": 1
+    }
+  },
+  "expected_playbook": {
+    "sections": {
+      "Guidelines": [
+        {
+          "content": "Always cite your sources.",
+          "createdAt": "2024-01-02T03:04:05.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "guidelines-00001",
+          "section": "Guidelines",
+          "updatedAt": "2024-01-02T03:04:05.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 1,
+      "harmfulCount": 0,
+      "helpfulCount": 0,
+      "tokenEstimate": 7
+    },
+    "updatedAt": "2024-01-02T03:04:05.000Z",
+    "version": 1
+  },
+  "generator_predictions": [
+    {
+      "answer": "Paris"
+    },
+    {
+      "answer": "pong"
+    }
+  ],
+  "kind": "optimize",
+  "metric_scores": [0.5, 1],
+  "name": "ace-compile-add-bullet",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "ace-compile",
+  "reflection_responses": [
+    {
+      "bulletTags": [],
+      "correctApproach": "Always cite sources",
+      "errorIdentification": "Missing citations in the answer",
+      "keyInsight": "Citations build trust",
+      "reasoning": "Generator omitted citations.",
+      "rootCauseAnalysis": "No instruction to cite sources"
+    },
+    {
+      "bulletTags": [],
+      "correctApproach": "keep going",
+      "errorIdentification": "no error",
+      "keyInsight": "stable behavior",
+      "reasoning": "Answer already correct.",
+      "rootCauseAnalysis": "none"
+    }
+  ]
+}

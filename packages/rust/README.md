@@ -69,6 +69,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `cargo run --example javascript_quickjs --features runtime-quickjs`: embedded QuickJS actor runtime profile
 - `cargo run --example optimizer_artifact`: optimizer artifact lifecycle smoke
 - `cargo run --example gepa_local_optimizer`: local GEPA optimizer artifact generation
+- `cargo run --example ace_playbook`: grow an evolving context playbook with `playbook()` (offline, scripted client)
 - `cargo run --example mcp_scripted_tools`: MCP tool discovery and invocation through a scripted transport
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:

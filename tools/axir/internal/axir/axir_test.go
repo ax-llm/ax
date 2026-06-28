@@ -515,6 +515,10 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axoptimize_shared_program_contract",
 		"axoptimize_evidence_batches",
 		"axoptimize_gepa_adapter_contract",
+		"axoptimize_ace_adapter_contract",
+		"axoptimize_ace_engine",
+		"axoptimize_ace_playbook_ops",
+		"axoptimize_ace_online_update",
 		"axoptimize_runtime_beta_contract",
 		"axoptimize_artifact_lifecycle",
 		"axprogram_contract",
@@ -2845,6 +2849,38 @@ func TestAxOptimizeConformanceFixturesLoad(t *testing.T) {
 		case "dataset":
 			if _, ok := fixture["expected_dataset"]; !ok {
 				t.Fatalf("%s missing expected_dataset", file)
+			}
+		case "playbook-empty":
+			if _, ok := fixture["expected_playbook"]; !ok {
+				t.Fatalf("%s missing expected_playbook", file)
+			}
+		case "playbook-render":
+			if _, ok := fixture["expected_render"]; !ok {
+				t.Fatalf("%s missing expected_render", file)
+			}
+		case "playbook-stats":
+			if _, ok := fixture["expected_playbook"]; !ok {
+				t.Fatalf("%s missing expected_playbook", file)
+			}
+		case "playbook-dedupe":
+			if _, ok := fixture["expected_playbook"]; !ok {
+				t.Fatalf("%s missing expected_playbook", file)
+			}
+		case "playbook-feedback":
+			if _, ok := fixture["expected_playbook"]; !ok {
+				t.Fatalf("%s missing expected_playbook", file)
+			}
+		case "playbook-apply-ops":
+			if _, ok := fixture["expected_result"]; !ok {
+				t.Fatalf("%s missing expected_result", file)
+			}
+		case "ace-compile", "ace-online-update":
+			_, hasPlaybook := fixture["expected_playbook"]
+			_, hasArtifact := fixture["expected_artifact"]
+			_, hasArtifactSubset := fixture["expected_artifact_subset"]
+			_, hasCurator := fixture["expected_curator"]
+			if !hasPlaybook && !hasArtifact && !hasArtifactSubset && !hasCurator {
+				t.Fatalf("%s missing expected ace engine output", file)
 			}
 		case "score":
 			if _, ok := fixture["expected_scalar"]; !ok {

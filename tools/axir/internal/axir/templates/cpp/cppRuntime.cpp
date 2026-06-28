@@ -3554,6 +3554,523 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
   return artifact;
 }
 
+static bool ace_is_number(const Value& value) { return value.is_number(); }
+
+static const char* kAceConfigKeys[] = {
+    "maxEpochs", "maxReflectorRounds", "maxSectionSize",
+    "maxSerializedFieldChars", "similarityThreshold", "allowDynamicSections"};
+
+AxACE::AxACE(Value options) {
+  if (!options.is_object()) options = Value::object();
+  config_ = Value::object();
+  Core::set(config_, "maxEpochs", Value(1));
+  Core::set(config_, "maxReflectorRounds", Value(2));
+  Core::set(config_, "maxSectionSize", Value(25));
+  Core::set(config_, "maxSerializedFieldChars", Value(2000));
+  Core::set(config_, "similarityThreshold", Value(0.95));
+  Core::set(config_, "allowDynamicSections", Value(true));
+  for (const char* key : kAceConfigKeys) {
+    Value value = Core::get(options, key);
+    if (!value.is_null()) Core::set(config_, key, value);
+  }
+  Value now_value = Core::get(options, "now");
+  now_ = now_value.is_null() ? std::string("1970-01-01T00:00:00.000Z") : display(now_value);
+  initial_playbook_ = Core::get(options, "initialPlaybook");
+  playbook_ = initial_playbook_.is_null() ? empty_playbook() : initial_playbook_;
+}
+
+void AxACE::set_callables(AceCallable reflector, AceCallable curator, AceCallable generator) {
+  reflector_ = std::move(reflector);
+  curator_ = std::move(curator);
+  generator_ = std::move(generator);
+  has_generator_ = static_cast<bool>(generator_);
+}
+
+std::string AxACE::name() const { return "ACE"; }
+std::string AxACE::version() const { return "axir-ace-v1"; }
+
+Value AxACE::empty_playbook() const { return Core::_ace_empty_playbook(Value(), Value(now_)); }
+
+int AxACE::int_config(const std::string& key, int fallback) const {
+  Value value = Core::get(config_, key);
+  if (value.is_number()) return static_cast<int>(num(value));
+  return fallback;
+}
+
+void AxACE::reset() {
+  playbook_ = initial_playbook_.is_null() ? empty_playbook() : initial_playbook_;
+  generator_history_.clear();
+  delta_history_.clear();
+}
+
+void AxACE::configure_auto(const std::string& level) {
+  if (level == "light") {
+    Core::set(config_, "maxEpochs", Value(1));
+    Core::set(config_, "maxReflectorRounds", Value(1));
+  } else if (level == "medium") {
+    Core::set(config_, "maxEpochs", Value(2));
+    Core::set(config_, "maxReflectorRounds", Value(2));
+  } else if (level == "heavy") {
+    Core::set(config_, "maxEpochs", Value(3));
+    Core::set(config_, "maxReflectorRounds", Value(3));
+  }
+}
+
+void AxACE::hydrate(const Value& state) {
+  Value pb = Core::get(state, "playbook");
+  if (!pb.is_null()) {
+    playbook_ = pb;
+  } else if (!initial_playbook_.is_null()) {
+    playbook_ = initial_playbook_;
+  } else {
+    playbook_ = empty_playbook();
+  }
+  Value artifact = Core::get(state, "artifact", Value::object());
+  generator_history_.clear();
+  for (const auto& item : Core::iter(Core::get(artifact, "feedback", Value::array()))) generator_history_.push_back(item);
+  delta_history_.clear();
+  for (const auto& item : Core::iter(Core::get(artifact, "history", Value::array()))) delta_history_.push_back(item);
+}
+
+Value AxACE::get_playbook() const { return playbook_; }
+
+Value AxACE::get_artifact() const {
+  Value out = Value::object();
+  Core::set(out, "playbook", playbook_);
+  Core::set(out, "feedback", Value(generator_history_));
+  Core::set(out, "history", Value(delta_history_));
+  return out;
+}
+
+std::string AxACE::render_playbook() const { return display(Core::_ace_render_playbook(playbook_)); }
+
+Value AxACE::generator_output(const Value& prediction) const {
+  std::string reasoning;
+  Value bullet_ids = Value::array();
+  if (prediction.is_object()) {
+    Value thought = Core::get(prediction, "thought");
+    if (!thought.is_null()) reasoning = display(thought);
+    Value ids = Core::get(prediction, "bullet_ids");
+    if (ids.is_array()) bullet_ids = ids;
+  }
+  Value out = Value::object();
+  Core::set(out, "reasoning", Value(reasoning));
+  Core::set(out, "answer", prediction);
+  Core::set(out, "bulletIds", bullet_ids);
+  return out;
+}
+
+Value AxACE::run_reflector(const Value& example, const Value& generator_output, const Value& feedback, const Value& previous_reflection) {
+  if (!reflector_) return Value();
+  Value payload = Value::object();
+  Core::set(payload, "question", example);
+  Core::set(payload, "generator_answer", Core::get(generator_output, "answer"));
+  Core::set(payload, "generator_reasoning", Core::get(generator_output, "reasoning"));
+  Core::set(payload, "playbook", Value(render_playbook()));
+  Core::set(payload, "feedback", feedback);
+  Core::set(payload, "previous_reflection", previous_reflection);
+  return reflector_(payload);
+}
+
+Value AxACE::run_reflection_rounds(const Value& example, const Value& generator_output, const Value& feedback) {
+  int rounds = std::max(int_config("maxReflectorRounds", 1), 1);
+  Value previous;
+  for (int round = 0; round < rounds; round++) {
+    Value reflection = run_reflector(example, generator_output, feedback, previous);
+    if (reflection.is_null() || (reflection.is_object() && Core::iter(Core::map_keys(reflection)).empty())) break;
+    previous = reflection;
+    std::string error_text = display(Core::string_lower(Core::get(reflection, "errorIdentification", Value(""))));
+    size_t start = error_text.find_first_not_of(" \t\n\r");
+    size_t end = error_text.find_last_not_of(" \t\n\r");
+    error_text = (start == std::string::npos) ? std::string("") : error_text.substr(start, end - start + 1);
+    bool resolved = Core::truthy(Core::get(Core::get(reflection, "metadata", Value::object()), "resolved", Value(false)));
+    if (resolved || error_text.empty() || error_text.rfind("no error", 0) == 0 || error_text.rfind("resolved", 0) == 0) break;
+  }
+  return previous;
+}
+
+Value AxACE::run_curator(const Value& example, const Value& reflection) {
+  if (reflection.is_null()) return Value();
+  if (!curator_) return Value();
+  Value payload = Value::object();
+  Core::set(payload, "playbook", Value(render_playbook()));
+  Core::set(payload, "reflection", reflection);
+  Core::set(payload, "question_context", example);
+  Core::set(payload, "token_budget", Value(1024));
+  return curator_(payload);
+}
+
+std::vector<Value> AxACE::normalize_and_resolve(const Value& raw_curator, const Value& generator_output, const Value& reflection) {
+  Value raw_operations = raw_curator.is_null() ? Value() : Core::get(raw_curator, "operations");
+  Value operations = Core::_ace_normalize_curator_operations(raw_operations);
+  Value resolved = Core::_ace_resolve_curator_operation_targets(operations, playbook_, reflection, generator_output);
+  std::vector<Value> out;
+  for (const auto& item : Core::iter(resolved)) out.push_back(item);
+  return out;
+}
+
+std::vector<Value> AxACE::apply_operations(std::vector<Value>& resolved, Value& curator_result) {
+  Value protected_ids = Value::array();
+  for (const auto& op : resolved) {
+    if (display(Core::get(op, "type", Value(""))) == "UPDATE" && !Core::get(op, "bulletId").is_null()) {
+      Core::append(protected_ids, Core::get(op, "bulletId"));
+    }
+  }
+  Value options = Value::object();
+  Core::set(options, "maxSectionSize", Core::get(config_, "maxSectionSize"));
+  Core::set(options, "allowDynamicSections", Core::get(config_, "allowDynamicSections"));
+  Core::set(options, "enableAutoPrune", Value(true));
+  Core::set(options, "protectedBulletIds", protected_ids);
+  Value result = Core::_ace_apply_curator_operations(playbook_, Value(resolved), options, Value(now_));
+  playbook_ = Core::get(result, "playbook");
+  std::vector<Value> applied_ids;
+  for (const auto& item : Core::iter(Core::get(result, "updatedBulletIds", Value::array()))) applied_ids.push_back(item);
+  std::vector<Value> auto_removed;
+  for (const auto& item : Core::iter(Core::get(result, "autoRemoved", Value::array()))) auto_removed.push_back(item);
+  if (!auto_removed.empty()) {
+    for (const auto& item : auto_removed) resolved.push_back(item);
+    if (!curator_result.is_null()) Core::set(curator_result, "operations", Value(resolved));
+  }
+  return applied_ids;
+}
+
+void AxACE::apply_bullet_tags(const Value& reflection) {
+  for (const auto& tag : Core::iter(Core::get(reflection, "bulletTags", Value::array()))) {
+    playbook_ = Core::_ace_update_bullet_feedback(playbook_, Core::get(tag, "id"), Core::get(tag, "tag"), Value(now_));
+  }
+}
+
+Value AxACE::compile(const std::vector<Value>& examples, const AceCallable& metric_fn, Value options) {
+  Value ace_options = Core::get(options, "aceOptions");
+  if (ace_options.is_null()) ace_options = Core::get(options, "ace_options");
+  if (!ace_options.is_null()) {
+    for (const char* key : kAceConfigKeys) {
+      Value value = Core::get(ace_options, key);
+      if (!value.is_null()) Core::set(config_, key, value);
+    }
+  }
+  reset();
+  int epochs = std::max(int_config("maxEpochs", 1), 1);
+  bool has_best = false;
+  double best_score = 0.0;
+  for (int epoch = 0; epoch < epochs; epoch++) {
+    for (size_t index = 0; index < examples.size(); index++) {
+      const Value& example = examples[index];
+      Value prediction = has_generator_ ? generator_(example) : Value::object();
+      last_prediction_ = prediction;
+      Value score = metric_fn ? metric_fn(example) : Value(0);
+      if (ace_is_number(score)) {
+        double s = num(score);
+        best_score = has_best ? std::max(best_score, s) : s;
+        has_best = true;
+      }
+      Value generator_out = generator_output(last_prediction_);
+      Value feedback = ace_is_number(score) ? Value("Metric score: " + display(score)) : Value();
+      Value reflection = run_reflection_rounds(example, generator_out, feedback);
+      Value raw_curator = run_curator(example, reflection);
+      std::vector<Value> resolved = normalize_and_resolve(raw_curator, generator_out, reflection);
+      Value curator_result;
+      if (!raw_curator.is_null() || !resolved.empty()) {
+        curator_result = raw_curator.is_null() ? Value::object() : raw_curator;
+        Core::set(curator_result, "operations", Value(resolved));
+      }
+      std::vector<Value> applied_ids;
+      if (!resolved.empty()) applied_ids = apply_operations(resolved, curator_result);
+      if (!reflection.is_null()) apply_bullet_tags(reflection);
+      if (!resolved.empty() && !applied_ids.empty()) playbook_ = Core::_ace_dedupe_playbook(playbook_);
+      Value feedback_event = Value::object();
+      Core::set(feedback_event, "example", example);
+      Core::set(feedback_event, "prediction", last_prediction_);
+      Core::set(feedback_event, "score", ace_is_number(score) ? score : Value(0));
+      Core::set(feedback_event, "generatorOutput", generator_out);
+      Core::set(feedback_event, "reflection", reflection);
+      Core::set(feedback_event, "curator", curator_result);
+      Core::set(feedback_event, "timestamp", Value(now_));
+      generator_history_.push_back(feedback_event);
+      bool has_ops = !curator_result.is_null() && !Core::iter(Core::get(curator_result, "operations", Value::array())).empty();
+      if (!applied_ids.empty() && has_ops) {
+        Value delta = Value::object();
+        Core::set(delta, "source", Value("compile"));
+        Core::set(delta, "epoch", Value(epoch));
+        Core::set(delta, "exampleIndex", Value(static_cast<int>(index)));
+        Core::set(delta, "operations", Core::get(curator_result, "operations"));
+        delta_history_.push_back(delta);
+      }
+    }
+  }
+  Value out = Value::object();
+  Core::set(out, "playbook", playbook_);
+  Core::set(out, "artifact", get_artifact());
+  Core::set(out, "bestScore", Value(has_best ? best_score : 0.0));
+  Value final_config = Value::object();
+  Core::set(final_config, "strategy", Value("ace"));
+  Core::set(final_config, "epochs", Value(epochs));
+  Core::set(out, "finalConfiguration", final_config);
+  return out;
+}
+
+Value AxACE::apply_online_update(Value args) {
+  if (!has_generator_) throw AxError("optimize", "AxACE: compile must run before apply_online_update");
+  Value example = Core::get(args, "example", Value::object());
+  Value prediction = Core::get(args, "prediction");
+  last_prediction_ = prediction;
+  Value generator_out = generator_output(prediction);
+  Value feedback = Core::get(args, "feedback");
+  Value reflection = run_reflection_rounds(example, generator_out, feedback);
+  Value raw_curator = run_curator(example, reflection);
+  std::vector<Value> resolved = normalize_and_resolve(raw_curator, generator_out, reflection);
+  Value curator_result;
+  if (!raw_curator.is_null() || !resolved.empty()) {
+    curator_result = raw_curator.is_null() ? Value::object() : raw_curator;
+    Core::set(curator_result, "operations", Value(resolved));
+  }
+  if (!reflection.is_null()) apply_bullet_tags(reflection);
+  std::vector<Value> applied_ids;
+  if (!resolved.empty()) {
+    applied_ids = apply_operations(resolved, curator_result);
+    playbook_ = Core::_ace_dedupe_playbook(playbook_);
+  }
+  Value feedback_event = Value::object();
+  Core::set(feedback_event, "example", example);
+  Core::set(feedback_event, "prediction", prediction);
+  Core::set(feedback_event, "score", Value(0));
+  Core::set(feedback_event, "generatorOutput", generator_out);
+  Core::set(feedback_event, "reflection", reflection);
+  Core::set(feedback_event, "curator", curator_result);
+  Core::set(feedback_event, "timestamp", Value(now_));
+  generator_history_.push_back(feedback_event);
+  bool has_ops = !curator_result.is_null() && !Core::iter(Core::get(curator_result, "operations", Value::array())).empty();
+  if (!applied_ids.empty() && has_ops) {
+    Value delta = Value::object();
+    Core::set(delta, "source", Value("online"));
+    Core::set(delta, "epoch", Value(-1));
+    Core::set(delta, "exampleIndex", Value(static_cast<int>(generator_history_.size()) - 1));
+    Core::set(delta, "operations", Core::get(curator_result, "operations"));
+    delta_history_.push_back(delta);
+  }
+  return curator_result;
+}
+
+static const char* kAceReflectorSignature =
+    "question:string, generator_answer:string, generator_reasoning?:string, "
+    "playbook:string, expected_answer?:string, feedback?:string, previous_reflection?:string "
+    "-> reasoning:string, errorIdentification:string, rootCauseAnalysis:string, "
+    "correctApproach:string, keyInsight:string, bulletTags:json";
+
+static const char* kAceCuratorSignature =
+    "playbook:string, reflection:string, question_context:string, token_budget?:number "
+    "-> reasoning:string, operations:json";
+
+static std::string playbook_compose_instruction(const std::string& base, const std::string& rendered) {
+  std::vector<std::string> parts;
+  std::string base_trimmed = base;
+  std::string rendered_trimmed = rendered;
+  auto trim = [](std::string& s) {
+    size_t start = s.find_first_not_of(" \t\r\n");
+    size_t end = s.find_last_not_of(" \t\r\n");
+    if (start == std::string::npos) {
+      s.clear();
+    } else {
+      s = s.substr(start, end - start + 1);
+    }
+  };
+  trim(base_trimmed);
+  trim(rendered_trimmed);
+  std::string out;
+  if (!base_trimmed.empty()) out += base_trimmed;
+  if (!rendered_trimmed.empty()) {
+    if (!out.empty()) out += "\n\n";
+    out += rendered_trimmed;
+  }
+  return out;
+}
+
+static std::string playbook_stringify(const Value& value) {
+  if (value.is_null()) return std::string();
+  if (value.is_string()) return display(value);
+  return stringify(value);
+}
+
+static Value playbook_option(const Value& options, std::initializer_list<const char*> keys) {
+  for (const char* key : keys) {
+    Value value = Core::get(options, key);
+    if (!value.is_null()) return value;
+  }
+  return Value();
+}
+
+AxPlaybook::AxPlaybook(AxGen& program, AIClient& student, AIClient* teacher, Value options)
+    : program_(&program), engine_(Value::object()), student_(&student), teacher_(teacher == nullptr ? &student : teacher) {
+  if (!options.is_object()) options = Value::object();
+  verbose_ = Core::truthy(Core::get(options, "verbose", Value(false)));
+  Value engine_options = Value::object();
+  Value now_value = Core::get(options, "now");
+  if (!now_value.is_null()) Core::set(engine_options, "now", now_value);
+  Value max_epochs = playbook_option(options, {"maxEpochs", "max_epochs"});
+  if (!max_epochs.is_null()) Core::set(engine_options, "maxEpochs", max_epochs);
+  Value max_rounds = playbook_option(options, {"maxReflectorRounds", "max_reflector_rounds"});
+  if (!max_rounds.is_null()) Core::set(engine_options, "maxReflectorRounds", max_rounds);
+  Value max_section = playbook_option(options, {"maxSectionSize", "max_section_size"});
+  if (!max_section.is_null()) Core::set(engine_options, "maxSectionSize", max_section);
+  Value dynamic = playbook_option(options, {"allowDynamicSections", "allow_dynamic_sections"});
+  if (!dynamic.is_null()) Core::set(engine_options, "allowDynamicSections", dynamic);
+  Value initial = playbook_option(options, {"initialPlaybook", "initial_playbook"});
+  if (!initial.is_null()) Core::set(engine_options, "initialPlaybook", initial);
+  engine_ = AxACE(engine_options);
+  Value auto_level = Core::get(options, "auto");
+  if (!auto_level.is_null()) engine_.configure_auto(display(auto_level));
+  base_instruction_ = display(program.get_instruction());
+}
+
+// (Re)bind the engine's reflect/curate/generate callables to this handle. Called
+// at the start of evolve()/update() so the captured `this` is always the final
+// (post-move) object, since an AxPlaybook is returned by value from playbook().
+void AxPlaybook::bind_callables() {
+  engine_.set_callables(
+      [this](const Value& payload) { return run_reflector(payload); },
+      [this](const Value& payload) { return run_curator(payload); },
+      [this](const Value& example) { return run_generator(example); });
+}
+
+// The real LLM generator: run the bound program with the student client.
+Value AxPlaybook::run_generator(const Value& example) {
+  if (program_ == nullptr) return Value::object();
+  inject();
+  Value prediction = program_->forward(*student_, example);
+  last_prediction_ = prediction;
+  return prediction;
+}
+
+// The real LLM reflector: a focused AxGen sub-program driven by the teacher.
+Value AxPlaybook::run_reflector(const Value& payload) {
+  if (!reflector_program_) reflector_program_ = std::make_unique<AxGen>(s(kAceReflectorSignature));
+  Value request = Value::object();
+  Core::set(request, "question", Value(playbook_stringify(Core::get(payload, "question"))));
+  Core::set(request, "generator_answer", Value(playbook_stringify(Core::get(payload, "generator_answer"))));
+  Core::set(request, "playbook", Core::get(payload, "playbook", Value("")));
+  Value reasoning = Core::get(payload, "generator_reasoning");
+  if (!reasoning.is_null()) Core::set(request, "generator_reasoning", reasoning);
+  Value feedback = Core::get(payload, "feedback");
+  if (!feedback.is_null()) Core::set(request, "feedback", feedback);
+  Value previous = Core::get(payload, "previous_reflection");
+  if (!previous.is_null()) Core::set(request, "previous_reflection", Value(playbook_stringify(previous)));
+  try {
+    return reflector_program_->forward(*teacher_, request);
+  } catch (const std::exception& e) {
+    if (verbose_) std::cerr << "[AxPlaybook] reflector error: " << e.what() << "\n";
+    return Value();
+  }
+}
+
+// The real LLM curator: a focused AxGen sub-program driven by the teacher.
+Value AxPlaybook::run_curator(const Value& payload) {
+  if (!curator_program_) curator_program_ = std::make_unique<AxGen>(s(kAceCuratorSignature));
+  Value request = Value::object();
+  Core::set(request, "playbook", Core::get(payload, "playbook", Value("")));
+  Core::set(request, "reflection", Value(playbook_stringify(Core::get(payload, "reflection"))));
+  Core::set(request, "question_context", Value(playbook_stringify(Core::get(payload, "question_context"))));
+  Core::set(request, "token_budget", Core::get(payload, "token_budget", Value(1024)));
+  try {
+    return curator_program_->forward(*teacher_, request);
+  } catch (const std::exception& e) {
+    if (verbose_) std::cerr << "[AxPlaybook] curator error: " << e.what() << "\n";
+    return Value();
+  }
+}
+
+Value AxPlaybook::evolve(const std::vector<Value>& examples, const MetricFn& metric_fn, Value options) {
+  bind_callables();
+  if (!options.is_object()) options = Value::object();
+  Value auto_level = Core::get(options, "auto");
+  if (!auto_level.is_null()) engine_.configure_auto(display(auto_level));
+  Value ace_options = Value::object();
+  Value max_epochs = playbook_option(options, {"maxEpochs", "max_epochs"});
+  if (!max_epochs.is_null()) Core::set(ace_options, "maxEpochs", max_epochs);
+  AxACE::AceCallable wrapped_metric = [this, &metric_fn](const Value& example) -> Value {
+    if (!metric_fn) return Value(0);
+    Value args = Value::object();
+    Core::set(args, "prediction", last_prediction_);
+    Core::set(args, "example", example);
+    return metric_fn(args);
+  };
+  Value result = engine_.compile(examples, wrapped_metric, object({{"aceOptions", ace_options}}));
+  started_ = true;
+  inject();
+  Value out = Value::object();
+  Core::set(out, "bestScore", Core::get(result, "bestScore", Value(0)));
+  Core::set(out, "playbook", Core::get(result, "playbook"));
+  return out;
+}
+
+Value AxPlaybook::update(Value args) {
+  bind_callables();
+  if (!started_) {
+    Value state = Value::object();
+    Core::set(state, "playbook", engine_.get_playbook());
+    engine_.hydrate(state);
+    started_ = true;
+  }
+  Value result = engine_.apply_online_update(args.is_null() ? Value::object() : args);
+  inject();
+  return result;
+}
+
+void AxPlaybook::apply_to(AxGen* program) {
+  if (program != nullptr && program != program_) {
+    program->set_instruction(Value(playbook_compose_instruction(display(program->get_instruction()), render())));
+    return;
+  }
+  inject();
+}
+
+std::string AxPlaybook::render() const {
+  return display(Core::_ace_render_playbook(engine_.get_playbook()));
+}
+
+Value AxPlaybook::get_state() const {
+  Value out = Value::object();
+  Core::set(out, "playbook", engine_.get_playbook());
+  Core::set(out, "artifact", engine_.get_artifact());
+  return out;
+}
+
+Value AxPlaybook::to_json() const { return get_state(); }
+
+AxPlaybook& AxPlaybook::load(Value snapshot) {
+  if (!snapshot.is_object()) snapshot = Value::object();
+  Value state = Value::object();
+  Core::set(state, "playbook", Core::get(snapshot, "playbook"));
+  Core::set(state, "artifact", Core::get(snapshot, "artifact"));
+  engine_.hydrate(state);
+  started_ = true;
+  inject();
+  return *this;
+}
+
+void AxPlaybook::configure_auto(const std::string& level) { engine_.configure_auto(level); }
+
+void AxPlaybook::reset() {
+  engine_.reset();
+  started_ = false;
+}
+
+void AxPlaybook::set_apply_hook(std::function<void(const std::string&)> hook) { apply_hook_ = std::move(hook); }
+
+void AxPlaybook::inject() {
+  std::string rendered = render();
+  if (apply_hook_) {
+    apply_hook_(rendered);
+    return;
+  }
+  if (program_ != nullptr) {
+    program_->set_instruction(Value(playbook_compose_instruction(base_instruction_, rendered)));
+  }
+}
+
+AxPlaybook playbook(AxGen& program, AIClient& student, Value options, AIClient* teacher) {
+  return AxPlaybook(program, student, teacher, std::move(options));
+}
+
 Value AxGen::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
   Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
   Value rows = Value::array();
@@ -4022,6 +4539,27 @@ Value AxAgent::optimize_with(OptimizerEngine& engine, AIClient& client, Value da
 }
 Value AxAgent::optimize(Value dataset, Value options) {
   throw AxError("validation", "options.engine must implement OptimizerEngine for optimize()");
+}
+
+// Build an evolving context AxPlaybook bound to an agent stage (the actor/task
+// stage by default; pass {"target":"responder"} for the responder). As the
+// playbook evolves it is injected into the live stage prompt unless {"apply"} is
+// false. The evolution engine (ACE) is an implementation detail.
+AxPlaybook AxAgent::playbook(AIClient& student, Value options) {
+  if (!options.is_object()) options = Value::object();
+  std::string target = display(Core::get(options, "target", Value("actor")));
+  AxGen* stage = target == "responder" ? responder_.get() : executor_.get();
+  AxPlaybook handle(*stage, student, nullptr, options);
+  if (Core::truthy(Core::eq(Core::get(options, "apply"), Value(false)))) {
+    handle.set_apply_hook([](const std::string&) {});
+    return handle;
+  }
+  std::string base = display(stage->get_instruction());
+  AxGen* stage_ptr = stage;
+  handle.set_apply_hook([stage_ptr, base](const std::string& rendered) {
+    stage_ptr->set_instruction(Value(playbook_compose_instruction(base, rendered)));
+  });
+  return handle;
 }
 
 static Value optimize_options_merge(Value base, Value extra) {

@@ -1,0 +1,206 @@
+{
+  "ace_options": {
+    "maxReflectorRounds": 1
+  },
+  "curator_responses": [
+    {
+      "operations": [
+        {
+          "bulletId": "guidelines-00002",
+          "content": "Verify facts before answering.",
+          "section": "Guidelines",
+          "type": "ADD"
+        }
+      ],
+      "reasoning": "Add a verification guideline."
+    }
+  ],
+  "expected_artifact": {
+    "feedback": [
+      {
+        "curator": {
+          "operations": [
+            {
+              "bulletId": "guidelines-00002",
+              "content": "Verify facts before answering.",
+              "section": "Guidelines",
+              "type": "ADD"
+            }
+          ],
+          "reasoning": "Add a verification guideline."
+        },
+        "example": {
+          "answer": "a",
+          "question": "q"
+        },
+        "generatorOutput": {
+          "answer": {
+            "answer": "bad"
+          },
+          "bulletIds": [],
+          "reasoning": ""
+        },
+        "prediction": {
+          "answer": "bad"
+        },
+        "reflection": {
+          "bulletTags": [
+            {
+              "id": "guidelines-00001",
+              "tag": "helpful"
+            }
+          ],
+          "correctApproach": "Verify facts before answering",
+          "errorIdentification": "Stated an incorrect fact",
+          "keyInsight": "Verify before committing",
+          "reasoning": "User corrected a factual slip.",
+          "rootCauseAnalysis": "No verification step"
+        },
+        "score": 0,
+        "timestamp": "2024-01-02T03:04:05.000Z"
+      }
+    ],
+    "history": [
+      {
+        "epoch": -1,
+        "exampleIndex": 0,
+        "operations": [
+          {
+            "bulletId": "guidelines-00002",
+            "content": "Verify facts before answering.",
+            "section": "Guidelines",
+            "type": "ADD"
+          }
+        ],
+        "source": "online"
+      }
+    ],
+    "playbook": {
+      "sections": {
+        "Guidelines": [
+          {
+            "content": "Be concise.",
+            "createdAt": "2023-12-01T00:00:00.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 2,
+            "id": "guidelines-00001",
+            "section": "Guidelines",
+            "updatedAt": "2024-01-02T03:04:05.000Z"
+          },
+          {
+            "content": "Verify facts before answering.",
+            "createdAt": "2024-01-02T03:04:05.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 0,
+            "id": "guidelines-00002",
+            "section": "Guidelines",
+            "updatedAt": "2024-01-02T03:04:05.000Z"
+          }
+        ]
+      },
+      "stats": {
+        "bulletCount": 2,
+        "harmfulCount": 0,
+        "helpfulCount": 2,
+        "tokenEstimate": 11
+      },
+      "updatedAt": "2024-01-02T03:04:05.000Z",
+      "version": 1
+    }
+  },
+  "expected_curator": {
+    "operations": [
+      {
+        "bulletId": "guidelines-00002",
+        "content": "Verify facts before answering.",
+        "section": "Guidelines",
+        "type": "ADD"
+      }
+    ],
+    "reasoning": "Add a verification guideline."
+  },
+  "expected_playbook": {
+    "sections": {
+      "Guidelines": [
+        {
+          "content": "Be concise.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 2,
+          "id": "guidelines-00001",
+          "section": "Guidelines",
+          "updatedAt": "2024-01-02T03:04:05.000Z"
+        },
+        {
+          "content": "Verify facts before answering.",
+          "createdAt": "2024-01-02T03:04:05.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "guidelines-00002",
+          "section": "Guidelines",
+          "updatedAt": "2024-01-02T03:04:05.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 2,
+      "harmfulCount": 0,
+      "helpfulCount": 2,
+      "tokenEstimate": 11
+    },
+    "updatedAt": "2024-01-02T03:04:05.000Z",
+    "version": 1
+  },
+  "initial_playbook": {
+    "sections": {
+      "Guidelines": [
+        {
+          "content": "Be concise.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 1,
+          "id": "guidelines-00001",
+          "section": "Guidelines",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 1,
+      "harmfulCount": 0,
+      "helpfulCount": 1,
+      "tokenEstimate": 3
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  },
+  "kind": "optimize",
+  "name": "ace-online-update-add",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "ace-online-update",
+  "reflection_responses": [
+    {
+      "bulletTags": [
+        {
+          "id": "guidelines-00001",
+          "tag": "helpful"
+        }
+      ],
+      "correctApproach": "Verify facts before answering",
+      "errorIdentification": "Stated an incorrect fact",
+      "keyInsight": "Verify before committing",
+      "reasoning": "User corrected a factual slip.",
+      "rootCauseAnalysis": "No verification step"
+    }
+  ],
+  "update": {
+    "example": {
+      "answer": "a",
+      "question": "q"
+    },
+    "feedback": "User corrected the answer.",
+    "prediction": {
+      "answer": "bad"
+    }
+  }
+}

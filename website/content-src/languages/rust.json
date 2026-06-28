@@ -52,6 +52,12 @@
     "optimize": [
       "let engine = AxGEPA::new(reflection_client, json!({}));",
       "let result = engine.optimize(request, evaluator);"
+    ],
+    "playbook": [
+      "let mut pb = axllm::playbook(program, student, None, json!({}));",
+      "pb.evolve(&examples, &metric, json!({}));  // grow a playbook offline from examples",
+      "let rendered = pb.render();                // the playbook is now applied to the program",
+      "let state = pb.to_json();                  // persist; restore later with playbook(...).load(state)"
     ]
   },
   "snippetGroups": {

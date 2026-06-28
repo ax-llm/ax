@@ -8284,6 +8284,816 @@ final class Core {
     return out;
   }
 
+  static Object _ace_estimate_token_count(Object text) {
+    axirCoverageMark("_ace_estimate_token_count");
+    Object len = Core.len(text);
+    Object tokens = 0;
+    Object remaining = len;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object done = Core.lte(remaining, 0);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object tokens_next = Core.add(tokens, 1);
+      tokens = tokens_next;
+      Object remaining_next = Core.add(remaining, -4);
+      remaining = remaining_next;
+    }
+    return tokens;
+  }
+
+  static Object _ace_recompute_playbook_stats(Object playbook) {
+    axirCoverageMark("_ace_recompute_playbook_stats");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object bullet_count = 0;
+    Object helpful_count = 0;
+    Object harmful_count = 0;
+    Object token_estimate = 0;
+    Object section_lists = Core.mapValues(sections);
+    for (Object bullets : Core.iter(section_lists)) {
+      for (Object bullet : Core.iter(bullets)) {
+        Object bullet_count_next = Core.add(bullet_count, 1);
+        bullet_count = bullet_count_next;
+        Object helpful = Core.get(bullet, "helpfulCount", 0);
+        Object harmful = Core.get(bullet, "harmfulCount", 0);
+        Object helpful_count_next = Core.add(helpful_count, helpful);
+        helpful_count = helpful_count_next;
+        Object harmful_count_next = Core.add(harmful_count, harmful);
+        harmful_count = harmful_count_next;
+        Object content = Core.get(bullet, "content", "");
+        Object bullet_tokens = Core._ace_estimate_token_count(content);
+        Object token_estimate_next = Core.add(token_estimate, bullet_tokens);
+        token_estimate = token_estimate_next;
+      }
+    }
+    Object stats = new java.util.LinkedHashMap<String, Object>();
+    Core.set(stats, "bulletCount", bullet_count);
+    Core.set(stats, "helpfulCount", helpful_count);
+    Core.set(stats, "harmfulCount", harmful_count);
+    Core.set(stats, "tokenEstimate", token_estimate);
+    Core.set(playbook, "stats", stats);
+    return playbook;
+  }
+
+  static Object _ace_empty_playbook(Object description, Object now) {
+    axirCoverageMark("_ace_empty_playbook");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "version", 1);
+    Object sections = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "sections", sections);
+    Object stats = new java.util.LinkedHashMap<String, Object>();
+    Core.set(stats, "bulletCount", 0);
+    Core.set(stats, "helpfulCount", 0);
+    Core.set(stats, "harmfulCount", 0);
+    Core.set(stats, "tokenEstimate", 0);
+    Core.set(out, "stats", stats);
+    Core.set(out, "updatedAt", now);
+    Object has_description = Core.isNotNone(description);
+    if (Core.truthy(has_description)) {
+      Core.set(out, "description", description);
+    }
+    return out;
+  }
+
+  static Object _ace_render_playbook(Object playbook) {
+    axirCoverageMark("_ace_render_playbook");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object description = Core.get(playbook, "description", null);
+    Object has_description = Core.isNotNone(description);
+    Object header = "## Context Playbook\n";
+    if (Core.truthy(has_description)) {
+      Object trimmed_description = Core.stringTrim(description);
+      Object header_with_description = Core.stringFormat("## Context Playbook\n{}\n", trimmed_description);
+      header = header_with_description;
+    }
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object section_names = Core.mapKeys(sections);
+    Object section_blocks = new java.util.ArrayList<Object>();
+    for (Object section_name : Core.iter(section_names)) {
+      Object bullets = Core.get(sections, section_name, null);
+      Object bullet_lines = new java.util.ArrayList<Object>();
+      for (Object bullet : Core.iter(bullets)) {
+        Object id = Core.get(bullet, "id", "");
+        Object content = Core.get(bullet, "content", "");
+        Object line = Core.stringFormat("- [{}] {}", id, content);
+        Core.append(bullet_lines, line);
+      }
+      Object body = Core.stringJoin("\n", bullet_lines);
+      Object has_body = Core.ne(body, "");
+      Object block = "";
+      if (Core.truthy(has_body)) {
+        Object block_with_body = Core.stringFormat("### {}\n{}", section_name, body);
+        block = block_with_body;
+      }
+      if (!Core.truthy(has_body)) {
+        Object block_empty = Core.stringFormat("### {}\n_(empty)_", section_name);
+        block = block_empty;
+      }
+      Core.append(section_blocks, block);
+    }
+    Object joined_sections = Core.stringJoin("\n\n", section_blocks);
+    Object combined = Core.stringFormat("{}\n{}", header, joined_sections);
+    Object result = Core.stringTrim(combined);
+    return result;
+  }
+
+  static Object _ace_update_bullet_feedback(Object playbook, Object bullet_id, Object tag, Object now) {
+    axirCoverageMark("_ace_update_bullet_feedback");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object section_names = Core.mapKeys(sections);
+    Object found = Boolean.FALSE;
+    for (Object section_name : Core.iter(section_names)) {
+      Object already_found = found;
+      if (Core.truthy(already_found)) {
+        // empty
+      }
+      if (!Core.truthy(already_found)) {
+        Object bullets = Core.get(sections, section_name, null);
+        for (Object bullet : Core.iter(bullets)) {
+          Object current_id = Core.get(bullet, "id", "");
+          Object match = Core.eq(bullet_id, current_id);
+          Object still_open = Core.not(found);
+          if (Core.truthy(match)) {
+            if (Core.truthy(still_open)) {
+              Object is_helpful = Core.eq(tag, "helpful");
+              if (Core.truthy(is_helpful)) {
+                Object helpful = Core.get(bullet, "helpfulCount", 0);
+                Object helpful_next = Core.add(helpful, 1);
+                Core.set(bullet, "helpfulCount", helpful_next);
+              }
+              Object is_harmful = Core.eq(tag, "harmful");
+              if (Core.truthy(is_harmful)) {
+                Object harmful = Core.get(bullet, "harmfulCount", 0);
+                Object harmful_next = Core.add(harmful, 1);
+                Core.set(bullet, "harmfulCount", harmful_next);
+              }
+              Core.set(bullet, "updatedAt", now);
+              found = Boolean.TRUE;
+            }
+          }
+        }
+      }
+    }
+    Object did_find = found;
+    if (Core.truthy(did_find)) {
+      Object updated = Core._ace_recompute_playbook_stats(playbook);
+      return updated;
+    }
+    return playbook;
+  }
+
+  static Object _ace_dedupe_playbook(Object playbook) {
+    axirCoverageMark("_ace_dedupe_playbook");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object section_names = Core.mapKeys(sections);
+    for (Object section_name : Core.iter(section_names)) {
+      Object bullets = Core.get(sections, section_name, null);
+      Object seen = new java.util.LinkedHashMap<String, Object>();
+      Object unique = new java.util.ArrayList<Object>();
+      for (Object bullet : Core.iter(bullets)) {
+        Object content = Core.get(bullet, "content", "");
+        Object trimmed = Core.stringTrim(content);
+        Object key = Core.stringLower(trimmed);
+        Object has_existing = Core.mapContains(seen, key);
+        if (Core.truthy(has_existing)) {
+          Object existing = Core.get(seen, key, null);
+          Object existing_helpful = Core.get(existing, "helpfulCount", 0);
+          Object bullet_helpful = Core.get(bullet, "helpfulCount", 0);
+          Object merged_helpful = Core.add(existing_helpful, bullet_helpful);
+          Core.set(existing, "helpfulCount", merged_helpful);
+          Object existing_harmful = Core.get(existing, "harmfulCount", 0);
+          Object bullet_harmful = Core.get(bullet, "harmfulCount", 0);
+          Object merged_harmful = Core.add(existing_harmful, bullet_harmful);
+          Core.set(existing, "harmfulCount", merged_harmful);
+          Object bullet_updated_at = Core.get(bullet, "updatedAt", "");
+          Core.set(existing, "updatedAt", bullet_updated_at);
+        }
+        if (!Core.truthy(has_existing)) {
+          Core.set(seen, key, bullet);
+          Core.append(unique, bullet);
+        }
+      }
+      Core.set(sections, section_name, unique);
+    }
+    Core.set(playbook, "sections", sections);
+    Object recomputed = Core._ace_recompute_playbook_stats(playbook);
+    return recomputed;
+  }
+
+  static Object _ace_prune_section_for_addition(Object section, Object protected_ids) {
+    axirCoverageMark("_ace_prune_section_for_addition");
+    Object candidate_index = -1;
+    Object candidate_net = 0;
+    Object candidate_helpful = 0;
+    Object candidate_recency = 0;
+    Object index = 0;
+    for (Object bullet : Core.iter(section)) {
+      Object id = Core.get(bullet, "id", "");
+      Object is_protected = Core.contains(protected_ids, id);
+      Object not_protected = Core.not(is_protected);
+      if (Core.truthy(not_protected)) {
+        Object helpful = Core.get(bullet, "helpfulCount", 0);
+        Object harmful = Core.get(bullet, "harmfulCount", 0);
+        Object harmful_weighted = Core.mul(harmful, 2);
+        Object negative_harmful = Core.mul(harmful_weighted, -1);
+        Object net_score = Core.add(helpful, negative_harmful);
+        Object created_at = Core.get(bullet, "createdAt", "");
+        Object recency = Core.get(bullet, "updatedAt", created_at);
+        Object no_candidate = Core.lt(candidate_index, 0);
+        if (Core.truthy(no_candidate)) {
+          candidate_index = index;
+          candidate_net = net_score;
+          candidate_helpful = helpful;
+          candidate_recency = recency;
+        }
+        if (!Core.truthy(no_candidate)) {
+          Object net_lower = Core.lt(net_score, candidate_net);
+          Object net_equal = Core.eq(net_score, candidate_net);
+          Object helpful_lower = Core.lt(helpful, candidate_helpful);
+          Object helpful_equal = Core.eq(helpful, candidate_helpful);
+          Object recency_lower = Core.lt(recency, candidate_recency);
+          Object is_worse = net_lower;
+          if (Core.truthy(net_equal)) {
+            if (Core.truthy(helpful_lower)) {
+              is_worse = Boolean.TRUE;
+            }
+            if (Core.truthy(helpful_equal)) {
+              if (Core.truthy(recency_lower)) {
+                is_worse = Boolean.TRUE;
+              }
+            }
+          }
+          if (Core.truthy(is_worse)) {
+            candidate_index = index;
+            candidate_net = net_score;
+            candidate_helpful = helpful;
+            candidate_recency = recency;
+          }
+        }
+      }
+      Object index_next = Core.add(index, 1);
+      index = index_next;
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object has_candidate = Core.gte(candidate_index, 0);
+    Object new_section = new java.util.ArrayList<Object>();
+    if (Core.truthy(has_candidate)) {
+      Object pruned = Core.none();
+      Object cursor = 0;
+      for (Object bullet : Core.iter(section)) {
+        Object is_target = Core.eq(cursor, candidate_index);
+        if (Core.truthy(is_target)) {
+          pruned = bullet;
+        }
+        if (!Core.truthy(is_target)) {
+          Core.append(new_section, bullet);
+        }
+        Object cursor_next = Core.add(cursor, 1);
+        cursor = cursor_next;
+      }
+      Core.set(out, "pruned", pruned);
+      Core.set(out, "section", new_section);
+      return out;
+    }
+    Object null_pruned = Core.none();
+    Core.set(out, "pruned", null_pruned);
+    Core.set(out, "section", section);
+    return out;
+  }
+
+  static Object _ace_apply_curator_operations(Object playbook, Object operations, Object options, Object now) {
+    axirCoverageMark("_ace_apply_curator_operations");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object opts = options;
+    Object opts_missing = Core.isNone(options);
+    if (Core.truthy(opts_missing)) {
+      opts = empty_map;
+    }
+    Object allow_dynamic = Core.get(opts, "allowDynamicSections", Boolean.TRUE);
+    Object enable_auto_prune = Core.get(opts, "enableAutoPrune", Boolean.FALSE);
+    Object has_max = Core.mapContains(opts, "maxSectionSize");
+    Object max_section_size = Core.get(opts, "maxSectionSize", 0);
+    Object protected_ids = Core.get(opts, "protectedBulletIds", empty_list);
+    Object updated_bullets = new java.util.ArrayList<Object>();
+    Object auto_removed = new java.util.ArrayList<Object>();
+    Object sections = Core.get(playbook, "sections", empty_map);
+    for (Object op : Core.iter(operations)) {
+      Object section_name = Core.get(op, "section", "");
+      Object has_section_name = Core.ne(section_name, "");
+      if (Core.truthy(has_section_name)) {
+        Object section_exists = Core.mapContains(sections, section_name);
+        Object missing_section = Core.not(section_exists);
+        if (Core.truthy(missing_section)) {
+          if (Core.truthy(allow_dynamic)) {
+            Object new_section_list = new java.util.ArrayList<Object>();
+            Core.set(sections, section_name, new_section_list);
+          }
+        }
+        Object section_now_exists = Core.mapContains(sections, section_name);
+        if (Core.truthy(section_now_exists)) {
+          Object section = Core.get(sections, section_name, null);
+          Object op_type = Core.get(op, "type", "");
+          Object is_add = Core.eq(op_type, "ADD");
+          if (Core.truthy(is_add)) {
+            Object raw_content = Core.get(op, "content", "");
+            Object content = Core.stringTrim(raw_content);
+            Object has_content = Core.ne(content, "");
+            if (Core.truthy(has_content)) {
+              Object section_len = Core.len(section);
+              Object at_capacity_raw = Core.gte(section_len, max_section_size);
+              Object at_capacity = Boolean.FALSE;
+              if (Core.truthy(has_max)) {
+                if (Core.truthy(at_capacity_raw)) {
+                  at_capacity = Boolean.TRUE;
+                }
+              }
+              Object proceed = Boolean.TRUE;
+              if (Core.truthy(at_capacity)) {
+                if (Core.truthy(enable_auto_prune)) {
+                  Object prune_result = Core._ace_prune_section_for_addition(section, protected_ids);
+                  Object pruned = Core.get(prune_result, "pruned", null);
+                  Object has_pruned = Core.isNotNone(pruned);
+                  if (Core.truthy(has_pruned)) {
+                    Object pruned_section = Core.get(prune_result, "section", null);
+                    section = pruned_section;
+                    Core.set(sections, section_name, section);
+                    Object pruned_id = Core.get(pruned, "id", "");
+                    Core.append(updated_bullets, pruned_id);
+                    Object removal = new java.util.LinkedHashMap<String, Object>();
+                    Core.set(removal, "type", "REMOVE");
+                    Core.set(removal, "section", section_name);
+                    Core.set(removal, "bulletId", pruned_id);
+                    Object pruned_metadata = Core.get(pruned, "metadata", empty_map);
+                    Object removal_metadata = Core.mapMerge(empty_map, pruned_metadata);
+                    Core.set(removal_metadata, "autoPruned", Boolean.TRUE);
+                    Core.set(removal_metadata, "removedAt", now);
+                    Core.set(removal, "metadata", removal_metadata);
+                    Core.append(auto_removed, removal);
+                  }
+                  if (!Core.truthy(has_pruned)) {
+                    proceed = Boolean.FALSE;
+                  }
+                }
+                if (!Core.truthy(enable_auto_prune)) {
+                  proceed = Boolean.FALSE;
+                }
+              }
+              if (Core.truthy(proceed)) {
+                Object op_bullet_id = Core.get(op, "bulletId", null);
+                Object has_bullet_id = Core.isNotNone(op_bullet_id);
+                Object bullet_id = op_bullet_id;
+                Object missing_bullet_id = Core.not(has_bullet_id);
+                if (Core.truthy(missing_bullet_id)) {
+                  bullet_id = section_name;
+                }
+                Object bullet = new java.util.LinkedHashMap<String, Object>();
+                Core.set(bullet, "id", bullet_id);
+                Core.set(bullet, "section", section_name);
+                Core.set(bullet, "content", content);
+                Core.set(bullet, "helpfulCount", 0);
+                Core.set(bullet, "harmfulCount", 0);
+                Core.set(bullet, "createdAt", now);
+                Core.set(bullet, "updatedAt", now);
+                Object op_metadata = Core.get(op, "metadata", null);
+                Object has_metadata = Core.isNotNone(op_metadata);
+                if (Core.truthy(has_metadata)) {
+                  Object bullet_metadata = Core.mapMerge(empty_map, op_metadata);
+                  Core.set(bullet, "metadata", bullet_metadata);
+                }
+                Core.append(section, bullet);
+                Core.set(sections, section_name, section);
+                Core.append(updated_bullets, bullet_id);
+              }
+            }
+          }
+          Object is_update = Core.eq(op_type, "UPDATE");
+          if (Core.truthy(is_update)) {
+            Object target_id = Core.get(op, "bulletId", null);
+            for (Object bullet : Core.iter(section)) {
+              Object candidate_bullet_id = Core.get(bullet, "id", "");
+              Object bullet_match = Core.eq(candidate_bullet_id, target_id);
+              if (Core.truthy(bullet_match)) {
+                Object op_content = Core.get(op, "content", null);
+                Object content_is_string = Core.typeIs(op_content, "string");
+                if (Core.truthy(content_is_string)) {
+                  Core.set(bullet, "content", op_content);
+                }
+                Core.set(bullet, "updatedAt", now);
+                Object op_metadata_update = Core.get(op, "metadata", null);
+                Object has_metadata_update = Core.isNotNone(op_metadata_update);
+                if (Core.truthy(has_metadata_update)) {
+                  Object existing_metadata = Core.get(bullet, "metadata", empty_map);
+                  Object merged_metadata = Core.mapMerge(existing_metadata, op_metadata_update);
+                  Core.set(bullet, "metadata", merged_metadata);
+                }
+                Object bullet_id_update = Core.get(bullet, "id", "");
+                Core.append(updated_bullets, bullet_id_update);
+              }
+            }
+          }
+          Object is_remove = Core.eq(op_type, "REMOVE");
+          if (Core.truthy(is_remove)) {
+            Object remove_id = Core.get(op, "bulletId", null);
+            Object kept = new java.util.ArrayList<Object>();
+            Object none_value = Core.none();
+            Object removed_id = none_value;
+            for (Object bullet : Core.iter(section)) {
+              Object remove_candidate_id = Core.get(bullet, "id", "");
+              Object bullet_remove_match = Core.eq(remove_candidate_id, remove_id);
+              if (Core.truthy(bullet_remove_match)) {
+                removed_id = remove_candidate_id;
+              }
+              if (!Core.truthy(bullet_remove_match)) {
+                Core.append(kept, bullet);
+              }
+            }
+            Core.set(sections, section_name, kept);
+            Object did_remove = Core.isNotNone(removed_id);
+            if (Core.truthy(did_remove)) {
+              Core.append(updated_bullets, removed_id);
+            }
+          }
+        }
+      }
+    }
+    Core.set(playbook, "sections", sections);
+    Object recomputed = Core._ace_recompute_playbook_stats(playbook);
+    Core.set(recomputed, "updatedAt", now);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "playbook", recomputed);
+    Core.set(out, "updatedBulletIds", updated_bullets);
+    Core.set(out, "autoRemoved", auto_removed);
+    return out;
+  }
+
+  static Object _ace_normalize_curator_operations(Object operations) {
+    axirCoverageMark("_ace_normalize_curator_operations");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object has_operations = Core.isNotNone(operations);
+    Object missing = Core.not(has_operations);
+    if (Core.truthy(missing)) {
+      return empty_list;
+    }
+    Object is_list = Core.typeIs(operations, "list");
+    if (Core.truthy(is_list)) {
+      Object normalized = new java.util.ArrayList<Object>();
+      Object seen = new java.util.LinkedHashMap<String, Object>();
+      for (Object entry : Core.iter(operations)) {
+        Object is_object = Core.typeIs(entry, "object");
+        if (Core.truthy(is_object)) {
+          Object type_raw = Core.get(entry, "type", "ADD");
+          Object type_is_string = Core.typeIs(type_raw, "string");
+          Object type_lower = "add";
+          if (Core.truthy(type_is_string)) {
+            Object lowered = Core.stringLower(type_raw);
+            type_lower = lowered;
+          }
+          Object is_update = Core.eq(type_lower, "update");
+          Object is_remove = Core.eq(type_lower, "remove");
+          Object type = "ADD";
+          if (Core.truthy(is_update)) {
+            type = "UPDATE";
+          }
+          if (Core.truthy(is_remove)) {
+            type = "REMOVE";
+          }
+          Object section_raw = Core.get(entry, "section", "Guidelines");
+          Object section_is_string = Core.typeIs(section_raw, "string");
+          Object section = "Guidelines";
+          if (Core.truthy(section_is_string)) {
+            Object section_trimmed = Core.stringTrim(section_raw);
+            Object section_nonempty = Core.ne(section_trimmed, "");
+            if (Core.truthy(section_nonempty)) {
+              section = section_trimmed;
+            }
+          }
+          Object content_raw = Core.get(entry, "content", "");
+          Object content_is_string = Core.typeIs(content_raw, "string");
+          Object content = "";
+          if (Core.truthy(content_is_string)) {
+            Object content_trimmed = Core.stringTrim(content_raw);
+            content = content_trimmed;
+          }
+          Object not_remove = Core.ne(type, "REMOVE");
+          Object content_empty = Core.eq(content, "");
+          Object keep = Boolean.TRUE;
+          if (Core.truthy(not_remove)) {
+            if (Core.truthy(content_empty)) {
+              keep = Boolean.FALSE;
+            }
+          }
+          if (Core.truthy(keep)) {
+            Object bullet_id_raw = Core.get(entry, "bulletId", null);
+            Object has_bullet_id_field = Core.isNotNone(bullet_id_raw);
+            Object bullet_id_source = bullet_id_raw;
+            if (Core.truthy(has_bullet_id_field)) {
+              // empty
+            }
+            if (!Core.truthy(has_bullet_id_field)) {
+              Object id_field = Core.get(entry, "id", null);
+              bullet_id_source = id_field;
+            }
+            Object bullet_id_is_string = Core.typeIs(bullet_id_source, "string");
+            Object none_value = Core.none();
+            Object bullet_id = none_value;
+            if (Core.truthy(bullet_id_is_string)) {
+              Object bullet_id_trimmed = Core.stringTrim(bullet_id_source);
+              Object bullet_id_nonempty = Core.ne(bullet_id_trimmed, "");
+              if (Core.truthy(bullet_id_nonempty)) {
+                bullet_id = bullet_id_trimmed;
+              }
+            }
+            Object bullet_id_key = "";
+            Object has_bullet_id = Core.isNotNone(bullet_id);
+            if (Core.truthy(has_bullet_id)) {
+              bullet_id_key = bullet_id;
+            }
+            Object key_a = Core.stringFormat("{}:{}", type, section);
+            Object key_b = Core.stringFormat("{}:{}", content, bullet_id_key);
+            Object key = Core.stringFormat("{}:{}", key_a, key_b);
+            Object already_seen = Core.mapContains(seen, key);
+            Object fresh = Core.not(already_seen);
+            if (Core.truthy(fresh)) {
+              Core.set(seen, key, Boolean.TRUE);
+              Object normalized_entry = new java.util.LinkedHashMap<String, Object>();
+              Core.set(normalized_entry, "type", type);
+              Core.set(normalized_entry, "section", section);
+              if (Core.truthy(not_remove)) {
+                Core.set(normalized_entry, "content", content);
+              }
+              if (Core.truthy(has_bullet_id)) {
+                Core.set(normalized_entry, "bulletId", bullet_id);
+              }
+              Object metadata_raw = Core.get(entry, "metadata", null);
+              Object metadata_is_object = Core.typeIs(metadata_raw, "object");
+              if (Core.truthy(metadata_is_object)) {
+                Object empty_metadata = new java.util.LinkedHashMap<String, Object>();
+                Object metadata_copy = Core.mapMerge(empty_metadata, metadata_raw);
+                Core.set(normalized_entry, "metadata", metadata_copy);
+              }
+              Core.append(normalized, normalized_entry);
+            }
+          }
+        }
+      }
+      return normalized;
+    }
+    Object is_string = Core.typeIs(operations, "string");
+    if (Core.truthy(is_string)) {
+      Object parsed = Core.jsonParse(operations);
+      Object parsed_is_none = Core.isNone(parsed);
+      if (Core.truthy(parsed_is_none)) {
+        return empty_list;
+      }
+      Object normalized_from_string = Core._ace_normalize_curator_operations(parsed);
+      return normalized_from_string;
+    }
+    Object is_object = Core.typeIs(operations, "object");
+    if (Core.truthy(is_object)) {
+      Object inner = Core.get(operations, "operations", null);
+      Object has_inner = Core.isNotNone(inner);
+      if (Core.truthy(has_inner)) {
+        Object normalized_from_object = Core._ace_normalize_curator_operations(inner);
+        return normalized_from_object;
+      }
+      return empty_list;
+    }
+    return empty_list;
+  }
+
+  static Object _ace_locate_bullet_section(Object playbook, Object bullet_id) {
+    axirCoverageMark("_ace_locate_bullet_section");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object section_names = Core.mapKeys(sections);
+    Object none_value = Core.none();
+    Object found = none_value;
+    for (Object section_name : Core.iter(section_names)) {
+      Object already = Core.isNotNone(found);
+      Object still_open = Core.not(already);
+      if (Core.truthy(still_open)) {
+        Object bullets = Core.get(sections, section_name, null);
+        for (Object bullet : Core.iter(bullets)) {
+          Object open = Core.isNone(found);
+          if (Core.truthy(open)) {
+            Object current_id = Core.get(bullet, "id", "");
+            Object match = Core.eq(current_id, bullet_id);
+            if (Core.truthy(match)) {
+              Object hit = new java.util.LinkedHashMap<String, Object>();
+              Core.set(hit, "section", section_name);
+              Core.set(hit, "id", current_id);
+              found = hit;
+            }
+          }
+        }
+      }
+    }
+    return found;
+  }
+
+  static Object _ace_resolve_curator_operation_targets(Object operations, Object playbook, Object reflection, Object generator_output) {
+    axirCoverageMark("_ace_resolve_curator_operation_targets");
+    Object op_count = Core.len(operations);
+    Object is_empty = Core.eq(op_count, 0);
+    if (Core.truthy(is_empty)) {
+      return operations;
+    }
+    Object used_ids = new java.util.LinkedHashMap<String, Object>();
+    for (Object op : Core.iter(operations)) {
+      Object existing_bullet_id = Core.get(op, "bulletId", null);
+      Object has_existing = Core.isNotNone(existing_bullet_id);
+      if (Core.truthy(has_existing)) {
+        Object existing_is_string = Core.typeIs(existing_bullet_id, "string");
+        if (Core.truthy(existing_is_string)) {
+          Core.set(used_ids, existing_bullet_id, Boolean.TRUE);
+        }
+      }
+    }
+    Object section_queues = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object reflection_present = Core.isNotNone(reflection);
+    if (Core.truthy(reflection_present)) {
+      Object bullet_tags = Core.get(reflection, "bulletTags", empty_list);
+      for (Object tag : Core.iter(bullet_tags)) {
+        Object tag_id = Core.get(tag, "id", null);
+        Object tag_id_is_string = Core.typeIs(tag_id, "string");
+        if (Core.truthy(tag_id_is_string)) {
+          Object already_used = Core.mapContains(used_ids, tag_id);
+          Object not_used = Core.not(already_used);
+          if (Core.truthy(not_used)) {
+            Object located = Core._ace_locate_bullet_section(playbook, tag_id);
+            Object located_found = Core.isNotNone(located);
+            if (Core.truthy(located_found)) {
+              Object located_section = Core.get(located, "section", null);
+              Object located_id = Core.get(located, "id", null);
+              Object tag_value = Core.get(tag, "tag", "");
+              Object is_harmful = Core.eq(tag_value, "harmful");
+              Object priority = "primary";
+              if (Core.truthy(is_harmful)) {
+                priority = "harmful";
+              }
+              Object has_queue = Core.mapContains(section_queues, located_section);
+              Object missing_queue = Core.not(has_queue);
+              if (Core.truthy(missing_queue)) {
+                Object new_queue = new java.util.LinkedHashMap<String, Object>();
+                Object harmful_list = new java.util.ArrayList<Object>();
+                Core.set(new_queue, "harmful", harmful_list);
+                Object primary_list = new java.util.ArrayList<Object>();
+                Core.set(new_queue, "primary", primary_list);
+                Object generator_list = new java.util.ArrayList<Object>();
+                Core.set(new_queue, "generator", generator_list);
+                Core.set(section_queues, located_section, new_queue);
+              }
+              Object queue = Core.get(section_queues, located_section, null);
+              Object priority_list = Core.get(queue, priority, null);
+              Core.append(priority_list, located_id);
+              Core.set(queue, priority, priority_list);
+              Core.set(section_queues, located_section, queue);
+            }
+          }
+        }
+      }
+    }
+    Object generator_present = Core.isNotNone(generator_output);
+    if (Core.truthy(generator_present)) {
+      Object generator_bullet_ids = Core.get(generator_output, "bulletIds", empty_list);
+      for (Object bullet_id : Core.iter(generator_bullet_ids)) {
+        Object gen_id_is_string = Core.typeIs(bullet_id, "string");
+        if (Core.truthy(gen_id_is_string)) {
+          Object gen_already_used = Core.mapContains(used_ids, bullet_id);
+          Object gen_not_used = Core.not(gen_already_used);
+          if (Core.truthy(gen_not_used)) {
+            Object gen_located = Core._ace_locate_bullet_section(playbook, bullet_id);
+            Object gen_found = Core.isNotNone(gen_located);
+            if (Core.truthy(gen_found)) {
+              Object gen_section = Core.get(gen_located, "section", null);
+              Object gen_located_id = Core.get(gen_located, "id", null);
+              Object gen_has_queue = Core.mapContains(section_queues, gen_section);
+              Object gen_missing_queue = Core.not(gen_has_queue);
+              if (Core.truthy(gen_missing_queue)) {
+                Object gen_new_queue = new java.util.LinkedHashMap<String, Object>();
+                Object gen_harmful = new java.util.ArrayList<Object>();
+                Core.set(gen_new_queue, "harmful", gen_harmful);
+                Object gen_primary = new java.util.ArrayList<Object>();
+                Core.set(gen_new_queue, "primary", gen_primary);
+                Object gen_generator = new java.util.ArrayList<Object>();
+                Core.set(gen_new_queue, "generator", gen_generator);
+                Core.set(section_queues, gen_section, gen_new_queue);
+              }
+              Object gen_queue = Core.get(section_queues, gen_section, null);
+              Object gen_generator_list = Core.get(gen_queue, "generator", null);
+              Core.append(gen_generator_list, gen_located_id);
+              Core.set(gen_queue, "generator", gen_generator_list);
+              Core.set(section_queues, gen_section, gen_queue);
+            }
+          }
+        }
+      }
+    }
+    Object resolved = new java.util.ArrayList<Object>();
+    for (Object op : Core.iter(operations)) {
+      Object op_type = Core.get(op, "type", "");
+      Object op_is_update = Core.eq(op_type, "UPDATE");
+      Object op_is_remove = Core.eq(op_type, "REMOVE");
+      Object needs_target = Core.or(op_is_update, op_is_remove);
+      Object current_bullet_id = Core.get(op, "bulletId", null);
+      Object has_bullet_id = Core.isNotNone(current_bullet_id);
+      Object missing_bullet_id = Core.not(has_bullet_id);
+      Object empty_op = new java.util.LinkedHashMap<String, Object>();
+      Object resolved_op = Core.mapMerge(empty_op, op);
+      if (Core.truthy(needs_target)) {
+        if (Core.truthy(missing_bullet_id)) {
+          Object op_section = Core.get(op, "section", "");
+          Object candidate = Core._ace_dequeue_section_candidate(section_queues, op_section, used_ids, playbook);
+          Object candidate_found = Core.isNotNone(candidate);
+          if (Core.truthy(candidate_found)) {
+            Core.set(resolved_op, "bulletId", candidate);
+            Core.set(used_ids, candidate, Boolean.TRUE);
+          }
+        }
+      }
+      Object final_bullet_id = Core.get(resolved_op, "bulletId", null);
+      Object final_has_bullet_id = Core.isNotNone(final_bullet_id);
+      Object keep = Boolean.TRUE;
+      if (Core.truthy(needs_target)) {
+        keep = final_has_bullet_id;
+      }
+      if (Core.truthy(keep)) {
+        Core.append(resolved, resolved_op);
+      }
+    }
+    return resolved;
+  }
+
+  static Object _ace_dequeue_section_candidate(Object section_queues, Object section, Object used_ids, Object playbook) {
+    axirCoverageMark("_ace_dequeue_section_candidate");
+    Object none_value = Core.none();
+    Object picked = none_value;
+    Object has_queue = Core.mapContains(section_queues, section);
+    if (Core.truthy(has_queue)) {
+      Object queue = Core.get(section_queues, section, null);
+      Object empty_list = new java.util.ArrayList<Object>();
+      Object harmful_list = Core.get(queue, "harmful", empty_list);
+      for (Object candidate : Core.iter(harmful_list)) {
+        Object open = Core.isNone(picked);
+        if (Core.truthy(open)) {
+          Object used = Core.mapContains(used_ids, candidate);
+          Object not_used = Core.not(used);
+          if (Core.truthy(not_used)) {
+            picked = candidate;
+          }
+        }
+      }
+      Object primary_list = Core.get(queue, "primary", empty_list);
+      for (Object candidate : Core.iter(primary_list)) {
+        Object open = Core.isNone(picked);
+        if (Core.truthy(open)) {
+          Object used = Core.mapContains(used_ids, candidate);
+          Object not_used = Core.not(used);
+          if (Core.truthy(not_used)) {
+            picked = candidate;
+          }
+        }
+      }
+      Object generator_list = Core.get(queue, "generator", empty_list);
+      for (Object candidate : Core.iter(generator_list)) {
+        Object open = Core.isNone(picked);
+        if (Core.truthy(open)) {
+          Object used = Core.mapContains(used_ids, candidate);
+          Object not_used = Core.not(used);
+          if (Core.truthy(not_used)) {
+            picked = candidate;
+          }
+        }
+      }
+    }
+    Object still_open = Core.isNone(picked);
+    if (Core.truthy(still_open)) {
+      Object empty_map = new java.util.LinkedHashMap<String, Object>();
+      Object sections = Core.get(playbook, "sections", empty_map);
+      Object fallback_bullets = Core.get(sections, section, null);
+      Object fallback_present = Core.isNotNone(fallback_bullets);
+      if (Core.truthy(fallback_present)) {
+        for (Object bullet : Core.iter(fallback_bullets)) {
+          Object open = Core.isNone(picked);
+          if (Core.truthy(open)) {
+            Object bullet_id = Core.get(bullet, "id", "");
+            Object used = Core.mapContains(used_ids, bullet_id);
+            Object not_used = Core.not(used);
+            if (Core.truthy(not_used)) {
+              picked = bullet_id;
+            }
+          }
+        }
+      }
+    }
+    return picked;
+  }
+
   static Object _agent_factory(Object signature, Object options) {
     axirCoverageMark("_agent_factory");
     Object empty_list = new java.util.ArrayList<Object>();

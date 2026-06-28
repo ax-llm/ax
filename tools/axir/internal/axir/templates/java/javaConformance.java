@@ -957,6 +957,40 @@ public final class Conformance {
         assertEqual(normalized, fixture.get("expected_dataset"), "normalized dataset");
         return;
       }
+      if ("playbook-empty".equals(operation)) {
+        Object playbook = Core._ace_empty_playbook(fixture.get("description"), fixture.getOrDefault("now", ""));
+        assertEqual(playbook, fixture.get("expected_playbook"), "ace empty playbook");
+        return;
+      }
+      if ("playbook-render".equals(operation)) {
+        Object rendered = Core._ace_render_playbook(fixture.getOrDefault("playbook", Map.of()));
+        assertEqual(rendered, fixture.get("expected_render"), "ace rendered playbook");
+        return;
+      }
+      if ("playbook-stats".equals(operation)) {
+        Object playbook = Core._ace_recompute_playbook_stats(fixture.getOrDefault("playbook", Map.of()));
+        assertEqual(playbook, fixture.get("expected_playbook"), "ace recomputed stats");
+        return;
+      }
+      if ("playbook-dedupe".equals(operation)) {
+        Object playbook = Core._ace_dedupe_playbook(fixture.getOrDefault("playbook", Map.of()));
+        assertEqual(playbook, fixture.get("expected_playbook"), "ace deduped playbook");
+        return;
+      }
+      if ("playbook-feedback".equals(operation)) {
+        Object playbook = Core._ace_update_bullet_feedback(fixture.getOrDefault("playbook", Map.of()), fixture.getOrDefault("bullet_id", ""), fixture.getOrDefault("tag", ""), fixture.getOrDefault("now", ""));
+        assertEqual(playbook, fixture.get("expected_playbook"), "ace bullet feedback");
+        return;
+      }
+      if ("playbook-apply-ops".equals(operation)) {
+        Object result = Core._ace_apply_curator_operations(fixture.getOrDefault("playbook", Map.of()), fixture.getOrDefault("operations", List.of()), fixture.getOrDefault("apply_options", Map.of()), fixture.getOrDefault("now", ""));
+        assertEqual(result, fixture.get("expected_result"), "ace applied operations");
+        return;
+      }
+      if ("ace-compile".equals(operation) || "ace-online-update".equals(operation)) {
+        runAce(fixture, operation);
+        return;
+      }
       if ("score".equals(operation)) {
         Object scores = Core._normalize_optimization_metric_scores(fixture.get("metric_score"));
         Object scalar = Core._scalarize_optimization_scores(scores, fixture.getOrDefault("score_options", Map.of()));
@@ -1090,6 +1124,43 @@ public final class Conformance {
       throw e;
     }
     throw new FixtureError("unknown optimize operation " + operation);
+  }
+
+  static void runAce(Map<String, Object> fixture, String operation) {
+    List<Object> reflections = new ArrayList<>(Core.asList(fixture.getOrDefault("reflection_responses", List.of())));
+    List<Object> curators = new ArrayList<>(Core.asList(fixture.getOrDefault("curator_responses", List.of())));
+    List<Object> predictions = new ArrayList<>(Core.asList(fixture.getOrDefault("generator_predictions", List.of())));
+    List<Object> scores = new ArrayList<>(Core.asList(fixture.getOrDefault("metric_scores", List.of())));
+
+    AxACE.Reflector reflector = payload -> reflections.isEmpty() ? null : Core.asMap(reflections.remove(0));
+    AxACE.Curator curator = payload -> curators.isEmpty() ? null : Core.asMap(curators.remove(0));
+    AxACE.Generator generator = example -> predictions.isEmpty() ? new LinkedHashMap<>() : Core.asMap(predictions.remove(0));
+
+    Map<String, Object> options = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("ace_options", Map.of())));
+    options.put("now", fixture.getOrDefault("now", "1970-01-01T00:00:00.000Z"));
+    if (fixture.get("initial_playbook") != null) options.put("initialPlaybook", fixture.get("initial_playbook"));
+    AxACE ace = new AxACE(reflector, curator, generator, options);
+
+    java.util.function.Function<Map<String, Object>, Object> metric = args -> scores.isEmpty() ? 0 : scores.remove(0);
+
+    if ("ace-compile".equals(operation)) {
+      Map<String, Object> result = ace.compile(null, Core.asList(fixture.getOrDefault("examples", List.of())), metric, Map.of());
+      if (fixture.containsKey("expected_playbook")) assertEqual(ace.getPlaybook(), fixture.get("expected_playbook"), "ace compile playbook");
+      if (fixture.containsKey("expected_artifact")) assertEqual(ace.getArtifact(), fixture.get("expected_artifact"), "ace compile artifact");
+      if (fixture.containsKey("expected_artifact_subset")) assertSubset(ace.getArtifact(), fixture.get("expected_artifact_subset"), "ace compile artifact");
+      if (fixture.containsKey("expected_result_subset")) assertSubset(result, fixture.get("expected_result_subset"), "ace compile result");
+      return;
+    }
+
+    Map<String, Object> updateArgs = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("update", Map.of())));
+    if (!updateArgs.containsKey("prediction")) {
+      updateArgs.put("prediction", generator.apply(Core.asMap(updateArgs.getOrDefault("example", Map.of()))));
+    }
+    Map<String, Object> curatorResult = ace.applyOnlineUpdate(updateArgs);
+    if (fixture.containsKey("expected_playbook")) assertEqual(ace.getPlaybook(), fixture.get("expected_playbook"), "ace online playbook");
+    if (fixture.containsKey("expected_artifact")) assertEqual(ace.getArtifact(), fixture.get("expected_artifact"), "ace online artifact");
+    if (fixture.containsKey("expected_artifact_subset")) assertSubset(ace.getArtifact(), fixture.get("expected_artifact_subset"), "ace online artifact");
+    if (fixture.containsKey("expected_curator")) assertEqual(curatorResult, fixture.get("expected_curator"), "ace online curator");
   }
 
   static Map<String, Object> verificationInstrumentsSummary() {

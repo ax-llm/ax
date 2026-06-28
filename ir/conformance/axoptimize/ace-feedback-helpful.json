@@ -1,0 +1,72 @@
+{
+  "bullet_id": "calc-00001",
+  "expected_playbook": {
+    "sections": {
+      "strategies": [
+        {
+          "content": "Show intermediate work.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 2,
+          "id": "calc-00001",
+          "section": "strategies",
+          "updatedAt": "2024-01-02T03:04:05.000Z"
+        },
+        {
+          "content": "Restate the goal.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "calc-00002",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 2,
+      "harmfulCount": 0,
+      "helpfulCount": 2,
+      "tokenEstimate": 11
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  },
+  "kind": "optimize",
+  "name": "ace-feedback-helpful",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "playbook-feedback",
+  "playbook": {
+    "sections": {
+      "strategies": [
+        {
+          "content": "Show intermediate work.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 1,
+          "id": "calc-00001",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        },
+        {
+          "content": "Restate the goal.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "calc-00002",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 2,
+      "harmfulCount": 0,
+      "helpfulCount": 1,
+      "tokenEstimate": 11
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  },
+  "tag": "helpful"
+}

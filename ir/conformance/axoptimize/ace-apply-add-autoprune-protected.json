@@ -1,0 +1,97 @@
+{
+  "apply_options": {
+    "enableAutoPrune": true,
+    "maxSectionSize": 2,
+    "protectedBulletIds": ["keep-protected"]
+  },
+  "expected_result": {
+    "autoRemoved": [
+      {
+        "bulletId": "prune-me",
+        "metadata": {
+          "autoPruned": true,
+          "removedAt": "2024-01-02T03:04:05.000Z"
+        },
+        "section": "strategies",
+        "type": "REMOVE"
+      }
+    ],
+    "playbook": {
+      "sections": {
+        "strategies": [
+          {
+            "content": "Protected high-value tactic.",
+            "createdAt": "2023-12-01T00:00:00.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 5,
+            "id": "keep-protected",
+            "section": "strategies",
+            "updatedAt": "2023-12-01T00:00:00.000Z"
+          },
+          {
+            "content": "Fresh tactic to insert.",
+            "createdAt": "2024-01-02T03:04:05.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 0,
+            "id": "calc-09002",
+            "section": "strategies",
+            "updatedAt": "2024-01-02T03:04:05.000Z"
+          }
+        ]
+      },
+      "stats": {
+        "bulletCount": 2,
+        "harmfulCount": 0,
+        "helpfulCount": 5,
+        "tokenEstimate": 13
+      },
+      "updatedAt": "2024-01-02T03:04:05.000Z",
+      "version": 1
+    },
+    "updatedBulletIds": ["prune-me", "calc-09002"]
+  },
+  "kind": "optimize",
+  "name": "ace-apply-add-autoprune-protected",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "playbook-apply-ops",
+  "operations": [
+    {
+      "bulletId": "calc-09002",
+      "content": "Fresh tactic to insert.",
+      "section": "strategies",
+      "type": "ADD"
+    }
+  ],
+  "playbook": {
+    "sections": {
+      "strategies": [
+        {
+          "content": "Protected high-value tactic.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 5,
+          "id": "keep-protected",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        },
+        {
+          "content": "Low-value tactic to drop.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 3,
+          "helpfulCount": 0,
+          "id": "prune-me",
+          "section": "strategies",
+          "updatedAt": "2023-12-03T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 2,
+      "harmfulCount": 3,
+      "helpfulCount": 5,
+      "tokenEstimate": 14
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  }
+}

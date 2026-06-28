@@ -14,12 +14,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-06-26-port-ace-agentic-context-engineering-optimizer` [axoptimize] Port ACE agentic context engineering optimizer
-  - Status: open
-  - Source commit: `1b26efd014295c7dd88b8544268d807a521b1679`
-  - TS paths: `src/ax/dsp/optimizers/ace.ts`, `src/ax/dsp/optimizers/acePlaybook.ts`, `src/ax/dsp/optimizers/aceTypes.ts`
-  - Impact: TypeScript will restore the AxACE optimizer, its structured playbook artifact, offline compile loop, and online playbook update behavior. Generated Python/Java/C++/Go/Rust optimizer surfaces do not expose matching ACE semantics yet.
-  - Suggested AxIR work: Decide whether ACE becomes a generated optimizer engine or remains TypeScript-only by policy.; If portable, add TS-derived axoptimize conformance fixtures for ACE playbook operations, artifact application, and online updates.; Update AxIR/Core optimizer descriptors and generated backends, then run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -52,3 +47,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-06-25
   - Completed by: `working-tree`
   - Verification: `npm run test:axir`
+- `axir-2026-06-26-port-ace-agentic-context-engineering-optimizer` [axoptimize] Port ACE agentic context engineering optimizer
+  - Status: done
+  - Source commit: `1b26efd014295c7dd88b8544268d807a521b1679`
+  - TS paths: `src/ax/dsp/optimizers/ace.ts`, `src/ax/dsp/optimizers/acePlaybook.ts`, `src/ax/dsp/optimizers/aceTypes.ts`, `src/ax/dsp/playbook.ts`
+  - Impact: TypeScript exposes the AxACE optimizer plus the public playbook() concept (an AxPlaybook handle with evolve/update/applyTo/render/load, and agent.playbook()), wrapping ACE's structured playbook artifact, offline compile loop, and online playbook update. Generated Python/Java/C++/Go/Rust expose optimize()/AxGEPA but no matching ACE engine or playbook() concept yet.
+  - Suggested AxIR work: Author ACE deterministic playbook semantics (apply curator operations, prune, dedupe, render, stats, bullet feedback) as ax.optimize.semantic ops in ir/axcore/optimize.axir and add TS-derived axoptimize conformance fixtures.; Add the AxACE engine (reflector/curator sub-programs, compile loop, online update, hydrate, artifact) to each language template, mirroring AxGEPA.; Expose the public surface per language: playbook(program, options) factory + AxPlaybook handle + agent.playbook(), mirroring optimize()/agent.optimize(); register symbols in runtime_model.go.; Add per-language ax-{lang}-playbook skills and an ace_playbook example, then run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-06-28
+  - Completed by: `working-tree`
+  - Verification: `npm run test:axir; npm run axir:check-packages`

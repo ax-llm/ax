@@ -88,6 +88,10 @@ public final class Ax {
     return optimizeProgram(program, examples, options);
   }
 
+  public static AxPlaybook playbook(AxGen program, java.util.Map<String, Object> options) {
+    return new AxPlaybook(program, options);
+  }
+
   private static java.util.Map<String, Object> optimizeProgram(Object program, java.util.List<java.util.Map<String, Object>> examples, java.util.Map<String, Object> options) {
     java.util.Map<String, Object> opts = options == null ? java.util.Map.of() : options;
     Object student = option(opts, "studentAI", "student_ai", "student", "client", "ai");

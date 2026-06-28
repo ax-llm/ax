@@ -58,6 +58,12 @@
     "optimize": [
       "auto engine = axllm::AxGEPA(reflectionClient, axllm::object({}));",
       "auto result = engine.optimize(request, evaluator);"
+    ],
+    "playbook": [
+      "auto pb = axllm::playbook(program, student_ai);",
+      "pb.evolve(examples, metric);   // grow a playbook offline from examples",
+      "auto rendered = pb.render();   // the playbook is now applied to the program",
+      "auto state = pb.to_json();     // persist; restore later with playbook(...).load(state)"
     ]
   },
   "snippetGroups": {

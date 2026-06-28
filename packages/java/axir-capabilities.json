@@ -220,6 +220,7 @@
   "public_symbols": [
     "AIClient",
     "AnthropicClient",
+    "AxACE",
     "AxAIService",
     "AxAgent",
     "AxAgentClarificationError",
@@ -238,6 +239,7 @@
     "AxMCPTokenSet",
     "AxMCPTransport",
     "AxMemory",
+    "AxPlaybook",
     "AxProgram",
     "AxSignature",
     "AzureOpenAIClient",
@@ -269,6 +271,7 @@
     "fn",
     "get_supported_ai_models",
     "optimize",
+    "playbook",
     "s"
   ],
   "target_idiom": {

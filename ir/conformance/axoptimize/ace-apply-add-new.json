@@ -1,0 +1,82 @@
+{
+  "apply_options": {},
+  "expected_result": {
+    "autoRemoved": [],
+    "playbook": {
+      "sections": {
+        "strategies": [
+          {
+            "content": "Plan before solving.",
+            "createdAt": "2023-12-01T00:00:00.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 0,
+            "id": "calc-00001",
+            "section": "strategies",
+            "updatedAt": "2023-12-01T00:00:00.000Z"
+          }
+        ],
+        "pitfalls": [
+          {
+            "content": "Never ignore the units.",
+            "createdAt": "2024-01-02T03:04:05.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 0,
+            "id": "calc-09001",
+            "metadata": {
+              "source": "reflector"
+            },
+            "section": "pitfalls",
+            "updatedAt": "2024-01-02T03:04:05.000Z"
+          }
+        ]
+      },
+      "stats": {
+        "bulletCount": 2,
+        "harmfulCount": 0,
+        "helpfulCount": 0,
+        "tokenEstimate": 11
+      },
+      "updatedAt": "2024-01-02T03:04:05.000Z",
+      "version": 1
+    },
+    "updatedBulletIds": ["calc-09001"]
+  },
+  "kind": "optimize",
+  "name": "ace-apply-add-new",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "playbook-apply-ops",
+  "operations": [
+    {
+      "bulletId": "calc-09001",
+      "content": "  Never ignore the units.  ",
+      "metadata": {
+        "source": "reflector"
+      },
+      "section": "pitfalls",
+      "type": "ADD"
+    }
+  ],
+  "playbook": {
+    "sections": {
+      "strategies": [
+        {
+          "content": "Plan before solving.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "calc-00001",
+          "section": "strategies",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 1,
+      "harmfulCount": 0,
+      "helpfulCount": 0,
+      "tokenEstimate": 5
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  }
+}

@@ -53,6 +53,12 @@
     "optimize": [
       "engine := axllm.NewAxGEPA(reflectionClient, nil)",
       "result := engine.Optimize(request, evaluator)"
+    ],
+    "playbook": [
+      "pb := axllm.Playbook(program, map[string]axllm.Value{\"studentAI\": studentAI})",
+      "pb.Evolve(ctx, examples, metric, nil)   // grow a playbook offline from examples",
+      "pb.Update(ctx, map[string]axllm.Value{\"example\": ex, \"prediction\": pred, \"feedback\": \"...\"})",
+      "pb.ApplyTo(program)"
     ]
   },
   "snippetGroups": {

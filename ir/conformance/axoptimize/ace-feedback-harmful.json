@@ -1,0 +1,54 @@
+{
+  "bullet_id": "calc-00010",
+  "expected_playbook": {
+    "sections": {
+      "pitfalls": [
+        {
+          "content": "Stop guessing without evidence.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 2,
+          "helpfulCount": 0,
+          "id": "calc-00010",
+          "section": "pitfalls",
+          "updatedAt": "2024-01-02T03:04:05.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 1,
+      "harmfulCount": 2,
+      "helpfulCount": 0,
+      "tokenEstimate": 8
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  },
+  "kind": "optimize",
+  "name": "ace-feedback-harmful",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "playbook-feedback",
+  "playbook": {
+    "sections": {
+      "pitfalls": [
+        {
+          "content": "Stop guessing without evidence.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 1,
+          "helpfulCount": 0,
+          "id": "calc-00010",
+          "section": "pitfalls",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 1,
+      "harmfulCount": 1,
+      "helpfulCount": 0,
+      "tokenEstimate": 8
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  },
+  "tag": "harmful"
+}

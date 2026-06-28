@@ -18,6 +18,9 @@ var cppRuntime string
 
 // templates/go
 
+//go:embed templates/go/goACEPlaybookExample.go.txt
+var goACEPlaybookExample string
+
 //go:embed templates/go/goAudioResponsesMappingExample.go.txt
 var goAudioResponsesMappingExample string
 
@@ -124,8 +127,14 @@ var javaAxCodeSession string
 //go:embed templates/java/javaAxFlow.java
 var javaAxFlow string
 
+//go:embed templates/java/javaAxACE.java
+var javaAxACE string
+
 //go:embed templates/java/javaAxGEPA.java
 var javaAxGEPA string
+
+//go:embed templates/java/javaAxPlaybook.java
+var javaAxPlaybook string
 
 //go:embed templates/java/javaAxGen.java
 var javaAxGen string
@@ -443,6 +452,9 @@ var rustConformanceMain string
 
 //go:embed templates/rust/rustGEPALocalOptimizerExample.rs
 var rustGEPALocalOptimizerExample string
+
+//go:embed templates/rust/rustACEPlaybookExample.rs
+var rustACEPlaybookExample string
 
 //go:embed templates/rust/rustLib.rs
 var rustLib string

@@ -24,6 +24,7 @@ const skillIds = [
   'agent-context',
   'flow',
   'gepa',
+  'playbook',
   'refine',
 ];
 const typeScriptSkillNames = [
