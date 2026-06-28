@@ -43,6 +43,7 @@ import type {
   AxAgentOptimizeResult,
   AxAgentOptimizeTarget,
   AxAgentOptions,
+  AxAgentPlaybookOptions,
   AxAgentRecursionOptions,
   AxAgentStreamingForwardOptions,
   AxStageOptions,
@@ -114,6 +115,13 @@ import type {
   AxAgentRecursiveTurn,
   AxAgentRecursiveUsage,
 } from './agent/agentRecursiveOptimize.js';
+import {
+  AxContextMetricsCollector,
+  type AxContextMetricsRow,
+  type AxContextMetricsSummary,
+  type AxContextTurnSample,
+} from './agent/benchmarks/contextMetrics.js';
+import type { AxContextScenario } from './agent/benchmarks/contextScenarios.js';
 import {
   type AxAgentGuidancePayload,
   AxAgentProtocolCompletionSignal,
@@ -722,6 +730,14 @@ import type {
   AxOptimizerLoggerData,
   AxOptimizerLoggerFunction,
 } from './dsp/optimizerTypes.js';
+import {
+  AxPlaybook,
+  type AxPlaybookEvolveOptions,
+  type AxPlaybookEvolveResult,
+  type AxPlaybookOptions,
+  type AxPlaybookSnapshot,
+  playbook,
+} from './dsp/playbook.js';
 import { AxProgram } from './dsp/program.js';
 import {
   type AxFieldTemplateFn,
@@ -1004,6 +1020,7 @@ export { AxBaseOptimizer };
 export { AxBestOfN };
 export { AxBootstrapFewShot };
 export { AxContentProcessingError };
+export { AxContextMetricsCollector };
 export { AxDefaultCostTracker };
 export { AxDockerSession };
 export { AxEmbeddingAdapter };
@@ -1027,6 +1044,7 @@ export { AxMemory };
 export { AxMockAIService };
 export { AxMultiServiceRouter };
 export { AxOptimizedProgramImpl };
+export { AxPlaybook };
 export { AxProgram };
 export { AxPromptTemplate };
 export { AxProviderRouter };
@@ -1169,6 +1187,7 @@ export { f };
 export { flow };
 export { fn };
 export { optimize };
+export { playbook };
 export { refine };
 export { s };
 
@@ -1437,6 +1456,7 @@ export type { AxAgentOptimizeOptions };
 export type { AxAgentOptimizeResult };
 export type { AxAgentOptimizeTarget };
 export type { AxAgentOptions };
+export type { AxAgentPlaybookOptions };
 export type { AxAgentRecursionOptions };
 export type { AxAgentRecursiveExpensiveNode };
 export type { AxAgentRecursiveFunctionCall };
@@ -1500,9 +1520,13 @@ export type { AxContextCacheRegistry };
 export type { AxContextCacheRegistryEntry };
 export type { AxContextFieldInput };
 export type { AxContextFieldPromptConfig };
+export type { AxContextMetricsRow };
+export type { AxContextMetricsSummary };
 export type { AxContextPolicyBudget };
 export type { AxContextPolicyConfig };
 export type { AxContextPolicyPreset };
+export type { AxContextScenario };
+export type { AxContextTurnSample };
 export type { AxCostTracker };
 export type { AxCostTrackerOptions };
 export type { AxDateRange };
@@ -1674,6 +1698,10 @@ export type { AxOptimizerMetricsConfig };
 export type { AxOptimizerMetricsInstruments };
 export type { AxOptimizerResult };
 export type { AxParetoResult };
+export type { AxPlaybookEvolveOptions };
+export type { AxPlaybookEvolveResult };
+export type { AxPlaybookOptions };
+export type { AxPlaybookSnapshot };
 export type { AxProgramDemos };
 export type { AxProgramExamples };
 export type { AxProgramForwardOptions };

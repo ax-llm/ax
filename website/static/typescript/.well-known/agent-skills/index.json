@@ -81,9 +81,9 @@
     {
       "name": "ax-agent-context",
       "type": "skill-md",
-      "description": "This skill helps an LLM pick the right AxAgent context tool for a job - contextMap for recurring corpora, contextPolicy presets for within-run trajectory compaction, agent.optimize (ACE + GEPA) for offline strategy and instruction tuning, and recall/memories + skills for per-turn retrieval. Use when the user asks \"which context feature should I use\", confuses contextMap with contextPolicy or memory, or wants a decision guide for long-context agents. For contextPolicy/contextMap codegen use ax-agent-rlm; for recall/skills use ax-agent-memory-skills; for ACE/GEPA use ax-agent-optimize.",
+      "description": "This skill helps an LLM pick the right AxAgent context tool for a job - contextMap for recurring corpora, contextPolicy presets for within-run trajectory compaction, agent.optimize for offline GEPA instruction/demo tuning, agent.playbook for an evolving context playbook (offline evolve + online update), and recall/memories + skills for per-turn retrieval. Use when the user asks \"which context feature should I use\", confuses contextMap with contextPolicy or memory, or wants a decision guide for long-context agents. For contextPolicy/contextMap codegen use ax-agent-rlm; for recall/skills use ax-agent-memory-skills; for agent.optimize or agent.playbook use ax-agent-optimize.",
       "url": "ax-agent-context/SKILL.md",
-      "digest": "sha256:1eeac3c5582d118fb5f235b662fe011632ca7386bf3c4800481eed9a66cbba1e"
+      "digest": "sha256:455dc1d3b74bc324e9b03473885ce1023b70ff73783d28d17d7b9dfec6a5418c"
     },
     {
       "name": "ax-gepa",
@@ -98,6 +98,13 @@
       "description": "Use this skill when writing or reviewing Ax bestOfN/refine code, reward functions, thresholds, native sample selection, serial attempts, generated advice, and attempt diagnostics.",
       "url": "ax-refine/SKILL.md",
       "digest": "sha256:f7e284878c4c2079fe686daac690ae21023a2b7851a5635aa3287523e3e71131"
+    },
+    {
+      "name": "ax-playbook",
+      "type": "skill-md",
+      "description": "This skill helps an LLM generate correct playbook code using @ax-llm/ax. Use when the user asks about playbook(), AxPlaybook, context playbooks, evolving context, ACE / Agentic Context Engineering, agent.playbook(), or growing/applying task knowledge offline and online with evolve() and update().",
+      "url": "ax-playbook/SKILL.md",
+      "digest": "sha256:72cce779b2998d86c50c2eede2c2ef1f02e979662e7612b3b9f21505b1b88178"
     }
   ]
 }

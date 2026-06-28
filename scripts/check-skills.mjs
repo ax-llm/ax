@@ -40,6 +40,7 @@ const typeScriptSkillNames = [
   'ax-agent-context',
   'ax-flow',
   'ax-gepa',
+  'ax-playbook',
   'ax-refine',
 ].sort();
 const languageLabels = {

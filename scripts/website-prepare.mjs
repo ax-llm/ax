@@ -219,6 +219,11 @@ for (const language of languages) {
   });
 
   for (const page of navPages) {
+    // Pages may opt into a subset of languages (e.g. a TS-only feature whose
+    // API is not yet ported to the generated languages).
+    if (page.languages && !page.languages.includes(language.id)) {
+      continue;
+    }
     await writeGeneratedDocPage(language, page);
   }
 
@@ -401,6 +406,7 @@ async function renderContext(language, page) {
     aiProviderExamples: aiProviderExamples(language),
     telemetryCode: lines(snippets.telemetry),
     optimizeCode: lines(snippets.optimize),
+    playbookCode: lines(snippets.playbook),
     optimizeAxGenExample: snippetBlock(language, 'optimize.axgen', 'optimize'),
     optimizeFlowExample: snippetBlock(language, 'optimize.flow'),
     optimizeAgentExample: snippetBlock(language, 'optimize.agent'),

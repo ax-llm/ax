@@ -148,6 +148,25 @@
       "",
       "const result = await optimize(program, train, metric, { studentAI, teacherAI, maxMetricCalls: 40 });",
       "program.applyOptimization(result.optimizedProgram!);"
+    ],
+    "playbook": [
+      "import { AxAIOpenAIModel, ai, ax, playbook } from '@ax-llm/ax';",
+      "",
+      "const program = ax('review:string -> sentiment:class \"positive, negative\"');",
+      "const studentAI = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: AxAIOpenAIModel.GPT54Mini } });",
+      "const metric = ({ prediction, example }: any) => (prediction.sentiment === example.sentiment ? 1 : 0);",
+      "",
+      "// Grow a context playbook offline from examples, then render it into the program.",
+      "const pb = playbook(program, { studentAI });",
+      "await pb.evolve(train, metric);",
+      "pb.applyTo(program);",
+      "",
+      "// Keep it improving online from live feedback (no metric required).",
+      "await pb.update({ example, prediction, feedback: 'Sarcastic praise is negative.' });",
+      "",
+      "// Persist and restore later (portable across program instances).",
+      "const snapshot = pb.toJSON();",
+      "playbook(program, { studentAI }).load(snapshot).applyTo(program);"
     ]
   },
   "snippetGroups": {

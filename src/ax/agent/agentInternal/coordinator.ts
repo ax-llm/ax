@@ -1,4 +1,5 @@
 import type { AxAIService, AxFunction } from '../../ai/types.js';
+import { AxPlaybook } from '../../dsp/playbook.js';
 import type { AxSignatureConfig, AxSignatureInput } from '../../dsp/sig.js';
 import { AxSignature, f } from '../../dsp/sig.js';
 import type { ParseSignature } from '../../dsp/sigtypes.js';
@@ -35,6 +36,7 @@ import type {
   AxAgentOptimizeOptions,
   AxAgentOptimizeResult,
   AxAgentOptions,
+  AxAgentPlaybookOptions,
   AxAgentState,
   AxAgentStreamingForwardOptions,
   AxAgentTestResult,
@@ -782,6 +784,79 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.applyOptimization(result.optimizedProgram);
     }
     return result;
+  }
+
+  /**
+   * Build an evolving context {@link AxPlaybook} bound to an agent stage
+   * (the actor/task stage by default).
+   *
+   * Use `.update({ example, prediction, feedback })` to refine the playbook from
+   * live feedback, or `.evolve(dataset, metric)` to grow it offline. Offline
+   * evolution scores the chosen stage in isolation; for full-pipeline tuning of
+   * instructions and demos use {@link optimize} instead. Unless `apply` is
+   * `false`, the rendered playbook is injected into the live stage prompt as it
+   * evolves. The evolution engine (ACE) is an implementation detail.
+   */
+  public playbook(
+    options?: Readonly<AxAgentPlaybookOptions>
+  ): AxPlaybook<any, any> {
+    const target = options?.target ?? 'actor';
+    const studentAI = options?.studentAI ?? (this.primaryAgent as any).ai;
+    if (!studentAI) {
+      throw new Error(
+        'AxAgent.playbook(): studentAI is required when the agent has no default ai.'
+      );
+    }
+
+    const stage: any = target === 'responder' ? this.responder : this.executor;
+    const stageGen = stage.namedProgramInstances()[0]?.program;
+    if (!stageGen) {
+      throw new Error(
+        `AxAgent.playbook(): could not resolve the ${target} stage program.`
+      );
+    }
+
+    const handle = new AxPlaybook(stageGen, {
+      studentAI,
+      teacherAI: options?.teacherAI ?? (this.primaryAgent as any).judgeAI,
+      verbose: options?.verbose,
+      seed: options?.seed,
+      maxEpochs: options?.maxEpochs,
+      maxReflectorRounds: options?.maxReflectorRounds,
+      maxSectionSize: options?.maxSectionSize,
+      allowDynamicSections: options?.allowDynamicSections,
+      initialPlaybook: options?.initialPlaybook,
+      auto: options?.auto,
+    });
+
+    // Live injection must go through the stage's description channel and a
+    // rebuild, not the bare program's signature (the live actor prompt is
+    // composed from `executorDescription`). Mirror the contextMap precedent.
+    if (options?.apply === false) {
+      handle._setApplyHook(() => {});
+      return handle;
+    }
+
+    const compose = (base: string | undefined, rendered: string): string =>
+      [base?.trim(), '', rendered]
+        .filter((block) => block && block.trim().length > 0)
+        .join('\n\n');
+
+    if (target === 'responder') {
+      const base: string | undefined = stage.init?.description;
+      handle._setApplyHook((rendered) => {
+        stage.init.description = compose(base, rendered);
+        stage._buildProgram?.();
+      });
+    } else {
+      const base: string | undefined = stage.executorDescription;
+      handle._setApplyHook((rendered) => {
+        stage.executorDescription = compose(base, rendered);
+        stage._buildSplitPrograms?.();
+      });
+    }
+
+    return handle;
   }
 
   private _listOptimizationTargetDescriptors(): AxAgentOptimizationTargetDescriptor[] {

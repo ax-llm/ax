@@ -79,6 +79,13 @@
           "description": "GEPA, Pareto tradeoffs, demos, artifacts, and evaluation."
         },
         {
+          "slug": "concepts/playbook",
+          "title": "Playbook",
+          "template": "concept-playbook",
+          "description": "Evolving context playbooks that grow offline from examples and online from feedback.",
+          "languages": ["typescript"]
+        },
+        {
           "slug": "concepts/llms",
           "title": "LLMs",
           "template": "concept-llms",

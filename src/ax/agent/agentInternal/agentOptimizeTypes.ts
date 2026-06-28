@@ -9,6 +9,7 @@ import type {
 import type { AxJudgeOptions } from '../../dsp/judgeTypes.js';
 import type { AxParetoResult } from '../../dsp/optimizer.js';
 import type { AxOptimizerLoggerFunction } from '../../dsp/optimizerTypes.js';
+import type { AxPlaybookOptions } from '../../dsp/playbook.js';
 import type {
   AxFieldValue,
   AxGenIn,
@@ -146,6 +147,30 @@ export type AxAgentOptimizeOptions<
 
 export type AxAgentOptimizeResult<OUT extends AxGenOut = AxGenOut> =
   AxParetoResult<OUT>;
+
+/**
+ * Options for `AxAgent.playbook()`. Builds an `AxPlaybook` bound to an agent
+ * stage (the actor by default). The evolution engine (ACE) is hidden, exactly
+ * as in the standalone `playbook()` factory.
+ */
+export type AxAgentPlaybookOptions = {
+  studentAI?: Readonly<AxAIService>;
+  teacherAI?: Readonly<AxAIService>;
+  /** Which agent stage to evolve a playbook for. Defaults to `'actor'`. */
+  target?: 'actor' | 'responder';
+  /** Render the evolving playbook into the live stage. Defaults to `true`. */
+  apply?: boolean;
+} & Pick<
+  AxPlaybookOptions,
+  | 'verbose'
+  | 'seed'
+  | 'maxEpochs'
+  | 'maxReflectorRounds'
+  | 'maxSectionSize'
+  | 'allowDynamicSections'
+  | 'initialPlaybook'
+  | 'auto'
+>;
 
 export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   AxProgramForwardOptions<string>,
