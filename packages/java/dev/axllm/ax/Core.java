@@ -8730,6 +8730,135 @@ final class Core {
     return out;
   }
 
+  static Object _ace_is_noop_acknowledgment(Object content) {
+    axirCoverageMark("_ace_is_noop_acknowledgment");
+    Object lowered = Core.stringLower(content);
+    Object c = Core.stringTrim(lowered);
+    Object is_noop = Boolean.FALSE;
+    Object empty = Core.eq(c, "");
+    Object nonempty = Core.not(empty);
+    if (Core.truthy(nonempty)) {
+      Object markers = new java.util.ArrayList<Object>();
+      Core.append(markers, "no-op");
+      Core.append(markers, "noop");
+      for (Object marker : Core.iter(markers)) {
+        Object marker_hit = Core.stringStartsWith(c, marker);
+        if (Core.truthy(marker_hit)) {
+          is_noop = Boolean.TRUE;
+        }
+      }
+      Object subjects = new java.util.ArrayList<Object>();
+      Core.append(subjects, "no update");
+      Core.append(subjects, "no updates");
+      Core.append(subjects, "no change");
+      Core.append(subjects, "no changes");
+      Core.append(subjects, "no modification");
+      Core.append(subjects, "no modifications");
+      Core.append(subjects, "no edit");
+      Core.append(subjects, "no edits");
+      Core.append(subjects, "no revision");
+      Core.append(subjects, "no revisions");
+      Core.append(subjects, "no action");
+      Core.append(subjects, "no adjustment");
+      Core.append(subjects, "no adjustments");
+      Core.append(subjects, "no new");
+      Core.append(subjects, "no additional");
+      Core.append(subjects, "no further");
+      Object has_subject = Boolean.FALSE;
+      for (Object subject : Core.iter(subjects)) {
+        Object subject_hit = Core.contains(c, subject);
+        if (Core.truthy(subject_hit)) {
+          has_subject = Boolean.TRUE;
+        }
+      }
+      if (Core.truthy(has_subject)) {
+        Object qualifiers = new java.util.ArrayList<Object>();
+        Core.append(qualifiers, "needed");
+        Core.append(qualifiers, "required");
+        Core.append(qualifiers, "necessary");
+        Core.append(qualifiers, "warranted");
+        for (Object qualifier : Core.iter(qualifiers)) {
+          Object qualifier_hit = Core.contains(c, qualifier);
+          if (Core.truthy(qualifier_hit)) {
+            is_noop = Boolean.TRUE;
+          }
+        }
+      }
+      Object phrases = new java.util.ArrayList<Object>();
+      Core.append(phrases, "nothing to add");
+      Core.append(phrases, "nothing to change");
+      Core.append(phrases, "nothing to update");
+      Core.append(phrases, "nothing to modify");
+      Core.append(phrases, "nothing to revise");
+      Core.append(phrases, "nothing needs");
+      Core.append(phrases, "nothing further");
+      for (Object phrase : Core.iter(phrases)) {
+        Object phrase_hit = Core.contains(c, phrase);
+        if (Core.truthy(phrase_hit)) {
+          is_noop = Boolean.TRUE;
+        }
+      }
+      Object keep_prefixes = new java.util.ArrayList<Object>();
+      Core.append(keep_prefixes, "keep the existing");
+      Core.append(keep_prefixes, "leave the existing");
+      Core.append(keep_prefixes, "retain the existing");
+      Core.append(keep_prefixes, "preserve the existing");
+      Object has_keep_prefix = Boolean.FALSE;
+      for (Object keep_prefix : Core.iter(keep_prefixes)) {
+        Object keep_hit = Core.stringStartsWith(c, keep_prefix);
+        if (Core.truthy(keep_hit)) {
+          has_keep_prefix = Boolean.TRUE;
+        }
+      }
+      if (Core.truthy(has_keep_prefix)) {
+        Object stasis_list = new java.util.ArrayList<Object>();
+        Core.append(stasis_list, "unchanged");
+        Core.append(stasis_list, "as is");
+        Core.append(stasis_list, "as-is");
+        Core.append(stasis_list, "intact");
+        Core.append(stasis_list, "in place");
+        for (Object stasis : Core.iter(stasis_list)) {
+          Object stasis_hit = Core.contains(c, stasis);
+          if (Core.truthy(stasis_hit)) {
+            is_noop = Boolean.TRUE;
+          }
+        }
+      }
+      Object remains_list = new java.util.ArrayList<Object>();
+      Core.append(remains_list, "remains correct");
+      Core.append(remains_list, "remains unchanged");
+      Core.append(remains_list, "remains the same");
+      Core.append(remains_list, "remains valid");
+      Core.append(remains_list, "remains accurate");
+      Core.append(remains_list, "already correct");
+      Object has_remains = Boolean.FALSE;
+      for (Object remains : Core.iter(remains_list)) {
+        Object remains_hit = Core.contains(c, remains);
+        if (Core.truthy(remains_hit)) {
+          has_remains = Boolean.TRUE;
+        }
+      }
+      if (Core.truthy(has_remains)) {
+        Object referents = new java.util.ArrayList<Object>();
+        Core.append(referents, "existing");
+        Core.append(referents, "current");
+        Core.append(referents, "rule");
+        Core.append(referents, "guideline");
+        Core.append(referents, "guidance");
+        Core.append(referents, "playbook");
+        Core.append(referents, "bullet");
+        Core.append(referents, "entry");
+        for (Object referent : Core.iter(referents)) {
+          Object referent_hit = Core.contains(c, referent);
+          if (Core.truthy(referent_hit)) {
+            is_noop = Boolean.TRUE;
+          }
+        }
+      }
+    }
+    return is_noop;
+  }
+
   static Object _ace_normalize_curator_operations(Object operations) {
     axirCoverageMark("_ace_normalize_curator_operations");
     Object empty_list = new java.util.ArrayList<Object>();
@@ -8783,6 +8912,13 @@ final class Core {
           Object keep = Boolean.TRUE;
           if (Core.truthy(not_remove)) {
             if (Core.truthy(content_empty)) {
+              keep = Boolean.FALSE;
+            }
+          }
+          Object is_add_type = Core.eq(type, "ADD");
+          if (Core.truthy(is_add_type)) {
+            Object is_noop = Core._ace_is_noop_acknowledgment(content);
+            if (Core.truthy(is_noop)) {
               keep = Boolean.FALSE;
             }
           }

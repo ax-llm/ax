@@ -35272,6 +35272,183 @@ fn _ace_apply_curator_operations(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
+fn _ace_is_noop_acknowledgment(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_is_noop_acknowledgment");
+    let mut v_content = core_arg(args, 0);
+    let mut v_c = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_has_keep_prefix = CoreValue::Null;
+    let mut v_has_remains = CoreValue::Null;
+    let mut v_has_subject = CoreValue::Null;
+    let mut v_is_noop = CoreValue::Null;
+    let mut v_keep_hit = CoreValue::Null;
+    let mut v_keep_prefix = CoreValue::Null;
+    let mut v_keep_prefixes = CoreValue::Null;
+    let mut v_lowered = CoreValue::Null;
+    let mut v_marker = CoreValue::Null;
+    let mut v_marker_hit = CoreValue::Null;
+    let mut v_markers = CoreValue::Null;
+    let mut v_nonempty = CoreValue::Null;
+    let mut v_phrase = CoreValue::Null;
+    let mut v_phrase_hit = CoreValue::Null;
+    let mut v_phrases = CoreValue::Null;
+    let mut v_qualifier = CoreValue::Null;
+    let mut v_qualifier_hit = CoreValue::Null;
+    let mut v_qualifiers = CoreValue::Null;
+    let mut v_referent = CoreValue::Null;
+    let mut v_referent_hit = CoreValue::Null;
+    let mut v_referents = CoreValue::Null;
+    let mut v_remains = CoreValue::Null;
+    let mut v_remains_hit = CoreValue::Null;
+    let mut v_remains_list = CoreValue::Null;
+    let mut v_stasis = CoreValue::Null;
+    let mut v_stasis_hit = CoreValue::Null;
+    let mut v_stasis_list = CoreValue::Null;
+    let mut v_subject = CoreValue::Null;
+    let mut v_subject_hit = CoreValue::Null;
+    let mut v_subjects = CoreValue::Null;
+    v_lowered = core_string_lower(&[v_content.clone()])?;
+    v_c = core_string_trim(&v_lowered);
+    v_is_noop = CoreValue::Bool(false);
+    v_empty = core_eq(&[v_c.clone(), CoreValue::from("")])?;
+    v_nonempty = core_not(&[v_empty.clone()])?;
+    if core_truthy(&v_nonempty) {
+        v_markers = CoreValue::new_list();
+        core_append(&v_markers, CoreValue::from("no-op"))?;
+        core_append(&v_markers, CoreValue::from("noop"))?;
+        for v_marker in core_iter(&v_markers)? {
+            let mut v_marker = v_marker;
+            v_marker_hit = core_string_starts_with(&[v_c.clone(), v_marker.clone()])?;
+            if core_truthy(&v_marker_hit) {
+                v_is_noop = CoreValue::Bool(true);
+            }
+        }
+        v_subjects = CoreValue::new_list();
+        core_append(&v_subjects, CoreValue::from("no update"))?;
+        core_append(&v_subjects, CoreValue::from("no updates"))?;
+        core_append(&v_subjects, CoreValue::from("no change"))?;
+        core_append(&v_subjects, CoreValue::from("no changes"))?;
+        core_append(&v_subjects, CoreValue::from("no modification"))?;
+        core_append(&v_subjects, CoreValue::from("no modifications"))?;
+        core_append(&v_subjects, CoreValue::from("no edit"))?;
+        core_append(&v_subjects, CoreValue::from("no edits"))?;
+        core_append(&v_subjects, CoreValue::from("no revision"))?;
+        core_append(&v_subjects, CoreValue::from("no revisions"))?;
+        core_append(&v_subjects, CoreValue::from("no action"))?;
+        core_append(&v_subjects, CoreValue::from("no adjustment"))?;
+        core_append(&v_subjects, CoreValue::from("no adjustments"))?;
+        core_append(&v_subjects, CoreValue::from("no new"))?;
+        core_append(&v_subjects, CoreValue::from("no additional"))?;
+        core_append(&v_subjects, CoreValue::from("no further"))?;
+        v_has_subject = CoreValue::Bool(false);
+        for v_subject in core_iter(&v_subjects)? {
+            let mut v_subject = v_subject;
+            v_subject_hit = core_contains(&[v_c.clone(), v_subject.clone()])?;
+            if core_truthy(&v_subject_hit) {
+                v_has_subject = CoreValue::Bool(true);
+            }
+        }
+        if core_truthy(&v_has_subject) {
+            v_qualifiers = CoreValue::new_list();
+            core_append(&v_qualifiers, CoreValue::from("needed"))?;
+            core_append(&v_qualifiers, CoreValue::from("required"))?;
+            core_append(&v_qualifiers, CoreValue::from("necessary"))?;
+            core_append(&v_qualifiers, CoreValue::from("warranted"))?;
+            for v_qualifier in core_iter(&v_qualifiers)? {
+                let mut v_qualifier = v_qualifier;
+                v_qualifier_hit = core_contains(&[v_c.clone(), v_qualifier.clone()])?;
+                if core_truthy(&v_qualifier_hit) {
+                    v_is_noop = CoreValue::Bool(true);
+                }
+            }
+        }
+        v_phrases = CoreValue::new_list();
+        core_append(&v_phrases, CoreValue::from("nothing to add"))?;
+        core_append(&v_phrases, CoreValue::from("nothing to change"))?;
+        core_append(&v_phrases, CoreValue::from("nothing to update"))?;
+        core_append(&v_phrases, CoreValue::from("nothing to modify"))?;
+        core_append(&v_phrases, CoreValue::from("nothing to revise"))?;
+        core_append(&v_phrases, CoreValue::from("nothing needs"))?;
+        core_append(&v_phrases, CoreValue::from("nothing further"))?;
+        for v_phrase in core_iter(&v_phrases)? {
+            let mut v_phrase = v_phrase;
+            v_phrase_hit = core_contains(&[v_c.clone(), v_phrase.clone()])?;
+            if core_truthy(&v_phrase_hit) {
+                v_is_noop = CoreValue::Bool(true);
+            }
+        }
+        v_keep_prefixes = CoreValue::new_list();
+        core_append(&v_keep_prefixes, CoreValue::from("keep the existing"))?;
+        core_append(&v_keep_prefixes, CoreValue::from("leave the existing"))?;
+        core_append(&v_keep_prefixes, CoreValue::from("retain the existing"))?;
+        core_append(&v_keep_prefixes, CoreValue::from("preserve the existing"))?;
+        v_has_keep_prefix = CoreValue::Bool(false);
+        for v_keep_prefix in core_iter(&v_keep_prefixes)? {
+            let mut v_keep_prefix = v_keep_prefix;
+            v_keep_hit = core_string_starts_with(&[v_c.clone(), v_keep_prefix.clone()])?;
+            if core_truthy(&v_keep_hit) {
+                v_has_keep_prefix = CoreValue::Bool(true);
+            }
+        }
+        if core_truthy(&v_has_keep_prefix) {
+            v_stasis_list = CoreValue::new_list();
+            core_append(&v_stasis_list, CoreValue::from("unchanged"))?;
+            core_append(&v_stasis_list, CoreValue::from("as is"))?;
+            core_append(&v_stasis_list, CoreValue::from("as-is"))?;
+            core_append(&v_stasis_list, CoreValue::from("intact"))?;
+            core_append(&v_stasis_list, CoreValue::from("in place"))?;
+            for v_stasis in core_iter(&v_stasis_list)? {
+                let mut v_stasis = v_stasis;
+                v_stasis_hit = core_contains(&[v_c.clone(), v_stasis.clone()])?;
+                if core_truthy(&v_stasis_hit) {
+                    v_is_noop = CoreValue::Bool(true);
+                }
+            }
+        }
+        v_remains_list = CoreValue::new_list();
+        core_append(&v_remains_list, CoreValue::from("remains correct"))?;
+        core_append(&v_remains_list, CoreValue::from("remains unchanged"))?;
+        core_append(&v_remains_list, CoreValue::from("remains the same"))?;
+        core_append(&v_remains_list, CoreValue::from("remains valid"))?;
+        core_append(&v_remains_list, CoreValue::from("remains accurate"))?;
+        core_append(&v_remains_list, CoreValue::from("already correct"))?;
+        v_has_remains = CoreValue::Bool(false);
+        for v_remains in core_iter(&v_remains_list)? {
+            let mut v_remains = v_remains;
+            v_remains_hit = core_contains(&[v_c.clone(), v_remains.clone()])?;
+            if core_truthy(&v_remains_hit) {
+                v_has_remains = CoreValue::Bool(true);
+            }
+        }
+        if core_truthy(&v_has_remains) {
+            v_referents = CoreValue::new_list();
+            core_append(&v_referents, CoreValue::from("existing"))?;
+            core_append(&v_referents, CoreValue::from("current"))?;
+            core_append(&v_referents, CoreValue::from("rule"))?;
+            core_append(&v_referents, CoreValue::from("guideline"))?;
+            core_append(&v_referents, CoreValue::from("guidance"))?;
+            core_append(&v_referents, CoreValue::from("playbook"))?;
+            core_append(&v_referents, CoreValue::from("bullet"))?;
+            core_append(&v_referents, CoreValue::from("entry"))?;
+            for v_referent in core_iter(&v_referents)? {
+                let mut v_referent = v_referent;
+                v_referent_hit = core_contains(&[v_c.clone(), v_referent.clone()])?;
+                if core_truthy(&v_referent_hit) {
+                    v_is_noop = CoreValue::Bool(true);
+                }
+            }
+        }
+    }
+    return Ok(v_is_noop.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _ace_normalize_curator_operations(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_ace_normalize_curator_operations");
     let mut v_operations = core_arg(args, 0);
@@ -35298,7 +35475,9 @@ fn _ace_normalize_curator_operations(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_has_operations = CoreValue::Null;
     let mut v_id_field = CoreValue::Null;
     let mut v_inner = CoreValue::Null;
+    let mut v_is_add_type = CoreValue::Null;
     let mut v_is_list = CoreValue::Null;
+    let mut v_is_noop = CoreValue::Null;
     let mut v_is_object = CoreValue::Null;
     let mut v_is_remove = CoreValue::Null;
     let mut v_is_string = CoreValue::Null;
@@ -35388,6 +35567,13 @@ fn _ace_normalize_curator_operations(args: &[CoreValue]) -> Result<CoreValue, Ax
                 v_keep = CoreValue::Bool(true);
                 if core_truthy(&v_not_remove) {
                     if core_truthy(&v_content_empty) {
+                        v_keep = CoreValue::Bool(false);
+                    }
+                }
+                v_is_add_type = core_eq(&[v_type.clone(), CoreValue::from("ADD")])?;
+                if core_truthy(&v_is_add_type) {
+                    v_is_noop = _ace_is_noop_acknowledgment(&[v_content.clone()])?;
+                    if core_truthy(&v_is_noop) {
                         v_keep = CoreValue::Bool(false);
                     }
                 }
@@ -53526,4 +53712,4 @@ fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_response.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (410 of 410 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (411 of 411 core functions)

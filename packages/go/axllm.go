@@ -17446,6 +17446,226 @@ func _ace_apply_curator_operations(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _ace_is_noop_acknowledgment(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_is_noop_acknowledgment")
+	var v_content Value
+	var v_c Value
+	var v_empty Value
+	var v_has_keep_prefix Value
+	var v_has_remains Value
+	var v_has_subject Value
+	var v_is_noop Value
+	var v_keep_hit Value
+	var v_keep_prefix Value
+	var v_keep_prefixes Value
+	var v_lowered Value
+	var v_marker Value
+	var v_marker_hit Value
+	var v_markers Value
+	var v_nonempty Value
+	var v_phrase Value
+	var v_phrase_hit Value
+	var v_phrases Value
+	var v_qualifier Value
+	var v_qualifier_hit Value
+	var v_qualifiers Value
+	var v_referent Value
+	var v_referent_hit Value
+	var v_referents Value
+	var v_remains Value
+	var v_remains_hit Value
+	var v_remains_list Value
+	var v_stasis Value
+	var v_stasis_hit Value
+	var v_stasis_list Value
+	var v_subject Value
+	var v_subject_hit Value
+	var v_subjects Value
+	if len(args) > 0 { v_content = args[0] }
+	_ = v_content
+	_ = v_c
+	_ = v_empty
+	_ = v_has_keep_prefix
+	_ = v_has_remains
+	_ = v_has_subject
+	_ = v_is_noop
+	_ = v_keep_hit
+	_ = v_keep_prefix
+	_ = v_keep_prefixes
+	_ = v_lowered
+	_ = v_marker
+	_ = v_marker_hit
+	_ = v_markers
+	_ = v_nonempty
+	_ = v_phrase
+	_ = v_phrase_hit
+	_ = v_phrases
+	_ = v_qualifier
+	_ = v_qualifier_hit
+	_ = v_qualifiers
+	_ = v_referent
+	_ = v_referent_hit
+	_ = v_referents
+	_ = v_remains
+	_ = v_remains_hit
+	_ = v_remains_list
+	_ = v_stasis
+	_ = v_stasis_hit
+	_ = v_stasis_list
+	_ = v_subject
+	_ = v_subject_hit
+	_ = v_subjects
+	v_lowered = _core_string_lower(v_content)
+	v_c = coreStringTrim(v_lowered)
+	v_is_noop = false
+	v_empty = _core_eq(v_c, "")
+	v_nonempty = _core_not(v_empty)
+	if coreTruthy(v_nonempty) {
+		v_markers = MutableArray()
+		v_markers = coreAppend(v_markers, "no-op")
+		v_markers = coreAppend(v_markers, "noop")
+		for _, v_marker = range coreIter(v_markers) {
+			v_marker_hit = _core_string_starts_with(v_c, v_marker)
+			if coreTruthy(v_marker_hit) {
+				v_is_noop = true
+			} else {
+			// empty
+			}
+		}
+		v_subjects = MutableArray()
+		v_subjects = coreAppend(v_subjects, "no update")
+		v_subjects = coreAppend(v_subjects, "no updates")
+		v_subjects = coreAppend(v_subjects, "no change")
+		v_subjects = coreAppend(v_subjects, "no changes")
+		v_subjects = coreAppend(v_subjects, "no modification")
+		v_subjects = coreAppend(v_subjects, "no modifications")
+		v_subjects = coreAppend(v_subjects, "no edit")
+		v_subjects = coreAppend(v_subjects, "no edits")
+		v_subjects = coreAppend(v_subjects, "no revision")
+		v_subjects = coreAppend(v_subjects, "no revisions")
+		v_subjects = coreAppend(v_subjects, "no action")
+		v_subjects = coreAppend(v_subjects, "no adjustment")
+		v_subjects = coreAppend(v_subjects, "no adjustments")
+		v_subjects = coreAppend(v_subjects, "no new")
+		v_subjects = coreAppend(v_subjects, "no additional")
+		v_subjects = coreAppend(v_subjects, "no further")
+		v_has_subject = false
+		for _, v_subject = range coreIter(v_subjects) {
+			v_subject_hit = _core_contains(v_c, v_subject)
+			if coreTruthy(v_subject_hit) {
+				v_has_subject = true
+			} else {
+			// empty
+			}
+		}
+		if coreTruthy(v_has_subject) {
+			v_qualifiers = MutableArray()
+			v_qualifiers = coreAppend(v_qualifiers, "needed")
+			v_qualifiers = coreAppend(v_qualifiers, "required")
+			v_qualifiers = coreAppend(v_qualifiers, "necessary")
+			v_qualifiers = coreAppend(v_qualifiers, "warranted")
+			for _, v_qualifier = range coreIter(v_qualifiers) {
+				v_qualifier_hit = _core_contains(v_c, v_qualifier)
+				if coreTruthy(v_qualifier_hit) {
+					v_is_noop = true
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+		v_phrases = MutableArray()
+		v_phrases = coreAppend(v_phrases, "nothing to add")
+		v_phrases = coreAppend(v_phrases, "nothing to change")
+		v_phrases = coreAppend(v_phrases, "nothing to update")
+		v_phrases = coreAppend(v_phrases, "nothing to modify")
+		v_phrases = coreAppend(v_phrases, "nothing to revise")
+		v_phrases = coreAppend(v_phrases, "nothing needs")
+		v_phrases = coreAppend(v_phrases, "nothing further")
+		for _, v_phrase = range coreIter(v_phrases) {
+			v_phrase_hit = _core_contains(v_c, v_phrase)
+			if coreTruthy(v_phrase_hit) {
+				v_is_noop = true
+			} else {
+			// empty
+			}
+		}
+		v_keep_prefixes = MutableArray()
+		v_keep_prefixes = coreAppend(v_keep_prefixes, "keep the existing")
+		v_keep_prefixes = coreAppend(v_keep_prefixes, "leave the existing")
+		v_keep_prefixes = coreAppend(v_keep_prefixes, "retain the existing")
+		v_keep_prefixes = coreAppend(v_keep_prefixes, "preserve the existing")
+		v_has_keep_prefix = false
+		for _, v_keep_prefix = range coreIter(v_keep_prefixes) {
+			v_keep_hit = _core_string_starts_with(v_c, v_keep_prefix)
+			if coreTruthy(v_keep_hit) {
+				v_has_keep_prefix = true
+			} else {
+			// empty
+			}
+		}
+		if coreTruthy(v_has_keep_prefix) {
+			v_stasis_list = MutableArray()
+			v_stasis_list = coreAppend(v_stasis_list, "unchanged")
+			v_stasis_list = coreAppend(v_stasis_list, "as is")
+			v_stasis_list = coreAppend(v_stasis_list, "as-is")
+			v_stasis_list = coreAppend(v_stasis_list, "intact")
+			v_stasis_list = coreAppend(v_stasis_list, "in place")
+			for _, v_stasis = range coreIter(v_stasis_list) {
+				v_stasis_hit = _core_contains(v_c, v_stasis)
+				if coreTruthy(v_stasis_hit) {
+					v_is_noop = true
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+		v_remains_list = MutableArray()
+		v_remains_list = coreAppend(v_remains_list, "remains correct")
+		v_remains_list = coreAppend(v_remains_list, "remains unchanged")
+		v_remains_list = coreAppend(v_remains_list, "remains the same")
+		v_remains_list = coreAppend(v_remains_list, "remains valid")
+		v_remains_list = coreAppend(v_remains_list, "remains accurate")
+		v_remains_list = coreAppend(v_remains_list, "already correct")
+		v_has_remains = false
+		for _, v_remains = range coreIter(v_remains_list) {
+			v_remains_hit = _core_contains(v_c, v_remains)
+			if coreTruthy(v_remains_hit) {
+				v_has_remains = true
+			} else {
+			// empty
+			}
+		}
+		if coreTruthy(v_has_remains) {
+			v_referents = MutableArray()
+			v_referents = coreAppend(v_referents, "existing")
+			v_referents = coreAppend(v_referents, "current")
+			v_referents = coreAppend(v_referents, "rule")
+			v_referents = coreAppend(v_referents, "guideline")
+			v_referents = coreAppend(v_referents, "guidance")
+			v_referents = coreAppend(v_referents, "playbook")
+			v_referents = coreAppend(v_referents, "bullet")
+			v_referents = coreAppend(v_referents, "entry")
+			for _, v_referent = range coreIter(v_referents) {
+				v_referent_hit = _core_contains(v_c, v_referent)
+				if coreTruthy(v_referent_hit) {
+					v_is_noop = true
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_is_noop, nil
+}
+
 func _ace_normalize_curator_operations(args ...Value) (Value, error) {
 	axirCoverageMark("_ace_normalize_curator_operations")
 	var v_operations Value
@@ -17472,7 +17692,9 @@ func _ace_normalize_curator_operations(args ...Value) (Value, error) {
 	var v_has_operations Value
 	var v_id_field Value
 	var v_inner Value
+	var v_is_add_type Value
 	var v_is_list Value
+	var v_is_noop Value
 	var v_is_object Value
 	var v_is_remove Value
 	var v_is_string Value
@@ -17529,7 +17751,9 @@ func _ace_normalize_curator_operations(args ...Value) (Value, error) {
 	_ = v_has_operations
 	_ = v_id_field
 	_ = v_inner
+	_ = v_is_add_type
 	_ = v_is_list
+	_ = v_is_noop
 	_ = v_is_object
 	_ = v_is_remove
 	_ = v_is_string
@@ -17626,6 +17850,17 @@ func _ace_normalize_curator_operations(args ...Value) (Value, error) {
 				v_keep = true
 				if coreTruthy(v_not_remove) {
 					if coreTruthy(v_content_empty) {
+						v_keep = false
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+				v_is_add_type = _core_eq(v_type, "ADD")
+				if coreTruthy(v_is_add_type) {
+					{ v, err := _ace_is_noop_acknowledgment(v_content); if err != nil { return nil, err }; v_is_noop = v }
+					if coreTruthy(v_is_noop) {
 						v_keep = false
 					} else {
 					// empty

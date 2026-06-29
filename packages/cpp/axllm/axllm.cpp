@@ -9711,6 +9711,135 @@ Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Valu
   return out;
 }
 
+Value Core::_ace_is_noop_acknowledgment(Value content) {
+  axir_coverage_mark("_ace_is_noop_acknowledgment");
+  Value lowered = Core::string_lower(content);
+  Value c = Core::string_trim(lowered);
+  Value is_noop = Value(false);
+  Value empty = Core::eq(c, Value(""));
+  Value nonempty = Core::not_(empty);
+  if (Core::truthy(nonempty)) {
+    Value markers = Value::array();
+    Core::append(markers, Value("no-op"));
+    Core::append(markers, Value("noop"));
+    for (auto marker : Core::iter(markers)) {
+      Value marker_hit = Core::string_starts_with(c, marker);
+      if (Core::truthy(marker_hit)) {
+        is_noop = Value(true);
+      }
+    }
+    Value subjects = Value::array();
+    Core::append(subjects, Value("no update"));
+    Core::append(subjects, Value("no updates"));
+    Core::append(subjects, Value("no change"));
+    Core::append(subjects, Value("no changes"));
+    Core::append(subjects, Value("no modification"));
+    Core::append(subjects, Value("no modifications"));
+    Core::append(subjects, Value("no edit"));
+    Core::append(subjects, Value("no edits"));
+    Core::append(subjects, Value("no revision"));
+    Core::append(subjects, Value("no revisions"));
+    Core::append(subjects, Value("no action"));
+    Core::append(subjects, Value("no adjustment"));
+    Core::append(subjects, Value("no adjustments"));
+    Core::append(subjects, Value("no new"));
+    Core::append(subjects, Value("no additional"));
+    Core::append(subjects, Value("no further"));
+    Value has_subject = Value(false);
+    for (auto subject : Core::iter(subjects)) {
+      Value subject_hit = Core::contains(c, subject);
+      if (Core::truthy(subject_hit)) {
+        has_subject = Value(true);
+      }
+    }
+    if (Core::truthy(has_subject)) {
+      Value qualifiers = Value::array();
+      Core::append(qualifiers, Value("needed"));
+      Core::append(qualifiers, Value("required"));
+      Core::append(qualifiers, Value("necessary"));
+      Core::append(qualifiers, Value("warranted"));
+      for (auto qualifier : Core::iter(qualifiers)) {
+        Value qualifier_hit = Core::contains(c, qualifier);
+        if (Core::truthy(qualifier_hit)) {
+          is_noop = Value(true);
+        }
+      }
+    }
+    Value phrases = Value::array();
+    Core::append(phrases, Value("nothing to add"));
+    Core::append(phrases, Value("nothing to change"));
+    Core::append(phrases, Value("nothing to update"));
+    Core::append(phrases, Value("nothing to modify"));
+    Core::append(phrases, Value("nothing to revise"));
+    Core::append(phrases, Value("nothing needs"));
+    Core::append(phrases, Value("nothing further"));
+    for (auto phrase : Core::iter(phrases)) {
+      Value phrase_hit = Core::contains(c, phrase);
+      if (Core::truthy(phrase_hit)) {
+        is_noop = Value(true);
+      }
+    }
+    Value keep_prefixes = Value::array();
+    Core::append(keep_prefixes, Value("keep the existing"));
+    Core::append(keep_prefixes, Value("leave the existing"));
+    Core::append(keep_prefixes, Value("retain the existing"));
+    Core::append(keep_prefixes, Value("preserve the existing"));
+    Value has_keep_prefix = Value(false);
+    for (auto keep_prefix : Core::iter(keep_prefixes)) {
+      Value keep_hit = Core::string_starts_with(c, keep_prefix);
+      if (Core::truthy(keep_hit)) {
+        has_keep_prefix = Value(true);
+      }
+    }
+    if (Core::truthy(has_keep_prefix)) {
+      Value stasis_list = Value::array();
+      Core::append(stasis_list, Value("unchanged"));
+      Core::append(stasis_list, Value("as is"));
+      Core::append(stasis_list, Value("as-is"));
+      Core::append(stasis_list, Value("intact"));
+      Core::append(stasis_list, Value("in place"));
+      for (auto stasis : Core::iter(stasis_list)) {
+        Value stasis_hit = Core::contains(c, stasis);
+        if (Core::truthy(stasis_hit)) {
+          is_noop = Value(true);
+        }
+      }
+    }
+    Value remains_list = Value::array();
+    Core::append(remains_list, Value("remains correct"));
+    Core::append(remains_list, Value("remains unchanged"));
+    Core::append(remains_list, Value("remains the same"));
+    Core::append(remains_list, Value("remains valid"));
+    Core::append(remains_list, Value("remains accurate"));
+    Core::append(remains_list, Value("already correct"));
+    Value has_remains = Value(false);
+    for (auto remains : Core::iter(remains_list)) {
+      Value remains_hit = Core::contains(c, remains);
+      if (Core::truthy(remains_hit)) {
+        has_remains = Value(true);
+      }
+    }
+    if (Core::truthy(has_remains)) {
+      Value referents = Value::array();
+      Core::append(referents, Value("existing"));
+      Core::append(referents, Value("current"));
+      Core::append(referents, Value("rule"));
+      Core::append(referents, Value("guideline"));
+      Core::append(referents, Value("guidance"));
+      Core::append(referents, Value("playbook"));
+      Core::append(referents, Value("bullet"));
+      Core::append(referents, Value("entry"));
+      for (auto referent : Core::iter(referents)) {
+        Value referent_hit = Core::contains(c, referent);
+        if (Core::truthy(referent_hit)) {
+          is_noop = Value(true);
+        }
+      }
+    }
+  }
+  return is_noop;
+}
+
 Value Core::_ace_normalize_curator_operations(Value operations) {
   axir_coverage_mark("_ace_normalize_curator_operations");
   Value empty_list = Value::array();
@@ -9764,6 +9893,13 @@ Value Core::_ace_normalize_curator_operations(Value operations) {
         Value keep = Value(true);
         if (Core::truthy(not_remove)) {
           if (Core::truthy(content_empty)) {
+            keep = Value(false);
+          }
+        }
+        Value is_add_type = Core::eq(type, Value("ADD"));
+        if (Core::truthy(is_add_type)) {
+          Value is_noop = Core::_ace_is_noop_acknowledgment(content);
+          if (Core::truthy(is_noop)) {
             keep = Value(false);
           }
         }

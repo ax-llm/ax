@@ -575,6 +575,10 @@ def _core_string_lower(value):
     return str(value).lower()
 
 
+def _core_string_starts_with(value, prefix):
+    return str(value).startswith(str(prefix))
+
+
 def _core_string_ends_with(value, suffix):
     return str(value).endswith(str(suffix))
 
@@ -2650,6 +2654,139 @@ def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, 
     return out
 
 
+def _ace_is_noop_acknowledgment(content: str) -> bool:
+    _core_coverage_mark("_ace_is_noop_acknowledgment")
+    lowered = _core_string_lower(content)
+    c = str(lowered).strip()
+    is_noop = False
+    empty = _core_eq(c, "")
+    nonempty = _core_not(empty)
+    if nonempty:
+        markers = []
+        markers.append("no-op")
+        markers.append("noop")
+        for marker in markers:
+            marker_hit = _core_string_starts_with(c, marker)
+            if marker_hit:
+                is_noop = True
+            else:
+                pass
+        subjects = []
+        subjects.append("no update")
+        subjects.append("no updates")
+        subjects.append("no change")
+        subjects.append("no changes")
+        subjects.append("no modification")
+        subjects.append("no modifications")
+        subjects.append("no edit")
+        subjects.append("no edits")
+        subjects.append("no revision")
+        subjects.append("no revisions")
+        subjects.append("no action")
+        subjects.append("no adjustment")
+        subjects.append("no adjustments")
+        subjects.append("no new")
+        subjects.append("no additional")
+        subjects.append("no further")
+        has_subject = False
+        for subject in subjects:
+            subject_hit = _core_contains(c, subject)
+            if subject_hit:
+                has_subject = True
+            else:
+                pass
+        if has_subject:
+            qualifiers = []
+            qualifiers.append("needed")
+            qualifiers.append("required")
+            qualifiers.append("necessary")
+            qualifiers.append("warranted")
+            for qualifier in qualifiers:
+                qualifier_hit = _core_contains(c, qualifier)
+                if qualifier_hit:
+                    is_noop = True
+                else:
+                    pass
+        else:
+            pass
+        phrases = []
+        phrases.append("nothing to add")
+        phrases.append("nothing to change")
+        phrases.append("nothing to update")
+        phrases.append("nothing to modify")
+        phrases.append("nothing to revise")
+        phrases.append("nothing needs")
+        phrases.append("nothing further")
+        for phrase in phrases:
+            phrase_hit = _core_contains(c, phrase)
+            if phrase_hit:
+                is_noop = True
+            else:
+                pass
+        keep_prefixes = []
+        keep_prefixes.append("keep the existing")
+        keep_prefixes.append("leave the existing")
+        keep_prefixes.append("retain the existing")
+        keep_prefixes.append("preserve the existing")
+        has_keep_prefix = False
+        for keep_prefix in keep_prefixes:
+            keep_hit = _core_string_starts_with(c, keep_prefix)
+            if keep_hit:
+                has_keep_prefix = True
+            else:
+                pass
+        if has_keep_prefix:
+            stasis_list = []
+            stasis_list.append("unchanged")
+            stasis_list.append("as is")
+            stasis_list.append("as-is")
+            stasis_list.append("intact")
+            stasis_list.append("in place")
+            for stasis in stasis_list:
+                stasis_hit = _core_contains(c, stasis)
+                if stasis_hit:
+                    is_noop = True
+                else:
+                    pass
+        else:
+            pass
+        remains_list = []
+        remains_list.append("remains correct")
+        remains_list.append("remains unchanged")
+        remains_list.append("remains the same")
+        remains_list.append("remains valid")
+        remains_list.append("remains accurate")
+        remains_list.append("already correct")
+        has_remains = False
+        for remains in remains_list:
+            remains_hit = _core_contains(c, remains)
+            if remains_hit:
+                has_remains = True
+            else:
+                pass
+        if has_remains:
+            referents = []
+            referents.append("existing")
+            referents.append("current")
+            referents.append("rule")
+            referents.append("guideline")
+            referents.append("guidance")
+            referents.append("playbook")
+            referents.append("bullet")
+            referents.append("entry")
+            for referent in referents:
+                referent_hit = _core_contains(c, referent)
+                if referent_hit:
+                    is_noop = True
+                else:
+                    pass
+        else:
+            pass
+    else:
+        pass
+    return is_noop
+
+
 def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
     _core_coverage_mark("_ace_normalize_curator_operations")
     empty_list = []
@@ -2710,6 +2847,15 @@ def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
                 keep = True
                 if not_remove:
                     if content_empty:
+                        keep = False
+                    else:
+                        pass
+                else:
+                    pass
+                is_add_type = _core_eq(type, "ADD")
+                if is_add_type:
+                    is_noop = _ace_is_noop_acknowledgment(content)
+                    if is_noop:
                         keep = False
                     else:
                         pass

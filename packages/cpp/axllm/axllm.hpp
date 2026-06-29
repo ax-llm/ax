@@ -440,6 +440,7 @@ struct Core {
   static Value _ace_dedupe_playbook(Value playbook);
   static Value _ace_prune_section_for_addition(Value section, Value protected_ids);
   static Value _ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now);
+  static Value _ace_is_noop_acknowledgment(Value content);
   static Value _ace_normalize_curator_operations(Value operations);
   static Value _ace_locate_bullet_section(Value playbook, Value bullet_id);
   static Value _ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output);
