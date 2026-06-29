@@ -178,9 +178,16 @@ export class AxACE extends AxBaseOptimizer {
   ) {
     super(args);
 
+    // Only let explicitly-set option values override the defaults. A caller (e.g.
+    // the playbook() wrapper) may pass keys with `undefined` values for knobs the
+    // user did not set; a plain spread would let that `undefined` clobber the
+    // default (e.g. maxReflectorRounds -> undefined => the reflector never runs).
+    const definedOptions = Object.fromEntries(
+      Object.entries(options ?? {}).filter(([, value]) => value !== undefined)
+    ) as Partial<AxACEOptions>;
     this.aceConfig = {
       ...DEFAULT_CONFIG,
-      ...options,
+      ...definedOptions,
     };
 
     this.playbook =

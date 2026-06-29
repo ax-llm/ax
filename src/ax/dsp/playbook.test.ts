@@ -155,4 +155,16 @@ describe('playbook handle', () => {
     expect(hydrate).toHaveBeenCalledOnce();
     expect(applyOnlineUpdate).toHaveBeenCalledTimes(2);
   });
+
+  it('preserves engine defaults when knobs are unset (undefined must not clobber DEFAULT_CONFIG)', () => {
+    // Regression: the wrapper passes every ACE knob, with `undefined` for ones the
+    // caller did not set. A plain spread would let that `undefined` overwrite the
+    // engine defaults (e.g. maxReflectorRounds -> undefined => the reflector loop
+    // runs zero times and the playbook can never learn). The defaults must survive.
+    const cfg = (playbook(createProgram(), { studentAI: mockAI }) as any).engine
+      .aceConfig;
+    expect(cfg.maxReflectorRounds).toBe(2);
+    expect(cfg.maxEpochs).toBe(1);
+    expect(cfg.maxSectionSize).toBe(25);
+  });
 });
