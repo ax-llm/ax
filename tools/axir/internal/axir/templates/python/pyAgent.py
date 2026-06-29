@@ -821,7 +821,9 @@ class AxACE:
                 if curator_result is not None:
                     curator_result["operations"] = resolved
         if isinstance(reflection, dict):
-            for tag in reflection.get("bulletTags") or []:
+            bullet_tags = reflection.get("bulletTags")
+            for tag in bullet_tags if isinstance(bullet_tags, list) else []:
+                tag = tag if isinstance(tag, dict) else {}
                 self.playbook = _ace_update_bullet_feedback(self.playbook, tag.get("id"), tag.get("tag"), self._now())
         if resolved and applied_ids:
             self.playbook = _ace_dedupe_playbook(self.playbook)
@@ -903,7 +905,9 @@ class AxACE:
             curator_result = dict(raw_curator or {})
             curator_result["operations"] = resolved
         if isinstance(reflection, dict):
-            for tag in reflection.get("bulletTags") or []:
+            bullet_tags = reflection.get("bulletTags")
+            for tag in bullet_tags if isinstance(bullet_tags, list) else []:
+                tag = tag if isinstance(tag, dict) else {}
                 self.playbook = _ace_update_bullet_feedback(self.playbook, tag.get("id"), tag.get("tag"), self._now())
         applied_ids = []
         if resolved:
@@ -948,15 +952,28 @@ class AxACE:
 
 
 _ACE_REFLECTOR_SIGNATURE = (
-    "question:string, generator_answer:string, generator_reasoning?:string, "
-    "playbook:string, expected_answer?:string, feedback?:string, previous_reflection?:string "
-    "-> reasoning:string, errorIdentification:string, rootCauseAnalysis:string, "
-    "correctApproach:string, keyInsight:string, bulletTags:json"
+    'question:string "Original task input serialized as JSON", '
+    'generator_answer:string "Generator output serialized as JSON", '
+    'generator_reasoning?:string "Generator reasoning trace", '
+    'playbook:string "Current context playbook rendered as markdown", '
+    'expected_answer?:string "Expected output when ground truth is available", '
+    'feedback?:string "External feedback or reward signal", '
+    'previous_reflection?:string "Most recent reflection JSON when running multi-round refinement" '
+    '-> reasoning:string "Step-by-step analysis of generator performance", '
+    'errorIdentification:string "Specific mistakes detected", '
+    'rootCauseAnalysis:string "Underlying cause of the error", '
+    'correctApproach:string "What the generator should do differently", '
+    'keyInsight:string "Reusable insight to remember", '
+    'bulletTags:json "Array of {id, tag} entries referencing playbook bullets"'
 )
 
 _ACE_CURATOR_SIGNATURE = (
-    "playbook:string, reflection:string, question_context:string, token_budget?:number "
-    "-> reasoning:string, operations:json"
+    'playbook:string "Current playbook serialized as JSON", '
+    'reflection:string "Latest reflection output serialized as JSON", '
+    'question_context:string "Original task input serialized as JSON", '
+    'token_budget?:number "Approximate token budget for curator response" '
+    '-> reasoning:string "Justification for the proposed updates", '
+    'operations:json "List of operations with type/section/content fields"'
 )
 
 

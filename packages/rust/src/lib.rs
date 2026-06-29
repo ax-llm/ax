@@ -4880,14 +4880,26 @@ impl AxACE {
 }
 
 const ACE_REFLECTOR_SIGNATURE: &str =
-    "question:string, generator_answer:string, generator_reasoning?:string, \
-playbook:string, expected_answer?:string, feedback?:string, previous_reflection?:string \
--> reasoning:string, errorIdentification:string, rootCauseAnalysis:string, \
-correctApproach:string, keyInsight:string, bulletTags:json";
+    "question:string \"Original task input serialized as JSON\", \
+generator_answer:string \"Generator output serialized as JSON\", \
+generator_reasoning?:string \"Generator reasoning trace\", \
+playbook:string \"Current context playbook rendered as markdown\", \
+expected_answer?:string \"Expected output when ground truth is available\", \
+feedback?:string \"External feedback or reward signal\", \
+previous_reflection?:string \"Most recent reflection JSON when running multi-round refinement\" \
+-> reasoning:string \"Step-by-step analysis of generator performance\", \
+errorIdentification:string \"Specific mistakes detected\", \
+rootCauseAnalysis:string \"Underlying cause of the error\", \
+correctApproach:string \"What the generator should do differently\", \
+keyInsight:string \"Reusable insight to remember\", \
+bulletTags:json \"Array of {id, tag} entries referencing playbook bullets\"";
 
-const ACE_CURATOR_SIGNATURE: &str =
-    "playbook:string, reflection:string, question_context:string, token_budget?:number \
--> reasoning:string, operations:json";
+const ACE_CURATOR_SIGNATURE: &str = "playbook:string \"Current playbook serialized as JSON\", \
+reflection:string \"Latest reflection output serialized as JSON\", \
+question_context:string \"Original task input serialized as JSON\", \
+token_budget?:number \"Approximate token budget for curator response\" \
+-> reasoning:string \"Justification for the proposed updates\", \
+operations:json \"List of operations with type/section/content fields\"";
 
 fn playbook_compose_instruction(base: &str, rendered: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
