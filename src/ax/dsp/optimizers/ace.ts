@@ -62,6 +62,160 @@ function cloneArtifact(
   };
 }
 
+// --- Curator output discipline ----------------------------------------------
+// The curator (an LLM sub-program) sometimes emits ADD operations whose content
+// is a no-op acknowledgment of its own decision ("No update required.", "Keep
+// the existing routing rule unchanged.", "The escalation rule remains correct.")
+// instead of a reusable rule. Those bullets pollute the rendered playbook, so we
+// drop them deterministically before they ever become bullets. The exact same
+// logic is mirrored into AxIR (`@ace_is_noop_acknowledgment` in
+// ir/axcore/optimize.axir) so every generated-language port filters identically;
+// keep the two in lockstep when editing these lists.
+
+// "no <subject>" needs a "<qualifier>" to count as a no-op so that legitimate
+// prohibition rules ("No change to the schema without a migration.", "No new
+// dependencies without review.") are NOT dropped.
+const ACE_NOOP_SUBJECTS = [
+  'no update',
+  'no updates',
+  'no change',
+  'no changes',
+  'no modification',
+  'no modifications',
+  'no edit',
+  'no edits',
+  'no revision',
+  'no revisions',
+  'no action',
+  'no adjustment',
+  'no adjustments',
+  'no new',
+  'no additional',
+  'no further',
+];
+const ACE_NOOP_QUALIFIERS = ['needed', 'required', 'necessary', 'warranted'];
+
+// Standalone markers that are never a real rule.
+const ACE_NOOP_MARKERS = ['no-op', 'noop'];
+
+// Inherently no-op phrasings, safe to match anywhere in the content.
+const ACE_NOOP_PHRASES = [
+  'nothing to add',
+  'nothing to change',
+  'nothing to update',
+  'nothing to modify',
+  'nothing to revise',
+  'nothing needs',
+  'nothing further',
+];
+
+// "keep/leave/retain/preserve the existing ... <stasis>" acknowledgments.
+const ACE_NOOP_KEEP_PREFIXES = [
+  'keep the existing',
+  'leave the existing',
+  'retain the existing',
+  'preserve the existing',
+];
+const ACE_NOOP_STASIS = ['unchanged', 'as is', 'as-is', 'intact', 'in place'];
+
+// "<referent> ... remains <stasis>" acknowledgments (e.g. "the existing rule
+// remains correct"). Gated on a playbook-referent word so generic guidance such
+// as "ensure the output remains correct" survives.
+const ACE_NOOP_REMAINS = [
+  'remains correct',
+  'remains unchanged',
+  'remains the same',
+  'remains valid',
+  'remains accurate',
+  'already correct',
+];
+const ACE_NOOP_REFERENTS = [
+  'existing',
+  'current',
+  'rule',
+  'guideline',
+  'guidance',
+  'playbook',
+  'bullet',
+  'entry',
+];
+
+/**
+ * True when an ADD operation's content is a no-op acknowledgment rather than a
+ * substantive, reusable rule. Deterministic and case-insensitive. Mirrored by
+ * the AxIR op `@ace_is_noop_acknowledgment`.
+ */
+export function isAceNoOpAcknowledgment(content: string): boolean {
+  const c = content.toLowerCase().trim();
+  if (c.length === 0) {
+    return false;
+  }
+
+  // Standalone markers.
+  for (const marker of ACE_NOOP_MARKERS) {
+    if (c.startsWith(marker)) {
+      return true;
+    }
+  }
+
+  // "no <subject>" + "<qualifier>".
+  let hasSubject = false;
+  for (const subject of ACE_NOOP_SUBJECTS) {
+    if (c.includes(subject)) {
+      hasSubject = true;
+      break;
+    }
+  }
+  if (hasSubject) {
+    for (const qualifier of ACE_NOOP_QUALIFIERS) {
+      if (c.includes(qualifier)) {
+        return true;
+      }
+    }
+  }
+
+  // "nothing to <action>" / "nothing needs ...".
+  for (const phrase of ACE_NOOP_PHRASES) {
+    if (c.includes(phrase)) {
+      return true;
+    }
+  }
+
+  // "keep/leave/retain/preserve the existing ... <stasis>".
+  let hasKeepPrefix = false;
+  for (const keepPrefix of ACE_NOOP_KEEP_PREFIXES) {
+    if (c.startsWith(keepPrefix)) {
+      hasKeepPrefix = true;
+      break;
+    }
+  }
+  if (hasKeepPrefix) {
+    for (const stasis of ACE_NOOP_STASIS) {
+      if (c.includes(stasis)) {
+        return true;
+      }
+    }
+  }
+
+  // "<referent> ... remains <stasis>".
+  let hasRemains = false;
+  for (const remains of ACE_NOOP_REMAINS) {
+    if (c.includes(remains)) {
+      hasRemains = true;
+      break;
+    }
+  }
+  if (hasRemains) {
+    for (const referent of ACE_NOOP_REFERENTS) {
+      if (c.includes(referent)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 const DEFAULT_CONFIG: Required<
   Pick<
     AxACEOptions,
@@ -1012,6 +1166,13 @@ export class AxACE extends AxBaseOptimizer {
           continue;
         }
 
+        // Drop ADD operations whose content merely acknowledges that nothing
+        // changed ("No update required.", "Keep the existing rule unchanged.")
+        // so only substantive guidance becomes a bullet.
+        if (type === 'ADD' && isAceNoOpAcknowledgment(content)) {
+          continue;
+        }
+
         const bulletIdRaw =
           (entry as { bulletId?: string }).bulletId ??
           (entry as { id?: string }).id;
@@ -1291,7 +1452,9 @@ export class AxACE extends AxBaseOptimizer {
         .output('reasoning', f.string('Justification for the proposed updates'))
         .output(
           'operations',
-          f.json('List of operations with type/section/content fields')
+          f.json(
+            'List of operations, each {type: "ADD"|"UPDATE"|"REMOVE", section, content}. Emit an operation ONLY when the playbook should actually change. If nothing should change, return an empty array — never emit an ADD whose content just acknowledges that no change is needed (e.g. "No update required", "Keep the existing rule unchanged"). Each ADD content must be a standalone, reusable rule.'
+          )
         )
         .build();
       this.curatorProgram = ax(signature);

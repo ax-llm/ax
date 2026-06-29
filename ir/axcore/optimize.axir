@@ -1368,6 +1368,149 @@ module @ax.optimize version "0.1" {
     }
   }
 
+  op ax.optimize.semantic @ace_is_noop_acknowledgment {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    type signature = "(content:string) -> bool"
+    // Mirror of isAceNoOpAcknowledgment in src/ax/dsp/optimizers/ace.ts. True when
+    // an ADD operation's content is a no-op acknowledgment ("No update required.",
+    // "Keep the existing rule unchanged.", "The existing rule remains correct.")
+    // rather than a substantive, reusable rule. Keep the two lists in lockstep.
+    body @entry(%content: string) {
+      %lowered = core.call intrinsic.string.lower(%content)
+      %c = core.string_trim %lowered
+      %is_noop = core.let false
+      %empty = core.call intrinsic.eq(%c, "")
+      %nonempty = core.call intrinsic.not(%empty)
+      core.if %nonempty {
+        // Standalone markers.
+        %markers = core.list
+        core.append %markers, "no-op"
+        core.append %markers, "noop"
+        core.for %marker in %markers {
+          %marker_hit = core.call intrinsic.string.starts_with(%c, %marker)
+          core.if %marker_hit {
+            %is_noop = core.let true
+          }
+        }
+        // "no <subject>" paired with a "<qualifier>".
+        %subjects = core.list
+        core.append %subjects, "no update"
+        core.append %subjects, "no updates"
+        core.append %subjects, "no change"
+        core.append %subjects, "no changes"
+        core.append %subjects, "no modification"
+        core.append %subjects, "no modifications"
+        core.append %subjects, "no edit"
+        core.append %subjects, "no edits"
+        core.append %subjects, "no revision"
+        core.append %subjects, "no revisions"
+        core.append %subjects, "no action"
+        core.append %subjects, "no adjustment"
+        core.append %subjects, "no adjustments"
+        core.append %subjects, "no new"
+        core.append %subjects, "no additional"
+        core.append %subjects, "no further"
+        %has_subject = core.let false
+        core.for %subject in %subjects {
+          %subject_hit = core.call intrinsic.contains(%c, %subject)
+          core.if %subject_hit {
+            %has_subject = core.let true
+          }
+        }
+        core.if %has_subject {
+          %qualifiers = core.list
+          core.append %qualifiers, "needed"
+          core.append %qualifiers, "required"
+          core.append %qualifiers, "necessary"
+          core.append %qualifiers, "warranted"
+          core.for %qualifier in %qualifiers {
+            %qualifier_hit = core.call intrinsic.contains(%c, %qualifier)
+            core.if %qualifier_hit {
+              %is_noop = core.let true
+            }
+          }
+        }
+        // Inherently no-op phrasings.
+        %phrases = core.list
+        core.append %phrases, "nothing to add"
+        core.append %phrases, "nothing to change"
+        core.append %phrases, "nothing to update"
+        core.append %phrases, "nothing to modify"
+        core.append %phrases, "nothing to revise"
+        core.append %phrases, "nothing needs"
+        core.append %phrases, "nothing further"
+        core.for %phrase in %phrases {
+          %phrase_hit = core.call intrinsic.contains(%c, %phrase)
+          core.if %phrase_hit {
+            %is_noop = core.let true
+          }
+        }
+        // "keep/leave/retain/preserve the existing ... <stasis>".
+        %keep_prefixes = core.list
+        core.append %keep_prefixes, "keep the existing"
+        core.append %keep_prefixes, "leave the existing"
+        core.append %keep_prefixes, "retain the existing"
+        core.append %keep_prefixes, "preserve the existing"
+        %has_keep_prefix = core.let false
+        core.for %keep_prefix in %keep_prefixes {
+          %keep_hit = core.call intrinsic.string.starts_with(%c, %keep_prefix)
+          core.if %keep_hit {
+            %has_keep_prefix = core.let true
+          }
+        }
+        core.if %has_keep_prefix {
+          %stasis_list = core.list
+          core.append %stasis_list, "unchanged"
+          core.append %stasis_list, "as is"
+          core.append %stasis_list, "as-is"
+          core.append %stasis_list, "intact"
+          core.append %stasis_list, "in place"
+          core.for %stasis in %stasis_list {
+            %stasis_hit = core.call intrinsic.contains(%c, %stasis)
+            core.if %stasis_hit {
+              %is_noop = core.let true
+            }
+          }
+        }
+        // "<referent> ... remains <stasis>".
+        %remains_list = core.list
+        core.append %remains_list, "remains correct"
+        core.append %remains_list, "remains unchanged"
+        core.append %remains_list, "remains the same"
+        core.append %remains_list, "remains valid"
+        core.append %remains_list, "remains accurate"
+        core.append %remains_list, "already correct"
+        %has_remains = core.let false
+        core.for %remains in %remains_list {
+          %remains_hit = core.call intrinsic.contains(%c, %remains)
+          core.if %remains_hit {
+            %has_remains = core.let true
+          }
+        }
+        core.if %has_remains {
+          %referents = core.list
+          core.append %referents, "existing"
+          core.append %referents, "current"
+          core.append %referents, "rule"
+          core.append %referents, "guideline"
+          core.append %referents, "guidance"
+          core.append %referents, "playbook"
+          core.append %referents, "bullet"
+          core.append %referents, "entry"
+          core.for %referent in %referents {
+            %referent_hit = core.call intrinsic.contains(%c, %referent)
+            core.if %referent_hit {
+              %is_noop = core.let true
+            }
+          }
+        }
+      }
+      core.return %is_noop
+    }
+  }
+
   op ax.optimize.semantic @ace_normalize_curator_operations {
     attr core_kind = "func"
     attr emit_module = "gen"
@@ -1425,6 +1568,16 @@ module @ax.optimize version "0.1" {
             %keep = core.let true
             core.if %not_remove {
               core.if %content_empty {
+                %keep = core.let false
+              }
+            }
+            // Drop ADD operations whose content is a no-op acknowledgment so
+            // only substantive guidance becomes a bullet (mirror of the TS
+            // isAceNoOpAcknowledgment guard in normalizeCuratorOperations).
+            %is_add_type = core.call intrinsic.eq(%type, "ADD")
+            core.if %is_add_type {
+              %is_noop = core.call @ace_is_noop_acknowledgment(%content)
+              core.if %is_noop {
                 %keep = core.let false
               }
             }

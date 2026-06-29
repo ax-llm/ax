@@ -2342,6 +2342,73 @@ await (async () => {
     });
   }
 
+  // ace-compile-curator-noop-filtered: the curator emits one substantive ADD
+  // alongside two no-op acknowledgments ("No update required. Keep the existing
+  // routing rule ... unchanged." and "The existing escalation rule remains
+  // correct."). The deterministic normalize filter drops the acknowledgments so
+  // only the real rule becomes a bullet; the lowered ports must filter the same.
+  {
+    const reflection: AxACEReflectionOutput = {
+      reasoning: 'Refund requests were not routed to the right team.',
+      errorIdentification: 'Refunds were not routed to team gamma',
+      rootCauseAnalysis: 'No explicit refund routing rule',
+      correctApproach: 'Route refund requests to team gamma',
+      keyInsight: 'Refunds belong to team gamma',
+      bulletTags: [],
+    };
+    const curator: Record<string, Json> = {
+      reasoning:
+        'Add the refund routing rule; everything else is already fine.',
+      operations: [
+        {
+          type: 'ADD',
+          section: 'Routing',
+          bulletId: 'routing-00001',
+          content: 'Route refund requests to team gamma.',
+        },
+        {
+          type: 'ADD',
+          section: 'Routing',
+          bulletId: 'routing-00002',
+          content:
+            'No update required. Keep the existing routing rule to team gamma unchanged.',
+        },
+        {
+          type: 'ADD',
+          section: 'Routing',
+          bulletId: 'routing-00003',
+          content: 'The existing escalation rule remains correct.',
+        },
+      ],
+    };
+    const examples = [
+      { question: 'Where do refund requests go?', answer: 'Team gamma' },
+      { question: 'ping', answer: 'pong' },
+    ];
+    const predictions = [{ answer: 'Team beta' }, { answer: 'pong' }];
+    const scores = [0.3, 1];
+    const reflections = [reflection, aceResolvedReflection];
+    const curators = [curator, aceNoopCurator];
+    const out = await driveACECompile(
+      examples,
+      { maxEpochs: 1, maxReflectorRounds: 1 },
+      { predictions, scores, reflections, curators }
+    );
+    writeFixture('ace-compile-curator-noop-filtered', {
+      kind: 'optimize',
+      operation: 'ace-compile',
+      now: ACE_NOW,
+      ace_options: { maxEpochs: 1, maxReflectorRounds: 1 },
+      examples,
+      generator_predictions: predictions,
+      metric_scores: scores,
+      reflection_responses: reflections as unknown as Json[],
+      curator_responses: curators,
+      expected_playbook: out.playbook,
+      expected_artifact: out.artifact,
+    });
+  }
+
   // ace-compile-resolved-no-op: both examples resolve ("no error") and the
   // curator returns no operations, so the playbook stays empty (feedback only).
   {

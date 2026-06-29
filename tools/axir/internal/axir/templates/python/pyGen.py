@@ -573,6 +573,10 @@ def _core_string_lower(value):
     return str(value).lower()
 
 
+def _core_string_starts_with(value, prefix):
+    return str(value).startswith(str(prefix))
+
+
 def _core_string_ends_with(value, suffix):
     return str(value).endswith(str(suffix))
 

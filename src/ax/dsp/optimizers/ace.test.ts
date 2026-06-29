@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AxAIService } from '../../ai/types.js';
 import { f } from '../sig.js';
 import { ax } from '../template.js';
-import { AxACE } from './ace.js';
+import { AxACE, isAceNoOpAcknowledgment } from './ace.js';
 import { applyCuratorOperations, createEmptyPlaybook } from './acePlaybook.js';
 import type {
   AxACECuratorOperation,
@@ -143,6 +143,144 @@ describe('AxACE helpers', () => {
       (bullet) => bullet.id !== 'response-strategies-0'
     );
     expect(newBullet?.content).toBe('Third tactic');
+  });
+});
+
+describe('isAceNoOpAcknowledgment', () => {
+  const noOps = [
+    'No update required. Keep the existing routing rule to team gamma unchanged.',
+    'No update required.',
+    'No change needed.',
+    'No changes required.',
+    'No further action needed.',
+    'No new rule needed.',
+    'No additional changes are necessary.',
+    'Nothing to add.',
+    'Nothing needs to change.',
+    'Keep the existing routing rule to team gamma unchanged.',
+    'Leave the existing guidance in place.',
+    'Retain the existing rule as is.',
+    'The existing escalation rule remains correct.',
+    'The current guidance remains unchanged.',
+    'No-op.',
+    'NO UPDATE REQUIRED.',
+  ];
+
+  for (const content of noOps) {
+    it(`flags no-op acknowledgment: ${content}`, () => {
+      expect(isAceNoOpAcknowledgment(content)).toBe(true);
+    });
+  }
+
+  const realRules = [
+    'Route refund requests to team gamma.',
+    'Always cite your sources.',
+    // Legit prohibition rules: "no <subject>" without a no-op qualifier.
+    'No change to the schema without a migration.',
+    'No new dependencies without review.',
+    'No action should bypass authentication.',
+    // "keep the existing ..." that introduces substantive guidance (no stasis).
+    'Keep the existing format but also append a confidence score.',
+    // "remains correct" without a playbook referent.
+    'Ensure the output remains correct after refactoring.',
+    'Preserve the user original casing.',
+    '',
+  ];
+
+  for (const content of realRules) {
+    it(`keeps substantive content: ${content || '(empty)'}`, () => {
+      expect(isAceNoOpAcknowledgment(content)).toBe(false);
+    });
+  }
+});
+
+describe('AxACE curator no-op filtering', () => {
+  it('normalizeCuratorOperations drops no-op ADD acknowledgments only', () => {
+    const optimizer = Object.create(AxACE.prototype) as AxACE;
+
+    const operations = (optimizer as any).normalizeCuratorOperations([
+      {
+        type: 'ADD',
+        section: 'Routing',
+        content: 'Route refund requests to team gamma.',
+      },
+      {
+        type: 'ADD',
+        section: 'Routing',
+        content:
+          'No update required. Keep the existing routing rule to team gamma unchanged.',
+      },
+      {
+        type: 'ADD',
+        section: 'Routing',
+        content: 'The existing escalation rule remains correct.',
+      },
+      // ADD-only: an UPDATE that happens to read like an acknowledgment is left
+      // alone (it edits an existing bullet rather than creating filler).
+      {
+        type: 'UPDATE',
+        section: 'Routing',
+        bulletId: 'routing-1',
+        content: 'No update required.',
+      },
+    ]);
+
+    expect(operations).toHaveLength(2);
+    expect(operations.map((op: any) => op.type)).toEqual(['ADD', 'UPDATE']);
+    expect(operations[0].content).toBe('Route refund requests to team gamma.');
+  });
+
+  it('compile keeps only substantive curator bullets', async () => {
+    const program = createACEProgram();
+    vi.spyOn(program, 'forward').mockResolvedValue({ answer: 'prediction' });
+
+    const ace = new AxACE(
+      { studentAI: {} as any, teacherAI: {} as any },
+      { maxEpochs: 1, maxReflectorRounds: 1 }
+    );
+
+    const reflectorProgram = (ace as any).getOrCreateReflectorProgram();
+    vi.spyOn(reflectorProgram, 'forward').mockResolvedValue(reflectionOutput);
+
+    const curatorProgram = (ace as any).getOrCreateCuratorProgram();
+    vi.spyOn(curatorProgram, 'forward')
+      .mockResolvedValueOnce({
+        reasoning: 'Add the real rule; the rest is unchanged.',
+        operations: [
+          {
+            type: 'ADD',
+            section: 'Routing',
+            content: 'Route refund requests to team gamma.',
+          },
+          {
+            type: 'ADD',
+            section: 'Routing',
+            content:
+              'No update required. Keep the existing routing rule to team gamma unchanged.',
+          },
+          {
+            type: 'ADD',
+            section: 'Routing',
+            content: 'The existing escalation rule remains correct.',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ reasoning: 'no-op', operations: [] });
+
+    const metric = vi.fn().mockReturnValue(1);
+
+    await ace.compile(
+      program,
+      [
+        { question: 'q1', answer: 'a1' },
+        { question: 'q2', answer: 'a2' },
+      ],
+      metric
+    );
+
+    expect(
+      ace.getPlaybook().sections.Routing?.map((bullet) => bullet.content)
+    ).toEqual(['Route refund requests to team gamma.']);
   });
 });
 
