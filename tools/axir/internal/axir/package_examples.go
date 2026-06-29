@@ -287,6 +287,64 @@ print(json.dumps({"bestScore": result["bestScore"], "rendered": rendered}, inden
 print("python-ace-playbook-ok")
 `
 
+const pyAgentPlaybookExample = `import json
+
+from axllm import agent
+
+
+# A scripted client stands in for a real provider so this example runs without
+# a key. Swap it for ai("openai", api_key=...) to grow a playbook against a live
+# model. The canned JSON satisfies the agent's bound stage AND the playbook's
+# internal reflector/curator sub-programs, so the full ACE loop is exercised
+# offline.
+class ScriptedClient:
+    def complete(self, request):
+        return {
+            "content": json.dumps(
+                {
+                    "answer": "Ax composes typed LLM programs.",
+                    "reasoning": "The playbook lacked a brevity rule.",
+                    "errorIdentification": "Answer was too verbose.",
+                    "rootCauseAnalysis": "No guidance on conciseness.",
+                    "correctApproach": "Add a concise-answer guideline.",
+                    "keyInsight": "Prefer one-sentence answers.",
+                    "bulletTags": [],
+                    "operations": [
+                        {"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}
+                    ],
+                }
+            )
+        }
+
+
+client = ScriptedClient()
+# agent.playbook() binds an evolving context playbook to an agent stage. The
+# "responder" target grows the user-facing answer stage; ACE remains an
+# implementation detail behind playbook(), just as optimize() hides GEPA.
+ag = agent("question:string -> answer:string", {"name": "qa", "description": "Answer the question.", "ai": client})
+
+pb = ag.playbook({"target": "responder", "studentAI": client, "maxEpochs": 1})
+
+
+def metric(args):
+    prediction = args.get("prediction") or {}
+    answer = str(prediction.get("answer") or "")
+    return 1.0 if answer else 0.0
+
+
+examples = [
+    {"question": "What is Ax?", "contextData": {}},
+    {"question": "Why typed signatures?", "contextData": {}},
+]
+result = pb.evolve(examples, metric)
+rendered = pb.render()
+state = pb.to_json()
+assert "bestScore" in result, result
+assert "playbook" in state and "artifact" in state, state
+print(json.dumps({"bestScore": result["bestScore"], "rendered": rendered}, indent=2, sort_keys=True))
+print("python-agent-playbook-ok")
+`
+
 const javaSignatureSchemaExample = `import dev.axllm.ax.*;
 import java.util.*;
 
@@ -1950,6 +2008,64 @@ public final class ACEPlaybookExample {
 }
 `
 
+const javaAgentPlaybookExample = `import dev.axllm.ax.*;
+import java.util.*;
+import java.util.function.Function;
+
+public final class AgentPlaybookExample {
+  // A scripted client stands in for a real provider so this example runs without
+  // a key. Swap it for Ax.ai("openai", ...) to grow a playbook against a live
+  // model. The canned JSON satisfies the agent's bound stage AND the playbook's
+  // internal reflector/curator sub-programs, so the full ACE loop is exercised
+  // offline.
+  static final class ScriptedClient implements AiClient {
+    public Map<String, Object> complete(Map<String, Object> request) {
+      String content = "{"
+          + "\"answer\":\"Ax composes typed LLM programs.\","
+          + "\"reasoning\":\"The playbook lacked a brevity rule.\","
+          + "\"errorIdentification\":\"Answer was too verbose.\","
+          + "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
+          + "\"correctApproach\":\"Add a concise-answer guideline.\","
+          + "\"keyInsight\":\"Prefer one-sentence answers.\","
+          + "\"bulletTags\":[],"
+          + "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]"
+          + "}";
+      return Map.of("content", content);
+    }
+  }
+
+  public static void main(String[] args) {
+    ScriptedClient client = new ScriptedClient();
+    // agent.playbook() binds an evolving context playbook to an agent stage. The
+    // "responder" target grows the user-facing answer stage; ACE remains an
+    // implementation detail behind playbook(), just as optimize() hides GEPA.
+    AxAgent agent = Ax.agent("question:string -> answer:string", Map.of("name", "qa", "description", "Answer the question.", "ai", client));
+
+    AxPlaybook pb = agent.playbook(Map.of("target", "responder", "studentAI", client, "maxEpochs", 1));
+
+    Function<Map<String, Object>, Object> metric = a -> {
+      Object prediction = a.get("prediction");
+      if (prediction instanceof Map<?, ?> map) {
+        Object answer = map.get("answer");
+        if (answer instanceof String s && !s.isEmpty()) return 1.0;
+      }
+      return 0.0;
+    };
+
+    List<Object> examples = List.of(
+        Map.of("question", "What is Ax?", "contextData", Map.of()),
+        Map.of("question", "Why typed signatures?", "contextData", Map.of()));
+    Map<String, Object> result = pb.evolve(examples, metric, Map.of());
+    String rendered = pb.render();
+    Map<String, Object> state = pb.toJson();
+    if (!result.containsKey("bestScore")) throw new RuntimeException("missing bestScore: " + result);
+    if (!state.containsKey("playbook")) throw new RuntimeException("missing playbook: " + state);
+    System.out.println("rendered: " + rendered);
+    System.out.println("java-agent-playbook-ok");
+  }
+}
+`
+
 const cppProviderStreamNoKeyExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 #include <string>
@@ -2791,5 +2907,57 @@ int main() {
   if (axllm::Core::get(state, "playbook", axllm::Value()).is_null()) return 1;
   std::cout << "rendered: " << rendered << "\n";
   std::cout << "cpp-ace-playbook-ok\n";
+}
+`
+
+const cppAgentPlaybookExample = `#include "axllm/axllm.hpp"
+
+#include <iostream>
+
+// A scripted client stands in for a real provider so this example runs without a
+// key. Swap it for axllm::ai("openai", ...) to grow a playbook against a live
+// model. The canned JSON satisfies the agent's bound stage AND the playbook's
+// internal reflector/curator sub-programs, so the full ACE loop is exercised
+// offline.
+struct ScriptedClient : axllm::AIClient {
+  axllm::Value complete(axllm::Value) override {
+    return axllm::object({{"content",
+        "{\"answer\":\"Ax composes typed LLM programs.\","
+        "\"reasoning\":\"The playbook lacked a brevity rule.\","
+        "\"errorIdentification\":\"Answer was too verbose.\","
+        "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
+        "\"correctApproach\":\"Add a concise-answer guideline.\","
+        "\"keyInsight\":\"Prefer one-sentence answers.\","
+        "\"bulletTags\":[],"
+        "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]}"}});
+  }
+};
+
+int main() {
+  ScriptedClient client;
+  // agent.playbook() binds an evolving context playbook to an agent stage. The
+  // "responder" target grows the user-facing answer stage; ACE remains an
+  // implementation detail behind playbook(), just as optimize() hides GEPA.
+  auto agent = axllm::agent("question:string -> answer:string", axllm::object({{"name", "qa"}, {"description", "Answer the question."}}));
+
+  axllm::AxPlaybook pb = agent.playbook(client, axllm::object({{"target", "responder"}, {"maxEpochs", 1}}));
+
+  axllm::AxPlaybook::MetricFn metric = [](const axllm::Value& args) -> axllm::Value {
+    axllm::Value prediction = axllm::Core::get(args, "prediction");
+    std::string answer = axllm::display(axllm::Core::get(prediction, "answer"));
+    return answer.empty() ? axllm::Value(0.0) : axllm::Value(1.0);
+  };
+
+  std::vector<axllm::Value> examples = {
+      axllm::object({{"question", "What is Ax?"}, {"contextData", axllm::object({})}}),
+      axllm::object({{"question", "Why typed signatures?"}, {"contextData", axllm::object({})}}),
+  };
+  axllm::Value result = pb.evolve(examples, metric);
+  std::string rendered = pb.render();
+  axllm::Value state = pb.to_json();
+  if (axllm::Core::get(result, "bestScore", axllm::Value()).is_null()) return 1;
+  if (axllm::Core::get(state, "playbook", axllm::Value()).is_null()) return 1;
+  std::cout << "rendered: " << rendered << "\n";
+  std::cout << "cpp-agent-playbook-ok\n";
 }
 `

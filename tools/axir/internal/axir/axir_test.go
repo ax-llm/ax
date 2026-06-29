@@ -98,6 +98,73 @@ func TestAgentCrossLanguageParity(t *testing.T) {
 	}
 }
 
+// TestAgentPublicAPIParity is the G9 gate: cross-language public-API parity for AxAgent.
+//
+// The Rust agent shipped without optimize()/playbook(), and Go without optimize(), because no
+// gate asserted that every language's AxAgent exposes the SAME public methods. Conformance only
+// checks behavior (the forward loop); runtime_model.go merely *appends* claimed public symbols
+// (optimize, playbook, AxPlaybook) to a manifest without verifying each package emits them -- so a
+// language could silently omit a public method and pass everything. This gate greps each
+// language's AxAgent surface (from the embedded templates) and fails if a required method is
+// missing anywhere. Negative test: delete one method's impl and this must fail. See
+// docs/AXIR_GATES.md (G9).
+func TestAgentPublicAPIParity(t *testing.T) {
+	// cppHeader declares many classes; slice to the AxAgent class so a method on (say) AxGen
+	// can't satisfy the AxAgent requirement. Other sources are the AxAgent file itself
+	// (javaAxAgent) or carry per-method patterns that exclude lookalikes.
+	sliceFromTo := func(src, start, end string) string {
+		i := strings.Index(src, start)
+		if i < 0 {
+			return ""
+		}
+		rest := src[i+len(start):]
+		if j := strings.Index(rest, end); j >= 0 {
+			return rest[:j]
+		}
+		return rest
+	}
+	// Skip the forward declaration ("class AxAgent;") and slice the real definition.
+	cppAgent := sliceFromTo(cppHeader, "class AxAgent : public AxProgram", "\n};")
+	if cppAgent == "" {
+		t.Fatal("G9: could not locate class AxAgent in cppHeader")
+	}
+
+	// Required AxAgent public methods, with a per-language pattern anchored on the DECLARATION
+	// (not a call) and excluding lookalikes: Rust free fns / optimize_with (the `&mut self`
+	// receiver + `optimize\b` word-boundary exclude both), and Python ActorAgentRLM.optimize
+	// (which takes `self, request` not `self, dataset`).
+	patterns := map[string]map[string]string{
+		"optimize": {
+			"go":     `func \(a \*AxAgent\) Optimize\(`,
+			"rust":   `pub fn optimize\b[^(]*\(\s*&mut self`,
+			"java":   `public [^\n;]*\boptimize\s*\(`,
+			"python": `def optimize\(self, dataset`,
+			"cpp":    `\boptimize\s*\(`,
+		},
+		"playbook": {
+			"go":     `func \(a \*AxAgent\) Playbook\(`,
+			"rust":   `pub fn playbook\b[^(]*\(\s*&mut self`,
+			"java":   `public [^\n;]*\bplaybook\s*\(`,
+			"python": `def playbook\(self`,
+			"cpp":    `\bplaybook\s*\(`,
+		},
+	}
+	srcs := map[string]string{
+		"go":     goRuntime,
+		"rust":   rustLib,
+		"java":   javaAxAgent,
+		"python": pyAgent,
+		"cpp":    cppAgent,
+	}
+	for method, byLang := range patterns {
+		for lang, pat := range byLang {
+			if !regexp.MustCompile(pat).MatchString(srcs[lang]) {
+				t.Errorf("G9 DRIFT: AxAgent.%s() missing in %s (every language's AxAgent must expose it; pattern %q)", method, lang, pat)
+			}
+		}
+	}
+}
+
 // TestG4AgentCapabilityBackedByRealRunner is the G4 gate: capability-backed-by-real-run.
 //
 // The non-functional agent() shipped in five languages because "claiming the axagent

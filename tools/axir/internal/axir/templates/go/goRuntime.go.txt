@@ -3455,6 +3455,19 @@ func (a *AxAgent) ApplyOptimizedComponents(m map[string]Value) {
 		coreSet(a.State, "policy", value)
 	}
 }
+func (a *AxAgent) ApplyOptimization(artifact Value) {
+	components := a.GetOptimizableComponents()
+	var validated Value
+	if text, ok := artifact.(string); ok {
+		validated = mustCore(_deserialize_optimized_artifact(text, components))
+	} else {
+		if artifact == nil {
+			artifact = Object()
+		}
+		validated = mustCore(_validate_optimized_artifact(artifact, components))
+	}
+	a.ApplyOptimizedComponents(asMap(coreGet(validated, "componentMap", Object())))
+}
 func scoreOptimizationPrediction(task map[string]Value, prediction Value, options map[string]Value) (Value, Value) {
 	opts := options
 	if opts == nil {
@@ -3575,6 +3588,76 @@ func (a *AxAgent) Playbook(options map[string]Value) *AxPlaybook {
 		stage.Signature.Description = playbookComposeInstruction(base, rendered)
 	})
 	return handle
+}
+
+type axAgentOptimizerEvaluator struct {
+	agent   *AxAgent
+	client  AIClient
+	dataset Value
+	options map[string]Value
+}
+
+func (e *axAgentOptimizerEvaluator) Evaluate(candidateMap map[string]Value, options map[string]Value) (Value, error) {
+	return safeValue(func() Value {
+		merged := cloneMap(e.options)
+		for key, value := range options {
+			if key != "__order" {
+				coreSet(merged, key, value)
+			}
+		}
+		evalDataset := coreGet(merged, "dataset", coreGet(merged, "_dataset", e.dataset))
+		if evalDataset == nil {
+			evalDataset = e.dataset
+		}
+		return e.agent.EvaluateOptimization(e.client, evalDataset, candidateMap, merged)
+	})
+}
+
+// OptimizeWith runs the supplied optimizer engine against the agent's
+// optimizable components. When options carry a live client ("client"/"ai") the
+// evaluator drives real agent rollouts; otherwise the engine runs without one.
+// The normalized artifact is applied unless options["apply"] is false.
+func (a *AxAgent) OptimizeWith(engine OptimizerEngine, dataset Value, options map[string]Value) (Value, error) {
+	return safeValue(func() Value {
+		opts := options
+		if opts == nil {
+			opts = Object()
+		}
+		components := a.GetOptimizableComponents()
+		client := playbookClient(coreGet(opts, "client", coreGet(opts, "ai", nil)))
+		if dataset == nil {
+			dataset = Array()
+		}
+		run := asMap(mustCore(_prepare_optimizer_run("axagent", components, dataset, opts, a.ExportTrace(), client != nil)))
+		request := asMap(coreGet(run, "request", Object()))
+		var evaluator OptimizerEvaluator
+		if client != nil {
+			evaluator = &axAgentOptimizerEvaluator{agent: a, client: client, dataset: dataset, options: opts}
+		}
+		response, err := engine.Optimize(request, evaluator)
+		if err != nil {
+			panic(err)
+		}
+		artifact := mustCore(_normalize_optimizer_engine_response(response, coreGet(response, "optimizerName", "optimizer"), coreGet(response, "optimizerVersion", "host"), components))
+		if coreGet(opts, "apply", true) != false {
+			a.ApplyOptimization(artifact)
+		}
+		return artifact
+	})
+}
+
+// Optimize reads the optimizer engine from options ("engine"/"optimizer") and
+// delegates to OptimizeWith.
+func (a *AxAgent) Optimize(dataset Value, options map[string]Value) (Value, error) {
+	opts := options
+	if opts == nil {
+		opts = Object()
+	}
+	engine, ok := coreGet(opts, "engine", coreGet(opts, "optimizer", nil)).(OptimizerEngine)
+	if !ok || engine == nil {
+		return nil, AxError{Category: "validation", Message: "options.engine must implement OptimizerEngine for optimize()"}
+	}
+	return a.OptimizeWith(engine, dataset, opts)
 }
 func (g *AxGen) EvaluateOptimization(client AIClient, dataset Value, candidateMap map[string]Value, options map[string]Value) Value {
 	opts := options

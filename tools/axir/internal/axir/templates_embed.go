@@ -21,6 +21,9 @@ var cppRuntime string
 //go:embed templates/go/goACEPlaybookExample.go.txt
 var goACEPlaybookExample string
 
+//go:embed templates/go/goAgentPlaybookExample.go.txt
+var goAgentPlaybookExample string
+
 //go:embed templates/go/goAudioResponsesMappingExample.go.txt
 var goAudioResponsesMappingExample string
 
@@ -455,6 +458,9 @@ var rustGEPALocalOptimizerExample string
 
 //go:embed templates/rust/rustACEPlaybookExample.rs
 var rustACEPlaybookExample string
+
+//go:embed templates/rust/rustAgentPlaybookExample.rs
+var rustAgentPlaybookExample string
 
 //go:embed templates/rust/rustLib.rs
 var rustLib string

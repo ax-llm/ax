@@ -3004,6 +3004,213 @@ impl AxAgent {
         core_set(&options, CoreValue::from("runtime"), host)?;
         Ok(self)
     }
+
+    /// Apply an optimizer artifact to the agent's stages: validate (or deserialize)
+    /// it against the current components, then push the component map into the
+    /// distiller/executor/responder stages. Mirrors `AxGen::apply_optimization`
+    /// (agents carry no few-shot demos, so the demo branch is omitted).
+    pub fn apply_optimization(&mut self, artifact: &Value) -> AxResult<Value> {
+        let components = Value::Array(self.get_optimizable_components()?);
+        let validated = core_value_to_json(&if let Some(text) = artifact.as_str() {
+            _deserialize_optimized_artifact(&[CoreValue::from(text), core_value_from_json(&components)])?
+        } else {
+            _validate_optimized_artifact(&[core_value_from_json(artifact), core_value_from_json(&components)])?
+        });
+        let component_map = validated.get("componentMap").cloned().unwrap_or_else(|| json!({}));
+        self.apply_optimized_components(&component_map)?;
+        Ok(validated)
+    }
+
+    /// Evaluate a candidate component map over a dataset by running the agent end to
+    /// end for each task and scoring the predictions. The original component map is
+    /// always restored afterwards. Mirrors `AxAgent.evaluate_optimization` in the
+    /// other ports (per-row delegation to `evaluate_optimization_task`).
+    pub fn evaluate_optimization<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        dataset: &Value,
+        candidate_map: &Value,
+        options: &Value,
+    ) -> AxResult<Value> {
+        let opts = if options.is_object() { options.clone() } else { json!({}) };
+        let normalized = core_value_to_json(&_normalize_optimization_dataset(&[
+            core_value_from_json(dataset),
+        ])?);
+        let original = core_value_to_json(&_optimization_component_current_map(&[
+            core_value_from_json(&Value::Array(self.get_optimizable_components()?)),
+        ])?);
+        let candidate = if candidate_map.is_object() { candidate_map.clone() } else { json!({}) };
+        let phase = opts.get("phase").and_then(Value::as_str).unwrap_or("train").to_string();
+        let max_metric_calls = opts
+            .get("maxMetricCalls")
+            .or_else(|| opts.get("max_metric_calls"))
+            .and_then(Value::as_u64)
+            .unwrap_or(1_000_000_000);
+        let run = (|| -> AxResult<Value> {
+            if candidate.as_object().map(|map| !map.is_empty()).unwrap_or(false) {
+                self.apply_optimized_components(&candidate)?;
+            }
+            let mut rows = Vec::new();
+            let mut calls: u64 = 0;
+            for raw_task in normalized
+                .get("train")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                if calls >= max_metric_calls {
+                    return Err(AxError::runtime(format!(
+                        "max metric calls exceeded: {max_metric_calls}"
+                    )));
+                }
+                calls += 1;
+                let task = if raw_task.is_object() {
+                    raw_task.clone()
+                } else {
+                    json!({"input": raw_task})
+                };
+                let prediction = self.evaluate_optimization_task(client, task.clone(), opts.clone())?;
+                let error = prediction.get("error").cloned().unwrap_or(Value::Null);
+                let score_task = if raw_task.is_object() { raw_task.clone() } else { json!({}) };
+                let (scores, scalar) = score_optimization_prediction(&score_task, &prediction, &opts)?;
+                rows.push(core_value_to_json(&_build_optimization_eval_row(&[
+                    core_value_from_json(&raw_task),
+                    core_value_from_json(&prediction),
+                    core_value_from_json(&scores),
+                    CoreValue::Num(scalar),
+                    core_value_from_json(prediction.get("trace").unwrap_or(&Value::Null)),
+                    core_value_from_json(&error),
+                ])?));
+            }
+            Ok(core_value_to_json(&_build_optimization_eval_result(&[
+                core_value_from_json(&Value::Array(rows)),
+                core_value_from_json(&candidate),
+                CoreValue::from(phase.as_str()),
+            ])?))
+        })();
+        let rollback = self.apply_optimized_components(&original);
+        let result = run?;
+        rollback?;
+        Ok(result)
+    }
+
+    /// Run an optimizer engine against the agent. Builds the optimizer request from
+    /// the agent's components + trace, drives the engine (scoring candidates with a
+    /// live client when one is supplied), normalizes the artifact, and applies it
+    /// unless `options.apply == false`. Mirrors `AxGen::optimize_with` with the
+    /// `"axagent"` program kind.
+    pub fn optimize_with<C: AxAIClient>(
+        &mut self,
+        engine: &mut dyn OptimizerEngine,
+        dataset: &Value,
+        options: &Value,
+        client: Option<Rc<RefCell<C>>>,
+    ) -> AxResult<Value> {
+        let opts = if options.is_object() { options.clone() } else { json!({}) };
+        let components = Value::Array(self.get_optimizable_components()?);
+        let trace = self.export_trace()?;
+        let run = core_value_to_json(&_prepare_optimizer_run(&[
+            CoreValue::from("axagent"),
+            core_value_from_json(&components),
+            core_value_from_json(dataset),
+            core_value_from_json(&opts),
+            core_value_from_json(&trace),
+            CoreValue::Bool(client.is_some()),
+        ])?);
+        let request = run.get("request").cloned().unwrap_or_else(|| json!({}));
+        let mut evaluator = |step: Value| -> AxResult<Value> {
+            let candidate = step
+                .get("candidateMap")
+                .or_else(|| step.get("componentMap"))
+                .or_else(|| step.get("candidate"))
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let mut merged = opts.clone();
+            if let Some(step_options) = step.get("options").and_then(Value::as_object) {
+                if !merged.is_object() {
+                    merged = json!({});
+                }
+                if let Some(target) = merged.as_object_mut() {
+                    for (key, value) in step_options {
+                        target.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+            let eval_dataset = merged
+                .get("dataset")
+                .or_else(|| merged.get("_dataset"))
+                .cloned()
+                .unwrap_or_else(|| dataset.clone());
+            let Some(client) = client.as_ref() else {
+                return Err(AxError::runtime("optimizer evaluator requires an AI client"));
+            };
+            let mut client = client.borrow_mut();
+            self.evaluate_optimization(&mut *client, &eval_dataset, &candidate, &merged)
+        };
+        let response = engine.optimize(request, &mut evaluator)?;
+        let engine_name = response
+            .get("optimizerName")
+            .or_else(|| response.get("optimizer"))
+            .and_then(Value::as_str)
+            .unwrap_or("optimizer")
+            .to_string();
+        let engine_version = response
+            .get("optimizerVersion")
+            .or_else(|| response.get("version"))
+            .and_then(Value::as_str)
+            .unwrap_or("host")
+            .to_string();
+        let artifact = core_value_to_json(&_normalize_optimizer_engine_response(&[
+            core_value_from_json(&response),
+            CoreValue::from(engine_name.as_str()),
+            CoreValue::from(engine_version.as_str()),
+            core_value_from_json(&components),
+        ])?);
+        if opts.get("apply").and_then(Value::as_bool).unwrap_or(true) {
+            self.apply_optimization(&artifact)?;
+        }
+        Ok(artifact)
+    }
+
+    /// Optimize the agent with the engine carried in `options.engine`/`options.optimizer`.
+    /// Thin wrapper over [`optimize_with`](Self::optimize_with) matching the Python/
+    /// Java/C++ `agent.optimize(dataset, options)` surface.
+    pub fn optimize<C: AxAIClient>(
+        &mut self,
+        engine: &mut dyn OptimizerEngine,
+        dataset: &Value,
+        options: &Value,
+        client: Option<Rc<RefCell<C>>>,
+    ) -> AxResult<Value> {
+        self.optimize_with(engine, dataset, options, client)
+    }
+
+    /// Build an evolving-context `AxPlaybook` bound to a live agent stage (the
+    /// actor/task stage by default; pass `{"target":"responder"}` for the
+    /// responder). The playbook SHARES the stage's `AxGen`, so as it evolves the
+    /// composed instruction is written straight into the live stage prompt — unless
+    /// `options.apply == false`, in which case injection is disabled. The evolution
+    /// engine (ACE) is an implementation detail.
+    pub fn playbook<S: AxAIClient + 'static, T: AxAIClient + 'static>(
+        &mut self,
+        student: Rc<RefCell<S>>,
+        teacher: Option<Rc<RefCell<T>>>,
+        options: Value,
+    ) -> AxResult<AxPlaybook<S, T>> {
+        let target = options.get("target").and_then(Value::as_str).unwrap_or("actor");
+        let stage = if target == "responder" { &self.responder } else { &self.executor };
+        let gen_rc = if let CoreValue::Host(h) = stage {
+            h.stage_gen_rc()
+        } else {
+            None
+        }
+        .ok_or_else(|| AxError::new("optimize", "AxAgent.playbook(): stage is not an AxGen"))?;
+        let mut pb = AxPlaybook::from_shared(gen_rc, student, teacher, options.clone());
+        if options.get("apply").and_then(Value::as_bool) == Some(false) {
+            pb.set_apply_hook(Box::new(|_| {}));
+        }
+        Ok(pb)
+    }
 }
 
 impl AxProgram for AxAgent {
@@ -4256,9 +4463,21 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
         teacher: Option<Rc<RefCell<T>>>,
         options: Value,
     ) -> Self {
+        Self::from_shared(Rc::new(RefCell::new(program)), student, teacher, options)
+    }
+
+    /// Build a playbook that SHARES an already-`Rc<RefCell>`-wrapped program. Used by
+    /// `AxAgent::playbook()` so the playbook injects its composed instruction straight
+    /// into the live pipeline stage instead of a private clone.
+    pub fn from_shared(
+        program: Rc<RefCell<AxGen>>,
+        student: Rc<RefCell<S>>,
+        teacher: Option<Rc<RefCell<T>>>,
+        options: Value,
+    ) -> Self {
         let options = if options.is_object() { options } else { json!({}) };
         let verbose = options.get("verbose").and_then(Value::as_bool).unwrap_or(false);
-        let base_instruction = program.get_instruction();
+        let base_instruction = program.borrow().get_instruction();
 
         let mut engine_options = Map::new();
         if let Some(now) = options.get("now").filter(|v| !v.is_null()) {
@@ -4276,7 +4495,6 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
             }
         }
 
-        let program = Rc::new(RefCell::new(program));
         let last_prediction = Rc::new(RefCell::new(Value::Null));
         let apply_hook: Rc<RefCell<Option<Box<dyn FnMut(&str)>>>> = Rc::new(RefCell::new(None));
         let reflector_program: Rc<RefCell<Option<AxGen>>> = Rc::new(RefCell::new(None));
@@ -12779,6 +12997,12 @@ pub(crate) trait CoreHost {
     fn register_runtime_callable(&self, _name: &str, _callable: AxHostCallable) -> bool {
         false
     }
+    /// Expose the shared `AxGen` carried by an `AxGen` host so the agent can build
+    /// a playbook bound to the live pipeline stage. Default `None`; only `GenHost`
+    /// (the host that wraps an AxGen) overrides it.
+    fn stage_gen_rc(&self) -> Option<Rc<RefCell<AxGen>>> {
+        None
+    }
 }
 
 // Keeps #[derive(Debug)] on CoreValue working once the Host(Rc<dyn CoreHost>)
@@ -14301,18 +14525,21 @@ fn core_scoped_client() -> AxResult<RawScopedClient> {
 }
 
 pub(crate) struct GenHost {
-    gen: RefCell<AxGen>,
+    gen: Rc<RefCell<AxGen>>,
 }
 
 impl GenHost {
     pub(crate) fn new(gen: AxGen) -> CoreValue {
-        CoreValue::Host(Rc::new(GenHost { gen: RefCell::new(gen) }))
+        CoreValue::Host(Rc::new(GenHost { gen: Rc::new(RefCell::new(gen)) }))
     }
 }
 
 impl CoreHost for GenHost {
     fn host_type(&self) -> &'static str {
         "AxGen"
+    }
+    fn stage_gen_rc(&self) -> Option<Rc<RefCell<AxGen>>> {
+        Some(self.gen.clone())
     }
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
         match name {

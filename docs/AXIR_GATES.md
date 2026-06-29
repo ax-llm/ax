@@ -34,6 +34,10 @@ model's chat request, in **all five languages**. The gates have flipped accordin
   the presence of the real-execution handlers (`agent_runtime_real` + `agent_prompt`) in every
   language's runner, the real fixtures on disk, and the ledger's verified targets. Teeth verified.
 - **G5 ledger**: GREEN, wired into CI; tracks real-execution verified targets.
+- **G9 public-API parity**: GREEN, wired into CI (`go test -C tools/axir`). Asserts every language's
+  `AxAgent` exposes the same required public methods (`optimize`, `playbook`). Added after the Rust
+  agent shipped without `optimize()`/`playbook()` and Go without `optimize()` — drift the prior
+  (behavioral-only) gates could not see.
 - **G7 CI wiring**: GREEN. G3's `agent_prompt` is folded into the default `axagent` suite (runs for
   all five via the `axir-verify` matrix); the `axir-agent-antidote` job runs the G1 in-process engine
   antidote for Go (goja), Python (quickjs wheel), Rust (rquickjs), and Java (quickjs4j/Chicory);
@@ -125,6 +129,22 @@ The existing `axir-perturb-check.mjs` already mutates `expected_*` values and as
 fails (verified manually against `agent_runtime_real`: a wrong `expected_output` is caught because
 the engine, not the fixture, produced the value). Once the agent gates are green it auto-covers
 them; agent-specific perturbations (remove the engine, prose-without-`final()`) are added then.
+
+### G9 — Cross-language public-API parity (IMPLEMENTED)
+
+**The blind spot.** G1–G6 verify *behavior* (the real `forward()` loop, prompts, the capability
+ledger) and intrinsic/dispatch wiring, but nothing asserted that each language's `AxAgent` exposes
+the **same public method surface**. `runtime_model.go` merely *appends* claimed public symbols
+(`optimize`, `playbook`, `AxPlaybook`) to a manifest without verifying each emitted package actually
+exposes them. So the Rust agent shipped without `optimize()`/`playbook()`, and Go without
+`optimize()`, while every behavioral gate stayed green.
+
+**The gate.** `TestAgentPublicAPIParity` (`tools/axir/internal/axir/axir_test.go`) greps each
+language's `AxAgent` surface from the embedded templates (`goRuntime`, `rustLib`, `javaAxAgent`,
+`pyAgent`, `cppHeader`) with declaration-anchored, lookalike-excluding patterns, and fails the build
+if a required method (`optimize`, `playbook`) is missing in any language. Runs in the default
+`go test -C tools/axir` (hence `npm run test:axir`). Extend coverage by adding names to the
+`patterns` map. Negative-tested: renaming any one method's declaration fails the gate.
 
 ### G7 — CI wiring (`.github/workflows/ci.yml`)
 Each gate runs as a required pipeline phase, aggregated by the `ci-summary` job:
