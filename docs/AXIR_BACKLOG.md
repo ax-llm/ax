@@ -14,7 +14,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-06-30-port-claude-sonnet-5-adaptive-thinking-request-mapping` [axai] Port Claude Sonnet 5 adaptive-thinking request mapping
+  - Status: open
+  - Source PR: #558
+  - Source commit: `e53ca54bee275d3627035e4d99dcd97c261d7c13`
+  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.test.ts`, `src/ax/ai/anthropic/info.ts`, `src/ax/ai/anthropic/types.ts`
+  - Impact: TS routes claude-sonnet-5 (direct + Vertex) through the adaptive thinking surface: thinking { type: 'adaptive' } + output_config.effort, with no budget_tokens (the legacy thinking.type.enabled / budget_tokens shape is rejected with 400 by the model). Generated Python/Java/C++/Go/Rust packages still emit budget_tokens for Sonnet 5 (or lack the model entirely), so they build requests the model rejects and never map thinkingTokenBudget -> effort for it.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
