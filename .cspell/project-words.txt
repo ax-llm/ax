@@ -238,6 +238,8 @@ datetimes
 subflows
 AQIDBA
 backticked
+axcore
+nonportable
 chatcmpl
 flac
 generativelanguage
