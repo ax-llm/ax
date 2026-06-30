@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-llm"
 description: "Use when writing Rust code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "22.0.8"
+version: "22.0.9"
 ---
 # Ax LLM Quick Reference For Rust
 

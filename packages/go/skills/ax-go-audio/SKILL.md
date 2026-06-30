@@ -1,7 +1,7 @@
 ---
 name: "ax-go-audio"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples."
-version: "22.0.8"
+version: "22.0.9"
 ---
 # Ax Audio And Realtime For Go
 

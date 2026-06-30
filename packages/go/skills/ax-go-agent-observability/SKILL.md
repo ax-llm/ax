@@ -1,7 +1,7 @@
 ---
 name: "ax-go-agent-observability"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent tracing, usage accounting, action logs, runtime diagnostics, replay, and production debugging."
-version: "22.0.8"
+version: "22.0.9"
 ---
 # AxAgent Observability For Go
 

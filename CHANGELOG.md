@@ -1,5 +1,38 @@
 # Changelog
 
+## [22.0.9](https://github.com/ax-llm/ax/compare/22.0.7...22.0.8) (2026-06-30)
+
+### Features
+
+* **anthropic:** add Claude Sonnet 5 support ([#558](https://github.com/ax-llm/ax/issues/558)) ([811dee8](https://github.com/ax-llm/ax/commit/811dee880ff6a52f6432812f045029ea2fbe9ba0))
+
+### Bug Fixes
+
+* add AxIR terms to spelling dictionary ([592b7fb](https://github.com/ax-llm/ax/commit/592b7fbe39a7acca265b5c947e4ed69bb3190ca8))
+
+## [22.0.8](https://github.com/ax-llm/ax/compare/22.0.7...22.0.8) (2026-06-30)
+
+### Features
+
+* add AI SDK v7 support ([#557](https://github.com/ax-llm/ax/issues/557)) ([ec940f8](https://github.com/ax-llm/ax/commit/ec940f80b792f9e302b1319ed6215d8294ff5f4d))
+* **axir:** assert balancer streaming failover + close [#556](https://github.com/ax-llm/ax/issues/556) transient-error port ([57df89b](https://github.com/ax-llm/ax/commit/57df89bc62329bb99da941964eef5d1590f7c2d5))
+* **axir:** port Anthropic transient-error classification + 529 retryability + streaming-overload retry ([4f4f8c0](https://github.com/ax-llm/ax/commit/4f4f8c02528466d8215d51bb472d26f0a5140270)), closes [#556](https://github.com/ax-llm/ax/issues/556)
+* **axir:** port the playbook (ACE) optimizer to all 5 generated languages ([968a906](https://github.com/ax-llm/ax/commit/968a9067352143523b28b6668370db39faf492c9))
+* **dsp:** add playbook() concept that wraps the ACE optimizer ([858d55f](https://github.com/ax-llm/ax/commit/858d55f3d3f1af5ad403fe0019e4da3e7528b32a))
+* restore WebLLM provider and ACE optimizer ([d536956](https://github.com/ax-llm/ax/commit/d53695673c4a837c114557bbd89f2100ed035a22))
+
+### Bug Fixes
+
+* **agent:** recover from empty model turns and unknown tool calls ([8a44919](https://github.com/ax-llm/ax/commit/8a44919a97a829ab800b3a73a933f6a9bdc4e00e))
+* **axir:** playbook reflector/curator need field descriptions to learn live ([5173dfa](https://github.com/ax-llm/ax/commit/5173dfa1434f854ba097716c95c1691391b7cd27))
+* **axir:** port agent recovery fixes to generated packages ([05a9a26](https://github.com/ax-llm/ax/commit/05a9a2653f6b08ad304d06ce00e90f8a5f782a2b))
+* **axir:** regenerate ports for the ACE curator no-op filter ([7c299d6](https://github.com/ax-llm/ax/commit/7c299d6f63fe3dafcdc6c9dac012c3355170f390))
+* **axir:** Rust + Go agent-API parity (AxGen-backed) + G9 public-API parity gate ([42ad3e2](https://github.com/ax-llm/ax/commit/42ad3e2a75c719c919238368fb9b11f7d75238e2))
+* **bedrock:** read Titan embedding dimensions from config (axir-no-impact) ([#550](https://github.com/ax-llm/ax/issues/550)) ([2c37bc1](https://github.com/ax-llm/ax/commit/2c37bc1a46552fce1cad40017c579b926d5edc85))
+* **dsp:** AxACE must not let undefined option values clobber defaults ([f37b44a](https://github.com/ax-llm/ax/commit/f37b44a75322be3dd53b2def7fc31f7a497006eb))
+* **dsp:** drop no-op acknowledgment bullets from the ACE curator ([be3382c](https://github.com/ax-llm/ax/commit/be3382c57b308f7ee84f873e16bf6b6709219b0d))
+* **gepa:** prefer an accepted evolution over the seed it ties ([#546](https://github.com/ax-llm/ax/issues/546)) ([f260976](https://github.com/ax-llm/ax/commit/f260976a83d2e1dccb7f5e4a13caac3fa243d934))
+
 ## [22.0.8](https://github.com/ax-llm/ax/compare/22.0.6...22.0.7) (2026-06-30)
 
 ### Features
