@@ -1,5 +1,49 @@
 # Changelog
 
+## [22.0.8](https://github.com/ax-llm/ax/compare/22.0.6...22.0.7) (2026-06-30)
+
+### Features
+
+* add AI SDK v7 support ([#557](https://github.com/ax-llm/ax/issues/557)) ([ec940f8](https://github.com/ax-llm/ax/commit/ec940f80b792f9e302b1319ed6215d8294ff5f4d))
+* **axir:** assert balancer streaming failover + close [#556](https://github.com/ax-llm/ax/issues/556) transient-error port ([57df89b](https://github.com/ax-llm/ax/commit/57df89bc62329bb99da941964eef5d1590f7c2d5))
+* **axir:** port Anthropic transient-error classification + 529 retryability + streaming-overload retry ([4f4f8c0](https://github.com/ax-llm/ax/commit/4f4f8c02528466d8215d51bb472d26f0a5140270)), closes [#556](https://github.com/ax-llm/ax/issues/556)
+* **axir:** port the playbook (ACE) optimizer to all 5 generated languages ([968a906](https://github.com/ax-llm/ax/commit/968a9067352143523b28b6668370db39faf492c9))
+* **dsp:** add playbook() concept that wraps the ACE optimizer ([858d55f](https://github.com/ax-llm/ax/commit/858d55f3d3f1af5ad403fe0019e4da3e7528b32a))
+* restore WebLLM provider and ACE optimizer ([d536956](https://github.com/ax-llm/ax/commit/d53695673c4a837c114557bbd89f2100ed035a22))
+
+### Bug Fixes
+
+* **agent:** recover from empty model turns and unknown tool calls ([8a44919](https://github.com/ax-llm/ax/commit/8a44919a97a829ab800b3a73a933f6a9bdc4e00e))
+* **axir:** playbook reflector/curator need field descriptions to learn live ([5173dfa](https://github.com/ax-llm/ax/commit/5173dfa1434f854ba097716c95c1691391b7cd27))
+* **axir:** port agent recovery fixes to generated packages ([05a9a26](https://github.com/ax-llm/ax/commit/05a9a2653f6b08ad304d06ce00e90f8a5f782a2b))
+* **axir:** regenerate ports for the ACE curator no-op filter ([7c299d6](https://github.com/ax-llm/ax/commit/7c299d6f63fe3dafcdc6c9dac012c3355170f390))
+* **axir:** Rust + Go agent-API parity (AxGen-backed) + G9 public-API parity gate ([42ad3e2](https://github.com/ax-llm/ax/commit/42ad3e2a75c719c919238368fb9b11f7d75238e2))
+* **bedrock:** read Titan embedding dimensions from config (axir-no-impact) ([#550](https://github.com/ax-llm/ax/issues/550)) ([2c37bc1](https://github.com/ax-llm/ax/commit/2c37bc1a46552fce1cad40017c579b926d5edc85))
+* **dsp:** AxACE must not let undefined option values clobber defaults ([f37b44a](https://github.com/ax-llm/ax/commit/f37b44a75322be3dd53b2def7fc31f7a497006eb))
+* **dsp:** drop no-op acknowledgment bullets from the ACE curator ([be3382c](https://github.com/ax-llm/ax/commit/be3382c57b308f7ee84f873e16bf6b6709219b0d))
+* **gepa:** prefer an accepted evolution over the seed it ties ([#546](https://github.com/ax-llm/ax/issues/546)) ([f260976](https://github.com/ax-llm/ax/commit/f260976a83d2e1dccb7f5e4a13caac3fa243d934))
+
+## [22.0.7](https://github.com/ax-llm/ax/compare/22.0.6...22.0.7) (2026-06-24)
+
+### Features
+
+* **axir:** productized realtime_chat WebSocket driver for the C++ port ([a11f9c7](https://github.com/ax-llm/ax/commit/a11f9c7fcbdd2399bc2af89e06c73b7c7facb0e5))
+* **axir:** productized realtime_chat WebSocket driver for the Go port ([72b881c](https://github.com/ax-llm/ax/commit/72b881cd6cff1a5c6aca1c9b27ec5203a366561d))
+* **axir:** productized realtime_chat WebSocket driver for the Java port ([27e23f5](https://github.com/ax-llm/ax/commit/27e23f517dbd8e63589ba07f714debffcc686b35))
+* **axir:** productized realtime_chat WebSocket driver for the Python port ([faabf69](https://github.com/ax-llm/ax/commit/faabf69ebaa1f35e4cf7f3441fe504e773fa603e))
+* **axir:** productized realtime_chat WebSocket driver for the Rust port ([81af022](https://github.com/ax-llm/ax/commit/81af0227fe17f303e034527399aa71cdc8718f6d))
+* **axir:** support audio content parts in OpenAI-compatible chat() across ports ([9119cef](https://github.com/ax-llm/ax/commit/9119cef49109ab1f02eda990e8830adea4ef8446))
+* **axir:** transparently route realtime models through chat() across ports ([ba6e38a](https://github.com/ax-llm/ax/commit/ba6e38a2de77943e7b0fd1fa781da5e273164e0a))
+
+### Bug Fixes
+
+* **anthropic:** retry and fail over on transient errors (overload, rate limits, server errors) ([#556](https://github.com/ax-llm/ax/issues/556)) ([36c7808](https://github.com/ax-llm/ax/commit/36c7808f1ecd647539da33fd19c4484ce687c0ff))
+* **axir:** align OpenAI realtime session.update with the current protocol ([cfac419](https://github.com/ax-llm/ax/commit/cfac41973da31be598c5d6c9e2ef7a30a00e16c8))
+* **axir:** correct Gemini Live turn + move realtime WS-URL into Core ([1fa204e](https://github.com/ax-llm/ax/commit/1fa204ed26828c6981315b8e52583f33fdb56880))
+* **axir:** fail codegen loud when a generated Python module lacks a helper def ([7566c74](https://github.com/ax-llm/ax/commit/7566c7470f26b2441440c2cc3ccb6e7400f75d41))
+* **axir:** honor base_url for Rust audio transcribe()/speak() ([ba4ea67](https://github.com/ax-llm/ax/commit/ba4ea675d577a4ad7849b2b051a921579e7091b5))
+* **axir:** make MCP Streamable HTTP transport SSE-aware in all 5 ports ([ed37627](https://github.com/ax-llm/ax/commit/ed3762769cf617193545d53d64fcabfb6b13075e))
+
 ## [22.0.7](https://github.com/ax-llm/ax/compare/22.0.5...22.0.6) (2026-06-24)
 
 ### Features

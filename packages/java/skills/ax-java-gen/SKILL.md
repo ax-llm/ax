@@ -1,7 +1,7 @@
 ---
 name: "ax-java-gen"
 description: "Use when writing Java code with `dev.axllm:ax` for AxGen programs, forward calls, streaming, tools, assertions, traces, usage, and output parsing."
-version: "22.0.7"
+version: "22.0.8"
 ---
 # AxGen Structured Generation For Java
 

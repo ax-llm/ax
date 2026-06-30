@@ -1,7 +1,7 @@
 ---
 name: "ax-java-playbook"
 description: "Use when writing Java code with `dev.axllm:ax` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program."
-version: "22.0.7"
+version: "22.0.8"
 ---
 # Ax Playbook For Java
 
