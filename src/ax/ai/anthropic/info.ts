@@ -3,6 +3,38 @@ import type { AxModelInfo } from '../types.js';
 import { AxAIAnthropicModel, AxAIAnthropicVertexModel } from './types.js';
 
 export const axModelInfoAnthropic: AxModelInfo[] = [
+  // 5 Sonnet (2026-06)
+  // Final pricing recorded below; intro pricing ($2/$10 per 1M in/out) runs through 2026-08-31.
+  {
+    name: AxAIAnthropicModel.Claude5Sonnet,
+    currency: 'usd',
+    promptTokenCostPer1M: 3.0,
+    completionTokenCostPer1M: 15.0,
+    cacheReadTokenCostPer1M: 0.3,
+    cacheWriteTokenCostPer1M: 3.75,
+    maxTokens: 128000,
+    contextWindow: 1_000_000,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
+  {
+    name: AxAIAnthropicVertexModel.Claude5Sonnet,
+    currency: 'usd',
+    promptTokenCostPer1M: 3.0,
+    completionTokenCostPer1M: 15.0,
+    cacheReadTokenCostPer1M: 0.3,
+    cacheWriteTokenCostPer1M: 3.75,
+    maxTokens: 128000,
+    contextWindow: 1_000_000,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
   // 4.8 Opus (2026-05)
   {
     name: AxAIAnthropicModel.Claude48Opus,

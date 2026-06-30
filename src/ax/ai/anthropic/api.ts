@@ -100,6 +100,17 @@ const isClaudeOpus47OrLater = (model: string): boolean =>
 const isClaudeOpus48 = (model: string): boolean =>
   model.includes('claude-opus-4-8');
 
+const isClaude5 = (model: string): boolean => model.includes('claude-sonnet-5');
+
+/**
+ * Models that use adaptive thinking + output_config.effort and reject the legacy
+ * thinking.type.enabled / budget_tokens surface (Opus 4.6, Opus 4.7+, Sonnet 5).
+ */
+const isAdaptiveThinkingModel = (model: string): boolean =>
+  model.includes('claude-opus-4-6') ||
+  isClaudeOpus47OrLater(model) ||
+  isClaude5(model);
+
 const cleanSchemaForAnthropic = (schema: any): any => {
   if (!schema || typeof schema !== 'object') {
     return schema;
@@ -492,7 +503,6 @@ class AxAIAnthropicImpl
     }
 
     // Model detection helpers
-    const isOpus46 = (m: string) => m.includes('claude-opus-4-6');
     const isOpus45 = (m: string) => m.includes('claude-opus-4-5');
     const isOpus47Plus = isClaudeOpus47OrLater(modelStr);
     const samplingUnsupported = isOpus47Plus;
@@ -518,8 +528,8 @@ class AxAIAnthropicImpl
           | 'high'
           | 'highest';
 
-        if (isOpus47Plus || isOpus46(modelStr)) {
-          // Opus 4.7+ and Opus 4.6: use adaptive thinking + effort
+        if (isAdaptiveThinkingModel(modelStr)) {
+          // Opus 4.6+, Sonnet 5: adaptive thinking + effort
           thinkingWire = { type: 'adaptive' };
           const effort = effortMap?.[budgetLevel] ?? 'medium';
           outputConfig = { effort };

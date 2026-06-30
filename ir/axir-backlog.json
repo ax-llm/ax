@@ -8,7 +8,9 @@
       "createdAt": "2026-06-07",
       "sourcePR": null,
       "sourceCommit": "4e8da4ba",
-      "tsPaths": ["src/ax/mcp"],
+      "tsPaths": [
+        "src/ax/mcp"
+      ],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust packages do not yet expose the modern MCP client, transports, OAuth discovery, or SSRF guard behavior.",
       "suggestedAxirWork": [
@@ -49,7 +51,9 @@
       "createdAt": "2026-06-24",
       "sourcePR": 556,
       "sourceCommit": "2d1a5f96f033640bf4e892e866fde99bc92e8268",
-      "tsPaths": ["src/ax/ai"],
+      "tsPaths": [
+        "src/ax/ai"
+      ],
       "portableSurface": "axai",
       "impact": "Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording — so transient Anthropic errors hard-fail there with no retry or failover.",
       "suggestedAxirWork": [
@@ -85,13 +89,40 @@
       "completedAt": "2026-06-28",
       "completedByCommit": "working-tree",
       "verification": "npm run test:axir; npm run axir:check-packages"
+    },
+    {
+      "id": "axir-2026-06-30-port-claude-sonnet-5-adaptive-thinking-request-mapping",
+      "status": "open",
+      "title": "Port Claude Sonnet 5 adaptive-thinking request mapping",
+      "createdAt": "2026-06-30",
+      "sourcePR": 558,
+      "sourceCommit": "e53ca54bee275d3627035e4d99dcd97c261d7c13",
+      "tsPaths": [
+        "src/ax/ai/anthropic/api.ts",
+        "src/ax/ai/anthropic/api.test.ts",
+        "src/ax/ai/anthropic/info.ts",
+        "src/ax/ai/anthropic/types.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TS routes claude-sonnet-5 (direct + Vertex) through the adaptive thinking surface: thinking { type: 'adaptive' } + output_config.effort, with no budget_tokens (the legacy thinking.type.enabled / budget_tokens shape is rejected with 400 by the model). Generated Python/Java/C++/Go/Rust packages still emit budget_tokens for Sonnet 5 (or lack the model entirely), so they build requests the model rejects and never map thinkingTokenBudget -> effort for it.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
     {
       "id": "webllm-browser-only",
       "surface": "axai",
-      "paths": ["src/ax/ai/webllm", "src/examples/webllm-chat.html"],
+      "paths": [
+        "src/ax/ai/webllm",
+        "src/examples/webllm-chat.html"
+      ],
       "scopedFiles": [
         "src/ax/ai/wrap.ts",
         "src/ax/ai/catalog.ts",
@@ -99,7 +130,12 @@
         "src/ax/ai/wrap.test.ts",
         "src/ax/skills/ax-ai.md"
       ],
-      "tags": ["webllm", "browser-only", "webgpu", "host-engine"],
+      "tags": [
+        "webllm",
+        "browser-only",
+        "webgpu",
+        "host-engine"
+      ],
       "reason": "WebLLM is browser-specific integration code around a caller-supplied MLCEngine/WebGPU runtime. It is not a portable Ax semantic and should not create Python/Java/C++/Go/Rust AxIR backlog work.",
       "createdAt": "2026-06-26"
     }
