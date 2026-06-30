@@ -4589,8 +4589,10 @@ module @ax.provider version "0.1" {
       %is_48 = core.call intrinsic.string.starts_with(%model, "claude-opus-4-8")
       %is_47 = core.call intrinsic.string.starts_with(%model, "claude-opus-4-7")
       %is_46 = core.call intrinsic.string.starts_with(%model, "claude-opus-4-6")
+      %is_sonnet_5 = core.call intrinsic.string.starts_with(%model, "claude-sonnet-5")
       %is_47_plus = core.call intrinsic.or(%is_48, %is_47)
-      %is_adaptive = core.call intrinsic.or(%is_47_plus, %is_46)
+      %is_adaptive_opus = core.call intrinsic.or(%is_47_plus, %is_46)
+      %is_adaptive = core.call intrinsic.or(%is_adaptive_opus, %is_sonnet_5)
       core.if %is_adaptive {
         %thinking = core.map
         core.set %thinking["type"] = "adaptive"

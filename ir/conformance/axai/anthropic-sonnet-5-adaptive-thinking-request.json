@@ -1,0 +1,72 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "anthropic",
+      "model": "claude-sonnet-5",
+      "tokens": {
+        "completion_tokens": 3,
+        "prompt_tokens": 7,
+        "total_tokens": 10
+      }
+    },
+    "remote_id": "msg_sonnet5_think",
+    "results": [
+      {
+        "content": "Done.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "msg_sonnet5_think",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "model": "claude-sonnet-5",
+      "output_config": {
+        "effort": "max"
+      },
+      "thinking": {
+        "type": "adaptive"
+      }
+    }
+  },
+  "kind": "ai_chat",
+  "model": "claude-sonnet-5",
+  "name": "anthropic-sonnet-5-adaptive-thinking-request",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Think then answer.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "highest"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "Done.",
+            "type": "text"
+          }
+        ],
+        "id": "msg_sonnet5_think",
+        "model": "claude-sonnet-5",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

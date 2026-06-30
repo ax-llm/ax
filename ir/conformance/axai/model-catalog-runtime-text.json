@@ -3616,6 +3616,60 @@
             "type": "text"
           },
           {
+            "cacheReadTokenCostPer1M": 0.3,
+            "cacheWriteTokenCostPer1M": 3.75,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 15,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-sonnet-5",
+            "promptTokenCostPer1M": 3,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.3,
+            "cacheWriteTokenCostPer1M": 3.75,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 15,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-sonnet-5",
+            "promptTokenCostPer1M": 3,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "cacheReadTokenCostPer1M": 0.5,
             "cacheWriteTokenCostPer1M": 6.25,
             "capabilities": {
@@ -4022,7 +4076,7 @@
         "name": "azure-openai"
       }
     ],
-    "modelCount": 166,
+    "modelCount": 168,
     "openaiFirstModel": "gpt-5-nano",
     "openaiModelTypes": ["code", "text"],
     "providerCount": 11,

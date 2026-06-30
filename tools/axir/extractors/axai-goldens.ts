@@ -2694,6 +2694,58 @@ writeFixture('anthropic-thinking-response', {
   },
 });
 
+writeFixture('anthropic-sonnet-5-adaptive-thinking-request', {
+  kind: 'ai_chat',
+  provider: 'anthropic',
+  model: 'claude-sonnet-5',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Think then answer.' }],
+    model_config: { stream: false, thinkingTokenBudget: 'highest' },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'msg_sonnet5_think',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Done.' }],
+        model: 'claude-sonnet-5',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 7, output_tokens: 3 },
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: 'msg_sonnet5_think',
+        content: 'Done.',
+        function_calls: [],
+        finish_reason: 'stop',
+      },
+    ],
+    remote_id: 'msg_sonnet5_think',
+    model_usage: {
+      ai: 'anthropic',
+      model: 'claude-sonnet-5',
+      tokens: {
+        prompt_tokens: 7,
+        completion_tokens: 3,
+        total_tokens: 10,
+      },
+    },
+  },
+  expected_transport_request: {
+    json: {
+      model: 'claude-sonnet-5',
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'max' },
+    },
+  },
+});
+
 writeFixture('anthropic-streaming-tool-thinking', {
   kind: 'ai_stream',
   provider: 'anthropic',
