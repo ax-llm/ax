@@ -601,6 +601,68 @@ describe('AxAIAnthropic thinking configuration', () => {
     expect(body.output_config).toEqual({ effort: 'high' });
   });
 
+  it('Sonnet 5 with high produces adaptive thinking + effort high', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude5Sonnet },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-sonnet-5');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false, thinkingTokenBudget: 'high' }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.model).toBe('claude-sonnet-5');
+    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.output_config).toEqual({ effort: 'high' });
+    expect(body.thinking?.budget_tokens).toBeUndefined();
+  });
+
+  it('Sonnet 5 with highest produces adaptive + effort max', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude5Sonnet },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-sonnet-5');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false, thinkingTokenBudget: 'highest' }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.output_config).toEqual({ effort: 'max' });
+    expect(body.thinking?.budget_tokens).toBeUndefined();
+  });
+
+  it('Sonnet 5 accepts direct xhigh effort', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude5Sonnet, effort: 'xhigh' },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-sonnet-5');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    expect(capture.lastBody?.output_config).toEqual({ effort: 'xhigh' });
+    expect(capture.lastBody?.thinking).toBeUndefined();
+  });
+
   it('Opus 4.8 accepts direct xhigh effort and omits sampling params', async () => {
     const ai = new AxAIAnthropic({
       apiKey: 'key',
