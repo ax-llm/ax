@@ -17,7 +17,7 @@ import {
 } from '../dsp/optimizer.js';
 import { AxGEPA } from '../dsp/optimizers/gepa.js';
 import { toFieldType } from '../dsp/prompt.js';
-import type { AxIField } from '../dsp/sig.js';
+import type { AxIField, AxSignature } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
 import { AxJSRuntime } from '../funcs/jsRuntime.js';
 import { AxMemory } from '../mem/memory.js';
@@ -988,6 +988,35 @@ describe('Split-architecture signature derivation', () => {
     ]) {
       expect(fieldsByName.get(name)?.isCached).not.toBe(true);
     }
+  });
+
+  it('should keep memories field cached on distiller and executor after setSignature()', () => {
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      contextFields: ['context'],
+      runtime,
+      onMemoriesSearch: async () => [],
+    });
+
+    const memoriesField = (sig: AxSignature) =>
+      sig.getInputFields().find((field: AxIField) => field.name === 'memories');
+
+    // Freshly constructed agent: stage base signatures carry the cache
+    // breakpoint on `memories`.
+    expect(memoriesField(testAgent.distiller.getSignature())?.isCached).toBe(
+      true
+    );
+    expect(memoriesField(testAgent.executor.getSignature())?.isCached).toBe(
+      true
+    );
+
+    // Rebuilding via setSignature() must keep the same breakpoint placement.
+    testAgent.setSignature('context:string, question:string -> answer:string');
+    expect(memoriesField(testAgent.distiller.getSignature())?.isCached).toBe(
+      true
+    );
+    expect(memoriesField(testAgent.executor.getSignature())?.isCached).toBe(
+      true
+    );
   });
 
   it('should keep actor system prompt stable when optional loop fields appear', async () => {

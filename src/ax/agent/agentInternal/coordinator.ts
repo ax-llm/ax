@@ -688,6 +688,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           .string(
             'Memories already loaded for this run, rendered as markdown blocks with `ID:` lines. In JS, read `inputs.memories` as `[{ id, content }]`. Call `recall(...)` to load more.'
           )
+          .cache()
           .optional()
       );
     }
@@ -721,6 +722,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           .string(
             'Memories loaded so far for this run, rendered as markdown blocks with `ID:` lines. In JS, read `inputs.memories` as `[{ id, content }]` (carried over from the distiller and any prior executor turns). Call `recall(...)` to load more.'
           )
+          .cache()
           .optional()
       );
     }
