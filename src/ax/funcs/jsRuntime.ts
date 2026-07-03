@@ -40,8 +40,6 @@ export type AxJSRuntimeOutputMode = 'return' | 'stdout';
  */
 export class AxJSRuntime implements AxCodeRuntime {
   readonly language = 'JavaScript';
-  /** Sessions support patchGlobals + host-driven execute — see AxCodeRuntime. */
-  readonly supportsSharedSessions = true;
   private readonly timeout: number;
   private readonly permissions: readonly AxJSRuntimePermission[];
   private readonly allowUnsafeNodeHostAccess: boolean;

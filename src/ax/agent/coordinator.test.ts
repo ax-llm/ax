@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { AxMockAIService } from '../ai/mock/api.js';
+import {
+  AX_HOST_SNIPPET_MARKER,
+  AX_INPUTS_PATCH_GLOBAL,
+} from './agentInternal/sharedSession.js';
 import { AxAgent, AxAgentClarificationError, agent } from './index.js';
 import type { AxCodeRuntime } from './rlm.js';
 
@@ -21,12 +25,11 @@ const makeModelUsage = () => ({
 const makeRuntime = (
   behavior?: (code: string, globals: Record<string, unknown>) => unknown
 ): AxCodeRuntime => ({
-  // Scripted fake: opt out of the shared-session protocol.
-  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {
       execute: async (code: string) => {
+        if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
         if (globals?.final && code.includes('final(')) {
           // Parse args from final("message", {field: "val"}) or final("message")
           const match = code.match(/final\("([^"]*)"(?:,\s*(\{[^}]*\}))?\)/);
@@ -46,7 +49,17 @@ const makeRuntime = (
         if (behavior) return behavior(code, globals as Record<string, unknown>);
         return 'executed';
       },
-      patchGlobals: async () => {},
+      // REPL-faithful: merge (phase-2 rebinding) + honor staged input merges.
+      patchGlobals: async (patch: Record<string, unknown>) => {
+        const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+        Object.assign(globals ?? {}, rest);
+        if (globals && staged && typeof staged === 'object') {
+          globals.inputs = Object.assign(
+            (globals.inputs as Record<string, unknown>) ?? {},
+            staged
+          );
+        }
+      },
       close: () => {},
     };
   },

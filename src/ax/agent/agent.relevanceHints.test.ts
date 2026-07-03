@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { AxMockAIService } from '../ai/mock/api.js';
+import {
+  AX_HOST_SNIPPET_MARKER,
+  AX_INPUTS_PATCH_GLOBAL,
+} from './agentInternal/sharedSession.js';
 import type { AxAgentContextEvent } from './contextEvents.js';
 import { agent } from './index.js';
 import type { AxCodeRuntime } from './rlm.js';
@@ -86,12 +90,11 @@ function moduleGroups() {
 
 /** Runtime that finishes each stage on the first `final(...)` call. */
 const rankRuntime: AxCodeRuntime = {
-  // Scripted fake: opt out of the shared-session protocol.
-  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {
       execute: async (code: string) => {
+        if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
         if (globals?.final && code.includes('final(')) {
           (globals.final as (...args: unknown[]) => void)('complete the task', {
             data: 'done',
@@ -100,7 +103,17 @@ const rankRuntime: AxCodeRuntime = {
         }
         return 'ok';
       },
-      patchGlobals: async () => {},
+      // REPL-faithful: merge (phase-2 rebinding) + honor staged input merges.
+      patchGlobals: async (patch: Record<string, unknown>) => {
+        const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+        Object.assign(globals ?? {}, rest);
+        if (globals && staged && typeof staged === 'object') {
+          globals.inputs = Object.assign(
+            (globals.inputs as Record<string, unknown>) ?? {},
+            staged
+          );
+        }
+      },
       close: () => {},
     };
   },

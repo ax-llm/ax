@@ -355,17 +355,6 @@ export interface AxCodeRuntime {
    * Defaults to JavaScript when omitted for backwards compatibility.
    */
   readonly language?: string;
-  /**
-   * Whether the pipeline may span one session across the distiller and
-   * executor phases (evidence passes by reference; the phase boundary runs
-   * in-session snippets and function-valued `patchGlobals`). Default: true —
-   * any runtime that can run the actor loop supports this. Set false ONLY
-   * for simulated/scripted runtimes (test fakes, replayers) whose `execute`
-   * pattern-matches turns and must not receive host-driven boundary
-   * snippets; those get per-stage sessions with evidence carried through
-   * the host.
-   */
-  readonly supportsSharedSessions?: boolean;
   createSession(
     globals?: Record<string, unknown>,
     options?: { shouldBubbleError?: (err: unknown) => boolean }

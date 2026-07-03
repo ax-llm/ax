@@ -17,8 +17,13 @@
  *
  * Internal benchmark helper — NOT exported from `src/ax/index.ts`.
  */
+
 import { AxMockAIService } from '../../ai/mock/api.js';
 import type { AxAIService } from '../../ai/types.js';
+import {
+  AX_HOST_SNIPPET_MARKER,
+  AX_INPUTS_PATCH_GLOBAL,
+} from '../agentInternal/sharedSession.js';
 import type { AxAgentFunction } from '../index.js';
 import { agent } from '../index.js';
 import type { AxCodeRuntime, AxContextPolicyPreset } from '../rlm.js';
@@ -140,12 +145,11 @@ function renderExecutorTurn(turn: AxScriptedTurn): string {
 
 /** Stub runtime that echoes logged blobs as output and routes final()/errors. */
 const makeRuntime = (): AxCodeRuntime => ({
-  // Scripted fake: opt out of the shared-session protocol.
-  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {
       execute: async (code: string) => {
+        if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
         if (code.includes('throwError(')) {
           const match = code.match(/throwError\((".*")\)/s);
           const message = match
@@ -171,7 +175,17 @@ const makeRuntime = (): AxCodeRuntime => ({
         }
         return 'executed';
       },
-      patchGlobals: async () => {},
+      // REPL-faithful: merge (phase-2 rebinding) + honor staged input merges.
+      patchGlobals: async (patch: Record<string, unknown>) => {
+        const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+        Object.assign(globals ?? {}, rest);
+        if (globals && staged && typeof staged === 'object') {
+          globals.inputs = Object.assign(
+            (globals.inputs as Record<string, unknown>) ?? {},
+            staged
+          );
+        }
+      },
       close: () => {},
     };
   },

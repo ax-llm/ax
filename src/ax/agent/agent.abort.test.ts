@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
-
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
+import {
+  AX_HOST_SNIPPET_MARKER,
+  AX_INPUTS_PATCH_GLOBAL,
+} from './agentInternal/sharedSession.js';
 
 import { AxAgent } from './index.js';
 import type { AxCodeRuntime } from './rlm.js';
@@ -14,19 +17,28 @@ const makeModelUsage = () => ({
 });
 
 const createSimpleRuntime = (): AxCodeRuntime => ({
-  // Scripted fake: opt out of the shared-session protocol.
-  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {
       execute: async (code: string) => {
+        if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
         if (globals?.final && code.includes('final(')) {
           (globals.final as (...args: unknown[]) => void)('done');
           return 'submitted';
         }
         return `executed: ${code}`;
       },
-      patchGlobals: async () => {},
+      // REPL-faithful: merge (phase-2 rebinding) + honor staged input merges.
+      patchGlobals: async (patch: Record<string, unknown>) => {
+        const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+        Object.assign(globals ?? {}, rest);
+        if (globals && staged && typeof staged === 'object') {
+          globals.inputs = Object.assign(
+            (globals.inputs as Record<string, unknown>) ?? {},
+            staged
+          );
+        }
+      },
       close: () => {},
     };
   },
@@ -72,8 +84,6 @@ describe('AxAgent.stop()', () => {
 
     let stopCalled = false;
     const runtime: AxCodeRuntime = {
-      // Scripted fake: opt out of the shared-session protocol.
-      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession() {
         return {
@@ -84,7 +94,17 @@ describe('AxAgent.stop()', () => {
             }
             return 'executed';
           },
-          patchGlobals: async () => {},
+          // REPL-faithful: merge (phase-2 rebinding) + honor staged input merges.
+          patchGlobals: async (patch: Record<string, unknown>) => {
+            const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+            Object.assign(globals ?? {}, rest);
+            if (globals && staged && typeof staged === 'object') {
+              globals.inputs = Object.assign(
+                (globals.inputs as Record<string, unknown>) ?? {},
+                staged
+              );
+            }
+          },
           close: () => {},
         };
       },
@@ -224,8 +244,6 @@ describe('AxAgent.stop()', () => {
     });
 
     const runtime: AxCodeRuntime = {
-      // Scripted fake: opt out of the shared-session protocol.
-      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession() {
         return {
@@ -237,7 +255,17 @@ describe('AxAgent.stop()', () => {
             controller.abort('test abort');
             return 'executed';
           },
-          patchGlobals: async () => {},
+          // REPL-faithful: merge (phase-2 rebinding) + honor staged input merges.
+          patchGlobals: async (patch: Record<string, unknown>) => {
+            const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+            Object.assign(globals ?? {}, rest);
+            if (globals && staged && typeof staged === 'object') {
+              globals.inputs = Object.assign(
+                (globals.inputs as Record<string, unknown>) ?? {},
+                staged
+              );
+            }
+          },
           close: () => {},
         };
       },

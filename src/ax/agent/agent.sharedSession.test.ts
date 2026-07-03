@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AxMockAIService } from '../ai/mock/api.js';
 import { AxJSRuntime } from '../funcs/jsRuntime.js';
+import { AX_HOST_SNIPPET_MARKER } from './agentInternal/sharedSession.js';
 import { agent } from './index.js';
 import type { AxCodeRuntime } from './rlm.js';
 
@@ -77,7 +78,7 @@ function scriptedAI(scripts: StageScripts, capture?: PromptCapture) {
 }
 
 /** Real worker runtime behind a session-counting proxy. */
-function countingRuntime(options?: { shared?: boolean }): {
+function countingRuntime(): {
   runtime: AxCodeRuntime;
   counts: { sessions: number };
 } {
@@ -85,8 +86,6 @@ function countingRuntime(options?: { shared?: boolean }): {
   const counts = { sessions: 0 };
   const runtime: AxCodeRuntime = {
     language: 'JavaScript',
-    // Shared sessions are the default; only the fallback variant opts out.
-    ...(options?.shared === false ? { supportsSharedSessions: false } : {}),
     getUsageInstructions: () => real.getUsageInstructions(),
     createSession: (globals, sessionOptions) => {
       counts.sessions++;
@@ -94,6 +93,50 @@ function countingRuntime(options?: { shared?: boolean }): {
     },
   };
   return { runtime, counts };
+}
+
+/**
+ * Scripted NON-JavaScript runtime: the only population that takes the
+ * per-stage fallback (its sessions cannot run the JS boundary snippets).
+ * REPL-faithful: patchGlobals merges, host snippets are skipped by marker,
+ * and per-session globals are captured for assertions.
+ */
+function scriptedLuaRuntime(): {
+  runtime: AxCodeRuntime;
+  sessions: { globals: Record<string, unknown> | undefined }[];
+} {
+  const sessions: { globals: Record<string, unknown> | undefined }[] = [];
+  const runtime: AxCodeRuntime = {
+    language: 'Lua',
+    getUsageInstructions: () => '',
+    createSession(globals) {
+      const record = { globals };
+      sessions.push(record);
+      return {
+        execute: async (code: string) => {
+          if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host';
+          const g = record.globals;
+          if (g?.final && code.includes('final(')) {
+            const match = code.match(/final\("([^"]*)"(?:,\s*(\{.*\}))?\)/s);
+            if (match) {
+              const extra = match[2] ? JSON.parse(match[2]) : undefined;
+              (g.final as (...args: unknown[]) => void)(
+                match[1],
+                ...(extra === undefined ? [] : [extra])
+              );
+            }
+            return 'submitted';
+          }
+          return 'executed';
+        },
+        patchGlobals: async (patch) => {
+          Object.assign(record.globals ?? {}, patch);
+        },
+        close: () => {},
+      };
+    },
+  };
+  return { runtime, sessions };
 }
 
 const DOCS = [
@@ -404,21 +447,41 @@ describe('shared runtime session pipeline', () => {
     expect(responderPrompt).toContain('"count": 2');
   });
 
-  it('falls back to per-stage sessions with host-carried evidence when the runtime does not opt in', async () => {
+  it('falls back to per-stage sessions with host-carried evidence for non-JavaScript runtimes', async () => {
     const capture = makeCapture();
-    const { runtime, counts } = countingRuntime({ shared: false });
-    const ai = scriptedAI(
-      {
-        distiller: [
-          'matched = inputs.docs.filter((d) => d.tag === "keep").map((d) => ({ id: d.id })); await final("Report the matched docs", { matched })',
-        ],
-        executor: [
-          'await final("Report the matched docs", { count: inputs.distilledContext.matched.length, ids: inputs.distilledContext.matched.map((m) => m.id) })',
-        ],
-        responder: 'Answer: fallback-ok',
+    const { runtime, sessions } = scriptedLuaRuntime();
+
+    // Non-JS runtimes render a language-specific code field ("Lua Code").
+    let distillerTurns = 0;
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userText = req.chatPrompt
+          .filter((m) => m.role === 'user')
+          .map((m) => String(m.content ?? ''))
+          .join('\n');
+        const respond = (content: string) => ({
+          results: [{ index: 0, content, finishReason: 'stop' as const }],
+          modelUsage: makeModelUsage(),
+        });
+        if (systemPrompt.includes('You (`distiller`)')) {
+          capture.distillerPrompts.push(userText);
+          distillerTurns++;
+          return respond(
+            'Lua Code: final("Report the matched docs", {"matched":[{"id":"a1"},{"id":"c3"}]})'
+          );
+        }
+        if (systemPrompt.includes('You (`executor`)')) {
+          capture.executorPrompts.push(userText);
+          return respond(
+            'Lua Code: final("Report the matched docs", {"count":2,"ids":["a1","c3"]})'
+          );
+        }
+        capture.responderPrompts.push(userText);
+        return respond('Answer: fallback-ok');
       },
-      capture
-    );
+    });
 
     const myAgent = agent('docs:json[], query:string -> answer:string', {
       contextFields: ['docs'],
@@ -431,12 +494,28 @@ describe('shared runtime session pipeline', () => {
     });
 
     expect(result.answer).toBe('fallback-ok');
-    // Two sessions (one per stage): the evidence crossed through the host into
-    // the executor's runtime, still never materializing into its prompt.
-    expect(counts.sessions).toBe(2);
+    expect(distillerTurns).toBe(1);
+    // Two sessions (one per stage): the evidence crossed through the host…
+    expect(sessions).toHaveLength(2);
+    // …into the executor's runtime globals (inputs entry + bare alias)…
+    const executorGlobals = sessions[1]?.globals as
+      | Record<string, unknown>
+      | undefined;
+    const executorInputs = executorGlobals?.inputs as
+      | Record<string, unknown>
+      | undefined;
+    expect(executorInputs?.distilledContext).toEqual({
+      matched: [{ id: 'a1' }, { id: 'c3' }],
+    });
+    expect(executorGlobals?.distilledContext).toEqual({
+      matched: [{ id: 'a1' }, { id: 'c3' }],
+    });
+    // …while its prompt carries only the shape summary, never the payload.
     const executorPrompt = capture.executorPrompts.join('\n');
     expect(executorPrompt).toContain('Distilled Context Summary');
+    expect(executorPrompt).toContain('`matched`');
     expect(executorPrompt).not.toContain('alpha-secret');
+    expect(executorPrompt).not.toContain('"a1"');
     const responderPrompt = capture.responderPrompts.join('\n');
     expect(responderPrompt).toContain('"count": 2');
     expect(responderPrompt).toContain('a1');

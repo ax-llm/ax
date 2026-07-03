@@ -10,9 +10,14 @@
  *   2. Task-actor system prompt in Case A excludes raw context values that a
  *      no-contextFields agent keeps in the task side.
  */
+
 import { describe, expect, it } from 'vitest';
 import { AxMockAIService } from '../../ai/mock/api.js';
 import type { AxAIService } from '../../ai/types.js';
+import {
+  AX_HOST_SNIPPET_MARKER,
+  AX_INPUTS_PATCH_GLOBAL,
+} from '../agentInternal/sharedSession.js';
 import type { AxAgentFunction } from '../index.js';
 import { agent } from '../index.js';
 import type { AxCodeRuntime } from '../rlm.js';
@@ -33,12 +38,11 @@ const getSystemPrompt = (
 };
 
 const makeRuntime = (): AxCodeRuntime => ({
-  // Scripted fake: opt out of the shared-session protocol.
-  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {
       execute: async (code: string) => {
+        if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
         if (globals?.final && code.includes('final(')) {
           const match = code.match(/final\("([^"]*)"(?:,\s*(\{[^}]*\}))?\)/);
           if (match) {
@@ -49,7 +53,17 @@ const makeRuntime = (): AxCodeRuntime => ({
         }
         return 'executed';
       },
-      patchGlobals: async () => {},
+      // REPL-faithful: merge (phase-2 rebinding) + honor staged input merges.
+      patchGlobals: async (patch: Record<string, unknown>) => {
+        const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+        Object.assign(globals ?? {}, rest);
+        if (globals && staged && typeof staged === 'object') {
+          globals.inputs = Object.assign(
+            (globals.inputs as Record<string, unknown>) ?? {},
+            staged
+          );
+        }
+      },
       close: () => {},
     };
   },
@@ -262,7 +276,11 @@ describe('ctx-vs-task prompt shrink ratio', () => {
     expect(caseATaskActorSystemPrompt).toBeTruthy();
     expect(caseATaskActorUserPrompt).toContain('Executor Request: distilled');
     expect(caseATaskActorUserPrompt).toContain('Distilled Context Summary:');
-    expect(caseATaskActorUserPrompt).not.toContain('Context Metadata:');
+    // Shared session: the executor sees context *metadata* (name/type/size,
+    // runtime-only) — never the materialized context value.
+    expect(caseATaskActorUserPrompt).toContain('Context Metadata:');
+    expect(caseATaskActorUserPrompt).toContain('prompt=runtime-only');
+    expect(caseATaskActorUserPrompt).not.toContain('long document');
     expect(caseCTaskActorSystemPrompt).toBeTruthy();
 
     // The key distillation benefit: with declared contextFields, `docText` is

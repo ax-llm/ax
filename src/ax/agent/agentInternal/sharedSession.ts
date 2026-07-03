@@ -13,7 +13,22 @@ import type { AxAgentState } from './types.js';
  */
 export const AX_SHARED_EVIDENCE_GLOBAL = 'distilledContext';
 const PHASE_GLOBAL = '__axSharedPhase';
-const INPUTS_PATCH_GLOBAL = '__axInputsPatch';
+/**
+ * Staging global for per-key input merges. The pipeline patches
+ * `{ [AX_INPUTS_PATCH_GLOBAL]: partial }` and then executes a merge snippet.
+ * Simulated runtimes that don't evaluate JS should honor the contract in
+ * their `patchGlobals`: apply the staged partial onto their `inputs` object.
+ */
+export const AX_INPUTS_PATCH_GLOBAL = '__axInputsPatch';
+const INPUTS_PATCH_GLOBAL = AX_INPUTS_PATCH_GLOBAL;
+
+/**
+ * First line of every host-driven snippet the pipeline executes in a session
+ * (final wrapper, phase boundary, input merge). Simulated/scripted runtimes
+ * that count or pattern-match `execute` calls should treat code starting
+ * with this marker as a no-op host snippet, not an actor turn.
+ */
+export const AX_HOST_SNIPPET_MARKER = '/* ax:host-snippet */';
 
 /**
  * Shape summary of the distiller's evidence object. Built in-worker (shared
@@ -119,7 +134,8 @@ export function renderEvidenceDescriptor(
  * errors still fire in-turn.
  */
 function buildDistillerFinalWrapperCode(): string {
-  return `(() => {
+  return `${AX_HOST_SNIPPET_MARKER}
+(() => {
   const __axHostFinal = globalThis.final;
   if (typeof __axHostFinal !== 'function') { return; }
   const __axDescribe = (value) => {
@@ -167,7 +183,8 @@ function buildExecutorPhaseBoundaryCode(
   deletions: readonly string[],
   aliasNames: readonly string[]
 ): string {
-  return `(() => {
+  return `${AX_HOST_SNIPPET_MARKER}
+(() => {
   if (!globalThis.inputs || typeof globalThis.inputs !== 'object') { globalThis.inputs = {}; }
   const patch = globalThis.${INPUTS_PATCH_GLOBAL};
   if (patch && typeof patch === 'object') {
@@ -190,7 +207,8 @@ function buildExecutorPhaseBoundaryCode(
 
 /** Per-key input merge used for mid-phase syncs (never clobbers other keys). */
 function buildInputsMergeCode(): string {
-  return `(() => {
+  return `${AX_HOST_SNIPPET_MARKER}
+(() => {
   if (!globalThis.inputs || typeof globalThis.inputs !== 'object') { globalThis.inputs = {}; }
   const patch = globalThis.${INPUTS_PATCH_GLOBAL};
   if (patch && typeof patch === 'object') {
@@ -357,20 +375,16 @@ export class AxAgentSharedRuntimeSession {
 }
 
 /**
- * Shared mode is the default for every JavaScript runtime — the protocol
- * (function-valued `patchGlobals`, host-driven boundary snippets) is table
- * stakes for anything that can run the actor loop at all. Runtimes opt OUT
- * via `AxCodeRuntime.supportsSharedSessions: false` (simulated/scripted
- * runtimes whose `execute` pattern-matches turns); they get the per-stage
- * fallback with host-carried evidence.
+ * Every JavaScript runtime runs shared mode — a session IS a REPL, and the
+ * protocol (function-valued `patchGlobals`, host-driven boundary snippets)
+ * is table stakes for anything that can run the actor loop at all. The only
+ * fallback is for non-JavaScript-language runtimes, whose sessions cannot
+ * execute the JS boundary snippets; they keep per-stage sessions with the
+ * evidence value carried through the host (identical prompt contract).
  */
 export function supportsSharedRuntimeSession(
   runtime: Readonly<AxCodeRuntime> | undefined,
   isJavaScriptRuntime: boolean
 ): boolean {
-  return (
-    Boolean(runtime) &&
-    runtime?.supportsSharedSessions !== false &&
-    isJavaScriptRuntime
-  );
+  return Boolean(runtime) && isJavaScriptRuntime;
 }

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
+import {
+  AX_HOST_SNIPPET_MARKER,
+  AX_INPUTS_PATCH_GLOBAL,
+} from './agentInternal/sharedSession.js';
 
 import { agent } from './index.js';
 import type { AxCodeRuntime } from './rlm.js';
@@ -19,12 +22,11 @@ const makeModelUsage = () => ({
  * invokes the `globals.final` callback so the actor loop completes.
  */
 const makeFinalRuntime = (): AxCodeRuntime => ({
-  // Scripted fake: opt out of the shared-session protocol.
-  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {
       execute: async (code: string) => {
+        if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
         if (globals?.final && code.includes('final(')) {
           // Extract arguments: final("msg") or final("msg", {...})
           const twoArgMatch = code.match(
@@ -51,7 +53,17 @@ const makeFinalRuntime = (): AxCodeRuntime => ({
         }
         return `executed: ${code}`;
       },
-      patchGlobals: async () => {},
+      // REPL-faithful: merge (phase-2 rebinding) + honor staged input merges.
+      patchGlobals: async (patch: Record<string, unknown>) => {
+        const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+        Object.assign(globals ?? {}, rest);
+        if (globals && staged && typeof staged === 'object') {
+          globals.inputs = Object.assign(
+            (globals.inputs as Record<string, unknown>) ?? {},
+            staged
+          );
+        }
+      },
       close: () => {},
     };
   },
