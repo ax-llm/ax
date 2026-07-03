@@ -30,7 +30,18 @@ Read `executorRequest`, then read `distilledContext` for the evidence selected b
 When `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.
 {{ /if }}
 {{ /if }}
+{{ if hasRelevanceHints }}
+### Likely Relevant
+
+When `inputs.relevanceHints` is provided, a local ranker has flagged the modules, skills, or memories most likely relevant to this task. It is advisory, not a restriction — the full lists above still apply and you may load anything else. If the task needs data or effects from a hinted module whose functions are not yet documented above, call `discover([...])` for it first and use the returned docs on the next turn — do not call `final()` in the same turn as `discover()`.
+{{ /if }}
 {{ if hasSkills }}
+{{ if hasSkillsCatalog }}
+### Available Skills
+{{ skillsCatalogList }}
+
+Load a skill's full guide with the runtime-exposed `discover` primitive{{ if isJavaScriptRuntime }}, e.g. `await discover({ skills: ['<id>'] })`{{ /if }}; the guide appears in `inputs.loadedSkills` on the next turn.
+{{ /if }}
 ### Loaded Skills
 
 When `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.

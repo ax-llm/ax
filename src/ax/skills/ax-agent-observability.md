@@ -153,6 +153,9 @@ Events:
 - `budget_check`: character-based prompt pressure before an actor turn, with detailed metrics kept out of the actor prompt
 - `checkpoint_created` / `checkpoint_cleared`: checkpoint lifecycle events with covered turns and reason
 - `tombstone_created`: compact resolved-error summary creation
+- `relevance_ranking`: emitted once per ranked domain per forward when `relevanceRanking` is enabled; carries `domain` (`'modules' | 'skills' | 'memories'`), the `shortlist` (`{ id, score }[]`, most relevant first), and `suppressed` (true when the low-confidence guard emitted no hint)
+
+To measure whether the advisory hint helps, join per forward: `relevance_ranking.shortlist` ids against what the actor then loaded — for modules the internal `discover` calls (`onFunctionCall` with `kind: 'internal'`, `name: 'discover'`, `args.request`) plus the module part of external `qualifiedName`s; for skills `onLoadedSkills` / `used(id)`; for memories `onLoadedMemories` / `used(id)`.
 
 Rules:
 

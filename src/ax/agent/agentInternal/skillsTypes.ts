@@ -9,6 +9,24 @@ export type AxAgentSkillResult = {
   content: string;
 };
 
+/**
+ * A skill in a host-provided static catalog (`skillsCatalog` option). Unlike
+ * `skills` (which preloads full content into the prompt), a catalog entry is
+ * only loaded when matched — by the built-in local search that backs
+ * `discover({ skills })` when no `onSkillsSearch` callback is provided, and by
+ * the advisory relevance hint.
+ */
+export type AxAgentCatalogSkill = {
+  /** Stable identifier — dedup key, prompt label, and usage telemetry key. */
+  id: string;
+  /** Human-readable title. */
+  name: string;
+  /** Optional short "when to use" description (high-signal for matching). */
+  description?: string;
+  /** Full markdown body returned when the skill is loaded. */
+  content: string;
+};
+
 export type AxAgentSkillsSearchFn = (
   searches: readonly string[]
 ) => readonly AxAgentSkillResult[] | Promise<readonly AxAgentSkillResult[]>;

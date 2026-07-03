@@ -177,6 +177,14 @@ export class ActorAgentRLM<
   private contextPromptConfigByField: Map<string, AxContextFieldPromptConfig> =
     new Map();
   private functionDiscoveryEnabled = false;
+  private relevanceHintsEnabled = false;
+  private moduleHintEnabled = false;
+  private skillsHintEnabled = false;
+  private memoriesHintEnabled = false;
+  private _relevanceRankingChoice = false;
+  private relevanceRankingOptions: { topK?: number; minScore?: number } = {};
+  private skillsCatalog?: readonly import('./agentInternal/skillsTypes.js').AxAgentCatalogSkill[];
+  private memoriesCatalog?: readonly import('./agentInternal/memoriesTypes.js').AxAgentMemoryResult[];
   private runtimeLanguageName = 'JavaScript';
   private runtimeCodeFieldName = 'javascriptCode';
   private runtimeCodeFieldTitle = 'Javascript Code';
@@ -788,6 +796,10 @@ export class ActorAgentRLM<
     const {
       functions: _fn,
       functionDiscovery: _fd,
+      relevanceRanking: _rr,
+      skills: _sk,
+      skillsCatalog: _skc,
+      memoriesCatalog: _mc,
       judgeOptions: _jo,
       inputUpdateCallback: _iuc,
       onSkillsSearch: _oss,

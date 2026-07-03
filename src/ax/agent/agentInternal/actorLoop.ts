@@ -5,7 +5,7 @@ import {
   DEFAULT_RLM_MAX_TURNS,
   getActorModelMatchedNamespaces,
 } from '../config.js';
-import { normalizeContextStage } from '../contextEvents.js';
+import { emitContextEvent, normalizeContextStage } from '../contextEvents.js';
 import type { ActionLogEntry } from '../contextManager.js';
 import {
   buildActionEvidenceSummary,
@@ -27,8 +27,16 @@ import type {
 import { buildActorLoopSetup } from './actorLoopSetup.js';
 import { runActorTurn } from './actorLoopTurn.js';
 import { renderGuidanceLog } from './guidanceHelpers.js';
-import { mergeUsedMemoryResults } from './memoriesHelpers.js';
-import { ingestSkillResults, mergeUsedSkillResults } from './skillsHelpers.js';
+import {
+  mergeUsedMemoryResults,
+  rankCatalogMemories,
+} from './memoriesHelpers.js';
+import { buildModuleRankInputs, rankModules } from './relevanceRanker.js';
+import {
+  ingestSkillResults,
+  mergeUsedSkillResults,
+  rankCatalogSkills,
+} from './skillsHelpers.js';
 import type {
   AxAgentEvalFunctionCall,
   AxAgentExecutorResultPayload,
@@ -79,6 +87,88 @@ export async function runActorLoop<IN extends AxGenIn>(
     )?.skills;
     if (Array.isArray(forwardSkills) && forwardSkills.length > 0) {
       ingestSkillResults(s.currentSkillsPromptState, forwardSkills as any);
+    }
+  }
+
+  // Advisory relevance ranker: compute once per forward (the task is stable
+  // across turns). The shortlists ride a dynamic, non-cached prompt field, so
+  // they never affect the prompt cache.
+  s._relevanceHintsForTurn = {};
+  if (stageVariant !== 'distiller' && s.relevanceHintsEnabled) {
+    // Rank against the user's task signal: the original non-context inputs plus
+    // the distiller's expanded request. Exclude distilledContext (bulky
+    // evidence) and memories (already-loaded facts) so they don't dilute it.
+    const nonContextValues = inputState.getNonContextValues();
+    const rankTask = Object.entries(nonContextValues)
+      .filter(
+        ([key, value]) =>
+          typeof value === 'string' &&
+          key !== 'distilledContext' &&
+          key !== 'memories'
+      )
+      .map(([, value]) => value as string)
+      .join(' ');
+    if (s.moduleHintEnabled) {
+      const ranked = rankModules(
+        rankTask,
+        buildModuleRankInputs(s.agentFunctions, s.agentFunctionModuleMetadata),
+        s.relevanceRankingOptions
+      );
+      s._relevanceHintsForTurn.modules = ranked;
+      await emitContextEvent(s.onContextEvent, {
+        kind: 'relevance_ranking',
+        stage: contextStage,
+        domain: 'modules',
+        taskChars: rankTask.length,
+        shortlist: ranked.map((r) => ({ id: r.namespace, score: r.score })),
+        suppressed: ranked.length === 0,
+      });
+    }
+    if (s.skillsHintEnabled) {
+      const rankedSkills = rankCatalogSkills(
+        rankTask,
+        s.skillsCatalog ?? [],
+        s.relevanceRankingOptions
+      );
+      s._relevanceHintsForTurn.skills = rankedSkills;
+      await emitContextEvent(s.onContextEvent, {
+        kind: 'relevance_ranking',
+        stage: contextStage,
+        domain: 'skills',
+        taskChars: rankTask.length,
+        shortlist: rankedSkills.map((r) => ({ id: r.id, score: r.score })),
+        suppressed: rankedSkills.length === 0,
+      });
+    }
+    if (s.memoriesHintEnabled) {
+      // Hint only memories not already in scope (preloaded or prior recalls).
+      const loadedMemories = inputState.currentInputs?.memories;
+      const alreadyLoadedIds = new Set(
+        (Array.isArray(loadedMemories) ? loadedMemories : [])
+          .map((m: unknown) =>
+            m && typeof (m as { id?: unknown }).id === 'string'
+              ? ((m as { id: string }).id as string)
+              : undefined
+          )
+          .filter((id): id is string => Boolean(id))
+      );
+      const candidates = (
+        (s.memoriesCatalog ?? []) as readonly { id: string; content: string }[]
+      ).filter((m) => !alreadyLoadedIds.has(m.id));
+      const rankedMemories = rankCatalogMemories(
+        rankTask,
+        candidates,
+        s.relevanceRankingOptions
+      );
+      s._relevanceHintsForTurn.memories = rankedMemories;
+      await emitContextEvent(s.onContextEvent, {
+        kind: 'relevance_ranking',
+        stage: contextStage,
+        domain: 'memories',
+        taskChars: rankTask.length,
+        shortlist: rankedMemories.map((r) => ({ id: r.id, score: r.score })),
+        suppressed: rankedMemories.length === 0,
+      });
     }
   }
 

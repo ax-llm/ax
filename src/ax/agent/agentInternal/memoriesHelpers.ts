@@ -1,8 +1,10 @@
 import type { AxAgentContextStage } from '../contextEvents.js';
 import type {
+  AxAgentMemoriesSearchFn,
   AxAgentMemoryResult,
   AxAgentUsedMemory,
 } from './memoriesTypes.js';
+import { rankDocuments } from './relevanceRanker.js';
 
 export type AxAgentMemoryEntry = {
   id: string;
@@ -42,6 +44,83 @@ export function normalizeMemoriesInput(input: unknown): string[] {
     );
   }
   return [...new Set(collected)];
+}
+
+/** Chars of content indexed per catalog memory — bounds tokenization cost. */
+const MEMORIES_CATALOG_RANK_CONTENT_CHARS = 600;
+/** Per-search result cap for the built-in catalog recall. */
+const MEMORIES_CATALOG_SEARCH_TOP_K = 3;
+/** Snippet length for the advisory memories hint. */
+const MEMORY_HINT_SNIPPET_CHARS = 80;
+
+function memoryDocument(memory: AxAgentMemoryResult) {
+  return {
+    id: memory.id,
+    fields: [
+      { text: memory.id, identifier: true },
+      { text: memory.content.slice(0, MEMORIES_CATALOG_RANK_CONTENT_CHARS) },
+    ],
+  };
+}
+
+/**
+ * Built-in `onMemoriesSearch` over a static catalog, used when the host
+ * provides `memoriesCatalog` but no search callback. Preserves the
+ * `alreadyLoaded` contract: entries already in scope are excluded before
+ * ranking. Deliberately best-effort (guards disabled): an explicit `recall()`
+ * from the model should return the closest matches, unlike the
+ * strictly-guarded advisory hint.
+ */
+export function createCatalogMemoriesSearch(
+  catalog: readonly AxAgentMemoryResult[]
+): AxAgentMemoriesSearchFn {
+  return (
+    searches: readonly string[],
+    alreadyLoaded: readonly AxAgentMemoryResult[]
+  ): AxAgentMemoryResult[] => {
+    const skip = new Set(alreadyLoaded.map((m) => m.id));
+    const candidates = catalog.filter((m) => !skip.has(m.id));
+    if (candidates.length === 0) return [];
+    const docs = candidates.map(memoryDocument);
+    const byId = new Map(candidates.map((m) => [m.id, m]));
+    const matchedIds: string[] = [];
+    for (const search of searches) {
+      for (const ranked of rankDocuments(search, docs, {
+        topK: MEMORIES_CATALOG_SEARCH_TOP_K,
+        minScore: 0,
+        marginRatio: 0,
+        minDocs: 1,
+      })) {
+        if (!matchedIds.includes(ranked.id)) {
+          matchedIds.push(ranked.id);
+        }
+      }
+    }
+    return matchedIds
+      .map((id) => byId.get(id))
+      .filter((m): m is AxAgentMemoryResult => m !== undefined);
+  };
+}
+
+/**
+ * Rank catalog memories against the task for the advisory relevance hint.
+ * Uses the ranker's STRICT default guards (unlike `createCatalogMemoriesSearch`)
+ * so a low-confidence hint degrades to nothing.
+ */
+export function rankCatalogMemories(
+  task: string,
+  catalog: readonly AxAgentMemoryResult[],
+  opts?: Readonly<{ topK?: number; minScore?: number }>
+): { id: string; snippet: string; score: number }[] {
+  const contentById = new Map(catalog.map((m) => [m.id, m.content]));
+  return rankDocuments(task, catalog.map(memoryDocument), opts).map((r) => ({
+    id: r.id,
+    snippet: (contentById.get(r.id) ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, MEMORY_HINT_SNIPPET_CHARS),
+    score: r.score,
+  }));
 }
 
 /**

@@ -80,10 +80,27 @@ const SHARED_KNOB_KEYS = [
   'onFunctionCall',
   'onContextEvent',
   'onMemoriesSearch',
+  'memoriesCatalog',
   'onLoadedMemories',
   'onUsedMemories',
   'contextCache',
 ] as const;
+
+/**
+ * Memories are enabled by a host `onMemoriesSearch` callback OR a static
+ * `memoriesCatalog` (which synthesizes a built-in searcher at init). Both
+ * declaration sites for the cached `memories` input field must agree with
+ * the instance-level resolution in `initializeAgentInternal`.
+ */
+function memoriesEnabledFromOptions(options: unknown): boolean {
+  const o = options as
+    | { onMemoriesSearch?: unknown; memoriesCatalog?: unknown }
+    | undefined;
+  return (
+    typeof o?.onMemoriesSearch === 'function' ||
+    (Array.isArray(o?.memoriesCatalog) && o.memoriesCatalog.length > 0)
+  );
+}
 
 function pickShared<IN extends import('../../dsp/types.js').AxGenIn>(
   opts: Readonly<AxAgentOptions<IN>>
@@ -267,7 +284,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // placeholder output so the actor template can hint at what the downstream
     // executor stage will be asked for. The actor program built inside
     // ActorAgentRLM swaps this for `javascriptCode` at runtime.
-    const memoriesEnabled = typeof options.onMemoriesSearch === 'function';
+    const memoriesEnabled = memoriesEnabledFromOptions(options);
     let distillerSigBuilder = f().addInputFields(allInputFields);
     if (memoriesEnabled) {
       distillerSigBuilder = distillerSigBuilder.input(
@@ -678,8 +695,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       (fld) => !this.responderExcludeFields.has(fld.name)
     );
 
-    const memoriesEnabled =
-      typeof (this.options as any)?.onMemoriesSearch === 'function';
+    const memoriesEnabled = memoriesEnabledFromOptions(this.options);
     let distillerSigBuilder = f().addInputFields(allInputFields);
     if (memoriesEnabled) {
       distillerSigBuilder = distillerSigBuilder.input(
@@ -688,6 +704,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           .string(
             'Memories already loaded for this run, rendered as markdown blocks with `ID:` lines. In JS, read `inputs.memories` as `[{ id, content }]`. Call `recall(...)` to load more.'
           )
+          // Keep the cache breakpoint — must match the constructor path.
           .cache()
           .optional()
       );
@@ -722,6 +739,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           .string(
             'Memories loaded so far for this run, rendered as markdown blocks with `ID:` lines. In JS, read `inputs.memories` as `[{ id, content }]` (carried over from the distiller and any prior executor turns). Call `recall(...)` to load more.'
           )
+          // Keep the cache breakpoint — must match the constructor path.
           .cache()
           .optional()
       );

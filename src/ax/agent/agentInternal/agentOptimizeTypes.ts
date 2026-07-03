@@ -205,6 +205,26 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   functionDiscovery?: boolean;
 
   /**
+   * Advisory local relevance ranker — ON by default (set `false` to opt out).
+   * Enabled by default since its A/B gate passed (substance-judged,
+   * n=49/variant/model: small model discover-precision 24%->90% and answer
+   * substance 14%->29%; frontier-model control substance 63%->88% with fewer
+   * turns). TS-first: the 5 non-TS ports do not ship the ranker yet, so
+   * cross-language behavior diverges here until they catch up.
+   *
+   * When enabled, a cheap deterministic token-overlap ranker scores this
+   * agent's discoverable capabilities against the task and injects a
+   * non-authoritative "Likely Relevant" hint into the executor turn. Ranked
+   * domains light up with their prerequisites: modules require
+   * `functionDiscovery`; skills/memories require their catalogs. The hint
+   * lands in a dynamic, non-cached field, so it does not affect the prompt
+   * cache; the full lists and the `discover()`/`recall()` flows are unchanged
+   * and the model may still choose anything. Pass an object to tune `topK`
+   * (default 3) / `minScore` (default 0.08).
+   */
+  relevanceRanking?: boolean | { topK?: number; minScore?: number };
+
+  /**
    * Optional skills search callback. When set, the executor runtime gains a
    * `discover({ skills })` path. The callback receives the raw search strings
    * and returns matched skills (`{ id?, name, content }`); each returned skill's
@@ -214,6 +234,17 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * next turn's prompt to see what landed.
    */
   onSkillsSearch?: import('./skillsTypes.js').AxAgentSkillsSearchFn;
+
+  /**
+   * Static skill catalog. When set and no `onSkillsSearch` callback is
+   * provided, ax backs `discover({ skills })` with a built-in deterministic
+   * local search over the catalog — skills work batteries-included with zero
+   * host search code. A host `onSkillsSearch` always takes precedence for
+   * search; the catalog still powers the advisory relevance hint (with
+   * `relevanceRanking`). Unlike `skills`, catalog content is NOT preloaded
+   * into the prompt — entries load only when matched.
+   */
+  skillsCatalog?: readonly import('./skillsTypes.js').AxAgentCatalogSkill[];
 
   /**
    * Skills to preload into the executor prompt at startup, in the same
@@ -259,6 +290,19 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * `.forward()` call; persist them externally to carry across calls.
    */
   onMemoriesSearch?: import('./memoriesTypes.js').AxAgentMemoriesSearchFn;
+
+  /**
+   * Static memory catalog. When set and no `onMemoriesSearch` callback is
+   * provided, ax backs `recall(...)` with a built-in deterministic local
+   * search over the catalog — memories work batteries-included with zero host
+   * search code. A host `onMemoriesSearch` always takes precedence for
+   * search; the catalog still powers the advisory relevance hint (with
+   * `relevanceRanking`). Catalog content is NOT preloaded into the prompt —
+   * entries load only when recalled. To preload specific memories for a run,
+   * pass them as the `memories` input value at forward time:
+   * `forward(ai, { ..., memories: [{ id, content }] })`.
+   */
+  memoriesCatalog?: readonly import('./memoriesTypes.js').AxAgentMemoryResult[];
 
   /**
    * Optional callback fired whenever `recall(...)` loads memories. Receives

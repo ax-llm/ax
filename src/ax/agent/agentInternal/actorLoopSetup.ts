@@ -23,6 +23,7 @@ import {
 import { renderDiscoveryPromptMarkdown } from './discoveryHelpers.js';
 import { renderGuidanceLog } from './guidanceHelpers.js';
 import { renderMemoriesPromptMarkdown } from './memoriesHelpers.js';
+import { renderRelevanceHintsMarkdown } from './relevanceRanker.js';
 import { renderSkillsPromptMarkdown } from './skillsHelpers.js';
 import type {
   AxAgentContextStage,
@@ -170,6 +171,14 @@ export function buildActorLoopSetup(
       );
       if (loadedSkills) {
         values.loadedSkills = loadedSkills;
+      }
+      if (s.relevanceHintsEnabled) {
+        const relevanceHints = renderRelevanceHintsMarkdown(
+          s._relevanceHintsForTurn ?? {}
+        );
+        if (relevanceHints) {
+          values.relevanceHints = relevanceHints;
+        }
       }
     }
     const contextMetadata = inputState.getContextMetadata();

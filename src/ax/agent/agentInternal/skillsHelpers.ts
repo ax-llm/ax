@@ -1,7 +1,13 @@
 import type { AxAgentContextStage } from '../contextEvents.js';
 import type { AxMutableSkillsPromptState } from './agentInternalTypes.js';
 import type { AxAgentSkillsPromptState } from './agentStateTypes.js';
-import type { AxAgentSkillResult, AxAgentUsedSkill } from './skillsTypes.js';
+import { rankDocuments } from './relevanceRanker.js';
+import type {
+  AxAgentCatalogSkill,
+  AxAgentSkillResult,
+  AxAgentSkillsSearchFn,
+  AxAgentUsedSkill,
+} from './skillsTypes.js';
 
 export function createMutableSkillsPromptState(): AxMutableSkillsPromptState {
   return {
@@ -76,6 +82,80 @@ export function ingestSkillResults(
     }
     state.loaded.set(normalized.id, normalized);
   }
+}
+
+/** Per-search result cap for the built-in catalog search. */
+const SKILLS_CATALOG_SEARCH_TOP_K = 2;
+/** Chars of content indexed per catalog skill — bounds tokenization cost. */
+const SKILLS_CATALOG_RANK_CONTENT_CHARS = 600;
+
+/**
+ * Built-in `onSkillsSearch` over a static catalog, used when the host provides
+ * `skillsCatalog` but no search callback. Deliberately best-effort (guards
+ * disabled): an explicit `discover({ skills })` from the model should return
+ * the closest matches, unlike the strictly-guarded advisory hint. Results flow
+ * through the existing id-sorted `ingestSkillResults` render, so the cached
+ * `loadedSkills` prompt field stays byte-stable for identical skill sets.
+ */
+export function createCatalogSkillsSearch(
+  catalog: readonly AxAgentCatalogSkill[]
+): AxAgentSkillsSearchFn {
+  const docs = catalog.map((skill) => ({
+    id: skill.id,
+    fields: [
+      { text: skill.id, identifier: true },
+      { text: skill.name, weight: 2 },
+      ...(skill.description ? [{ text: skill.description, weight: 2 }] : []),
+      { text: skill.content.slice(0, SKILLS_CATALOG_RANK_CONTENT_CHARS) },
+    ],
+  }));
+  const byId = new Map(catalog.map((skill) => [skill.id, skill]));
+  return (searches: readonly string[]): AxAgentSkillResult[] => {
+    const matchedIds: string[] = [];
+    for (const search of searches) {
+      for (const ranked of rankDocuments(search, docs, {
+        topK: SKILLS_CATALOG_SEARCH_TOP_K,
+        minScore: 0,
+        marginRatio: 0,
+        minDocs: 1,
+      })) {
+        if (!matchedIds.includes(ranked.id)) {
+          matchedIds.push(ranked.id);
+        }
+      }
+    }
+    return matchedIds
+      .map((id) => byId.get(id))
+      .filter((skill): skill is AxAgentCatalogSkill => skill !== undefined)
+      .map(({ id, name, content }) => ({ id, name, content }));
+  };
+}
+
+/**
+ * Rank catalog skills against the task for the advisory relevance hint.
+ * Uses the ranker's STRICT default guards (unlike `createCatalogSkillsSearch`)
+ * so a low-confidence hint degrades to nothing.
+ */
+export function rankCatalogSkills(
+  task: string,
+  catalog: readonly AxAgentCatalogSkill[],
+  opts?: Readonly<{ topK?: number; minScore?: number }>
+): { id: string; name: string; score: number }[] {
+  const docs = catalog.map((skill) => ({
+    id: skill.id,
+    fields: [
+      { text: skill.id, identifier: true },
+      { text: skill.name, weight: 2 },
+      ...(skill.description ? [{ text: skill.description, weight: 2 }] : []),
+      { text: skill.content.slice(0, SKILLS_CATALOG_RANK_CONTENT_CHARS) },
+    ],
+  }));
+  const nameById = new Map(catalog.map((skill) => [skill.id, skill.name]));
+  return rankDocuments(task, docs, opts).map((r) => ({
+    id: r.id,
+    name: nameById.get(r.id) ?? r.id,
+    score: r.score,
+  }));
 }
 
 export function normalizeSkillsInput(input: unknown): string[] {

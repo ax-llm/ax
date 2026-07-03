@@ -260,6 +260,7 @@ Rules:
 - A group is `{ namespace, title, description, functions: [...] }`.
 - `selectionCriteria` is optional but useful in discovery mode; it tells the actor when to choose that module.
 - The group's `namespace`, `title`, `selectionCriteria`, and `description` show up in `discover(...)` module docs.
+- `relevanceRanking` (default ON — set `false` to opt out): a deterministic local ranker that injects an advisory `### Likely Relevant` shortlist into the executor turn (dynamic, non-cached field — the cached prompt stays byte-stable). Enabled by default after its A/B gate passed on both small and frontier models; the non-TS ports do not ship it yet. Details in `ax-agent-memory-skills`; outcomes observable via the `relevance_ranking` context event (`ax-agent-observability`).
 - Add `alwaysInclude: true` to a group when discovery mode is on but the actor should always see that group's full callable definitions inline in the prompt.
 - Keep `functions: [...]` either flat or grouped. Runtime validation rejects mixed plain function entries and group objects.
 - In flat mode, pass `fn(...)` tools, child agents, and `toFunction()` providers directly.

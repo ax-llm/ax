@@ -605,8 +605,20 @@ export function axBuildExecutorDefinition(
     enforceIncrementalConsoleTurns?: boolean;
     hasAgentStatusCallback?: boolean;
     discoveryMode?: boolean;
+    /** Renders the advisory "Likely Relevant" instruction section. */
+    relevanceHintsMode?: boolean;
     /** Enables `discover({ skills })` runtime overload in the prompt. */
     skillsMode?: boolean;
+    /**
+     * Static skill catalog rendered as an `### Available Skills` index so
+     * skill discovery is targeted instead of blind. Construction-stable, so
+     * it is safe inside the cached system prompt.
+     */
+    skillsCatalog?: ReadonlyArray<{
+      id: string;
+      name: string;
+      description?: string;
+    }>;
     /** Enables `recall` runtime primitive in the prompt. */
     memoriesMode?: boolean;
     /** Enables the generic `used` runtime primitive in the prompt. */
@@ -727,9 +739,21 @@ export function axBuildExecutorDefinition(
       runtimeCodeFieldTitle: runtimeInfo.codeFieldTitle,
       runtimeCodeFenceLanguage: runtimeInfo.codeFenceLanguage,
       isJavaScriptRuntime: runtimeInfo.isJavaScript,
+      hasRelevanceHints: Boolean(options.relevanceHintsMode),
       hasDiscoveredDocs: discoveryMode,
       discoveredDocsMarkdown: '',
       hasSkills: Boolean(options.skillsMode),
+      hasSkillsCatalog:
+        Boolean(options.skillsMode) && (options.skillsCatalog?.length ?? 0) > 0,
+      skillsCatalogList: [...(options.skillsCatalog ?? [])]
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map(
+          (skill) =>
+            `- \`${skill.id}\` — ${skill.name}${
+              skill.description ? ` — ${skill.description}` : ''
+            }`
+        )
+        .join('\n'),
       skillsMarkdown: '',
       memoriesMode: Boolean(options.memoriesMode),
       memoryUsageMode: Boolean(options.memoryUsageMode),

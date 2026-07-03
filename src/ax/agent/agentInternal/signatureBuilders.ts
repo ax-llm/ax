@@ -159,6 +159,21 @@ export function buildSplitPrograms(self: any): void {
       )
     ) as any;
 
+  // Advisory relevance-ranker hint. Query-dependent, so it MUST stay out of
+  // the cached prefix: add it (no `.cache()`) to the dynamic tail, after the
+  // `summarizedActorLog` cache breakpoint. The full module/skill/memory lists
+  // in the cached prompt regions are unaffected.
+  if (isExecutorStage && s.relevanceHintsEnabled) {
+    actorSigBuilder = actorSigBuilder.input(
+      'relevanceHints',
+      f
+        .string(
+          'Advisory shortlist of modules, skills, or memories a local ranker judged most relevant to this task. Non-authoritative: the full lists still apply and you may discover or recall anything else.'
+        )
+        .optional()
+    );
+  }
+
   const liveRuntimeStateEnabled = effectiveContextPolicy.stateSummary.enabled;
   const contextPressureEnabled = effectiveContextPolicy.preset !== 'full';
 
@@ -246,6 +261,14 @@ export function buildSplitPrograms(self: any): void {
     enforceIncrementalConsoleTurns: s.enforceIncrementalConsoleTurns,
     hasAgentStatusCallback: Boolean(s.agentStatusCallback),
     discoveryMode: s.functionDiscoveryEnabled,
+    relevanceHintsMode: s.relevanceHintsEnabled === true,
+    skillsCatalog: (s.skillsCatalog ?? []).map(
+      (skill: { id: string; name: string; description?: string }) => ({
+        id: skill.id,
+        name: skill.name,
+        ...(skill.description ? { description: skill.description } : {}),
+      })
+    ),
     skillsMode:
       typeof s.onSkillsSearch === 'function' ||
       s.skillUsageTrackingEnabled === true ||

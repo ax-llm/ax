@@ -3,6 +3,7 @@ import type { AxTunable, AxUsable } from '../../dsp/types.js';
 import { AxJSRuntime } from '../../funcs/jsRuntime.js';
 import {
   DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS,
+  RELEVANCE_RANKING_DEFAULT,
   resolveExecutorModelPolicy,
 } from '../config.js';
 import { getRuntimeLanguageInfo } from '../rlm.js';
@@ -14,7 +15,9 @@ import {
   normalizeAgentFunctionCollection,
   toCamelCase,
 } from '../runtimeDiscovery.js';
+import { createCatalogMemoriesSearch } from './memoriesHelpers.js';
 import {
+  createCatalogSkillsSearch,
   createMutableSkillsPromptState,
   ingestSkillResults,
 } from './skillsHelpers.js';
@@ -56,15 +59,59 @@ export function initializeAgentInternal(
   s.judgeAI = judgeAI;
   s.agentIdentity = agentIdentity ? { ...agentIdentity } : undefined;
   s.functionDiscoveryEnabled = options.functionDiscovery ?? false;
-  s.onSkillsSearch = options.onSkillsSearch;
+  // Advisory relevance ranker. Each domain lights up only when its
+  // prerequisite is met: modules need discovery; skills/memories need their
+  // catalogs (later phases OR into `relevanceHintsEnabled`).
+  const relevanceRankingOpt = options.relevanceRanking;
+  const relevanceRankingChoice =
+    relevanceRankingOpt === undefined
+      ? RELEVANCE_RANKING_DEFAULT
+      : relevanceRankingOpt !== false;
+  s._relevanceRankingChoice = relevanceRankingChoice;
+  s.relevanceRankingOptions =
+    typeof relevanceRankingOpt === 'object' && relevanceRankingOpt !== null
+      ? relevanceRankingOpt
+      : {};
+  s.moduleHintEnabled = s.functionDiscoveryEnabled && relevanceRankingChoice;
+  // Skills: a static catalog backs discover({skills}) with a built-in local
+  // search when the host provides no callback; the host callback always wins.
+  const skillsCatalog = Array.isArray(options.skillsCatalog)
+    ? options.skillsCatalog.slice()
+    : undefined;
+  s.skillsCatalog = skillsCatalog;
+  s.onSkillsSearch =
+    options.onSkillsSearch ??
+    (skillsCatalog && skillsCatalog.length > 0
+      ? createCatalogSkillsSearch(skillsCatalog)
+      : undefined);
+  s.skillsHintEnabled =
+    relevanceRankingChoice &&
+    Array.isArray(skillsCatalog) &&
+    skillsCatalog.length > 0;
   s.onLoadedSkills = options.onLoadedSkills;
   s.onUsedSkills = options.onUsedSkills;
-  s.onMemoriesSearch = options.onMemoriesSearch;
+  // Memories: a static catalog backs recall(...) with a built-in local search
+  // when the host provides no callback; the host callback always wins.
+  const memoriesCatalog = Array.isArray(options.memoriesCatalog)
+    ? options.memoriesCatalog.slice()
+    : undefined;
+  s.memoriesCatalog = memoriesCatalog;
+  s.onMemoriesSearch =
+    options.onMemoriesSearch ??
+    (memoriesCatalog && memoriesCatalog.length > 0
+      ? createCatalogMemoriesSearch(memoriesCatalog)
+      : undefined);
   s.onLoadedMemories = options.onLoadedMemories;
   s.onUsedMemories = options.onUsedMemories;
   s.memoryUsageTrackingEnabled =
-    typeof options.onMemoriesSearch === 'function' &&
+    typeof s.onMemoriesSearch === 'function' &&
     typeof options.onUsedMemories === 'function';
+  s.memoriesHintEnabled =
+    relevanceRankingChoice &&
+    Array.isArray(memoriesCatalog) &&
+    memoriesCatalog.length > 0;
+  s.relevanceHintsEnabled =
+    s.moduleHintEnabled || s.skillsHintEnabled || s.memoriesHintEnabled;
   s.skillUsageTrackingEnabled = typeof options.onUsedSkills === 'function';
   s.usageTrackingEnabled =
     s.memoryUsageTrackingEnabled || s.skillUsageTrackingEnabled;
@@ -109,6 +156,10 @@ export function initializeAgentInternal(
   const {
     functions: _fn,
     functionDiscovery: _fd,
+    relevanceRanking: _rr,
+    skills: _sk,
+    skillsCatalog: _skc,
+    memoriesCatalog: _mc,
     onSkillsSearch: _oss,
     onLoadedSkills: _ols,
     onUsedSkills: _ous,

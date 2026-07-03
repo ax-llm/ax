@@ -25,6 +25,23 @@ export const DEFAULT_RLM_MAX_TURNS = 8;
 export const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
 /** Turns to wait after a rank-pruning signal before actually pruning — avoids pruning entries still in use. */
 export const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
+/**
+ * Default for the advisory relevance ranker when `relevanceRanking` is unset.
+ *
+ * ON by default since the A/B gate passed (2026-07-02); set
+ * `relevanceRanking: false` to opt out. Gate record
+ * (src/examples/module-ranking-eval.ts, substance-judged, 49 runs per variant
+ * per model): gpt-5.4-mini discover-p@1 24%->90%, substance accuracy
+ * 14%->29%; gpt-5.4 control substance accuracy 63%->88% with fewer turns
+ * (2.45->2.12). An earlier apparent -14pp control regression at n=21 was a
+ * verbatim-judge artifact (paraphrases scored as failures) and reversed under
+ * substance judging. Ranker precision@1 was 100% in every run.
+ *
+ * NOTE: TS-first by explicit decision — the 5 non-TS ports do not ship the
+ * ranker yet, so cross-language behavior diverges on this point until they
+ * catch up (port work tracked as the follow-up).
+ */
+export const RELEVANCE_RANKING_DEFAULT = true;
 
 /** System prompt size at which the chat budget hits the floor ratio. */
 const BUDGET_CURVE_MAX_SYSTEM_CHARS = 30_000;

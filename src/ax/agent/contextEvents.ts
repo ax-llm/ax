@@ -45,6 +45,30 @@ export type AxAgentContextEvent =
         | 'lean';
       originalChars: number;
       renderedChars: number;
+    }
+  /**
+   * Emitted once per ranked domain per forward when the advisory relevance
+   * ranker runs (`relevanceRanking` plus the domain's prerequisite: modules
+   * need `functionDiscovery`; skills/memories need their catalogs). Records
+   * the shortlist actually surfaced to the model.
+   *
+   * To measure whether the hint helps, an observer joins per forward:
+   * `shortlist.map((s) => s.id)` against what the model then loaded — for
+   * modules the internal `discover` calls (`onFunctionCall` with
+   * `kind:'internal'`, `name:'discover'`, `args.request`) and the module part
+   * of external `qualifiedName`s; for skills `onLoadedSkills`/`used(id)`; for
+   * memories `onLoadedMemories`/`used(id)`.
+   */
+  | {
+      kind: 'relevance_ranking';
+      stage: AxAgentContextStage;
+      domain: 'modules' | 'skills' | 'memories';
+      /** Length of the ranked task string (not the text — avoids log bloat). */
+      taskChars: number;
+      /** Items surfaced to the model, most relevant first ([] if suppressed). */
+      shortlist: { id: string; score: number }[];
+      /** True when the low-confidence guard emitted nothing. */
+      suppressed: boolean;
     };
 
 export type AxAgentOnContextEvent = (

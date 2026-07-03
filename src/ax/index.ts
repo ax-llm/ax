@@ -94,6 +94,17 @@ import type {
   AxAgentUsedMemory,
 } from './agent/agentInternal/memoriesTypes.js';
 import type {
+  AxModuleRankInput,
+  AxRankableDocument,
+  AxRankableField,
+  AxRankDocumentsOptions,
+  AxRankedDocument,
+  AxRankedModule,
+  AxRankModulesOptions,
+  AxRelevanceHints,
+} from './agent/agentInternal/relevanceRanker.js';
+import type {
+  AxAgentCatalogSkill,
   AxAgentSkillResult,
   AxAgentSkillsSearchFn,
   AxAgentUsedSkill,
@@ -1408,6 +1419,7 @@ export type { AxAPIConfig };
 export type { AxAPIResponseMetadata };
 export type { AxAgentActorTurnCallback };
 export type { AxAgentActorTurnCallbackArgs };
+export type { AxAgentCatalogSkill };
 export type { AxAgentClarification };
 export type { AxAgentClarificationChoice };
 export type { AxAgentClarificationKind };
@@ -1680,6 +1692,7 @@ export type { AxModelConfig };
 export type { AxModelInfo };
 export type { AxModelInfoWithProvider };
 export type { AxModelUsage };
+export type { AxModuleRankInput };
 export type { AxMultiMetricFn };
 export type { AxMultiProviderConfig };
 export type { AxNamedProgramInstance };
@@ -1716,10 +1729,17 @@ export type { AxPromptMetrics };
 export type { AxPromptTemplateOptions };
 export type { AxProviderMetadata };
 export type { AxRLMConfig };
+export type { AxRankDocumentsOptions };
+export type { AxRankModulesOptions };
+export type { AxRankableDocument };
+export type { AxRankableField };
+export type { AxRankedDocument };
+export type { AxRankedModule };
 export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };
 export type { AxRefineOptions };
 export type { AxRefineStrategy };
+export type { AxRelevanceHints };
 export type { AxRenderedPrompt };
 export type { AxResolvedContextPolicy };
 export type { AxResolvedExecutorModelPolicy };
