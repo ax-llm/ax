@@ -106,7 +106,7 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
   },
   {
     id: 'discover',
-    stages: ['executor'],
+    stages: ['distiller', 'executor'],
     enabledByAny: ['discoveryMode', 'skillsMode'],
     description:
       'Load tool docs and skill guides into the next turn. Use one batched call.',

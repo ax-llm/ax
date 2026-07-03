@@ -333,6 +333,12 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   maxTurns?: number;
   /** Maximum characters to keep from runtime output and console/log replay. */
   maxRuntimeChars?: number;
+  /**
+   * Maximum serialized characters for a `final(task, evidence)` evidence
+   * object crossing the host boundary (default: 50000). Oversized evidence
+   * throws inside the actor turn so the model narrows and retries.
+   */
+  maxEvidenceChars?: number;
   /** Context replay, checkpointing, and runtime-state policy. */
   contextPolicy?: AxContextPolicyConfig;
   /** Default options for the internal checkpoint summarizer. */

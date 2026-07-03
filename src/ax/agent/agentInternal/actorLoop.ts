@@ -32,6 +32,7 @@ import {
   rankCatalogMemories,
 } from './memoriesHelpers.js';
 import { buildModuleRankInputs, rankModules } from './relevanceRanker.js';
+import type { AxAgentSharedRuntimeSession } from './sharedSession.js';
 import {
   ingestSkillResults,
   mergeUsedSkillResults,
@@ -103,7 +104,8 @@ export async function runActorLoop<IN extends AxGenIn>(
       .filter(
         ([key, value]) =>
           typeof value === 'string' &&
-          key !== 'distilledContext' &&
+          key !== 'distilledContextSummary' &&
+          key !== 'contextMetadata' &&
           key !== 'memories'
       )
       .map(([, value]) => value as string)
@@ -225,6 +227,11 @@ export async function runActorLoop<IN extends AxGenIn>(
       );
     },
   });
+  const sharedSession = s._sharedSession as
+    | AxAgentSharedRuntimeSession
+    | undefined;
+  const sharedActive = Boolean(sharedSession?.isShared);
+
   const delegatedContextSummary = runtimeContext.effectiveContextConfig
     .stateSummary.enabled
     ? undefined
@@ -341,8 +348,16 @@ export async function runActorLoop<IN extends AxGenIn>(
   };
 
   try {
+    if (runtimeContext.prepareSharedSession) {
+      await runtimeContext.prepareSharedSession();
+    }
     if (s.state) {
-      const restoredState = await runtimeContext.restoreRuntimeState(s.state);
+      // Shared mode: session variable bindings were restored once at phase-1
+      // adoption (or are already live in the inherited session); each stage
+      // still restores its own prompt-replay state here.
+      const restoredState = await runtimeContext.restoreRuntimeState(s.state, {
+        skipBindings: sharedActive,
+      });
       const shouldRenderRestoredRuntimeState =
         runtimeContext.effectiveContextConfig.stateSummary.enabled;
       actionLogEntries.push(...restoredState.actionLogEntries);
@@ -412,6 +427,38 @@ export async function runActorLoop<IN extends AxGenIn>(
       mutableState.runtimeStateSummary = bootstrappedRuntimeState;
     }
 
+    if (sharedActive && sharedSession) {
+      const stateSummaryEnabled =
+        runtimeContext.effectiveContextConfig.stateSummary.enabled;
+      if (
+        stageVariant === 'distiller' &&
+        (sharedSession.restoredEntries?.length ?? 0) > 0
+      ) {
+        // Cross-run variables were patched into the shared session at
+        // adoption; surface them exactly like a per-stage state restore.
+        mutableState.restoreNotice = buildRuntimeRestoreNotice(
+          sharedSession.restoredEntries ?? [],
+          { includeLiveRuntimeState: stateSummaryEnabled }
+        );
+        if (stateSummaryEnabled) {
+          mutableState.runtimeStateSummary =
+            await runtimeContext.captureRuntimeStateSummary();
+        }
+      }
+      if (stageVariant !== 'distiller') {
+        // A cross-run restore notice (from this stage's own state) is richer
+        // than the generic phase-continuation notice — keep it when present.
+        if (mutableState.restoreNotice === undefined) {
+          mutableState.restoreNotice =
+            'Runtime session continued from the context (distiller) phase — its variables are already live; see Live Runtime State and `inputs.distilledContext`.';
+        }
+        if (stateSummaryEnabled) {
+          mutableState.runtimeStateSummary =
+            await runtimeContext.captureRuntimeStateSummary();
+        }
+      }
+    }
+
     for (let turn = 0; turn < maxTurns; turn++) {
       const { shouldBreak, shouldContinue } = await runActorTurn(
         ctx,
@@ -434,7 +481,13 @@ export async function runActorLoop<IN extends AxGenIn>(
 
     try {
       syncDiscoveredActorModelNamespaces();
-      const nextState = await runtimeContext.exportRuntimeState();
+      // The shared-mode distiller's variables live on in the session; only
+      // the executor phase exports bindings (the canonical cross-run state).
+      const nextState = await runtimeContext.exportRuntimeState(
+        sharedActive && stageVariant === 'distiller'
+          ? { includeBindings: false }
+          : undefined
+      );
       nextState.checkpointState = mutableState.checkpointState
         ? {
             fingerprint: mutableState.checkpointState.fingerprint,

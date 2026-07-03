@@ -103,6 +103,11 @@ import type {
   AxRankModulesOptions,
   AxRelevanceHints,
 } from './agent/agentInternal/relevanceRanker.js';
+import {
+  AxAgentSharedRuntimeSession,
+  type AxEvidenceDescriptor,
+  type AxSharedSessionPhase,
+} from './agent/agentInternal/sharedSession.js';
 import type {
   AxAgentCatalogSkill,
   AxAgentSkillResult,
@@ -1024,6 +1029,7 @@ export { AxAgent };
 export { AxAgentClarificationError };
 export { AxAgentContextMap };
 export { AxAgentProtocolCompletionSignal };
+export { AxAgentSharedRuntimeSession };
 export { AxAssertionError };
 export { AxBalancer };
 export { AxBaseAI };
@@ -1550,6 +1556,7 @@ export type { AxEmbedRequest };
 export type { AxEmbedResponse };
 export type { AxErrorCategory };
 export type { AxEvaluateArgs };
+export type { AxEvidenceDescriptor };
 export type { AxExample };
 export type { AxExamples };
 export type { AxExecutorModelPolicy };
@@ -1762,6 +1769,7 @@ export type { AxSamplePickerOptions };
 export type { AxSelfTuningConfig };
 export type { AxSerializedOptimizedProgram };
 export type { AxSetExamplesOptions };
+export type { AxSharedSessionPhase };
 export type { AxSignatureConfig };
 export type { AxSignatureInput };
 export type { AxSpeechConfig };

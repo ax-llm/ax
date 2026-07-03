@@ -13,16 +13,28 @@ import type {
   AxProgramUsage,
 } from '../../dsp/types.js';
 import { flow } from '../../flow/flow.js';
+import { DEFAULT_RLM_MAX_LLM_CALLS } from '../config.js';
 import type { AxAgentClarification } from './agentStateTypes.js';
 import { AxAgentClarificationError } from './agentStateTypes.js';
 import { transcribeAgentAudioInputs } from './audioInputs.js';
 import type { AxAgent } from './coordinator.js';
+import { mergeDiscoveryPromptStateInto } from './discoveryHelpers.js';
 import { mergeUsedMemoryResults } from './memoriesHelpers.js';
 import type {
   AxAgentUsedMemoriesCallback,
   AxAgentUsedMemory,
 } from './memoriesTypes.js';
-import { mergeUsedSkillResults } from './skillsHelpers.js';
+import {
+  AxAgentSharedRuntimeSession,
+  buildEvidenceDescriptor,
+  isEvidenceDescriptor,
+  renderEvidenceDescriptor,
+  supportsSharedRuntimeSession,
+} from './sharedSession.js';
+import {
+  mergeSkillsPromptStateInto,
+  mergeUsedSkillResults,
+} from './skillsHelpers.js';
 import type {
   AxAgentUsedSkill,
   AxAgentUsedSkillsCallback,
@@ -278,11 +290,136 @@ class FinalResponderStageProgram {
 }
 
 /**
+ * Create the per-forward shared runtime session controller and thread it (and
+ * a pipeline-wide llmQuery budget) into both actor stages. JS-capable
+ * runtimes get shared mode (one worker session spans both phases); other
+ * runtimes fall back to per-stage sessions with a host-carried evidence
+ * value. Callers MUST pair with `endPipelineSharedSession` in a finally.
+ */
+export function beginPipelineSharedSession(
+  p: any
+): AxAgentSharedRuntimeSession {
+  const distiller = p.distiller as any;
+  const executor = p.executor as any;
+  const shared =
+    supportsSharedRuntimeSession(
+      distiller.runtime,
+      distiller.isJavaScriptRuntime !== false
+    ) &&
+    supportsSharedRuntimeSession(
+      executor.runtime,
+      executor.isJavaScriptRuntime !== false
+    );
+  const controller = new AxAgentSharedRuntimeSession({
+    mode: shared ? 'shared' : 'fallback',
+  });
+  controller.excludeFieldDeletions = [...p.executorExcludeFields];
+  // The executor holds the pipeline's canonical cross-run state; its variable
+  // bindings are restored once into the phase-1 session at adoption.
+  controller.restoreState = executor.state;
+
+  const maxSubAgentCalls =
+    executor.rlmConfig?.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
+  const sharedBudget = {
+    global: { used: 0 },
+    globalMax: maxSubAgentCalls,
+    localUsed: 0,
+    localMax: maxSubAgentCalls,
+  };
+  distiller._sharedSession = controller;
+  executor._sharedSession = controller;
+  distiller.llmQueryBudgetState = sharedBudget;
+  executor.llmQueryBudgetState = sharedBudget;
+  return controller;
+}
+
+export function endPipelineSharedSession(
+  p: any,
+  controller: AxAgentSharedRuntimeSession
+): void {
+  const distiller = p.distiller as any;
+  const executor = p.executor as any;
+  distiller._sharedSession = undefined;
+  executor._sharedSession = undefined;
+  distiller.llmQueryBudgetState = undefined;
+  executor.llmQueryBudgetState = undefined;
+  controller.close();
+}
+
+/**
+ * Shared distiller→executor handoff used by the flow, streaming, and
+ * evaluation paths.
+ *
+ * - `executorRequest` comes from the distiller's `final(request, …)`.
+ * - Evidence arrives as an in-worker descriptor (shared mode — the data never
+ *   left the runtime) or as the real value (fallback mode — parked on the
+ *   controller for injection into the executor's runtime). Either way the
+ *   executor's prompt gets only `distilledContextSummary`.
+ * - Discovery docs and loaded skills the distiller acquired merge into the
+ *   executor's prompt state (memories already carry via nonContextValues).
+ */
+export function buildExecutorHandoffInputs(
+  p: any,
+  sharedSession: AxAgentSharedRuntimeSession | undefined,
+  nonCtxValues: Record<string, unknown>,
+  distillerRun: any
+): Record<string, unknown> {
+  const distillerArgs = distillerRun.executorResult?.args ?? [];
+  const executorRequest =
+    distillerArgs[0] ?? defaultExecutorRequest(nonCtxValues);
+
+  const rawEvidence = distillerArgs[1];
+  let distilledContextSummary: string | undefined;
+  if (isEvidenceDescriptor(rawEvidence)) {
+    distilledContextSummary = renderEvidenceDescriptor(rawEvidence);
+  } else if (
+    rawEvidence &&
+    typeof rawEvidence === 'object' &&
+    !Array.isArray(rawEvidence)
+  ) {
+    const evidence = rawEvidence as Record<string, unknown>;
+    if (sharedSession) {
+      sharedSession.fallbackEvidence = evidence;
+    }
+    distilledContextSummary = renderEvidenceDescriptor(
+      buildEvidenceDescriptor(evidence)
+    );
+  }
+
+  mergeDiscoveryPromptStateInto(
+    (p.executor as any).currentDiscoveryPromptState,
+    (p.distiller as any).currentDiscoveryPromptState
+  );
+  mergeSkillsPromptStateInto(
+    (p.executor as any).currentSkillsPromptState,
+    (p.distiller as any).currentSkillsPromptState
+  );
+
+  const rawExecutorInputs: Record<string, unknown> = {
+    ...nonCtxValues,
+    ...(distillerRun.nonContextValues as Record<string, unknown>),
+    executorRequest,
+    ...(distilledContextSummary !== undefined
+      ? { distilledContextSummary }
+      : {}),
+    // In shared mode the raw context variables are still live in the session;
+    // forward the distiller's rendered context metadata so the executor knows
+    // they exist. Fallback mode omits it — the context truly isn't there.
+    ...(sharedSession?.isShared && distillerRun.contextMetadata
+      ? { contextMetadata: distillerRun.contextMetadata }
+      : {}),
+  };
+  const executorExclude: Set<string> = p.executorExcludeFields;
+  for (const key of executorExclude) delete rawExecutorInputs[key];
+  return rawExecutorInputs;
+}
+
+/**
  * After the distiller runs, build the input record for the executor.
- * Merges non-context input values with the explorer's `(executorRequest,
- * distilledContext)` payload, drops `executorExcludeFields`, and preserves the
- * original non-context values so the responder can later restore actor-excluded
- * fields it still wants to see.
+ * Merges non-context input values with the distiller's handoff payload,
+ * drops `executorExcludeFields`, and preserves the original non-context
+ * values so the responder can later restore actor-excluded fields it still
+ * wants to see.
  */
 function buildExecutorInputsFromDistiller(p: any, state: any) {
   const distillerRun = state.distillerResult;
@@ -291,17 +428,12 @@ function buildExecutorInputsFromDistiller(p: any, state: any) {
     state.agentValues,
     p.contextFieldNames
   );
-  const distillerArgs = distillerRun.executorResult?.args ?? [];
-  const executorRequest =
-    distillerArgs[0] ?? defaultExecutorRequest(nonCtxValues);
-  const rawExecutorInputs: Record<string, unknown> = {
-    ...nonCtxValues,
-    ...(distillerRun.nonContextValues as Record<string, unknown>),
-    executorRequest,
-    distilledContext: distillerArgs[1],
-  };
-  const executorExclude: Set<string> = p.executorExcludeFields;
-  for (const key of executorExclude) delete rawExecutorInputs[key];
+  const rawExecutorInputs = buildExecutorHandoffInputs(
+    p,
+    state._sharedSession,
+    nonCtxValues,
+    distillerRun
+  );
   return {
     ...state,
     executorInputs: rawExecutorInputs,
@@ -320,7 +452,8 @@ function buildResponderInputFromExecutor(p: any, state: any) {
   throwOnClarification(executorRun.executorResult, p.executor);
   const {
     executorRequest: _ignoreT,
-    distilledContext: _ignoreC,
+    distilledContextSummary: _ignoreC,
+    contextMetadata: _ignoreCM,
     memories: _ignoreM,
     ...nonCtxFromExecutor
   } = executorRun.nonContextValues as Record<string, unknown>;
@@ -488,11 +621,21 @@ export async function forwardPipeline<
   if (typeof p._syncContextMapPrompt === 'function') {
     p._syncContextMapPrompt();
   }
-  return (await p.pipelineFlow.forward(
-    ai,
-    { agentValues, ai, forwardOptions: options },
-    options
-  )) as OUT;
+  const sharedSession = beginPipelineSharedSession(p);
+  try {
+    return (await p.pipelineFlow.forward(
+      ai,
+      {
+        agentValues,
+        ai,
+        forwardOptions: options,
+        _sharedSession: sharedSession,
+      },
+      options
+    )) as OUT;
+  } finally {
+    endPipelineSharedSession(p, sharedSession);
+  }
 }
 
 /**
@@ -517,9 +660,9 @@ export async function* streamingForwardPipeline<
     options as any
   );
   const contextFieldNames: Set<string> = p.contextFieldNames;
-  // The explorer receives the full input so it can normalize the request while
-  // treating declared contextFields as runtime-only context. The task stage
-  // receives only non-context inputs plus executorRequest/distilledContext.
+  // The distiller receives the full input so it can normalize the request
+  // while treating declared contextFields as runtime-only context. The task
+  // stage receives only non-context inputs plus the handoff fields.
   const { nonCtxValues } = splitValuesByContext(
     valuesForStages,
     contextFieldNames
@@ -532,61 +675,71 @@ export async function* streamingForwardPipeline<
     p._syncContextMapPrompt();
   }
 
-  const distillerRun = await p.distiller.run(
-    distillerAi,
-    valuesForStages,
-    options
-  );
-  throwOnClarification(distillerRun.executorResult, p.distiller);
+  const sharedSession = beginPipelineSharedSession(p);
+  try {
+    const distillerRun = await p.distiller.run(
+      distillerAi,
+      valuesForStages,
+      options
+    );
+    throwOnClarification(distillerRun.executorResult, p.distiller);
 
-  const distillerArgs = (distillerRun.executorResult as any)?.args ?? [];
-  const executorRequest =
-    distillerArgs[0] ?? defaultExecutorRequest(nonCtxValues);
-  const executorInputs: Record<string, unknown> = {
-    ...nonCtxValues,
-    ...(distillerRun.nonContextValues as Record<string, unknown>),
-    executorRequest,
-    distilledContext: distillerArgs[1],
-  };
-  const executorExclude: Set<string> = p.executorExcludeFields;
-  for (const key of executorExclude) delete executorInputs[key];
-  const executorRun = await p.executor.run(executorAi, executorInputs, options);
-  throwOnClarification(executorRun.executorResult, p.executor);
-  const usedMemories = mergeUsedMemoryResults(
-    distillerRun.usedMemories,
-    executorRun.usedMemories ?? []
-  );
-  const usedSkills = mergeUsedSkillResults(
-    distillerRun.usedSkills,
-    executorRun.usedSkills ?? []
-  );
-  notifyUsedMemories(p, options, usedMemories);
-  notifyUsedSkills(p, options, usedSkills);
-  const {
-    executorRequest: _ignoreT,
-    distilledContext: _ignoreC,
-    memories: _ignoreM,
-    ...nonCtxFromExecutor
-  } = executorRun.nonContextValues as Record<string, unknown>;
-  const nonCtxForResponder: Record<string, unknown> = { ...nonCtxFromExecutor };
-  for (const key of executorExclude) {
-    if (key in (nonCtxValues as Record<string, unknown>)) {
-      nonCtxForResponder[key] = (nonCtxValues as Record<string, unknown>)[key];
-    }
-  }
-  const responderExclude: Set<string> = p.responderExcludeFields;
-  for (const key of responderExclude) delete nonCtxForResponder[key];
-  yield* p.responder.streamingForward(responderAi, {
-    nonContextValues: nonCtxForResponder,
-    executorResult: executorRun.executorResult,
-    options,
-  });
-  if (typeof p._updateContextMapFromPipelineState === 'function') {
-    await p._updateContextMapFromPipelineState(ai, {
-      agentValues: valuesForStages,
+    const executorInputs = buildExecutorHandoffInputs(
+      p,
+      sharedSession,
+      nonCtxValues,
+      distillerRun
+    );
+    const executorRun = await p.executor.run(
+      executorAi,
       executorInputs,
-      distillerResult: distillerRun,
-      executorResult: executorRun,
+      options
+    );
+    throwOnClarification(executorRun.executorResult, p.executor);
+    const usedMemories = mergeUsedMemoryResults(
+      distillerRun.usedMemories,
+      executorRun.usedMemories ?? []
+    );
+    const usedSkills = mergeUsedSkillResults(
+      distillerRun.usedSkills,
+      executorRun.usedSkills ?? []
+    );
+    notifyUsedMemories(p, options, usedMemories);
+    notifyUsedSkills(p, options, usedSkills);
+    const {
+      executorRequest: _ignoreT,
+      distilledContextSummary: _ignoreC,
+      contextMetadata: _ignoreCM,
+      memories: _ignoreM,
+      ...nonCtxFromExecutor
+    } = executorRun.nonContextValues as Record<string, unknown>;
+    const nonCtxForResponder: Record<string, unknown> = {
+      ...nonCtxFromExecutor,
+    };
+    const executorExclude: Set<string> = p.executorExcludeFields;
+    for (const key of executorExclude) {
+      if (key in (nonCtxValues as Record<string, unknown>)) {
+        nonCtxForResponder[key] = (nonCtxValues as Record<string, unknown>)[
+          key
+        ];
+      }
+    }
+    const responderExclude: Set<string> = p.responderExcludeFields;
+    for (const key of responderExclude) delete nonCtxForResponder[key];
+    yield* p.responder.streamingForward(responderAi, {
+      nonContextValues: nonCtxForResponder,
+      executorResult: executorRun.executorResult,
+      options,
     });
+    if (typeof p._updateContextMapFromPipelineState === 'function') {
+      await p._updateContextMapFromPipelineState(ai, {
+        agentValues: valuesForStages,
+        executorInputs,
+        distillerResult: distillerRun,
+        executorResult: executorRun,
+      });
+    }
+  } finally {
+    endPipelineSharedSession(p, sharedSession);
   }
 }

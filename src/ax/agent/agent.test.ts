@@ -971,7 +971,7 @@ describe('Split-architecture signature derivation', () => {
     for (const name of [
       'query',
       'executorRequest',
-      'distilledContext',
+      'distilledContextSummary',
       'memories',
       'discoveredToolDocs',
       'loadedSkills',
@@ -1036,7 +1036,7 @@ describe('Split-architecture signature derivation', () => {
       {
         query: 'root question',
         executorRequest: 'answer the root question',
-        distilledContext: { facts: ['one'] },
+        distilledContextSummary: 'facts: one',
         actionLog: 'No prior actions.',
       },
       { contextCache }
@@ -1046,7 +1046,7 @@ describe('Split-architecture signature derivation', () => {
       {
         query: 'root question',
         executorRequest: 'answer the root question',
-        distilledContext: { facts: ['one'] },
+        distilledContextSummary: 'facts: one',
         summarizedActorLog: 'Checkpoint Summary: useful prior context.',
         guidanceLog: 'Turn 1: prefer compact inspections.',
         actionLog: 'Turn 1: console output captured.',
@@ -1074,7 +1074,7 @@ describe('Split-architecture signature derivation', () => {
       {
         query: 'root question',
         executorRequest: 'answer the root question',
-        distilledContext: { facts: ['one'] },
+        distilledContextSummary: 'facts: one',
         summarizedActorLog: 'Checkpoint Summary: useful prior context.',
         actionLog: 'No prior actions.',
       },
@@ -1088,7 +1088,7 @@ describe('Split-architecture signature derivation', () => {
 
     expect(cachedUser?.content).toContain('Query: root question');
     expect(cachedUser?.content).toContain('Executor Request:');
-    expect(cachedUser?.content).toContain('Distilled Context:');
+    expect(cachedUser?.content).toContain('Distilled Context Summary:');
     expect(cachedUser?.content).toContain('Summarized Actor Log:');
     expect(cachedUser!.content.indexOf('Query:')).toBeLessThan(
       cachedUser!.content.indexOf('Summarized Actor Log:')

@@ -63,12 +63,19 @@ import type { AxAgentOptimizationTargetDescriptor } from './types.js';
  * BOTH internal actor agents. These are the LLM-call defaults and stage-agnostic
  * infrastructure that should apply identically to the distiller and executor.
  *
+ * `functions`/`functionDiscovery`/skills knobs are shared because the
+ * distiller is the pipeline's reconnaissance phase: it sees the executor's
+ * capability surface (schemas, module catalog, skills index, discovery) so
+ * evidence extraction targets what the tools will consume — but its
+ * callables are throwing stubs; execution authority stays with the executor.
+ *
  * All other top-level options reach ONLY the executor; callers who need
  * distiller-specific overrides must opt in explicitly via `options.contextOptions`.
  */
 const SHARED_KNOB_KEYS = [
   'runtime',
   'maxRuntimeChars',
+  'maxEvidenceChars',
   'contextPolicy',
   'summarizerOptions',
   'promptLevel',
@@ -83,6 +90,12 @@ const SHARED_KNOB_KEYS = [
   'memoriesCatalog',
   'onLoadedMemories',
   'onUsedMemories',
+  'functions',
+  'functionDiscovery',
+  'onSkillsSearch',
+  'skillsCatalog',
+  'onLoadedSkills',
+  'onUsedSkills',
   'contextCache',
 ] as const;
 
@@ -333,11 +346,27 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         )
       )
       .input(
-        'distilledContext',
+        'distilledContextSummary',
         f
-          .json('Pre-distilled context evidence from the distiller stage.')
+          .string(
+            'Shape summary of the distiller-stage evidence. The evidence data itself lives in the runtime as `inputs.distilledContext` — read it there; it is never materialized into this prompt.'
+          )
+          .cache()
           .optional()
       );
+    // Only pipelines with declared context fields can have runtime-resident
+    // raw context for the executor phase to fall back on.
+    if (ctxFieldInputs.length > 0) {
+      executorSigBuilder = executorSigBuilder.input(
+        'contextMetadata',
+        f
+          .string(
+            'Metadata about raw context variables (type and size) still live in the shared runtime from the context phase. Present only when the runtime session is shared.'
+          )
+          .cache()
+          .optional()
+      );
+    }
     if (memoriesEnabled) {
       executorSigBuilder = executorSigBuilder.input(
         'memories',
@@ -462,7 +491,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   /**
-   * The explorer is reported under `ctx.*` and the executor / responder
+   * The distiller is reported under `ctx.*` and the executor / responder
    * pair under `task.*` so optimizer demo IDs and template-overrides keep
    * stable stage ownership.
    */
@@ -507,7 +536,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const programIdOf = (d: any): string | undefined => d.programId ?? d.id;
     const isResponderId = (id: string | undefined) =>
       Boolean(id?.endsWith('.responder'));
-    // Route by `ctx.*` / `task.*` prefix. The ctx side has only the explorer
+    // Route by `ctx.*` / `task.*` prefix. The ctx side has only the distiller
     // actor; the task side has the executor actor + responder. Unprefixed
     // demos default to the task side for compatibility with older callers.
     const ctxDemos: any[] = [];
@@ -553,7 +582,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     task: AxAgentUsage;
   } {
     const usage = this.pipelineFlow.getUsageReport();
-    // The ctx stage has only the explorer actor (no responder LLM call).
+    // The ctx stage has only the distiller actor (no responder LLM call).
     return {
       ctx: {
         actor:
@@ -727,11 +756,27 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         )
       )
       .input(
-        'distilledContext',
+        'distilledContextSummary',
         f
-          .json('Pre-distilled context evidence from the distiller stage.')
+          .string(
+            'Shape summary of the distiller-stage evidence. The evidence data itself lives in the runtime as `inputs.distilledContext` — read it there; it is never materialized into this prompt.'
+          )
+          .cache()
           .optional()
       );
+    // Only pipelines with declared context fields can have runtime-resident
+    // raw context for the executor phase to fall back on.
+    if (ctxNames.size > 0) {
+      executorSigBuilder = executorSigBuilder.input(
+        'contextMetadata',
+        f
+          .string(
+            'Metadata about raw context variables (type and size) still live in the shared runtime from the context phase. Present only when the runtime session is shared.'
+          )
+          .cache()
+          .optional()
+      );
+    }
     if (memoriesEnabled) {
       executorSigBuilder = executorSigBuilder.input(
         'memories',
@@ -925,7 +970,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }>
   ): Promise<AxAgentTestResult> {
     // Test code runs where its declared runtime values and tools live. Context
-    // field snippets use the explorer; ordinary tool/function snippets use the
+    // field snippets use the distiller; ordinary tool/function snippets use the
     // executor, where task-only knobs are intentionally routed.
     return this.contextFieldNames.size > 0
       ? this.distiller.test(code, values as any, options)

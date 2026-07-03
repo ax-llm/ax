@@ -159,26 +159,25 @@ export function buildActorLoopSetup(
     if (s.options?.stageVariant === 'distiller' && s.contextMapText) {
       values.contextMap = s.contextMapText;
     }
-    if (s.options?.stageVariant !== 'distiller') {
-      const discoveredToolDocs = renderDiscoveryPromptMarkdown(
-        s.currentDiscoveryPromptState
+    // Both stages surface discovery docs and loaded skills — the distiller
+    // discovers to shape extraction, the executor to act. Relevance hints
+    // stay executor-only (they rank toward task execution).
+    const discoveredToolDocs = renderDiscoveryPromptMarkdown(
+      s.currentDiscoveryPromptState
+    );
+    if (discoveredToolDocs) {
+      values.discoveredToolDocs = discoveredToolDocs;
+    }
+    const loadedSkills = renderSkillsPromptMarkdown(s.currentSkillsPromptState);
+    if (loadedSkills) {
+      values.loadedSkills = loadedSkills;
+    }
+    if (s.options?.stageVariant !== 'distiller' && s.relevanceHintsEnabled) {
+      const relevanceHints = renderRelevanceHintsMarkdown(
+        s._relevanceHintsForTurn ?? {}
       );
-      if (discoveredToolDocs) {
-        values.discoveredToolDocs = discoveredToolDocs;
-      }
-      const loadedSkills = renderSkillsPromptMarkdown(
-        s.currentSkillsPromptState
-      );
-      if (loadedSkills) {
-        values.loadedSkills = loadedSkills;
-      }
-      if (s.relevanceHintsEnabled) {
-        const relevanceHints = renderRelevanceHintsMarkdown(
-          s._relevanceHintsForTurn ?? {}
-        );
-        if (relevanceHints) {
-          values.relevanceHints = relevanceHints;
-        }
+      if (relevanceHints) {
+        values.relevanceHints = relevanceHints;
       }
     }
     const contextMetadata = inputState.getContextMetadata();

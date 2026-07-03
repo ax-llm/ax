@@ -259,7 +259,7 @@ describe('ctx-vs-task prompt shrink ratio', () => {
     expect(caseACtxActorUserPrompt).toContain('docText');
     expect(caseATaskActorSystemPrompt).toBeTruthy();
     expect(caseATaskActorUserPrompt).toContain('Executor Request: distilled');
-    expect(caseATaskActorUserPrompt).toContain('Distilled Context:');
+    expect(caseATaskActorUserPrompt).toContain('Distilled Context Summary:');
     expect(caseATaskActorUserPrompt).not.toContain('Context Metadata:');
     expect(caseCTaskActorSystemPrompt).toBeTruthy();
 

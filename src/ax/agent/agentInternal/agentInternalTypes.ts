@@ -145,15 +145,25 @@ export type AxAgentRuntimeExecutionContext = {
     texts: string[];
   };
   getActorModelMatchedNamespaces: () => readonly string[];
-  exportRuntimeState: () => Promise<AxAgentState>;
+  exportRuntimeState: (
+    options?: Readonly<{ includeBindings?: boolean }>
+  ) => Promise<AxAgentState>;
   restoreRuntimeState: (
-    state: Readonly<AxAgentState>
+    state: Readonly<AxAgentState>,
+    options?: Readonly<{ skipBindings?: boolean }>
   ) => Promise<AxPreparedRestoredState>;
   syncRuntimeInputsToSession: () => Promise<void>;
   executeActorCode: (
     code: string
   ) => Promise<{ result: unknown; output: string; isError: boolean }>;
   executeTestCode: (code: string) => Promise<AxAgentTestResult>;
+  /**
+   * Present only when the run participates in a pipeline-owned shared runtime
+   * session. The actor loop awaits it before the first turn: the distiller
+   * phase adopts the fresh session, the executor phase patches its bindings
+   * over the inherited one and runs the phase-boundary snippet.
+   */
+  prepareSharedSession?: () => Promise<void>;
   close: () => void;
 };
 

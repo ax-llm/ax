@@ -13,23 +13,17 @@ import {
   restoreDiscoveryPromptState,
   serializeDiscoveryPromptState,
 } from './discoveryHelpers.js';
+import {
+  beginPipelineSharedSession,
+  buildExecutorHandoffInputs,
+  endPipelineSharedSession,
+} from './pipelineForward.js';
 import type {
   AxAgentClarification,
   AxAgentEvalFunctionCall,
   AxAgentEvalPrediction,
   AxAgentEvalTask,
 } from './types.js';
-
-function defaultExecutorRequest(values: Record<string, unknown>): string {
-  const query = values.query;
-  if (typeof query === 'string' && query.trim()) return query;
-  return Object.entries(values)
-    .map(
-      ([key, value]) =>
-        `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`
-    )
-    .join('\n');
-}
 
 /**
  * Walk the pipeline once for the optimizer. Behaves like `forwardPipeline`
@@ -72,6 +66,11 @@ export async function forwardPipelineForEvaluation<
 
   primary.activeAbortControllers.add(abortController);
   const createdBudgetState = primary._ensureLlmQueryBudgetState();
+  // Evaluation walks the same phase handoff as forward(): shared runtime
+  // session (or fallback evidence carry) plus reconnaissance-state merge,
+  // with one pipeline-wide llmQuery budget spanning both stages.
+  // `primary.state` was cleared above, so no cross-example bindings restore.
+  const sharedSession = beginPipelineSharedSession(p);
   try {
     const ai = primary.ai ?? parentAi;
     const functionCalls: AxAgentEvalFunctionCall[] = [];
@@ -115,17 +114,12 @@ export async function forwardPipelineForEvaluation<
       executorResult = distillerRun.executorResult;
       nonContextValues = nonCtxValues;
     } else {
-      const distillerArgs = (distillerRun.executorResult as any)?.args ?? [];
-      const executorRequest =
-        distillerArgs[0] ?? defaultExecutorRequest(nonCtxValues);
-      const executorInputs: Record<string, unknown> = {
-        ...nonCtxValues,
-        ...(distillerRun.nonContextValues as Record<string, unknown>),
-        executorRequest,
-        distilledContext: distillerArgs[1],
-      };
-      const executorExclude: Set<string> = p.executorExcludeFields;
-      for (const key of executorExclude) delete executorInputs[key];
+      const executorInputs = buildExecutorHandoffInputs(
+        p,
+        sharedSession,
+        nonCtxValues,
+        distillerRun
+      );
       const executorRun = await p.executor._runActorLoop(
         ai,
         executorInputs,
@@ -159,11 +153,12 @@ export async function forwardPipelineForEvaluation<
     }
 
     // The executor stage's actor inputs include `executorRequest`,
-    // `distilledContext`, and (when memories mode is on) `memories`. The
-    // responder's signature does not, so drop them.
+    // `distilledContextSummary`, and (when memories mode is on) `memories`.
+    // The responder's signature does not, so drop them.
     const {
       executorRequest: _ignoreT,
-      distilledContext: _ignoreC,
+      distilledContextSummary: _ignoreC,
+      contextMetadata: _ignoreCM,
       memories: _ignoreM,
       ...nonCtxFromExecutor
     } = nonContextValues as Record<string, unknown>;
@@ -195,6 +190,7 @@ export async function forwardPipelineForEvaluation<
       turnCount,
     };
   } finally {
+    endPipelineSharedSession(p, sharedSession);
     primary.state = savedState ? cloneAgentState(savedState) : undefined;
     primary.stateError = savedStateError;
     primary.currentDiscoveryPromptState = restoreDiscoveryPromptState(

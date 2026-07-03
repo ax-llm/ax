@@ -177,7 +177,10 @@ describe('template integration', () => {
     expect(actorDefinition).toContain('inputs.executorRequest');
     expect(actorDefinition).toContain('inputs.distilledContext');
     expect(actorDefinition).toContain(
-      'Raw context fields are not available in this stage.'
+      'the data itself exists only in the runtime'
+    );
+    expect(actorDefinition).toContain(
+      'fall back to the raw `inputs.*` context variables listed in `Context Metadata`'
     );
     expect(actorDefinition).toContain(
       'request needs information or effects that your available functions can provide'
@@ -188,7 +191,6 @@ describe('template integration', () => {
     expect(actorDefinition).toContain(
       'capture the real error, status, output, or exception'
     );
-    expect(actorDefinition).not.toContain('inputs.<contextField>');
     expect(actorDefinition).toContain("Don't repeat probes");
   });
 
@@ -223,7 +225,10 @@ describe('template integration', () => {
       'final("<concrete action and target>", {})'
     );
     expect(actorDefinition).toContain(
-      'owns any available tools/functions and capability checks'
+      'The executor owns tool execution and capability checks'
+    );
+    expect(actorDefinition).toContain(
+      'handed to the executor **by reference in the shared runtime**'
     );
     expect(actorDefinition).toContain('choose executor tools');
     expect(actorDefinition).toContain('perceived executor capabilities');

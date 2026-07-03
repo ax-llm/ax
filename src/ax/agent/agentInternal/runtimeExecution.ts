@@ -5,6 +5,7 @@ import { AxAIServiceAbortedError } from '../../util/apicall.js';
 import type { createCompletionBindings } from '../completion.js';
 import {
   DEFAULT_RLM_BATCH_CONCURRENCY,
+  DEFAULT_RLM_MAX_EVIDENCE_CHARS,
   DEFAULT_RLM_MAX_LLM_CALLS,
   resolveContextPolicy,
 } from '../config.js';
@@ -46,6 +47,12 @@ import {
   getSnapshotableSession,
   prepareRestoredState,
 } from './runtimeSessionHelpers.js';
+import {
+  AX_SHARED_EVIDENCE_GLOBAL,
+  type AxAgentSharedRuntimeSession,
+  isEvidenceDescriptor,
+  measureEvidenceChars,
+} from './sharedSession.js';
 import {
   ingestSkillResults,
   normalizeUsedSkillResult,
@@ -108,6 +115,15 @@ export function createRuntimeExecutionContext(
   const s = self as any;
   const rlm = s.rlmConfig;
   const runtime = s.runtime;
+  // Pipeline-owned shared runtime session (set per-forward by pipelineForward).
+  // In shared mode the distiller phase creates the session and the executor
+  // phase adopts it; neither run closes it.
+  const sharedSession = s._sharedSession as
+    | AxAgentSharedRuntimeSession
+    | undefined;
+  const sharedActive = Boolean(sharedSession?.isShared);
+  const stageVariant: 'distiller' | 'executor' =
+    s.options?.stageVariant === 'distiller' ? 'distiller' : 'executor';
   const maxSubAgentCalls = rlm.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
   const maxBatchedLlmQueryConcurrency = Math.max(
     1,
@@ -132,6 +148,31 @@ export function createRuntimeExecutionContext(
     localMax: maxSubAgentCalls, // fallback uses globalMax (root behavior)
   };
   const llmCallWarnThreshold = Math.floor(llmQueryBudgetState.localMax * 0.8);
+
+  // Budget the one place evidence still materializes across the host
+  // boundary. In-worker evidence descriptors (shared mode) are exempt; real
+  // evidence objects (executor final, or distiller final in fallback mode)
+  // must fit so the responder prompt stays bounded. Violations throw in-turn
+  // so the actor can narrow and retry.
+  const maxEvidenceChars =
+    rlm.maxEvidenceChars ?? DEFAULT_RLM_MAX_EVIDENCE_CHARS;
+  const guardedFinalFunction = (...args: unknown[]): never => {
+    if (
+      args.length === 2 &&
+      args[1] !== null &&
+      typeof args[1] === 'object' &&
+      !isEvidenceDescriptor(args[1])
+    ) {
+      const evidenceChars = measureEvidenceChars(args[1]);
+      if (evidenceChars > maxEvidenceChars) {
+        throw new Error(
+          `final() evidence is too large (~${evidenceChars} chars; limit ${maxEvidenceChars}). ` +
+            'Narrow the evidence to only the fields the next stage needs — filter, slice, and drop bulky raw values — then call final() again.'
+        );
+      }
+    }
+    return completionBindings.finalFunction(...args);
+  };
 
   const recursionForwardOptions: AxAgentRecursionOptions =
     s.recursionForwardOptions ?? {};
@@ -300,6 +341,20 @@ export function createRuntimeExecutionContext(
     ),
   ];
   const runtimeInputs = { ...inputState.currentInputs };
+  // Fallback mode (non-JS runtime): the distiller's evidence crossed the host
+  // and is delivered as a runtime-only input value plus a bare alias — never
+  // as prompt text. Shared mode never takes this path (the evidence object
+  // stays inside the worker and is promoted at the phase boundary).
+  const fallbackEvidence =
+    sharedSession &&
+    !sharedSession.isShared &&
+    stageVariant === 'executor' &&
+    sharedSession.fallbackEvidence !== undefined
+      ? sharedSession.fallbackEvidence
+      : undefined;
+  if (fallbackEvidence !== undefined) {
+    runtimeInputs[AX_SHARED_EVIDENCE_GLOBAL] = fallbackEvidence;
+  }
   const reservedTopLevelNames = new Set<string>([
     'inputs',
     'llmQuery',
@@ -330,14 +385,32 @@ export function createRuntimeExecutionContext(
     for (const [key, value] of Object.entries(inputState.currentInputs)) {
       runtimeInputs[key] = value;
     }
+    if (fallbackEvidence !== undefined) {
+      runtimeInputs[AX_SHARED_EVIDENCE_GLOBAL] = fallbackEvidence;
+    }
 
     for (const key of runtimeAliasKeys) {
-      runtimeTopLevelInputAliases[key] = inputState.currentInputs[key];
+      runtimeTopLevelInputAliases[key] =
+        key === AX_SHARED_EVIDENCE_GLOBAL && fallbackEvidence !== undefined
+          ? fallbackEvidence
+          : inputState.currentInputs[key];
     }
   };
 
   const protectedRuntimeNames = [...reservedTopLevelNames];
-  const inspectReservedNames = [...reservedTopLevelNames, ...runtimeAliasKeys];
+  // The executor phase of a shared session also excludes phase-1 system and
+  // input-alias names so inherited context aliases don't render as user
+  // variables. Distiller-created variables (including the evidence global)
+  // stay visible — they ARE the inherited workspace.
+  const inspectReservedNames = [
+    ...new Set([
+      ...reservedTopLevelNames,
+      ...runtimeAliasKeys,
+      ...(sharedActive && stageVariant === 'executor'
+        ? (sharedSession?.phase1ReservedNames ?? [])
+        : []),
+    ]),
+  ];
   const bootstrapReservedNames = new Set(inspectReservedNames);
   const bootstrapContext = s.runtimeBootstrapContext;
   s.runtimeBootstrapContext = undefined;
@@ -372,28 +445,36 @@ export function createRuntimeExecutionContext(
         renderRuntimeState(await inspectRuntimeState())
     : undefined;
 
+  // Phase-scoped host closures. In shared mode the executor phase patches
+  // these over the phase-1 bindings of the adopted session (patchGlobals
+  // converts functions to fresh worker proxies), so completion, llmQuery, and
+  // tool dispatch always target the *current* run's state.
+  const buildPhaseGlobals = (): Record<string, unknown> => ({
+    llmQuery,
+    final: guardedFinalFunction,
+    askClarification: completionBindings.askClarificationFunction,
+    ...(inspectRuntime ? { inspectRuntime } : {}),
+    ...(s.agentStatusCallback
+      ? {
+          reportSuccess: async (message: string) => {
+            await s.agentStatusCallback!(message, 'success');
+          },
+          reportFailure: async (message: string) => {
+            await s.agentStatusCallback!(message, 'failed');
+          },
+        }
+      : {}),
+    ...toolGlobals,
+  });
+
   const createSession = () => {
     resetInspectBaseline();
-    return runtime.createSession(
+    const next = runtime.createSession(
       {
         ...runtimeTopLevelInputAliases,
         inputs: runtimeInputs,
         ...bootstrapGlobals,
-        llmQuery,
-        final: completionBindings.finalFunction,
-        askClarification: completionBindings.askClarificationFunction,
-        ...(inspectRuntime ? { inspectRuntime } : {}),
-        ...(s.agentStatusCallback
-          ? {
-              reportSuccess: async (message: string) => {
-                await s.agentStatusCallback!(message, 'success');
-              },
-              reportFailure: async (message: string) => {
-                await s.agentStatusCallback!(message, 'failed');
-              },
-            }
-          : {}),
-        ...toolGlobals,
+        ...buildPhaseGlobals(),
       },
       {
         shouldBubbleError: (err: unknown) =>
@@ -402,9 +483,50 @@ export function createRuntimeExecutionContext(
           s.shouldBubbleUserError(err),
       }
     );
+    // Session-death recovery must keep the controller pointed at the live
+    // session so pipeline-level close() targets the right one.
+    if (sharedActive && sharedSession) {
+      sharedSession.replaceSession(next);
+    }
+    return next;
   };
 
-  session = createSession();
+  if (
+    sharedActive &&
+    sharedSession &&
+    stageVariant === 'executor' &&
+    sharedSession.session
+  ) {
+    session = sharedSession.session;
+  } else {
+    session = createSession();
+  }
+
+  /**
+   * Async phase wiring the loop awaits before its first turn: the distiller
+   * phase adopts the fresh session (cross-run bindings restore + in-worker
+   * `final` wrapper); the executor phase patches its host closures over the
+   * inherited session and runs the phase-boundary snippet (evidence
+   * promotion, per-key input merge, exclusions).
+   */
+  const prepareSharedSession =
+    sharedActive && sharedSession
+      ? async (): Promise<void> => {
+          if (stageVariant === 'distiller') {
+            await sharedSession.adoptDistillerSession(session, {
+              reservedNames: inspectReservedNames,
+              signal: effectiveAbortSignal,
+            });
+            return;
+          }
+          await sharedSession.beginExecutorPhase({
+            phaseGlobals: buildPhaseGlobals(),
+            inputs: { ...runtimeInputs },
+            aliasNames: Object.keys(runtimeTopLevelInputAliases),
+            signal: effectiveAbortSignal,
+          });
+        }
+      : undefined;
 
   const getRuntimeStateSummaryOptions = () => ({
     maxEntries:
@@ -467,13 +589,23 @@ export function createRuntimeExecutionContext(
   };
 
   const restoreRuntimeState = async (
-    state: Readonly<AxAgentState>
+    state: Readonly<AxAgentState>,
+    options?: Readonly<{
+      /**
+       * Skip patching variable bindings into the session. Used in shared mode
+       * where session variables are restored once at phase-1 adoption; each
+       * stage still restores its own prompt-replay state here.
+       */
+      skipBindings?: boolean;
+    }>
   ): Promise<AxPreparedRestoredState> => {
     const preparedState = prepareRestoredState(state, inspectReservedNames);
-    const patchableSession = getPatchableSession(session);
-    await patchableSession.patchGlobals(preparedState.runtimeBindings, {
-      signal: effectiveAbortSignal,
-    });
+    if (options?.skipBindings !== true) {
+      const patchableSession = getPatchableSession(session);
+      await patchableSession.patchGlobals(preparedState.runtimeBindings, {
+        signal: effectiveAbortSignal,
+      });
+    }
     s.currentDiscoveryPromptState = restoreDiscoveryPromptState(
       preparedState.discoveryPromptState
     );
@@ -483,12 +615,23 @@ export function createRuntimeExecutionContext(
     return preparedState;
   };
 
-  const exportRuntimeState = async (): Promise<AxAgentState> => {
-    const snapshotableSession = getSnapshotableSession(session);
-    const snapshot = await snapshotableSession.snapshotGlobals({
-      signal: effectiveAbortSignal,
-      reservedNames: inspectReservedNames,
-    });
+  const exportRuntimeState = async (
+    options?: Readonly<{
+      /**
+       * Skip the variable-bindings snapshot. Used by the shared-mode
+       * distiller phase, whose variables live on in the session and are
+       * exported once by the executor phase at the end of the run.
+       */
+      includeBindings?: boolean;
+    }>
+  ): Promise<AxAgentState> => {
+    const includeBindings = options?.includeBindings !== false;
+    const snapshot = includeBindings
+      ? await getSnapshotableSession(session).snapshotGlobals({
+          signal: effectiveAbortSignal,
+          reservedNames: inspectReservedNames,
+        })
+      : { version: 1 as const, entries: [], bindings: {} };
     const provenance = buildRuntimeStateProvenance(runtimeActionLogEntries);
 
     return {
@@ -527,6 +670,42 @@ export function createRuntimeExecutionContext(
 
   const syncRuntimeInputsToSession = async (): Promise<void> => {
     refreshRuntimeBindings();
+
+    // Shared mode merges input values per key inside the worker. A wholesale
+    // `inputs` patch would delete worker-resident keys (context fields, the
+    // promoted evidence) because patchGlobals reconciles plain objects by
+    // removing keys missing from the patch.
+    if (sharedActive && sharedSession?.session) {
+      try {
+        await sharedSession.mergeInputs(
+          { ...runtimeInputs },
+          { signal: effectiveAbortSignal }
+        );
+        if (Object.keys(runtimeTopLevelInputAliases).length > 0) {
+          await getPatchableSession(sharedSession.session).patchGlobals(
+            { ...runtimeTopLevelInputAliases },
+            { signal: effectiveAbortSignal }
+          );
+        }
+      } catch (err) {
+        if (effectiveAbortSignal?.aborted) {
+          throw new AxAIServiceAbortedError(
+            'rlm-session',
+            effectiveAbortSignal.reason ?? 'Aborted'
+          );
+        }
+        if (
+          err instanceof Error &&
+          (err.name === 'AbortError' || err.message.startsWith('Aborted'))
+        ) {
+          throw err;
+        }
+        throw new Error(
+          `Failed to sync runtime inputs: ${formatInterpreterError(err, getMaxRuntimeChars())}`
+        );
+      }
+      return;
+    }
 
     const patchGlobals = async (targetSession: AxCodeSession) => {
       const patchableSession = getPatchableSession(targetSession);
@@ -608,7 +787,14 @@ export function createRuntimeExecutionContext(
     syncRuntimeInputsToSession,
     executeActorCode,
     executeTestCode,
+    prepareSharedSession,
     close: () => {
+      // Sessions the pipeline controller owns (the live shared session,
+      // including one swapped in by mid-run recovery) are closed by the
+      // controller; anything else is this run's own.
+      if (sharedSession && sharedSession.session === session) {
+        return;
+      }
       session.close();
     },
   };

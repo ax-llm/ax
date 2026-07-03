@@ -38,6 +38,7 @@ export function initializeAgentInternal(
     maxBatchedLlmQueryConcurrency,
     maxTurns,
     maxRuntimeChars,
+    maxEvidenceChars,
     contextPolicy,
     summarizerOptions,
     actorTurnCallback,
@@ -170,6 +171,7 @@ export function initializeAgentInternal(
     inputUpdateCallback: _iuc,
     executorModelPolicy: _amp,
     maxRuntimeChars: _mrc,
+    maxEvidenceChars: _mec,
     summarizerOptions: _so,
     actorTurnCallback: _atc,
     onFunctionCall: _ofc,
@@ -198,6 +200,7 @@ export function initializeAgentInternal(
     maxBatchedLlmQueryConcurrency,
     maxTurns,
     maxRuntimeChars,
+    maxEvidenceChars,
     contextPolicy,
     summarizerOptions,
     actorTurnCallback,
@@ -225,15 +228,22 @@ export function initializeAgentInternal(
   s.onContextEvent = onContextEvent;
 
   // Register child agents (those that arrived via `options.functions`) as
-  // DSPy sub-programs so optimizer reach-through is preserved.
-  for (const agent of (s.agents ?? []) as readonly {
-    getFunction: () => { name: string };
-  }[]) {
-    const childName = agent.getFunction().name;
-    s.program.register(
-      agent as unknown as Readonly<AxTunable<any, any> & AxUsable>,
-      childName
-    );
+  // DSPy sub-programs so optimizer reach-through is preserved. The distiller
+  // stage receives the same function set for catalogs/discovery but must not
+  // duplicate the executor's optimizer ownership of child agents (and its
+  // callables are throwing stubs anyway).
+  if (options.stageVariant !== 'distiller') {
+    for (const agent of (s.agents ?? []) as readonly {
+      getFunction: () => { name: string };
+    }[]) {
+      const childName = agent.getFunction().name;
+      s.program.register(
+        agent as unknown as Readonly<AxTunable<any, any> & AxUsable>,
+        childName
+      );
+    }
+  } else {
+    s.agents = undefined;
   }
 
   // Only set up function metadata when agentIdentity is provided

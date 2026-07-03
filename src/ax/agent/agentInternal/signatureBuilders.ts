@@ -106,7 +106,10 @@ export function buildSplitPrograms(self: any): void {
     );
   }
 
-  if (isExecutorStage && s.functionDiscoveryEnabled) {
+  // Both stages carry discovery docs and loaded skills: the distiller uses
+  // them to shape evidence extraction toward the executor's tools, and its
+  // acquired state carries over into the executor phase.
+  if (s.functionDiscoveryEnabled) {
     actorSigBuilder = actorSigBuilder.input(
       'discoveredToolDocs',
       f
@@ -118,17 +121,15 @@ export function buildSplitPrograms(self: any): void {
     );
   }
 
-  if (isExecutorStage) {
-    actorSigBuilder = actorSigBuilder.input(
-      'loadedSkills',
-      f
-        .string(
-          'Skill guides loaded for this run. Apply the guides that are relevant, and call `used(id, reason)` for loaded skills that actually influenced the turn when usage tracking is enabled.'
-        )
-        .cache()
-        .optional()
-    );
-  }
+  actorSigBuilder = actorSigBuilder.input(
+    'loadedSkills',
+    f
+      .string(
+        'Skill guides loaded for this run. Apply the guides that are relevant, and call `used(id, reason)` for loaded skills that actually influenced the turn when usage tracking is enabled.'
+      )
+      .cache()
+      .optional()
+  );
 
   actorSigBuilder = actorSigBuilder
     .input(

@@ -355,6 +355,15 @@ export interface AxCodeRuntime {
    * Defaults to JavaScript when omitted for backwards compatibility.
    */
   readonly language?: string;
+  /**
+   * Opt-in for the pipeline's shared-session mode, where one session spans
+   * the distiller and executor phases (evidence passes by reference; the
+   * phase boundary runs in-session snippets and function `patchGlobals`).
+   * Requires sessions to support `patchGlobals` with function values and
+   * host-driven `execute` calls outside actor turns. When absent/false the
+   * pipeline uses per-stage sessions and carries evidence through the host.
+   */
+  readonly supportsSharedSessions?: boolean;
   createSession(
     globals?: Record<string, unknown>,
     options?: { shouldBubbleError?: (err: unknown) => boolean }
@@ -477,6 +486,13 @@ export interface AxRLMConfig {
   maxTurns?: number;
   /** Maximum characters to keep from runtime output and console/log replay (default: 3000). */
   maxRuntimeChars?: number;
+  /**
+   * Maximum serialized characters for a `final(task, evidence)` evidence
+   * object crossing the host boundary (default: 50000). Oversized evidence
+   * throws inside the actor turn so the model narrows and retries; in-worker
+   * evidence handoffs in shared-session mode are exempt.
+   */
+  maxEvidenceChars?: number;
   /** Context replay, checkpointing, and runtime-state policy. */
   contextPolicy?: AxContextPolicyConfig;
   /** Default options for the internal checkpoint summarizer. */
@@ -502,8 +518,11 @@ export interface AxRLMConfig {
 
 /**
  * Builds the context-understanding actor system prompt (the distiller).
- * The distiller explores and distills long-context inputs into a concise
- * evidence payload for the executor stage; it has no tools.
+ * The distiller is the pipeline's reconnaissance phase: it explores
+ * long-context inputs AND the executor's capability surface (function
+ * schemas, module catalog, skills index, discovery) so its evidence is shaped
+ * to what the executor's tools will actually consume. It cannot execute
+ * tools — its callables are throwing stubs.
  */
 export function axBuildDistillerDefinition(
   baseDefinition: string | undefined,
@@ -514,18 +533,43 @@ export function axBuildDistillerDefinition(
     runtimeCodeFieldTitle?: string;
     runtimeCodeFenceLanguage?: string;
     isJavaScriptRuntime?: boolean;
+    formatCallable?: AxCodeRuntime['formatCallable'];
     promptLevel?: 'default' | 'detailed';
     hasInspectRuntime?: boolean;
     hasLiveRuntimeState?: boolean;
     hasCompressedActionReplay?: boolean;
+    /** Enables tool discovery (`discover`) in the prompt. */
+    discoveryMode?: boolean;
+    /** Enables `discover({ skills })` runtime overload in the prompt. */
+    skillsMode?: boolean;
+    /** Static skill catalog rendered as an `### Available Skills` index. */
+    skillsCatalog?: ReadonlyArray<{
+      id: string;
+      name: string;
+      description?: string;
+    }>;
     /** Enables `recall` runtime primitive in the prompt. */
     memoriesMode?: boolean;
     /** Enables the generic `used` runtime primitive in the prompt. */
     usageTrackingMode?: boolean;
     /** Enables actor-declared memory usage instructions. */
     memoryUsageMode?: boolean;
+    /** Enables actor-declared skill usage instructions. */
+    skillUsageMode?: boolean;
     /** Optional prompt-resident orientation cache for recurring long context. */
     contextMapText?: string;
+    availableModules?: ReadonlyArray<{
+      namespace: string;
+      selectionCriteria?: string;
+    }>;
+    agentFunctions?: ReadonlyArray<{
+      name: string;
+      description?: string;
+      parameters?: AxFunctionJSONSchema;
+      returns?: AxFunctionJSONSchema;
+      namespace: string;
+      alwaysInclude?: boolean;
+    }>;
     /** Optional override for the `rlm/distiller.md` template source. */
     templateOverride?: string;
     /** Optional per-primitive override map keyed by primitive id. */
@@ -545,6 +589,29 @@ export function axBuildDistillerDefinition(
           .join('\n')
       : '(none)';
 
+  const sortedAgentFunctions = [...(options.agentFunctions ?? [])].sort(
+    (a, b) => {
+      if (a.namespace !== b.namespace) {
+        return a.namespace.localeCompare(b.namespace);
+      }
+      return a.name.localeCompare(b.name);
+    }
+  );
+  const discoveryMode = Boolean(options.discoveryMode);
+  const inlineAgentFunctions = discoveryMode
+    ? sortedAgentFunctions.filter((fn) => fn.alwaysInclude)
+    : sortedAgentFunctions;
+  const availableModules = options.availableModules
+    ? [...options.availableModules].sort((a, b) =>
+        a.namespace.localeCompare(b.namespace)
+      )
+    : [...new Set(sortedAgentFunctions.map((fn) => fn.namespace))]
+        .sort((a, b) => a.localeCompare(b))
+        .map((namespace) => ({
+          namespace,
+          selectionCriteria: undefined as string | undefined,
+        }));
+
   const actorBody = renderPromptTemplate(
     'rlm/distiller.md',
     {
@@ -557,11 +624,53 @@ export function axBuildDistillerDefinition(
         'distiller',
         {
           hasInspectRuntime: Boolean(options.hasInspectRuntime),
+          discoveryMode,
+          skillsMode: Boolean(options.skillsMode),
           memoriesMode: Boolean(options.memoriesMode),
           usageTrackingMode: Boolean(options.usageTrackingMode),
         },
         options.primitiveOverrides
       ),
+      hasExecutorFunctions: inlineAgentFunctions.length > 0,
+      functionsList:
+        inlineAgentFunctions.length > 0
+          ? inlineAgentFunctions
+              .map((fn) =>
+                renderCallableBlock({
+                  qualifiedName: `${fn.namespace}.${fn.name}`,
+                  description: fn.description,
+                  parameters: fn.parameters,
+                  returns: fn.returns,
+                  languageName: runtimeInfo.languageName,
+                  isJavaScriptRuntime: runtimeInfo.isJavaScript,
+                  formatCallable: options.formatCallable,
+                })
+              )
+              .join('\n\n')
+          : '',
+      discoveryMode,
+      hasModules: discoveryMode && availableModules.length > 0,
+      modulesList: availableModules
+        .map((module) =>
+          module.selectionCriteria?.trim()
+            ? `- \`${module.namespace}\` - ${module.selectionCriteria.trim()}`
+            : `- \`${module.namespace}\``
+        )
+        .join('\n'),
+      hasDiscoveredDocs: discoveryMode,
+      hasSkills: Boolean(options.skillsMode),
+      hasSkillsCatalog:
+        Boolean(options.skillsMode) && (options.skillsCatalog?.length ?? 0) > 0,
+      skillsCatalogList: [...(options.skillsCatalog ?? [])]
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map(
+          (skill) =>
+            `- \`${skill.id}\` — ${skill.name}${
+              skill.description ? ` — ${skill.description}` : ''
+            }`
+        )
+        .join('\n'),
+      skillUsageMode: Boolean(options.skillUsageMode),
       runtimeLanguageName: runtimeInfo.languageName,
       runtimeCodeFieldTitle: runtimeInfo.codeFieldTitle,
       runtimeCodeFenceLanguage: runtimeInfo.codeFenceLanguage,

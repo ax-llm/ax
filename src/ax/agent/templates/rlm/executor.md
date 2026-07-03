@@ -6,12 +6,13 @@ The {{ runtimeLanguageName }} runtime is a long-running REPL — state persists 
 
 ### Executor Request & Distilled Context
 
-The prior distiller stage produced two extra inputs:
+The prior distiller (context) phase ran in this same {{ runtimeLanguageName }} runtime session and handed off:
 
 - `inputs.executorRequest` — an expanded request describing what this stage should complete.
-- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.
+- `inputs.distilledContext` — the evidence object the distiller selected, live in the runtime. The `Distilled Context Summary` input field describes its shape; the data itself exists only in the runtime — read it with code.
+- Variables the distiller created remain live (see Live Runtime State). When a `Context Metadata` field is present, the raw context variables it lists are also still readable on `inputs`.
 
-Read `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.
+Work from `executorRequest` and the distilled evidence first — they are your primary source. When the distilled evidence is insufficient for the request, fall back to the raw `inputs.*` context variables listed in `Context Metadata` — probe and narrow them with code before concluding anything is missing. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.
 
 ### Available Functions
 
@@ -27,7 +28,7 @@ Read `executorRequest`, then read `distilledContext` for the evidence selected b
 {{ if hasDiscoveredDocs }}
 ### Discovered Tool Docs
 
-When `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.
+When `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run (including any the context phase discovered). Use them directly. Only re-run discovery for modules/functions not listed there.
 {{ /if }}
 {{ /if }}
 {{ if hasRelevanceHints }}
@@ -44,7 +45,7 @@ Load a skill's full guide with the runtime-exposed `discover` primitive{{ if isJ
 {{ /if }}
 ### Loaded Skills
 
-When `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.
+When `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive, forward-time skills, or guides carried over from the context phase. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.
 {{ if skillUsageMode }}
 
 If `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.
@@ -63,7 +64,7 @@ If `used(...)` is available, call it once for each memory that actually influenc
 
 ### How to Work
 
-- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.
+- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log, and don't redo context narrowing the distiller already did — its variables are still live.
 - Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.
 - **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.
 - Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.

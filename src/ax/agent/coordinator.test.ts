@@ -788,10 +788,13 @@ describe('AxAgent coordinator routing', () => {
 
       expect(result.answer).toBe('42');
       const taskPromptText = taskActorPrompts.join('\n');
-      // Explorer's first arg becomes `executorRequest`, second becomes
-      // `distilledContext` — both should land in the executor's prompt.
+      // The distiller's first arg becomes `executorRequest` in the executor's
+      // prompt. The evidence value itself is runtime-resident: the prompt
+      // carries only its shape summary, never the materialized data.
       expect(taskPromptText).toContain('Deliver the answer');
-      expect(taskPromptText).toContain('the answer is 42');
+      expect(taskPromptText).toContain('Distilled Context Summary');
+      expect(taskPromptText).toContain('inputs.distilledContext');
+      expect(taskPromptText).not.toContain('the answer is 42');
     });
 
     it('does not advertise finalForUser anywhere in the ctx actor prompt', async () => {
@@ -855,11 +858,14 @@ describe('AxAgent coordinator routing', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Stage D: strict knob routing — task-only knobs never reach ctxAgent
+  // Stage D: strict knob routing — the distiller shares the capability
+  // *surface* (function metadata, discovery, skills) for reconnaissance, but
+  // execution authority stays with the executor (distiller callables are
+  // throwing stubs and child agents are not double-registered).
   // -------------------------------------------------------------------------
 
   describe('strict knob routing (Stage D)', () => {
-    it('task-only knobs (functions, functionDiscovery, mode) never reach ctxAgent', () => {
+    it('functions/functionDiscovery reach the distiller as reconnaissance surface only', () => {
       const childAgent = agent('inputText:string -> outputText:string', {
         agentIdentity: { name: 'childAgent', description: 'child' },
         runtime: makeRuntime(),
@@ -874,11 +880,12 @@ describe('AxAgent coordinator routing', () => {
       });
       const coord = a as any;
 
-      // distiller exists (Case A) and must not see task-only knobs
+      // distiller sees the capability surface (catalogs, discovery)…
       expect(coord.distiller).toBeDefined();
-      expect(coord.distiller.agentFunctions ?? []).toEqual([]);
+      expect(coord.distiller.agentFunctions.length).toBeGreaterThan(1);
+      expect(coord.distiller.functionDiscoveryEnabled).toBe(true);
+      // …but never owns child agents (no duplicate optimizer registration).
       expect(coord.distiller.agents ?? []).toEqual([]);
-      expect(coord.distiller.functionDiscoveryEnabled).toBe(false);
 
       // executor must see everything (functions + child agents both inlined)
       expect(coord.executor.agentFunctions.length).toBeGreaterThan(1);

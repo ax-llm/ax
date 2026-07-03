@@ -21,6 +21,13 @@ export const DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS = 1_200;
 export const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
 /** Cap on actor loop iterations before the forward is terminated; keeps a stuck agent from looping forever. */
 export const DEFAULT_RLM_MAX_TURNS = 8;
+/**
+ * Max serialized chars for a `final(task, evidence)` evidence object crossing
+ * the host boundary (executor→responder, or distiller→executor in fallback
+ * mode). Oversized evidence throws in-turn so the actor narrows and retries;
+ * shared-mode in-worker evidence descriptors are exempt.
+ */
+export const DEFAULT_RLM_MAX_EVIDENCE_CHARS = 50_000;
 /** Per-context-field truncation budget when rendering input fields into the prompt. */
 export const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
 /** Turns to wait after a rank-pruning signal before actually pruning — avoids pruning entries still in use. */

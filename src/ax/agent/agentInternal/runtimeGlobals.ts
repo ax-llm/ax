@@ -262,6 +262,21 @@ export function buildRuntimeGlobals(
     moduleLookup.get(meta.module)?.push(qualifiedName);
   };
 
+  // The distiller stage sees the full tool surface (catalogs, discovery docs,
+  // schemas — the extraction guide) but must never execute: its callables are
+  // throwing stubs whose error text redirects the actor to extract inputs and
+  // forward them via final(request, evidence). Execution authority lives
+  // exclusively in the executor stage.
+  const isDistillerStage = s.options?.stageVariant === 'distiller';
+  const buildDistillerToolStub =
+    (qualifiedName: string) =>
+    async (..._args: unknown[]): Promise<never> => {
+      throw new Error(
+        `[POLICY] ${qualifiedName}(...) executes in the executor stage — this context stage cannot run tools. ` +
+          'Extract the exact inputs it will need (ids, paths, records) and forward them in final(request, evidence).'
+      );
+    };
+
   // Agent functions under namespace.* (e.g. utils.myFn, custom.otherFn).
   // Agent-derived entries carry `_kind: 'internal'` so that `onFunctionCall`
   // observers can still distinguish them from user-registered tools; everything
@@ -272,16 +287,18 @@ export function buildRuntimeGlobals(
       globals[ns] = {};
     }
     const qualifiedName = `${ns}.${agentFn.name}`;
-    (globals[ns] as Record<string, unknown>)[agentFn.name] = wrapFunction(
-      agentFn,
-      abortSignal,
-      ai,
-      protocolForTrigger,
-      qualifiedName,
-      functionCallRecorder,
-      agentFn._kind ?? 'external',
-      onFunctionCall
-    );
+    (globals[ns] as Record<string, unknown>)[agentFn.name] = isDistillerStage
+      ? buildDistillerToolStub(qualifiedName)
+      : wrapFunction(
+          agentFn,
+          abortSignal,
+          ai,
+          protocolForTrigger,
+          qualifiedName,
+          functionCallRecorder,
+          agentFn._kind ?? 'external',
+          onFunctionCall
+        );
     if (agentFn._alwaysInclude !== true) {
       registerCallable(
         {

@@ -202,12 +202,12 @@ const myAgent = agent('task:string -> answer:string', {
 
 Use `onSkillsSearch` when the agent needs to load skill guides such as usage instructions, runbooks, or domain conventions into the executor's system prompt on demand. The actor decides which skills to fetch and when, so you do not pre-render every skill into every prompt.
 
-When `onSkillsSearch` is set, the executor stage gains:
+When `onSkillsSearch` is set, the distiller and executor stages gain:
 
 1. A "Loaded Skills" section in the system prompt that renders matched skill bodies with stable `ID:` values sorted by `id`.
 2. A `discover({ skills })` path the actor `await`s to load more skills. Loaded entries appear in the next turn's prompt. `discover(...)` returns nothing.
 
-The distiller and responder do not see skills. Only the executor.
+Skills the distiller loads carry over to the executor automatically. The responder does not see skills.
 
 ### Enabling
 
@@ -426,7 +426,7 @@ Fetch this for full working code:
 
 - Do not assign the result of `await recall(...)` or `await discover(...)`; both return `void`.
 - Do not call `recall()` from the responder stage.
-- Do not call `discover({ skills })` from the distiller or responder stages.
+- Do not call `discover({ skills })` from the responder stage.
 - Do not loop `recall()` calls or wrap them in `Promise.all(...)`.
 - Do not loop `discover()` calls or wrap them in `Promise.all(...)`.
 - Do not assume child agents inherit `onMemoriesSearch` or `onSkillsSearch`.

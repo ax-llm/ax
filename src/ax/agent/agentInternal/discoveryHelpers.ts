@@ -50,6 +50,24 @@ export function restoreDiscoveryPromptState(
   return restored;
 }
 
+/**
+ * Merge one stage's discovered docs into another's. Used at the pipeline's
+ * phase boundary so tool docs the distiller loaded arrive pre-populated in
+ * the executor (mirroring how recalled memories already carry over), keeping
+ * the "only re-run discovery for modules not listed" dedupe honest.
+ */
+export function mergeDiscoveryPromptStateInto(
+  target: AxMutableDiscoveryPromptState,
+  source: Readonly<AxMutableDiscoveryPromptState>
+): void {
+  for (const [module, text] of source.modules) {
+    target.modules.set(module, text);
+  }
+  for (const [qualifiedName, text] of source.functions) {
+    target.functions.set(qualifiedName, text);
+  }
+}
+
 export function serializeDiscoveryPromptState(
   state: Readonly<AxMutableDiscoveryPromptState>
 ): AxAgentDiscoveryPromptState | undefined {

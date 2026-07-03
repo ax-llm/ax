@@ -684,7 +684,10 @@ export class ActorAgentRLM<
         typeof query === 'string' && query.trim()
           ? query
           : Object.entries(raw)
-              .filter(([key]) => key !== 'distilledContext')
+              .filter(
+                ([key]) =>
+                  key !== 'distilledContextSummary' && key !== 'contextMetadata'
+              )
               .map(
                 ([key, value]) =>
                   `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`

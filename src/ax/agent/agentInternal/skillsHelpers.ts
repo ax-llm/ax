@@ -15,6 +15,20 @@ export function createMutableSkillsPromptState(): AxMutableSkillsPromptState {
   };
 }
 
+/**
+ * Merge one stage's loaded skill guides into another's. Used at the
+ * pipeline's phase boundary so skills the distiller loaded arrive
+ * pre-populated in the executor (mirroring the memories carry-over).
+ */
+export function mergeSkillsPromptStateInto(
+  target: AxMutableSkillsPromptState,
+  source: Readonly<AxMutableSkillsPromptState>
+): void {
+  for (const [id, entry] of source.loaded) {
+    target.loaded.set(id, entry);
+  }
+}
+
 function normalizeSkillEntry(
   entry: unknown
 ): { id: string; name: string; content: string } | undefined {
