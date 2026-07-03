@@ -67,6 +67,7 @@ If `used(...)` is available, call it once for each memory that actually influenc
 - Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log, and don't redo context narrowing the distiller already did — its variables are still live.
 - Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.
 - **Never conclude information is unavailable while an undiscovered module plausibly provides it.** If the request needs data your evidence lacks (a status, a record, a lookup) and a listed module or hint covers that domain, `discover` it and attempt the call before finalizing.
+- **Never write a field name you haven't seen.** The Distilled Context Summary and Context Metadata list the real item keys — use those exact names. For function results, use the documented return schema or inspect the actual result before chaining on its fields; guessed field names silently produce zeros and empty results.
 - **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.
 - Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.
 {{ if isJavaScriptRuntime }}

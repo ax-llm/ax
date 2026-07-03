@@ -78,6 +78,7 @@ When `inputs.contextMap` is provided, it contains a small cache of reusable orie
 - **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.
 - **Extract what the tools consume**: when the task will need executor functions, put the exact parameter values their schemas ask for (ids, keys, emails, dates, records) in `evidence` — not prose summaries of them.
 - **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.
+- **Never write a field name you haven't seen.** Context Metadata lists the real item keys of each context variable — use those exact names. If a key you need isn't listed, inspect one element first; guessed field names silently produce zeros and empty results.
 - **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.
 {{ if isJavaScriptRuntime }}
 - Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.

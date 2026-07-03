@@ -185,7 +185,10 @@ describe('shared runtime session pipeline', () => {
     const executorPrompt = capture.executorPrompts.join('\n');
     expect(executorPrompt).toContain('Distilled Context Summary');
     expect(executorPrompt).toContain('inputs.distilledContext');
+    // Shape hint: real field names so the executor never guesses them —
+    // but still no values.
     expect(executorPrompt).toContain('`matched`');
+    expect(executorPrompt).toContain('item keys: id');
     expect(executorPrompt).not.toContain('alpha-secret');
     expect(executorPrompt).not.toContain('a1');
 

@@ -927,6 +927,32 @@ export function normalizeContextFields(
   return { contextFieldNames, promptConfigByField };
 }
 
+const MAX_SHAPE_KEYS = 12;
+
+/**
+ * Shape hint for a runtime-only value: field names of the first element of an
+ * array-of-objects, or the top-level keys of a plain object. Actors write
+ * code against these values without seeing them — surfacing the real field
+ * names prevents blind guessing (e.g. `txn.amount` vs `txn.amountCents`).
+ */
+export function describeValueShape(value: unknown): string | undefined {
+  const keysOf = (obj: object): string =>
+    Object.keys(obj).slice(0, MAX_SHAPE_KEYS).join(', ');
+  if (Array.isArray(value)) {
+    const first = value[0];
+    if (first && typeof first === 'object' && !Array.isArray(first)) {
+      const keys = keysOf(first);
+      return keys ? `item keys: ${keys}` : undefined;
+    }
+    return undefined;
+  }
+  if (value && typeof value === 'object') {
+    const keys = keysOf(value);
+    return keys ? `keys: ${keys}` : undefined;
+  }
+  return undefined;
+}
+
 export function buildRLMVariablesInfo(
   contextValues: Record<string, unknown>,
   options?: {
@@ -954,8 +980,9 @@ export function buildRLMVariablesInfo(
             promptConfig,
             options?.inlinedFields?.has(key) === true
           );
+    const shape = describeValueShape(value);
     lines.push(
-      `- ${key}: type=${valueType}, size=${size}, prompt=${promptMode}`
+      `- ${key}: type=${valueType}, size=${size}, prompt=${promptMode}${shape ? `, ${shape}` : ''}`
     );
   }
   return lines.join('\n');

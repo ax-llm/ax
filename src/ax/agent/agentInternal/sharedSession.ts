@@ -44,6 +44,10 @@ export type AxEvidenceDescriptor = {
     type: string;
     size: number;
     length?: number;
+    /** Field names of the first element (arrays of objects). */
+    itemKeys?: string[];
+    /** Top-level keys (plain-object values). */
+    keys?: string[];
   }[];
 };
 
@@ -82,6 +86,32 @@ export function measureEvidenceChars(value: unknown): number {
   return safeStringifyLength(value);
 }
 
+const MAX_DESCRIPTOR_KEYS = 12;
+
+/**
+ * Field names the executor will write code against. Actors never see the
+ * evidence values (by-reference transport), so without this they guess field
+ * names — the observed failure mode (`txn.amount` vs `txn.amountCents`).
+ */
+function evidenceShapeKeys(value: unknown): {
+  itemKeys?: string[];
+  keys?: string[];
+} {
+  if (Array.isArray(value)) {
+    const first = value[0];
+    if (first && typeof first === 'object' && !Array.isArray(first)) {
+      const itemKeys = Object.keys(first).slice(0, MAX_DESCRIPTOR_KEYS);
+      return itemKeys.length ? { itemKeys } : {};
+    }
+    return {};
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).slice(0, MAX_DESCRIPTOR_KEYS);
+    return keys.length ? { keys } : {};
+  }
+  return {};
+}
+
 /** Host-side descriptor builder (fallback mode, where evidence crosses). */
 export function buildEvidenceDescriptor(
   evidence: Readonly<Record<string, unknown>>
@@ -94,6 +124,7 @@ export function buildEvidenceDescriptor(
       type: describeEvidenceValueType(value),
       size,
       ...(Array.isArray(value) ? { length: value.length } : {}),
+      ...evidenceShapeKeys(value),
     };
   });
   let totalChars = 0;
@@ -118,7 +149,12 @@ export function renderEvidenceDescriptor(
       entry.size >= 0 ? `~${entry.size} chars` : 'unserializable';
     const lengthText =
       typeof entry.length === 'number' ? `, ${entry.length} items` : '';
-    return `- \`${entry.key}\` (${entry.type}${lengthText}, ${sizeText})`;
+    const shapeText = entry.itemKeys?.length
+      ? `; item keys: ${entry.itemKeys.join(', ')}`
+      : entry.keys?.length
+        ? `; keys: ${entry.keys.join(', ')}`
+        : '';
+    return `- \`${entry.key}\` (${entry.type}${lengthText}, ${sizeText}${shapeText})`;
   });
   return [
     `Evidence keys available in the runtime as \`inputs.${AX_SHARED_EVIDENCE_GLOBAL}\` (~${descriptor.totalChars} chars total):`,
@@ -143,10 +179,28 @@ function buildDistillerFinalWrapperCode(): string {
     const sizeOf = (v) => {
       try { const s = JSON.stringify(v); return typeof s === 'string' ? s.length : 0; } catch { return -1; }
     };
+    const shapeKeys = (v) => {
+      try {
+        if (Array.isArray(v)) {
+          const first = v[0];
+          if (first && typeof first === 'object' && !Array.isArray(first)) {
+            return { itemKeys: Object.keys(first).slice(0, 12) };
+          }
+          return {};
+        }
+        if (v && typeof v === 'object') {
+          return { keys: Object.keys(v).slice(0, 12) };
+        }
+      } catch {}
+      return {};
+    };
     const entries = Object.keys(value).map((key) => {
       const v = value[key];
       const entry = { key, type: typeOf(v), size: sizeOf(v) };
       if (Array.isArray(v)) { entry.length = v.length; }
+      const shape = shapeKeys(v);
+      if (shape.itemKeys && shape.itemKeys.length) { entry.itemKeys = shape.itemKeys; }
+      if (shape.keys && shape.keys.length) { entry.keys = shape.keys; }
       return entry;
     });
     let totalChars = 0;
