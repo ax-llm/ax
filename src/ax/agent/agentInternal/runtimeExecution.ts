@@ -23,6 +23,7 @@ import {
   measureEvidenceChars,
 } from './sharedSession.js';
 import type { AxAgentUsedSkill } from './skillsTypes.js';
+import { type AxAgentStagePolicy, resolveStagePolicy } from './stagePolicy.js';
 import type {
   AxAgentFunctionCallRecorder,
   AxAgentGuidanceState,
@@ -94,8 +95,8 @@ export function createRuntimeExecutionContext(
     | AxAgentSharedRuntimeSession
     | undefined;
   const sharedActive = Boolean(sharedSession?.isShared);
-  const stageVariant: 'distiller' | 'executor' =
-    s.options?.stageVariant === 'distiller' ? 'distiller' : 'executor';
+  const stagePolicy: AxAgentStagePolicy =
+    s.stagePolicy ?? resolveStagePolicy(s.options?.stageVariant);
   const maxSubAgentCalls = rlm.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
   const maxBatchedLlmQueryConcurrency = Math.max(
     1,
@@ -180,7 +181,7 @@ export function createRuntimeExecutionContext(
   const notes = buildRunNoteBindings({
     s,
     inputState,
-    stageVariant,
+    stageVariant: stagePolicy.variant,
     onUsedMemories,
     onUsedSkills,
   });
@@ -214,7 +215,7 @@ export function createRuntimeExecutionContext(
   const fallbackEvidence =
     sharedSession &&
     !sharedSession.isShared &&
-    stageVariant === 'executor' &&
+    stagePolicy.receivesFallbackEvidence &&
     sharedSession.fallbackEvidence !== undefined
       ? sharedSession.fallbackEvidence
       : undefined;
@@ -272,7 +273,7 @@ export function createRuntimeExecutionContext(
     ...new Set([
       ...reservedTopLevelNames,
       ...runtimeAliasKeys,
-      ...(sharedActive && stageVariant === 'executor'
+      ...(sharedActive && stagePolicy.inheritsPhase1ReservedNames
         ? (sharedSession?.phase1ReservedNames ?? [])
         : []),
     ]),
@@ -290,7 +291,7 @@ export function createRuntimeExecutionContext(
   const lifecycle = buildSessionLifecycle({
     s,
     runtime,
-    stageVariant,
+    stagePolicy,
     sharedSession,
     sharedActive,
     effectiveAbortSignal,

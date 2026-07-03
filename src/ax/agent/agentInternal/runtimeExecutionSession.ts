@@ -27,6 +27,7 @@ import {
   restoreSkillsPromptState,
   serializeSkillsPromptState,
 } from './skillsHelpers.js';
+import type { AxAgentStagePolicy } from './stagePolicy.js';
 import {
   AxAgentClarificationError,
   type AxAgentGuidanceState,
@@ -41,7 +42,7 @@ export interface SessionLifecycleDeps {
   /** The owning `ActorAgentRLM` internals blob. */
   s: any;
   runtime: AxCodeRuntime;
-  stageVariant: 'distiller' | 'executor';
+  stagePolicy: AxAgentStagePolicy;
   sharedSession: AxAgentSharedRuntimeSession | undefined;
   sharedActive: boolean;
   effectiveAbortSignal?: AbortSignal;
@@ -96,7 +97,7 @@ export function buildSessionLifecycle(
   const {
     s,
     runtime,
-    stageVariant,
+    stagePolicy,
     sharedSession,
     sharedActive,
     effectiveAbortSignal,
@@ -193,7 +194,7 @@ export function buildSessionLifecycle(
   if (
     sharedActive &&
     sharedSession &&
-    stageVariant === 'executor' &&
+    !stagePolicy.createsSharedSession &&
     sharedSession.session
   ) {
     session = sharedSession.session;
@@ -211,7 +212,7 @@ export function buildSessionLifecycle(
   const prepareSharedSession =
     sharedActive && sharedSession
       ? async (): Promise<void> => {
-          if (stageVariant === 'distiller') {
+          if (stagePolicy.createsSharedSession) {
             await sharedSession.adoptDistillerSession(session, {
               reservedNames: inspectReservedNames,
               signal: effectiveAbortSignal,

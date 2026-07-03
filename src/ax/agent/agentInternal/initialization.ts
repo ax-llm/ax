@@ -21,6 +21,7 @@ import {
   createMutableSkillsPromptState,
   ingestSkillResults,
 } from './skillsHelpers.js';
+import { resolveStagePolicy } from './stagePolicy.js';
 
 export function initializeAgentInternal(
   self: any,
@@ -29,6 +30,10 @@ export function initializeAgentInternal(
 ): void {
   const s = self as any;
   const { ai, judgeAI, agentIdentity, signature } = init;
+
+  // Resolve the stage's behavioral policy once; every stage-conditional in
+  // the agent internals reads named capabilities from this object.
+  s.stagePolicy = resolveStagePolicy(options.stageVariant);
 
   const {
     debug,
@@ -228,11 +233,10 @@ export function initializeAgentInternal(
   s.onContextEvent = onContextEvent;
 
   // Register child agents (those that arrived via `options.functions`) as
-  // DSPy sub-programs so optimizer reach-through is preserved. The distiller
-  // stage receives the same function set for catalogs/discovery but must not
-  // duplicate the executor's optimizer ownership of child agents (and its
-  // callables are throwing stubs anyway).
-  if (options.stageVariant !== 'distiller') {
+  // DSPy sub-programs so optimizer reach-through is preserved. Stages that
+  // don't own child agents (the distiller) still receive the function set
+  // for catalogs/discovery but must not duplicate optimizer ownership.
+  if (s.stagePolicy.ownsChildAgents) {
     for (const agent of (s.agents ?? []) as readonly {
       getFunction: () => { name: string };
     }[]) {

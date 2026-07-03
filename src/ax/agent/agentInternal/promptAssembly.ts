@@ -3,6 +3,7 @@ import {
   axBuildExecutorDefinition,
   getRuntimePrimitiveOverrides,
 } from '../rlm.js';
+import { type AxAgentStagePolicy, resolveStagePolicy } from './stagePolicy.js';
 
 export function renderActorDefinition(self: any): string {
   const s = self as any;
@@ -18,11 +19,9 @@ export function renderActorDefinition(self: any): string {
       s._primitiveOverrides
     ),
   };
-  const variant = s.options?.stageVariant as
-    | 'distiller'
-    | 'executor'
-    | undefined;
-  if (variant === 'distiller') {
+  const stagePolicy: AxAgentStagePolicy =
+    s.stagePolicy ?? resolveStagePolicy(s.options?.stageVariant);
+  if (stagePolicy.templateId === 'rlm/distiller.md') {
     return axBuildDistillerDefinition(
       s.actorDefinitionBaseDescription,
       s.actorDefinitionContextFields,

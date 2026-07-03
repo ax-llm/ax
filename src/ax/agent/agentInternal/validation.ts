@@ -83,7 +83,7 @@ export function validateConfiguredSignature(
   // signature (shared-session handoff: it describes the raw context variables
   // still live in the runtime). User signatures are still guarded — they are
   // validated through the distiller stage, which carries every user input.
-  if (s.options?.stageVariant === 'executor') {
+  if (s.stagePolicy?.allowsContextMetadataInput) {
     reservedInputFieldNames.delete('contextMetadata');
   }
   const reservedOutputFieldNames = new Set([

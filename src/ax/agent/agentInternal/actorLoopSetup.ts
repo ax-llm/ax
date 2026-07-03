@@ -156,7 +156,7 @@ export function buildActorLoopSetup(
       ...inputState.getActorInlineContextValues(),
       actionLog,
     };
-    if (s.options?.stageVariant === 'distiller' && s.contextMapText) {
+    if (s.stagePolicy?.seesContextMap && s.contextMapText) {
       values.contextMap = s.contextMapText;
     }
     // Both stages surface discovery docs and loaded skills — the distiller
@@ -172,7 +172,7 @@ export function buildActorLoopSetup(
     if (loadedSkills) {
       values.loadedSkills = loadedSkills;
     }
-    if (s.options?.stageVariant !== 'distiller' && s.relevanceHintsEnabled) {
+    if (s.stagePolicy?.seesRelevanceHints && s.relevanceHintsEnabled) {
       const relevanceHints = renderRelevanceHintsMarkdown(
         s._relevanceHintsForTurn ?? {}
       );

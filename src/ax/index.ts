@@ -116,6 +116,10 @@ import type {
   AxAgentUsedSkillsCallback,
 } from './agent/agentInternal/skillsTypes.js';
 import type {
+  AxAgentStagePolicy,
+  AxAgentStageVariant,
+} from './agent/agentInternal/stagePolicy.js';
+import type {
   AxAgentContextEvent,
   AxAgentContextPressure,
   AxAgentContextStage,
@@ -1490,6 +1494,8 @@ export type { AxAgentRuntimeInputState };
 export type { AxAgentSkillResult };
 export type { AxAgentSkillsPromptState };
 export type { AxAgentSkillsSearchFn };
+export type { AxAgentStagePolicy };
+export type { AxAgentStageVariant };
 export type { AxAgentState };
 export type { AxAgentStateActionLogEntry };
 export type { AxAgentStateCheckpointState };

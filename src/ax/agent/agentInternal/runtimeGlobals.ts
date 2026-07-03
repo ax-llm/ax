@@ -262,13 +262,12 @@ export function buildRuntimeGlobals(
     moduleLookup.get(meta.module)?.push(qualifiedName);
   };
 
-  // The distiller stage sees the full tool surface (catalogs, discovery docs,
-  // schemas — the extraction guide) but must never execute: its callables are
-  // throwing stubs whose error text redirects the actor to extract inputs and
-  // forward them via final(request, evidence). Execution authority lives
-  // exclusively in the executor stage.
-  const isDistillerStage = s.options?.stageVariant === 'distiller';
-  const buildDistillerToolStub =
+  // Stages that don't execute tools (the distiller) see the full tool
+  // surface (catalogs, discovery docs, schemas — the extraction guide) but
+  // their callables are throwing stubs whose error text redirects the actor
+  // to extract inputs and forward them via final(request, evidence).
+  const executesTools = s.stagePolicy?.executesTools !== false;
+  const buildStageToolStub =
     (qualifiedName: string) =>
     async (..._args: unknown[]): Promise<never> => {
       throw new Error(
@@ -287,9 +286,8 @@ export function buildRuntimeGlobals(
       globals[ns] = {};
     }
     const qualifiedName = `${ns}.${agentFn.name}`;
-    (globals[ns] as Record<string, unknown>)[agentFn.name] = isDistillerStage
-      ? buildDistillerToolStub(qualifiedName)
-      : wrapFunction(
+    (globals[ns] as Record<string, unknown>)[agentFn.name] = executesTools
+      ? wrapFunction(
           agentFn,
           abortSignal,
           ai,
@@ -298,7 +296,8 @@ export function buildRuntimeGlobals(
           functionCallRecorder,
           agentFn._kind ?? 'external',
           onFunctionCall
-        );
+        )
+      : buildStageToolStub(qualifiedName);
     if (agentFn._alwaysInclude !== true) {
       registerCallable(
         {

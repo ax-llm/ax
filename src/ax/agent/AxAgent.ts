@@ -82,6 +82,7 @@ import {
   wrapFunction,
 } from './agentInternal/runtimeGlobals.js';
 import { buildSplitPrograms } from './agentInternal/signatureBuilders.js';
+import type { AxAgentStagePolicy } from './agentInternal/stagePolicy.js';
 import type {
   AxAgentDemos,
   AxAgentEvalFunctionCall,
@@ -197,6 +198,8 @@ export class ActorAgentRLM<
 
   private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
+  /** Stage behavioral policy, resolved once at init — see stagePolicy.ts. */
+  private stagePolicy!: AxAgentStagePolicy;
   public state: AxAgentState | undefined;
   public stateError: string | undefined;
   private runtimeBootstrapContext: unknown = undefined;
@@ -218,20 +221,11 @@ export class ActorAgentRLM<
 
   /** Returns the actor template id this agent's variant renders. */
   public _actorTemplateId(): TemplateId {
-    const variant = (this as any).options?.stageVariant as
-      | 'distiller'
-      | 'executor'
-      | undefined;
-    if (variant === 'distiller') return 'rlm/distiller.md';
-    return 'rlm/executor.md';
+    return this.stagePolicy.templateId;
   }
 
   private _actorPrimitiveStage(): AxRuntimePrimitiveStage {
-    const variant = (this as any).options?.stageVariant as
-      | 'distiller'
-      | 'executor'
-      | undefined;
-    return variant === 'distiller' ? 'distiller' : 'executor';
+    return this.stagePolicy.variant;
   }
 
   private _primitiveFlags(): Record<string, boolean | undefined> {
@@ -622,11 +616,7 @@ export class ActorAgentRLM<
   }> {
     const ai = this.ai ?? parentAi;
     const actorValues = this._withDefaultExecutorRequest(values);
-    const stageVariant = (this as any).options?.stageVariant as
-      | 'distiller'
-      | 'executor'
-      | undefined;
-    const canTrackSkills = stageVariant !== 'distiller';
+    const canTrackSkills = this.stagePolicy.tracksSkillUsage;
     const previousMemoryUsageTracking = (this as any)
       .memoryUsageTrackingEnabled;
     const previousSkillUsageTracking = (this as any).skillUsageTrackingEnabled;
@@ -674,8 +664,7 @@ export class ActorAgentRLM<
   }
 
   private _withDefaultExecutorRequest(values: IN): IN {
-    const variant = (this as any).options?.stageVariant;
-    if (variant !== 'executor') return values;
+    if (!this.stagePolicy.synthesizesDefaultExecutorRequest) return values;
 
     const addDefault = (raw: Record<string, unknown>) => {
       if (raw.executorRequest !== undefined) return raw;

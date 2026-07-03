@@ -11,6 +11,7 @@ import {
   getRuntimePrimitiveOverrides,
 } from '../rlm.js';
 import { compareCanonicalDiscoveryStrings } from '../runtimeDiscovery.js';
+import { type AxAgentStagePolicy, resolveStagePolicy } from './stagePolicy.js';
 import type {
   AxLlmQueryPromptMode,
   AxStageDefinitionBuildOptions,
@@ -72,12 +73,8 @@ export function buildSplitPrograms(self: any): void {
   const runtimeCodeFenceLanguage = s.runtimeCodeFenceLanguage ?? 'js';
   const isJavaScriptRuntime = s.isJavaScriptRuntime !== false;
 
-  const variant = s.options?.stageVariant as
-    | 'distiller'
-    | 'executor'
-    | undefined;
-  const isDistillerStage = variant === 'distiller';
-  const isExecutorStage = variant !== 'distiller';
+  const stagePolicy: AxAgentStagePolicy =
+    s.stagePolicy ?? resolveStagePolicy(s.options?.stageVariant);
 
   // --- Actor signature: cached working set + dynamic loop tail -> runtime code field ---
   let actorSigBuilder = f()
@@ -94,7 +91,7 @@ export function buildSplitPrograms(self: any): void {
     );
   }
 
-  if (isDistillerStage && s.contextMapText) {
+  if (stagePolicy.seesContextMap && s.contextMapText) {
     actorSigBuilder = actorSigBuilder.input(
       'contextMap',
       f
@@ -164,7 +161,7 @@ export function buildSplitPrograms(self: any): void {
   // the cached prefix: add it (no `.cache()`) to the dynamic tail, after the
   // `summarizedActorLog` cache breakpoint. The full module/skill/memory lists
   // in the cached prompt regions are unaffected.
-  if (isExecutorStage && s.relevanceHintsEnabled) {
+  if (stagePolicy.seesRelevanceHints && s.relevanceHintsEnabled) {
     actorSigBuilder = actorSigBuilder.input(
       'relevanceHints',
       f
@@ -289,7 +286,7 @@ export function buildSplitPrograms(self: any): void {
   };
 
   let actorDef: string;
-  if (variant === 'distiller') {
+  if (stagePolicy.templateId === 'rlm/distiller.md') {
     actorDef = axBuildDistillerDefinition(
       actorDefinitionBaseDescription,
       contextFieldMeta,

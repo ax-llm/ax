@@ -38,6 +38,7 @@ import {
   mergeUsedSkillResults,
   rankCatalogSkills,
 } from './skillsHelpers.js';
+import { resolveStagePolicy } from './stagePolicy.js';
 import type {
   AxAgentEvalFunctionCall,
   AxAgentExecutorResultPayload,
@@ -81,8 +82,8 @@ export async function runActorLoop<IN extends AxGenIn>(
   inputState.recomputeTurnInputs(false);
 
   const contextStage = normalizeContextStage(s.options?.stageVariant);
-  const stageVariant = s.options?.stageVariant;
-  if (stageVariant !== 'distiller') {
+  const stagePolicy = resolveStagePolicy(s.options?.stageVariant);
+  if (stagePolicy.ingestsForwardSkills) {
     const forwardSkills = (
       options as { skills?: readonly unknown[] } | undefined
     )?.skills;
@@ -95,7 +96,7 @@ export async function runActorLoop<IN extends AxGenIn>(
   // across turns). The shortlists ride a dynamic, non-cached prompt field, so
   // they never affect the prompt cache.
   s._relevanceHintsForTurn = {};
-  if (stageVariant !== 'distiller' && s.relevanceHintsEnabled) {
+  if (stagePolicy.seesRelevanceHints && s.relevanceHintsEnabled) {
     // Rank against the user's task signal: the original non-context inputs plus
     // the distiller's expanded request. Exclude distilledContext (bulky
     // evidence) and memories (already-loaded facts) so they don't dilute it.
@@ -431,11 +432,11 @@ export async function runActorLoop<IN extends AxGenIn>(
       const stateSummaryEnabled =
         runtimeContext.effectiveContextConfig.stateSummary.enabled;
       if (
-        stageVariant === 'distiller' &&
+        stagePolicy.createsSharedSession &&
         (sharedSession.restoredEntries?.length ?? 0) > 0
       ) {
-        // Cross-run variables were patched into the shared session at
-        // adoption; surface them exactly like a per-stage state restore.
+        // Phase 1: cross-run variables were patched into the shared session
+        // at adoption; surface them exactly like a per-stage state restore.
         mutableState.restoreNotice = buildRuntimeRestoreNotice(
           sharedSession.restoredEntries ?? [],
           { includeLiveRuntimeState: stateSummaryEnabled }
@@ -445,9 +446,10 @@ export async function runActorLoop<IN extends AxGenIn>(
             await runtimeContext.captureRuntimeStateSummary();
         }
       }
-      if (stageVariant !== 'distiller') {
-        // A cross-run restore notice (from this stage's own state) is richer
-        // than the generic phase-continuation notice — keep it when present.
+      if (!stagePolicy.createsSharedSession) {
+        // Phase 2 inherits the session. A cross-run restore notice (from this
+        // stage's own state) is richer than the generic phase-continuation
+        // notice — keep it when present.
         if (mutableState.restoreNotice === undefined) {
           mutableState.restoreNotice =
             'Runtime session continued from the context (distiller) phase — its variables are already live; see Live Runtime State and `inputs.distilledContext`.';
@@ -481,10 +483,10 @@ export async function runActorLoop<IN extends AxGenIn>(
 
     try {
       syncDiscoveredActorModelNamespaces();
-      // The shared-mode distiller's variables live on in the session; only
-      // the executor phase exports bindings (the canonical cross-run state).
+      // The shared-mode phase-1 stage's variables live on in the session;
+      // only the stage owning canonical cross-run state exports bindings.
       const nextState = await runtimeContext.exportRuntimeState(
-        sharedActive && stageVariant === 'distiller'
+        sharedActive && !stagePolicy.exportsSharedBindings
           ? { includeBindings: false }
           : undefined
       );
