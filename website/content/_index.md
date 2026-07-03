@@ -139,6 +139,7 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
   <p class="home-section-label">The ideas behind it</p>
   <h2 id="research">Built on DSPy, GEPA, ACE, RLM, and PEEK.</h2>
   <p>Ax is more than another LLM framework — it is where a serious research lineage ships. The typed signatures, validation with retry feedback, reflective optimization, runtime-backed agents, and context maps you just saw all come from these papers.</p>
+  <p class="home-research-proof">Runtime-backed agents stay grounded: in the <a href="https://github.com/ax-llm/ax/blob/main/src/examples/agent-grounded-audit.ts">grounded-audit example</a>, a small Flash model reproduces the exact answer — total, count, and the full flagged-transaction list — over a 250-row ledger it never sees in its prompt.</p>
 </div>
 <div class="home-research-list home-research-compact">
   <article class="home-paper-item">

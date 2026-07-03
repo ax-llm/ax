@@ -24,14 +24,16 @@ Each `forward()` call runs three stages:
 ```mermaid
 flowchart LR
   A[Original typed inputs] --> B[Distiller]
-  B -->|executorRequest + distilledContext| C[Executor]
+  B -->|executorRequest + evidence by reference| C[Executor]
   C -->|tool evidence, runtime state, final envelope| D[Responder]
   D --> E[Typed output]
 ```
 
-- **Distiller** normalizes the task and compresses large context into the exact executor request.
-- **Executor** owns runtime state, tool use, discovery, memory recall, child-agent calls, and final/clarification envelopes.
+- **Distiller** narrows large context down to the exact evidence the executor needs. It sees the tool and skill catalogs so it extracts the right inputs, but it cannot call tools — reconnaissance, not execution.
+- **Executor** runs the work: tool use, discovery, memory recall, child-agent calls, and final/clarification envelopes.
 - **Responder** turns the executor evidence into the declared output signature.
+
+The two runtime stages share **one** session. The distiller's evidence stays live in that session, and the executor reads it by reference (`inputs.distilledContext`) while its prompt carries only a compact shape summary — so the executor prompt does not grow with the size of the data. The runnable [`agent-grounded-audit.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/agent-grounded-audit.ts) example shows a small model auditing a 250-row ledger it never sees in its prompt and returning the exact, verifiable answer.
 
 This is why Ax agents work well with smaller models. A smaller model can take one observable step, inspect a result, reuse live variables, and continue. It does not need to keep an entire long transcript in its immediate prompt.
 

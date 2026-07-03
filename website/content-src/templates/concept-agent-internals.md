@@ -9,18 +9,29 @@ Every `forward()` runs three programs in sequence:
 ```mermaid
 flowchart LR
   A[Original typed inputs] --> B[Distiller]
-  B -->|executorRequest + distilledContext| C[Executor]
+  B -->|executorRequest + evidence by reference| C[Executor]
   C -->|evidence + runtime state + final envelope| D[Responder]
   D --> E[Typed output]
 ```
 
 {{< svg "rlm-loop" "RLM executor loop" >}}
 
-- **Distiller** normalizes the task and compresses large inputs into the exact request the executor needs.
-- **Executor** owns the runtime session: tool calls, discovery, memory recall, child agents, and the final envelope.
+- **Distiller** normalizes the task and narrows large inputs down to the exact evidence the executor needs. It sees the executor's tool and skill catalogs (so it extracts the inputs those tools will consume) but cannot call them — reconnaissance, not execution.
+- **Executor** runs the work: tool calls, discovery, memory recall, child agents, and the final envelope.
 - **Responder** turns the executor's evidence into the declared output signature.
 
-The handoff between stages is deliberately narrow. The completion primitive is `final(task, context?)` — exactly two arguments. Gathered evidence rides inside that optional `context` object (surfaced downstream as `distilledContext`); there is no separate side channel. Keeping the envelope to two positional arguments is what lets the same protocol run identically across every Ax language backend.
+The handoff between stages is deliberately narrow. The completion primitive is `final(task, context?)` — exactly two arguments. Gathered evidence rides inside that optional `context` object; there is no separate side channel. Keeping the envelope to two positional arguments is what lets the same protocol run identically across every Ax language backend.
+
+## The Shared Runtime Session
+
+The distiller and executor run in **one runtime session**, not two. This is the difference between handing off a photocopy and handing off a shared drive: the distiller's `final(request, evidence)` leaves the evidence *in the session* and forwards only a compact shape summary. The executor reads the real values from `inputs.distilledContext` — they are already live — while its prompt carries just the summary (top-level keys, types, sizes, and the field names of array items).
+
+Two consequences fall out of this:
+
+- **Executor prompt size is decoupled from evidence size.** A 5-row slice and a 5,000-row slice produce the same small summary in the prompt; the data itself never inflates the context window. Whatever the distiller discovered (tool docs, loaded skills, recalled memories) carries forward too, so the executor starts warm instead of re-discovering.
+- **The acting stage never has bulk untrusted context pasted into its prompt.** The stage that reads the raw long context has no tools; the stage with tools reads distilled values by reference. Untrusted content still reaches the model only through the one labeled, size-bounded action-log channel — the same guarantee, now structural.
+
+Because the executor writes code against values it cannot see, the summary lists the real **field names** of the evidence (e.g. `item keys: id, vendorId, amountCents`). Without that, models guess field names — `amount` instead of `amountCents` — and silently produce zeros; with it they write against the actual shape. The same shape hints appear in `Context Metadata` for the raw context fields, which remain readable in the executor as a fallback when the distilled evidence is insufficient.
 
 ## The Context Objects
 
@@ -65,6 +76,17 @@ Presets tune how aggressive this is:
 | `lean` | Very long runs with strong models and tight prompt pressure |
 
 All of this is observable. The `onContextEvent` callback emits a `budget_check` every turn (with the live mutable prompt size and pressure level) plus `action_compacted`, `checkpoint_created`, and `tombstone_created` events. Aggregating that stream gives the headline numbers worth tracking: peak prompt size, compaction ratio, and cumulative tokens. Sweeping the presets on a long-horizon task is the cleanest way to see the tradeoff — raw replay keeps the most context but costs the most tokens, while the trimming presets cut peak size and token cost at some risk to answer completeness.
+
+## Why This Holds Up
+
+The design goal is *grounding*: the agent should compute on real data and return verifiably correct answers, not plausible ones. The runnable [`agent-grounded-audit.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/agent-grounded-audit.ts) example is a proof you can run: an agent audits a 250-row ledger it never sees in its prompt (it is a runtime-only context field), joins each row to vendor-tier approval thresholds through tools, and reports the total, the count, and the exact list of transactions that breach policy. The example computes the same answer in plain code and asserts the agent matched it — **to the cent, and the exact sorted id list, on a small Gemini Flash model, repeatably.**
+
+Two properties make that reliable, and both are structural rather than model-dependent:
+
+- **Bounded context.** Because evidence passes by reference, the executor's prompt does not grow with the ledger — the 250 rows stay in the runtime, summarized in the prompt. Grounding does not degrade as the data gets larger, and the model is never distracted by bulk it does not need token-by-token.
+- **Shape hints over guessing.** The evidence summary lists the real field names, so the agent writes `amountCents` rather than a hallucinated `amount`. On a benchmark of this audit task against the prior pipeline (which pasted evidence into the prompt and left the distiller to pre-compute), the shared-session pipeline was markedly more accurate at the same token budget — the prior pipeline frequently failed to reach the data at all or miscomputed silently.
+
+One honest caveat on what this is *not*: it is not primarily a token-cost reduction. A code-first agent processes bulk data in code and never re-reads it in-context across turns, so "evidence re-sent each turn" — the thing by-reference would save — does not actually happen. The win is bounded context occupancy, isolation, and correctness, not a smaller bill.
 
 ## Lineage
 
