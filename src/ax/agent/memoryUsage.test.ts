@@ -12,6 +12,8 @@ const makeModelUsage = () => ({
 });
 
 const memoryRuntime: AxCodeRuntime = {
+  // Scripted fake: opt out of the shared-session protocol.
+  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {

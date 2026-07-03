@@ -18,6 +18,8 @@ import {
 import type { AxAgentSkillResult } from './skillsTypes.js';
 
 const noOpRuntime: AxCodeRuntime = {
+  // Scripted fake: opt out of the shared-session protocol.
+  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession() {
     return { execute: async () => 'ok', close: () => {} };

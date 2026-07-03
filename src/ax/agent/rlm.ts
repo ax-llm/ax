@@ -356,12 +356,14 @@ export interface AxCodeRuntime {
    */
   readonly language?: string;
   /**
-   * Opt-in for the pipeline's shared-session mode, where one session spans
-   * the distiller and executor phases (evidence passes by reference; the
-   * phase boundary runs in-session snippets and function `patchGlobals`).
-   * Requires sessions to support `patchGlobals` with function values and
-   * host-driven `execute` calls outside actor turns. When absent/false the
-   * pipeline uses per-stage sessions and carries evidence through the host.
+   * Whether the pipeline may span one session across the distiller and
+   * executor phases (evidence passes by reference; the phase boundary runs
+   * in-session snippets and function-valued `patchGlobals`). Default: true —
+   * any runtime that can run the actor loop supports this. Set false ONLY
+   * for simulated/scripted runtimes (test fakes, replayers) whose `execute`
+   * pattern-matches turns and must not receive host-driven boundary
+   * snippets; those get per-stage sessions with evidence carried through
+   * the host.
    */
   readonly supportsSharedSessions?: boolean;
   createSession(

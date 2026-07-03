@@ -86,6 +86,8 @@ function moduleGroups() {
 
 /** Runtime that finishes each stage on the first `final(...)` call. */
 const rankRuntime: AxCodeRuntime = {
+  // Scripted fake: opt out of the shared-session protocol.
+  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {

@@ -357,14 +357,20 @@ export class AxAgentSharedRuntimeSession {
 }
 
 /**
- * Shared mode needs a JavaScript runtime that explicitly opts in via
- * `AxCodeRuntime.supportsSharedSessions` (its sessions must support
- * `patchGlobals` with function values plus host-driven `execute` calls for
- * the boundary snippets). Anything else uses the per-stage fallback.
+ * Shared mode is the default for every JavaScript runtime — the protocol
+ * (function-valued `patchGlobals`, host-driven boundary snippets) is table
+ * stakes for anything that can run the actor loop at all. Runtimes opt OUT
+ * via `AxCodeRuntime.supportsSharedSessions: false` (simulated/scripted
+ * runtimes whose `execute` pattern-matches turns); they get the per-stage
+ * fallback with host-carried evidence.
  */
 export function supportsSharedRuntimeSession(
   runtime: Readonly<AxCodeRuntime> | undefined,
   isJavaScriptRuntime: boolean
 ): boolean {
-  return runtime?.supportsSharedSessions === true && isJavaScriptRuntime;
+  return (
+    Boolean(runtime) &&
+    runtime?.supportsSharedSessions !== false &&
+    isJavaScriptRuntime
+  );
 }

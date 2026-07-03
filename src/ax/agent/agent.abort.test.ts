@@ -14,6 +14,8 @@ const makeModelUsage = () => ({
 });
 
 const createSimpleRuntime = (): AxCodeRuntime => ({
+  // Scripted fake: opt out of the shared-session protocol.
+  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {
@@ -70,6 +72,8 @@ describe('AxAgent.stop()', () => {
 
     let stopCalled = false;
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession() {
         return {
@@ -220,6 +224,8 @@ describe('AxAgent.stop()', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession() {
         return {

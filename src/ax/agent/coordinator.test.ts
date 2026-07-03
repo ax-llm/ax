@@ -21,6 +21,8 @@ const makeModelUsage = () => ({
 const makeRuntime = (
   behavior?: (code: string, globals: Record<string, unknown>) => unknown
 ): AxCodeRuntime => ({
+  // Scripted fake: opt out of the shared-session protocol.
+  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {

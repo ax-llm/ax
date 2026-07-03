@@ -35,6 +35,8 @@ const makeModelUsage = () => ({
 /** Runtime whose first turn recalls, second finishes. */
 function makeRecallRuntime(searchQuery: string): AxCodeRuntime {
   return {
+    // Scripted fake: opt out of the shared-session protocol.
+    supportsSharedSessions: false,
     getUsageInstructions: () => '',
     createSession(globals) {
       return {

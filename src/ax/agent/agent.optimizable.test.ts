@@ -3,6 +3,8 @@ import { AxAgent } from './AxAgent.js';
 import type { AxCodeRuntime } from './rlm.js';
 
 const noopRuntime: AxCodeRuntime = {
+  // Scripted fake: opt out of the shared-session protocol.
+  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession() {
     return {

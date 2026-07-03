@@ -132,6 +132,8 @@ afterEach(() => {
 
 /** Minimal runtime for tests that don't exercise code execution */
 const defaultRuntime: AxCodeRuntime = {
+  // Scripted fake: opt out of the shared-session protocol.
+  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {
@@ -219,6 +221,8 @@ const getActorAuthoredCodes = (codes: readonly string[]) =>
 
 function makeDiscoveryPromptRuntime(): AxCodeRuntime {
   return {
+    // Scripted fake: opt out of the shared-session protocol.
+    supportsSharedSessions: false,
     getUsageInstructions: () => '',
     createSession(globals) {
       return {
@@ -309,6 +313,8 @@ function makeDiscoveryFunctionGroups() {
 
 function makeEmailSearchDiscoveryPromptRuntime(): AxCodeRuntime {
   return {
+    // Scripted fake: opt out of the shared-session protocol.
+    supportsSharedSessions: false,
     getUsageInstructions: () => '',
     createSession(globals) {
       return {
@@ -918,6 +924,8 @@ describe('AxAgent', () => {
 
 describe('Split-architecture signature derivation', () => {
   const runtime: AxCodeRuntime = {
+    // Scripted fake: opt out of the shared-session protocol.
+    supportsSharedSessions: false,
     getUsageInstructions: () => '',
     createSession() {
       return { execute: async () => 'ok', close: () => {} };
@@ -1177,6 +1185,8 @@ describe('Split-architecture signature derivation', () => {
   it('should derive non-JavaScript actor code field from runtime language', () => {
     const pythonRuntime: AxCodeRuntime = {
       language: 'Python',
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '- Use Python syntax for runtime code.',
       createSession() {
         return { execute: async () => 'ok', close: () => {} };
@@ -1209,6 +1219,8 @@ describe('Split-architecture signature derivation', () => {
   it('should reject the active non-JavaScript runtime code field name', () => {
     const pythonRuntime: AxCodeRuntime = {
       language: 'Python',
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession() {
         return { execute: async () => 'ok', close: () => {} };
@@ -1230,6 +1242,8 @@ describe('Split-architecture signature derivation', () => {
     let globalsSeen: Record<string, unknown> | undefined;
     const pythonRuntime: AxCodeRuntime = {
       language: 'Python',
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () =>
         '- Python runtime; console.log is mentioned only as text.',
       createSession(globals) {
@@ -1735,6 +1749,8 @@ describe('Context field runtime access and prompt inlining', () => {
     let capturedGlobals: Record<string, unknown> | undefined;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         if ((globals?.inputs as Record<string, unknown> | undefined)?.context) {
@@ -1781,6 +1797,8 @@ describe('Context field runtime access and prompt inlining', () => {
     let capturedGlobals: Record<string, unknown> | undefined;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         capturedGlobals = globals;
@@ -1822,6 +1840,8 @@ describe('Context field runtime access and prompt inlining', () => {
     let actorPrompt = '';
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -1869,6 +1889,8 @@ describe('Context field runtime access and prompt inlining', () => {
     let actorPrompt = '';
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -1909,6 +1931,8 @@ describe('Context field runtime access and prompt inlining', () => {
     let actorPrompt = '';
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -1949,6 +1973,8 @@ describe('Context field runtime access and prompt inlining', () => {
     let actorPrompt = '';
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -1990,6 +2016,8 @@ describe('Context field runtime access and prompt inlining', () => {
     let actorPrompt = '';
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -2031,6 +2059,8 @@ describe('Context field runtime access and prompt inlining', () => {
     let actorPrompt = '';
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -2074,6 +2104,8 @@ describe('Context field runtime access and prompt inlining', () => {
     let actorPrompt = '';
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -2113,6 +2145,8 @@ describe('Context field runtime access and prompt inlining', () => {
 
   it('should validate object-form context field configuration', () => {
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession() {
         return { execute: async () => 'ok', close: () => {} };
@@ -2245,6 +2279,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -2461,6 +2497,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession() {
         return {
@@ -2529,6 +2567,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession() {
         return {
@@ -2606,6 +2646,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -2702,6 +2744,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -2824,6 +2868,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const testRuntime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -2937,6 +2983,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const testRuntime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -3050,6 +3098,8 @@ describe('Actor/Responder execution loop', () => {
     const abortController = new AbortController();
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -3336,6 +3386,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -3581,6 +3633,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -3707,6 +3761,8 @@ describe('Actor/Responder execution loop', () => {
     const abortController = new AbortController();
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -3838,6 +3894,8 @@ describe('Actor/Responder execution loop', () => {
     const chatSpy = vi.spyOn(testMockAI, 'chat');
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -3938,6 +3996,8 @@ describe('Actor/Responder execution loop', () => {
     let actorTurn = 0;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -4331,6 +4391,8 @@ describe('Actor/Responder execution loop', () => {
     const chatSpy = vi.spyOn(testMockAI, 'chat');
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -4457,6 +4519,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -4571,6 +4635,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -4683,6 +4749,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -4821,6 +4889,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -4946,6 +5016,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () =>
         [
           '- State is session-scoped: all top-level declarations persist across calls.',
@@ -5070,6 +5142,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -5183,6 +5257,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -5281,6 +5357,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -5401,6 +5479,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -5519,6 +5599,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -5603,6 +5685,8 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -5773,6 +5857,8 @@ describe('Functions as runtime globals', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -5872,6 +5958,8 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -5952,6 +6040,8 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         receivedGlobals = globals ?? {};
@@ -6036,6 +6126,8 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -6115,6 +6207,8 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -6516,6 +6610,8 @@ describe('final()/askClarification() as runtime globals', () => {
     };
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -6795,6 +6891,8 @@ describe('final()/askClarification() as runtime globals', () => {
       features: { functions: false, streaming: false },
     });
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -6834,6 +6932,8 @@ describe('final()/askClarification() as runtime globals', () => {
 
   it('should fail setState() clearly when the runtime cannot restore snapshots', () => {
     const runtime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession() {
         return {
@@ -6906,6 +7006,8 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession() {
         return {
@@ -6939,6 +7041,8 @@ describe('final()/askClarification() as runtime globals', () => {
 
 describe('incremental console-turn policy', () => {
   const runtimeWithConsoleMode: AxCodeRuntime = {
+    // Scripted fake: opt out of the shared-session protocol.
+    supportsSharedSessions: false,
     getUsageInstructions: () =>
       '- Use `console.log(...)` output is captured as the execution result so use it to inspect intermediate values between steps instead of `return`.',
     createSession(globals) {
@@ -8166,6 +8270,8 @@ describe('RLM llmQuery runtime behavior', () => {
 
     let budgetResult: string[] = [];
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -8299,6 +8405,8 @@ describe('RLM llmQuery runtime behavior', () => {
 
     let batchResult: string[] = [];
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -8386,6 +8494,8 @@ describe('RLM llmQuery runtime behavior', () => {
 
     let batchResult: string[] = [];
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -8467,6 +8577,8 @@ describe('RLM llmQuery runtime behavior', () => {
 
     let queryResult = '';
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -8558,6 +8670,8 @@ describe('RLM llmQuery runtime behavior', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -8680,6 +8794,8 @@ describe('RLM llmQuery runtime behavior', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -8772,6 +8888,8 @@ describe('RLM llmQuery runtime behavior', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -8828,6 +8946,8 @@ describe('RLM session restart', () => {
     let createSessionCount = 0;
     let executeCount = 0;
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals?: Record<string, unknown>) {
         createSessionCount++;
@@ -8914,6 +9034,8 @@ describe('RLM session restart', () => {
     let createSessionCount = 0;
     let executeCount = 0;
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession() {
         createSessionCount++;
@@ -9379,6 +9501,8 @@ describe('Program registration for optimization', () => {
 describe('actor turn callbacks', () => {
   const longOutput = 'a'.repeat(3_500);
   const runtime: AxCodeRuntime = {
+    // Scripted fake: opt out of the shared-session protocol.
+    supportsSharedSessions: false,
     getUsageInstructions: () => '',
     createSession(globals) {
       return {
@@ -9513,6 +9637,8 @@ describe('actor turn callbacks', () => {
     };
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -9665,6 +9791,8 @@ describe('inputUpdateCallback', () => {
     let capturedResponderInput: Record<string, unknown> | undefined;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -9753,6 +9881,8 @@ describe('inputUpdateCallback', () => {
     let finalArg: unknown;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -9814,6 +9944,8 @@ describe('inputUpdateCallback', () => {
     let hasUnknownKey = true;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -9878,6 +10010,8 @@ describe('inputUpdateCallback', () => {
     let finalArg: unknown;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -9973,6 +10107,8 @@ describe('inputUpdateCallback', () => {
     let responderValues: Record<string, unknown> | undefined;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -10040,6 +10176,8 @@ describe('inputUpdateCallback', () => {
     const patchedGlobals: Record<string, unknown>[] = [];
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -10103,6 +10241,8 @@ describe('inputUpdateCallback', () => {
     let executeTurn = 0;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -10176,6 +10316,8 @@ describe('inputUpdateCallback', () => {
     let savedQuery: unknown;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -10237,6 +10379,8 @@ describe('inputUpdateCallback', () => {
 
 describe('executorOptions / responderOptions', () => {
   const runtime: AxCodeRuntime = {
+    // Scripted fake: opt out of the shared-session protocol.
+    supportsSharedSessions: false,
     getUsageInstructions: () => '',
     createSession() {
       return { execute: async () => 'ok', close: () => {} };
@@ -10542,6 +10686,8 @@ describe('executorOptions / responderOptions', () => {
 
 describe('executorOptions.excludeFields / responderOptions.excludeFields', () => {
   const runtime: AxCodeRuntime = {
+    // Scripted fake: opt out of the shared-session protocol.
+    supportsSharedSessions: false,
     getUsageInstructions: () => '',
     createSession() {
       return { execute: async () => 'ok', close: () => {} };
@@ -11084,6 +11230,8 @@ describe('executorModelPolicy', () => {
     let responderModel: string | undefined;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -11180,6 +11328,8 @@ describe('executorModelPolicy', () => {
     const actorModels: Array<string | undefined> = [];
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -12574,6 +12724,8 @@ describe('A/An article grammar in renderInputFields', () => {
 
 describe('getFunction() parameter schema', () => {
   const runtime: AxCodeRuntime = {
+    // Scripted fake: opt out of the shared-session protocol.
+    supportsSharedSessions: false,
     getUsageInstructions: () => '',
     createSession() {
       return { execute: async () => 'ok', close: () => {} };
@@ -12603,6 +12755,8 @@ describe('getFunction() parameter schema', () => {
 
 describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', () => {
   const runtime: AxCodeRuntime = {
+    // Scripted fake: opt out of the shared-session protocol.
+    supportsSharedSessions: false,
     getUsageInstructions: () => '',
     createSession() {
       return { execute: async () => 'ok', close: () => {} };
@@ -13184,6 +13338,8 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
 
 describe('AxFunction', () => {
   const runtime: AxCodeRuntime = {
+    // Scripted fake: opt out of the shared-session protocol.
+    supportsSharedSessions: false,
     getUsageInstructions: () => '',
     createSession() {
       return { execute: async () => 'ok', close: () => {} };
@@ -14368,6 +14524,8 @@ describe('AxFunction', () => {
     };
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -14440,6 +14598,8 @@ describe('AxFunction', () => {
     let continuedAfterCompletion = false;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -14519,6 +14679,8 @@ describe('AxFunction', () => {
     };
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -14591,6 +14753,8 @@ describe('AxFunction', () => {
     let continuedAfterClarification = false;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -14684,6 +14848,8 @@ describe('AxFunction', () => {
     };
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -14838,6 +15004,8 @@ describe('AxFunction', () => {
     } as const;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -14940,6 +15108,8 @@ describe('AxFunction', () => {
     let actorTurn = 0;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -15012,6 +15182,8 @@ describe('AxFunction', () => {
     let actorTurn = 0;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -15088,6 +15260,8 @@ describe('AxFunction', () => {
     let actorTurn = 0;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -15207,6 +15381,8 @@ describe('AxFunction', () => {
     };
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -15323,6 +15499,8 @@ describe('AxFunction', () => {
     } as const;
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -15470,6 +15648,8 @@ describe('AxFunction', () => {
     };
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {

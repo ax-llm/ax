@@ -85,7 +85,8 @@ function countingRuntime(options?: { shared?: boolean }): {
   const counts = { sessions: 0 };
   const runtime: AxCodeRuntime = {
     language: 'JavaScript',
-    ...(options?.shared === false ? {} : { supportsSharedSessions: true }),
+    // Shared sessions are the default; only the fallback variant opts out.
+    ...(options?.shared === false ? { supportsSharedSessions: false } : {}),
     getUsageInstructions: () => real.getUsageInstructions(),
     createSession: (globals, sessionOptions) => {
       counts.sessions++;

@@ -96,6 +96,8 @@ describe('Agent Split Architecture Flow', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       language: 'JavaScript',
       createSession(globals) {
@@ -207,6 +209,8 @@ describe('Agent Split Architecture Flow', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
@@ -297,6 +301,8 @@ describe('Agent Split Architecture Flow', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      // Scripted fake: opt out of the shared-session protocol.
+      supportsSharedSessions: false,
       getUsageInstructions: () => '',
       createSession(globals) {
         return {

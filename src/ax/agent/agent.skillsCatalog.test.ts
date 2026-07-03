@@ -45,6 +45,8 @@ const makeModelUsage = () => ({
 function makeSkillsDiscoverRuntime(searchQuery: string): AxCodeRuntime {
   const turn = 0;
   return {
+    // Scripted fake: opt out of the shared-session protocol.
+    supportsSharedSessions: false,
     getUsageInstructions: () => '',
     createSession(globals) {
       return {

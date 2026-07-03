@@ -19,6 +19,8 @@ const makeModelUsage = () => ({
  * invokes the `globals.final` callback so the actor loop completes.
  */
 const makeFinalRuntime = (): AxCodeRuntime => ({
+  // Scripted fake: opt out of the shared-session protocol.
+  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {

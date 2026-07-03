@@ -140,6 +140,8 @@ function renderExecutorTurn(turn: AxScriptedTurn): string {
 
 /** Stub runtime that echoes logged blobs as output and routes final()/errors. */
 const makeRuntime = (): AxCodeRuntime => ({
+  // Scripted fake: opt out of the shared-session protocol.
+  supportsSharedSessions: false,
   getUsageInstructions: () => '',
   createSession(globals) {
     return {
