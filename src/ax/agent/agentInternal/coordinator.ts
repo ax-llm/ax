@@ -94,6 +94,7 @@ const SHARED_KNOB_KEYS = [
   'functions',
   'functionDiscovery',
   'autoUpgrade',
+  'directResponse',
   'onSkillsSearch',
   'skillsCatalog',
   'onLoadedSkills',

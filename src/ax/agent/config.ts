@@ -174,6 +174,46 @@ export function resolveAutoUpgrade(
   };
 }
 
+/**
+ * Direct-respond knob: lets the distiller end the run with
+ * `respond(task, evidence)` and skip the executor stage entirely (zero
+ * executor model calls) when the task needs no user-provided functions.
+ *
+ * - `'auto'` (default): agents with zero functions/child agents run
+ *   respond-only (the skip is deterministic — `final` is not offered);
+ *   agents WITH functions offer `respond` alongside `final` under a
+ *   conservative covenant (no live/fresh-state asks, no side effects, no
+ *   task covered by a listed function/module domain).
+ * - `'off'`: the primitive is absent from the prompt and the runtime, and a
+ *   respond payload reaching the pipeline is rejected.
+ */
+export type AxAgentDirectResponse = 'auto' | 'off';
+
+/**
+ * Default for `directResponse` when unset.
+ *
+ * ON by default ('auto'). Gate record: see src/examples/direct-respond-eval.ts
+ * — the landing bar was 0 false-skips on the must-not-skip scenario set
+ * (tool-required facts, stale-context traps, effectful asks) with skip recall
+ * >=80% on pure context-Q&A tasks and distiller evidence-quality parity in
+ * the 'auto' vs 'off' A/B. (Results recorded here when the gate runs.)
+ */
+export const DIRECT_RESPONSE_DEFAULT: AxAgentDirectResponse = 'auto';
+
+export function resolveDirectResponse(
+  value: AxAgentDirectResponse | undefined
+): AxAgentDirectResponse {
+  if (value === undefined) {
+    return DIRECT_RESPONSE_DEFAULT;
+  }
+  if (value !== 'auto' && value !== 'off') {
+    throw new Error(
+      `directResponse must be 'auto' or 'off', got ${JSON.stringify(value)}`
+    );
+  }
+  return value;
+}
+
 /** System prompt size at which the chat budget hits the floor ratio. */
 const BUDGET_CURVE_MAX_SYSTEM_CHARS = 30_000;
 /** Minimum fraction of targetPromptChars always reserved for chat context. */

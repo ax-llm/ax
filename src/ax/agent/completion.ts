@@ -32,6 +32,7 @@ export function createCompletionBindings(
   ) => void | Promise<void>
 ): {
   finalFunction: (...args: unknown[]) => never;
+  respondFunction: (...args: unknown[]) => never;
   askClarificationFunction: (...args: unknown[]) => never;
   protocol: AxAgentCompletionProtocol;
   protocolForTrigger: (triggeredBy?: string) => AxAgentCompletionProtocol;
@@ -39,48 +40,63 @@ export function createCompletionBindings(
   const FINAL_USAGE =
     'Usage: final(message: string) or final(outputGenerationTask: string, context: object).';
 
+  const RESPOND_USAGE =
+    'Usage: respond(task: string) or respond(task: string, evidence: object).';
+
   const ASK_CLARIFICATION_USAGE =
     'Usage: askClarification(question: string) or askClarification({ question: string, type?: "text" | "date" | "number" | "single_choice" | "multiple_choice", choices?: string[] })';
 
-  const finalFunction = (...args: unknown[]): never => {
-    // final() — no args
-    if (args.length === 0) {
-      throw new Error(`final() requires at least one argument. ${FINAL_USAGE}`);
-    }
+  // `final` and `respond` share the (task[, object]) call shape; they differ
+  // only in payload type (executor handoff vs direct-to-responder skip) and
+  // in what the second argument is called in errors.
+  const makeTaskCompletionFunction = (
+    type: 'final' | 'respond',
+    secondArgNoun: string,
+    usage: string
+  ) => {
+    return (...args: unknown[]): never => {
+      if (args.length === 0) {
+        throw new Error(`${type}() requires at least one argument. ${usage}`);
+      }
 
-    // First arg must always be a non-empty string
-    if (typeof args[0] !== 'string' || args[0].trim().length === 0) {
-      throw new Error(
-        `final() first argument must be a non-empty string. ${FINAL_USAGE}`
-      );
-    }
-
-    // final(message: string) → responder flow without extra context
-    if (args.length === 1) {
-      setCompletionPayload(normalizeCompletionPayload('final', args));
-      throw new AxAgentProtocolCompletionSignal('final');
-    }
-
-    // final(task: string, context: object) → responder flow
-    if (args.length === 2) {
-      if (
-        args[1] === null ||
-        typeof args[1] !== 'object' ||
-        Array.isArray(args[1])
-      ) {
+      // First arg must always be a non-empty string
+      if (typeof args[0] !== 'string' || args[0].trim().length === 0) {
         throw new Error(
-          `final() second argument must be a context object. ${FINAL_USAGE}`
+          `${type}() first argument must be a non-empty string. ${usage}`
         );
       }
-      setCompletionPayload(normalizeCompletionPayload('final', args));
-      throw new AxAgentProtocolCompletionSignal('final');
-    }
 
-    // Too many args
-    throw new Error(
-      `final() accepts at most 2 arguments, got ${args.length}. ${FINAL_USAGE}`
-    );
+      if (args.length === 2) {
+        if (
+          args[1] === null ||
+          typeof args[1] !== 'object' ||
+          Array.isArray(args[1])
+        ) {
+          throw new Error(
+            `${type}() second argument must be a ${secondArgNoun} object. ${usage}`
+          );
+        }
+      } else if (args.length > 2) {
+        throw new Error(
+          `${type}() accepts at most 2 arguments, got ${args.length}. ${usage}`
+        );
+      }
+
+      setCompletionPayload(normalizeCompletionPayload(type, args));
+      throw new AxAgentProtocolCompletionSignal(type);
+    };
   };
+
+  const finalFunction = makeTaskCompletionFunction(
+    'final',
+    'context',
+    FINAL_USAGE
+  );
+  const respondFunction = makeTaskCompletionFunction(
+    'respond',
+    'evidence',
+    RESPOND_USAGE
+  );
 
   const askClarificationFunction = (...args: unknown[]): never => {
     if (args.length === 0) {
@@ -128,6 +144,7 @@ export function createCompletionBindings(
 
   return {
     finalFunction,
+    respondFunction,
     askClarificationFunction,
     protocol: protocolForTrigger(),
     protocolForTrigger,

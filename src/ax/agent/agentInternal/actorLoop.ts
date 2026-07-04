@@ -91,7 +91,15 @@ export async function runActorLoop<IN extends AxGenIn>(
     });
   }
   const stagePolicy = resolveStagePolicy(s.options?.stageVariant);
-  if (stagePolicy.ingestsForwardSkills) {
+  // Forward-time preset skills are executor-ingested — except for a static
+  // direct-respond agent, whose runs may end at the distiller: the distiller
+  // ingests them there so respond-only runs still see call-time skills.
+  const ingestsForwardSkillsHere =
+    stagePolicy.ingestsForwardSkills ||
+    (stagePolicy.variant === 'distiller' &&
+      s.directRespondEnabled === true &&
+      s.directRespondStatic === true);
+  if (ingestsForwardSkillsHere) {
     const forwardSkills = (
       options as { skills?: readonly unknown[] } | undefined
     )?.skills;
@@ -493,8 +501,12 @@ export async function runActorLoop<IN extends AxGenIn>(
       syncDiscoveredActorModelNamespaces();
       // The shared-mode phase-1 stage's variables live on in the session;
       // only the stage owning canonical cross-run state exports bindings.
+      // Exception: a run ending in respond() skips the executor entirely, so
+      // this stage's export IS the run's canonical state — include bindings
+      // (the pipeline copies them onto the executor's cross-run slot).
+      const endedInRespond = completionState.payload?.type === 'respond';
       const nextState = await runtimeContext.exportRuntimeState(
-        sharedActive && !stagePolicy.exportsSharedBindings
+        sharedActive && !stagePolicy.exportsSharedBindings && !endedInRespond
           ? { includeBindings: false }
           : undefined
       );

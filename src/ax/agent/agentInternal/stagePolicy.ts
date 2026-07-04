@@ -53,7 +53,9 @@ export interface AxAgentStagePolicy {
   /**
    * Shared session: exports variable bindings at end of run — the pipeline's
    * canonical cross-run state. The phase-1 stage exports bindings-free
-   * (its variables live on in the session).
+   * (its variables live on in the session) — except when its run ends in
+   * `respond()`, which skips the executor: the actor loop then exports WITH
+   * bindings and the pipeline copies them onto the executor's cross-run slot.
    */
   readonly exportsSharedBindings: boolean;
   /**

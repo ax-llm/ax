@@ -547,6 +547,18 @@ export function axBuildDistillerDefinition(
     memoryUsageMode?: boolean;
     /** Enables actor-declared skill usage instructions. */
     skillUsageMode?: boolean;
+    /**
+     * Dynamic direct-respond: offers `respond(task, evidence)` alongside
+     * `final` under the conservative direct-response covenant.
+     */
+    directRespondMode?: boolean;
+    /**
+     * Static direct-respond (agent has no functions/child agents): `respond`
+     * replaces `final` as the completion primitive and the prompt drops the
+     * executor-forwarding covenant. Mutually exclusive with
+     * `directRespondMode`.
+     */
+    directRespondOnly?: boolean;
     /** Optional prompt-resident orientation cache for recurring long context. */
     contextMapText?: string;
     availableModules?: ReadonlyArray<{
@@ -619,9 +631,13 @@ export function axBuildDistillerDefinition(
           skillsMode: Boolean(options.skillsMode),
           memoriesMode: Boolean(options.memoriesMode),
           usageTrackingMode: Boolean(options.usageTrackingMode),
+          directRespondMode: Boolean(options.directRespondMode),
+          directRespondOnly: Boolean(options.directRespondOnly),
         },
         options.primitiveOverrides
       ),
+      directRespondMode: Boolean(options.directRespondMode),
+      directRespondOnly: Boolean(options.directRespondOnly),
       hasExecutorFunctions: inlineAgentFunctions.length > 0,
       functionsList:
         inlineAgentFunctions.length > 0
@@ -727,6 +743,10 @@ export function axBuildExecutorDefinition(
     memoryUsageMode?: boolean;
     /** Enables actor-declared skill usage instructions. */
     skillUsageMode?: boolean;
+    /** Distiller-prompt concern (dynamic direct-respond); ignored here. */
+    directRespondMode?: boolean;
+    /** Distiller-prompt concern (static direct-respond); ignored here. */
+    directRespondOnly?: boolean;
     /** Optional prompt-resident orientation cache for recurring long context. */
     contextMapText?: string;
     availableModules?: ReadonlyArray<{

@@ -744,7 +744,8 @@ export function formatInterpreterError(
   return truncateText(parts.join('\n'), maxRuntimeChars);
 }
 
-const COMPLETION_SIGNAL_CALL_PATTERN = /\b(?:final|askClarification)\s*\(/;
+const COMPLETION_SIGNAL_CALL_PATTERN =
+  /\b(?:final|askClarification|respond)\s*\(/;
 
 export function hasCompletionSignalCall(code: string): boolean {
   const sanitized = stripJsStringsAndComments(code);

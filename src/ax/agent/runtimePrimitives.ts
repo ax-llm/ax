@@ -24,6 +24,8 @@ export interface AxRuntimePrimitive {
   readonly enabledBy?: string;
   /** Optional flag names where at least one must be truthy. */
   readonly enabledByAny?: readonly string[];
+  /** Optional flag name that hides the primitive when truthy. */
+  readonly disabledBy?: string;
   /** Short purpose statement rendered above the overloads. */
   readonly description: string;
   /** Signature overloads rendered as separate backticked lines. */
@@ -65,9 +67,18 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
   {
     id: 'final',
     stages: ['distiller', 'executor'],
+    disabledBy: 'directRespondOnly',
     description:
       'End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.',
     signatures: [{ code: 'await final(task: string, context?: object)' }],
+  },
+  {
+    id: 'respond',
+    stages: ['distiller'],
+    enabledByAny: ['directRespondMode', 'directRespondOnly'],
+    description:
+      'End the run and answer directly from context — the executor phase is skipped. `task` is a one-line instruction the answer-synthesis stage follows when writing the output fields; `evidence` is the curated data it reads (it crosses into that stage prompt, so narrow it to only the fields the answer needs).',
+    signatures: [{ code: 'await respond(task: string, evidence?: object)' }],
   },
   {
     id: 'askClarification',
@@ -189,7 +200,8 @@ function primitiveEnabled(
 ): boolean {
   return (
     flagEnabled(flags, primitive.enabledBy) &&
-    anyFlagEnabled(flags, primitive.enabledByAny)
+    anyFlagEnabled(flags, primitive.enabledByAny) &&
+    (!primitive.disabledBy || !flagEnabled(flags, primitive.disabledBy))
   );
 }
 

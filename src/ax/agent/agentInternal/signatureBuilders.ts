@@ -285,6 +285,18 @@ export function buildSplitPrograms(self: any): void {
     memoryUsageMode: s.memoryUsageTrackingEnabled === true,
     skillUsageMode: s.skillUsageTrackingEnabled === true,
     usageTrackingMode: s.usageTrackingEnabled === true,
+    // Direct-respond flags are distiller-prompt concerns. The executor's
+    // build must never see `directRespondOnly` — its `final` stays visible
+    // even for static agents (the executor still runs when a distiller
+    // deviates and ends with `final`).
+    directRespondMode:
+      stagePolicy.variant === 'distiller' &&
+      s.directRespondEnabled === true &&
+      s.directRespondStatic !== true,
+    directRespondOnly:
+      stagePolicy.variant === 'distiller' &&
+      s.directRespondEnabled === true &&
+      s.directRespondStatic === true,
     contextMapText: s.contextMapText,
     availableModules,
     agentFunctions: agentFunctionMeta,

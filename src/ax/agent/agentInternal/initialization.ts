@@ -5,6 +5,7 @@ import {
   DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS,
   RELEVANCE_RANKING_DEFAULT,
   resolveAutoUpgrade,
+  resolveDirectResponse,
   resolveExecutorModelPolicy,
 } from '../config.js';
 import { getRuntimeLanguageInfo } from '../rlm.js';
@@ -160,6 +161,17 @@ export function initializeAgentInternal(
   s.agents = localAgentFnBundle.agents;
   s._mergeAgentFunctionModuleMetadata(localAgentFnBundle.moduleMetadata);
 
+  // Direct-respond resolution. Static = the agent has no executor-only
+  // authority (no user functions, no child agents; discovery modules derive
+  // from the function set, so zero functions ⇒ zero modules) — the distiller
+  // runs respond-only and the executor skip is deterministic. Both stage
+  // instances see the same shared `functions` option, so they always agree.
+  s.directRespondEnabled =
+    resolveDirectResponse(options.directResponse) !== 'off';
+  s.directRespondStatic =
+    localAgentFnBundle.functions.length === 0 &&
+    localAgentFnBundle.agents.length === 0;
+
   // Auto-upgrade: enable discovery for large tool catalogs unless the caller
   // decided explicitly. Deterministic from the shared function set, so the
   // distiller and executor stages always agree. Skipped when a `discover`
@@ -189,6 +201,7 @@ export function initializeAgentInternal(
     functions: _fn,
     functionDiscovery: _fd,
     autoUpgrade: _au,
+    directResponse: _drs,
     relevanceRanking: _rr,
     skills: _sk,
     skillsCatalog: _skc,

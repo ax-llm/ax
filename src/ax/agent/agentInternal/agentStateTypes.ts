@@ -80,7 +80,7 @@ export type AxAgentFunctionGroup = AxAgentFunctionModuleMeta & {
 };
 
 export type AxAgentTestCompletionPayload = {
-  type: 'final' | 'askClarification';
+  type: 'final' | 'askClarification' | 'respond';
   args: unknown[];
 };
 

@@ -98,6 +98,77 @@ function defaultExecutorRequest(values: Record<string, unknown>): string {
     .join('\n');
 }
 
+/**
+ * Sentinel key carried in the executor stage's input record when the
+ * distiller ended the run with `respond(task, evidence)`. The executor stage
+ * node returns the pre-built run instead of calling the actor — the flow
+ * topology stays a static three-node walk while the executor makes zero
+ * model calls.
+ */
+const AX_DIRECT_RESPOND_RUN_KEY = '__axDirectRespondRun';
+
+export function isDirectRespondPayload(
+  payload: unknown
+): payload is { type: 'respond'; args: unknown[] } {
+  return (
+    !!payload &&
+    typeof payload === 'object' &&
+    (payload as { type?: unknown }).type === 'respond'
+  );
+}
+
+/**
+ * Synthesize the executor-run-shaped record for a direct-respond skip. The
+ * respond payload is re-typed to `final` so everything downstream — the
+ * responder's `{task, evidence}` reshape, eval `completionType`, contextMap
+ * trajectory — consumes it exactly like an executor `final(task, evidence)`.
+ * The respond binding passed real values across the worker boundary (unlike
+ * the distiller's `final`, whose evidence stays in-session by reference), so
+ * the evidence in `args` is already responder-ready.
+ *
+ * Distiller-side artifacts (actionLog, guidanceLog, usedMemories/usedSkills)
+ * stay on the distiller run — consumers merge from `state.distillerResult`,
+ * and duplicating them here would double-count.
+ */
+export function buildDirectRespondExecutorRun(
+  p: any,
+  nonCtxValues: Record<string, unknown>,
+  distillerRun: any
+): Record<string, unknown> {
+  if ((p.distiller as any)?.directRespondEnabled !== true) {
+    throw new Error(
+      "AxAgent: the distiller produced a respond() payload while directResponse is 'off' — refusing to skip the executor. " +
+        'This indicates restored state or an out-of-band actor payload that the configuration forbids.'
+    );
+  }
+  const respondArgs = (distillerRun.executorResult?.args ?? []) as unknown[];
+  return {
+    nonContextValues: {
+      ...nonCtxValues,
+      ...(distillerRun.nonContextValues as Record<string, unknown>),
+    },
+    contextMetadata: undefined,
+    guidanceLog: undefined,
+    actionLog: '',
+    executorResult: { type: 'final', args: respondArgs },
+    actorFieldValues: {},
+    usedMemories: [],
+    usedSkills: [],
+    turnCount: 0,
+  };
+}
+
+/**
+ * On a direct-respond skip the distiller's exported state (bindings included
+ * — see the `endedInRespond` exception in the actor loop) becomes the
+ * pipeline's canonical cross-run state, replacing whatever the executor held
+ * from a previous run (stale by definition once this run completed).
+ */
+function applyDirectRespondState(p: any): void {
+  p.executor.state = p.distiller.state;
+  p.executor.stateError = p.distiller.stateError;
+}
+
 class ActorStageProgram {
   private id = '';
 
@@ -111,6 +182,12 @@ class ActorStageProgram {
     values: any,
     options?: Readonly<AxProgramForwardOptions<string>>
   ) {
+    // Direct-respond skip: the handoff step already synthesized this stage's
+    // run — return it without touching the actor (zero model calls).
+    const directRespondRun = values?.[AX_DIRECT_RESPOND_RUN_KEY];
+    if (directRespondRun) {
+      return directRespondRun;
+    }
     return this.actor.run(ai, values, options);
   }
 
@@ -433,6 +510,24 @@ function buildExecutorInputsFromDistiller(p: any, state: any) {
     state.agentValues,
     p.contextFieldNames
   );
+  if (isDirectRespondPayload(distillerRun.executorResult)) {
+    const directRespondRun = buildDirectRespondExecutorRun(
+      p,
+      nonCtxValues,
+      distillerRun
+    );
+    applyDirectRespondState(p);
+    return {
+      ...state,
+      executorInputs: {
+        // The real task string, so the contextMap trajectory update reads a
+        // meaningful `executorRequest` from the skip run too.
+        executorRequest: String(distillerRun.executorResult.args?.[0] ?? ''),
+        [AX_DIRECT_RESPOND_RUN_KEY]: directRespondRun,
+      },
+      originalNonCtxValues: nonCtxValues,
+    };
+  }
   const rawExecutorInputs = buildExecutorHandoffInputs(
     p,
     state._sharedSession,
@@ -741,18 +836,30 @@ export async function* streamingForwardPipeline<
     );
     throwOnClarification(distillerRun.executorResult, p.distiller);
 
-    const executorInputs = buildExecutorHandoffInputs(
-      p,
-      sharedSession,
-      nonCtxValues,
-      distillerRun
-    );
-    const executorRun = await p.executor.run(
-      executorAi,
-      executorInputs,
-      options
-    );
-    throwOnClarification(executorRun.executorResult, p.executor);
+    let executorInputs: Record<string, unknown>;
+    let executorRun: any;
+    if (isDirectRespondPayload(distillerRun.executorResult)) {
+      // Direct-respond skip: synthesize the executor run host-side (zero
+      // executor model calls) and stream the responder as usual.
+      executorRun = buildDirectRespondExecutorRun(
+        p,
+        nonCtxValues,
+        distillerRun
+      );
+      applyDirectRespondState(p);
+      executorInputs = {
+        executorRequest: String(distillerRun.executorResult.args?.[0] ?? ''),
+      };
+    } else {
+      executorInputs = buildExecutorHandoffInputs(
+        p,
+        sharedSession,
+        nonCtxValues,
+        distillerRun
+      );
+      executorRun = await p.executor.run(executorAi, executorInputs, options);
+      throwOnClarification(executorRun.executorResult, p.executor);
+    }
     const usedMemories = mergeUsedMemoryResults(
       distillerRun.usedMemories,
       executorRun.usedMemories ?? []

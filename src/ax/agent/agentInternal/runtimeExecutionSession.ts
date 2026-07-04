@@ -55,6 +55,13 @@ export interface SessionLifecycleDeps {
   completionBindings: ReturnType<typeof createCompletionBindings>;
   /** Evidence-budgeted wrapper around `completionBindings.finalFunction`. */
   guardedFinalFunction: (...args: unknown[]) => never;
+  /**
+   * Direct-respond binding for this stage, when the feature is enabled: the
+   * distiller's budgeted completion, or the executor's throwing stub (which
+   * must still be patched so a shared session doesn't keep the distiller's
+   * binding alive across the phase boundary). Absent when the feature is off.
+   */
+  respondBinding?: (...args: unknown[]) => never;
   llmQuery: unknown;
   toolGlobals: Record<string, unknown>;
   runtimeInputs: Record<string, unknown>;
@@ -109,6 +116,7 @@ export function buildSessionLifecycle(
     guidanceState,
     completionBindings,
     guardedFinalFunction,
+    respondBinding,
     llmQuery,
     toolGlobals,
     runtimeInputs,
@@ -153,6 +161,7 @@ export function buildSessionLifecycle(
     llmQuery,
     final: guardedFinalFunction,
     askClarification: completionBindings.askClarificationFunction,
+    ...(respondBinding ? { respond: respondBinding } : {}),
     ...(inspectRuntime ? { inspectRuntime } : {}),
     ...(s.agentStatusCallback
       ? {

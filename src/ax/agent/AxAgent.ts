@@ -239,6 +239,8 @@ export class ActorAgentRLM<
       memoryUsageMode: Boolean(opts?.memoryUsageMode),
       skillUsageMode: Boolean(opts?.skillUsageMode),
       usageTrackingMode: Boolean(opts?.usageTrackingMode),
+      directRespondMode: Boolean(opts?.directRespondMode),
+      directRespondOnly: Boolean(opts?.directRespondOnly),
     };
   }
 

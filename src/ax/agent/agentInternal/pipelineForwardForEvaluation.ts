@@ -15,9 +15,11 @@ import {
 } from './discoveryHelpers.js';
 import {
   beginPipelineSharedSession,
+  buildDirectRespondExecutorRun,
   buildExecutorHandoffInputs,
   endPipelineSharedSession,
   finalizeResponderNonContextValues,
+  isDirectRespondPayload,
 } from './pipelineForward.js';
 import type {
   AxAgentClarification,
@@ -114,6 +116,16 @@ export async function forwardPipelineForEvaluation<
     if (distillerRun.executorResult.type === 'askClarification') {
       executorResult = distillerRun.executorResult;
       nonContextValues = nonCtxValues;
+    } else if (isDirectRespondPayload(distillerRun.executorResult)) {
+      // Direct-respond skip: zero executor calls; the prediction keeps the
+      // distiller's actionLog/turnCount assigned above.
+      const directRun = buildDirectRespondExecutorRun(
+        p,
+        nonCtxValues,
+        distillerRun
+      );
+      executorResult = directRun.executorResult;
+      nonContextValues = directRun.nonContextValues as Record<string, unknown>;
     } else {
       const executorInputs = buildExecutorHandoffInputs(
         p,

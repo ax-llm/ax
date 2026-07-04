@@ -231,6 +231,26 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   autoUpgrade?: AxAgentAutoUpgrade;
 
   /**
+   * Direct-respond — ON by default (`'auto'`; set `'off'` to opt out). Lets
+   * the distiller end the run with `respond(task, evidence)` and skip the
+   * executor stage entirely (zero executor model calls) when the task needs
+   * no user-provided functions.
+   *
+   * - Agents with zero `functions`/child agents run respond-only: the skip is
+   *   deterministic and every run is distiller → responder.
+   * - Agents WITH functions additionally offer `respond` under a conservative
+   *   covenant: only for tasks answered purely by reading/synthesizing the
+   *   provided context, never when a listed function/module domain covers the
+   *   need, never for live/fresh-state asks (context may be stale — tools are
+   *   the source of truth for "now"), never for side effects.
+   *
+   * On skip, the distiller's evidence crosses into the responder prompt
+   * (subject to `maxEvidenceChars`) and its runtime variables are exported as
+   * the cross-run state exactly as the executor's would have been.
+   */
+  directResponse?: import('../config.js').AxAgentDirectResponse;
+
+  /**
    * Advisory local relevance ranker — ON by default (set `false` to opt out).
    * Enabled by default since its A/B gate passed (substance-judged,
    * n=49/variant/model: small model discover-precision 24%->90% and answer

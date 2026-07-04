@@ -147,6 +147,41 @@ export function createRuntimeExecutionContext(
     return completionBindings.finalFunction(...args);
   };
 
+  // `respond` evidence always materializes into the responder prompt (there
+  // is no downstream runtime to hold it by reference), so every 2-arg call
+  // is budgeted — including in shared mode, where `final` evidence would
+  // have stayed in-worker.
+  const guardedRespondFunction = (...args: unknown[]): never => {
+    if (args.length === 2 && args[1] !== null && typeof args[1] === 'object') {
+      const evidenceChars = measureEvidenceChars(args[1]);
+      if (evidenceChars > maxEvidenceChars) {
+        throw new Error(
+          `respond() evidence is too large (~${evidenceChars} chars; limit ${maxEvidenceChars}). ` +
+            'Narrow the evidence to only the fields the answer needs — filter, slice, and drop bulky raw values — then call respond() again.'
+        );
+      }
+    }
+    return completionBindings.respondFunction(...args);
+  };
+
+  // Direct-respond binding by stage: the distiller gets the real completion;
+  // the executor gets a throwing stub so that in shared mode the executor
+  // phase patches over the distiller's binding instead of leaving a stale
+  // closure live in the worker. Feature off ⇒ no binding at all (a stray
+  // `respond()` is an in-turn ReferenceError the actor recovers from).
+  const directRespondEnabled = s.directRespondEnabled === true;
+  const respondBinding: ((...args: unknown[]) => never) | undefined =
+    !directRespondEnabled
+      ? undefined
+      : stagePolicy.variant === 'distiller'
+        ? guardedRespondFunction
+        : (..._args: unknown[]): never => {
+            throw new Error(
+              'respond() is only available in the context (distiller) phase. ' +
+                'Use final(task, evidence) to hand results to the responder.'
+            );
+          };
+
   const recursionForwardOptions: AxAgentRecursionOptions =
     s.recursionForwardOptions ?? {};
   const {
@@ -227,6 +262,7 @@ export function createRuntimeExecutionContext(
     'llmQuery',
     'final',
     'askClarification',
+    ...(directRespondEnabled ? ['respond'] : []),
     ...(s.agentStatusCallback ? ['reportSuccess', 'reportFailure'] : []),
     ...agentFunctionNamespaces,
     ...(effectiveContextConfig.stateInspection.enabled
@@ -303,6 +339,7 @@ export function createRuntimeExecutionContext(
     guidanceState,
     completionBindings,
     guardedFinalFunction,
+    respondBinding,
     llmQuery,
     toolGlobals,
     runtimeInputs,
