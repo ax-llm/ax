@@ -1,0 +1,71 @@
+{
+  "expected_action_log_subset": [
+    {
+      "action": "create_session",
+      "type": "runtime_session"
+    },
+    {
+      "code": "respond(\"Report the matched total\", {\"total\": 42})",
+      "kind": "respond"
+    }
+  ],
+  "expected_executed": [
+    "respond(\"Report the matched total\", {\"total\": 42})"
+  ],
+  "expected_output": {
+    "answer": "42 matched"
+  },
+  "expected_request_count": 2,
+  "expected_request_contains": [
+    "There is no executor phase",
+    "await respond(task: string, evidence?: object)",
+    "Report the matched total",
+    "42",
+    "Answer Synthesis Agent"
+  ],
+  "expected_stage_request_not_contains": [
+    {
+      "absent": ["await final(task: string, context?: object)"],
+      "index": 0
+    },
+    {
+      "absent": ["Distilled Context Summary", "Executor Request"],
+      "index": 1
+    }
+  ],
+  "input": {
+    "document": "Records: 42 matched entries in the corpus.",
+    "question": "How many entries matched?"
+  },
+  "kind": "agent_forward",
+  "name": "direct-respond-skip",
+  "options": {
+    "contextFields": ["document"],
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"respond(\\\"Report the matched total\\\", {\\\"total\\\": 42})\"}"
+    },
+    {
+      "content": "{\"answer\":\"42 matched\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "respond(\"Report the matched total\", {\"total\": 42})",
+      "result": {
+        "args": [
+          "Report the matched total",
+          {
+            "total": 42
+          }
+        ],
+        "type": "respond"
+      }
+    }
+  ],
+  "signature": "document:string, question:string -> answer:string"
+}

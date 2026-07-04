@@ -11662,7 +11662,9 @@ Value Core::_render_rlm_executor_description(Value state, Value options) {
   axir_coverage_mark("_render_rlm_executor_description");
   Value empty_map = Value::object();
   Value contract = Core::get(state, Value("runtime_contract"), empty_map);
-  Value flags = Core::_build_rlm_flags(state);
+  Value shared_flags = Core::_build_rlm_flags(state);
+  Value flags_base = Value::object();
+  Value flags = Core::map_merge(flags_base, shared_flags);
   Core::set(flags, Value("directRespondMode"), Value(false));
   Core::set(flags, Value("directRespondOnly"), Value(false));
   Value primitives_list = Core::_render_actor_primitives_list(Value("executor"), flags);

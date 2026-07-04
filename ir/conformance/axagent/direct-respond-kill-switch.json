@@ -1,0 +1,66 @@
+{
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 3,
+  "expected_request_contains": [
+    "await final(task: string, context?: object)",
+    "Answer Synthesis Agent"
+  ],
+  "expected_stage_request_not_contains": [
+    {
+      "absent": [
+        "await respond(task: string, evidence?: object)",
+        "### Direct Response",
+        "There is no executor phase"
+      ],
+      "index": 0
+    }
+  ],
+  "input": {
+    "document": "A short document.",
+    "question": "Summarize the document."
+  },
+  "kind": "agent_forward",
+  "name": "direct-respond-kill-switch",
+  "options": {
+    "contextFields": ["document"],
+    "directResponse": "off",
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Summarize the document\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer with the summary\\\", {\\\"summary\\\": \\\"ok\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Summarize the document\", {})",
+      "result": {
+        "args": ["Summarize the document", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer with the summary\", {\"summary\": \"ok\"})",
+      "result": {
+        "args": [
+          "Answer with the summary",
+          {
+            "summary": "ok"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "document:string, question:string -> answer:string"
+}

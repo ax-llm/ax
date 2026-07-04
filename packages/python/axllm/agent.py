@@ -3325,7 +3325,9 @@ def _render_rlm_executor_description(state: Any, options: Any) -> str:
     _core_coverage_mark("_render_rlm_executor_description")
     empty_map = {}
     contract = _core_get(state, "runtime_contract", empty_map)
-    flags = _build_rlm_flags(state)
+    shared_flags = _build_rlm_flags(state)
+    flags_base = {}
+    flags = _core_map_merge(flags_base, shared_flags)
     flags["directRespondMode"] = False
     flags["directRespondOnly"] = False
     primitives_list = _render_actor_primitives_list("executor", flags)

@@ -21400,6 +21400,7 @@ func _render_rlm_executor_description(args ...Value) (Value, error) {
 	var v_discovery_mode Value
 	var v_empty_map Value
 	var v_flags Value
+	var v_flags_base Value
 	var v_functions_list Value
 	var v_has_modules Value
 	var v_has_skills_catalog Value
@@ -21412,6 +21413,7 @@ func _render_rlm_executor_description(args ...Value) (Value, error) {
 	var v_out Value
 	var v_primitives_list Value
 	var v_relevance_hints_mode Value
+	var v_shared_flags Value
 	var v_skill_usage_camel Value
 	var v_skill_usage_mode Value
 	var v_skills_catalog Value
@@ -21434,6 +21436,7 @@ func _render_rlm_executor_description(args ...Value) (Value, error) {
 	_ = v_discovery_mode
 	_ = v_empty_map
 	_ = v_flags
+	_ = v_flags_base
 	_ = v_functions_list
 	_ = v_has_modules
 	_ = v_has_skills_catalog
@@ -21446,6 +21449,7 @@ func _render_rlm_executor_description(args ...Value) (Value, error) {
 	_ = v_out
 	_ = v_primitives_list
 	_ = v_relevance_hints_mode
+	_ = v_shared_flags
 	_ = v_skill_usage_camel
 	_ = v_skill_usage_mode
 	_ = v_skills_catalog
@@ -21458,7 +21462,9 @@ func _render_rlm_executor_description(args ...Value) (Value, error) {
 	_ = v_vars
 	v_empty_map = Object()
 	v_contract = coreGet(v_state, "runtime_contract", v_empty_map)
-	{ v, err := _build_rlm_flags(v_state); if err != nil { return nil, err }; v_flags = v }
+	{ v, err := _build_rlm_flags(v_state); if err != nil { return nil, err }; v_shared_flags = v }
+	v_flags_base = Object()
+	v_flags = _core_map_merge(v_flags_base, v_shared_flags)
 	if err := coreSet(v_flags, "directRespondMode", false); err != nil { return nil, err }
 	if err := coreSet(v_flags, "directRespondOnly", false); err != nil { return nil, err }
 	{ v, err := _render_actor_primitives_list("executor", v_flags); if err != nil { return nil, err }; v_primitives_list = v }

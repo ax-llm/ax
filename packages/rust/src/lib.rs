@@ -40604,6 +40604,7 @@ fn _render_rlm_executor_description(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_discovery_mode = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_flags = CoreValue::Null;
+    let mut v_flags_base = CoreValue::Null;
     let mut v_functions_list = CoreValue::Null;
     let mut v_has_modules = CoreValue::Null;
     let mut v_has_skills_catalog = CoreValue::Null;
@@ -40616,6 +40617,7 @@ fn _render_rlm_executor_description(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_out = CoreValue::Null;
     let mut v_primitives_list = CoreValue::Null;
     let mut v_relevance_hints_mode = CoreValue::Null;
+    let mut v_shared_flags = CoreValue::Null;
     let mut v_skill_usage_camel = CoreValue::Null;
     let mut v_skill_usage_mode = CoreValue::Null;
     let mut v_skills_catalog = CoreValue::Null;
@@ -40632,7 +40634,9 @@ fn _render_rlm_executor_description(args: &[CoreValue]) -> Result<CoreValue, AxE
         &CoreValue::from("runtime_contract"),
         v_empty_map.clone(),
     );
-    v_flags = _build_rlm_flags(&[v_state.clone()])?;
+    v_shared_flags = _build_rlm_flags(&[v_state.clone()])?;
+    v_flags_base = CoreValue::new_map();
+    v_flags = core_map_merge(&[v_flags_base.clone(), v_shared_flags.clone()])?;
     core_set(
         &v_flags,
         CoreValue::from("directRespondMode"),

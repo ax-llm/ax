@@ -102,3 +102,11 @@ No entries.
   - Completed at: 2026-07-04
   - Completed by: `working-tree`
   - Verification: `npm run axir:conformance:check; npm run axir:generate-packages; npm run axir:check-packages; npm run test:axir; npm run axir:backlog:validate; npm run example -- list --json; npm run website:prepare; npm run website:check; npm run test:examples:generated; git diff --check`
+- `axir-2026-07-04-direct-respond-distiller-skip-of-the-executor-stage` [axagent] Direct-respond: distiller respond(task, evidence) skips the executor stage
+  - Status: done
+  - TS paths: `src/ax/agent/completion.ts`, `src/ax/agent/runtimePrimitives.ts`, `src/ax/agent/agentInternal/pipelineForward.ts`, `src/ax/agent/agentInternal/actorLoop.ts`, `src/ax/agent/templates/rlm/distiller.md`
+  - Impact: Without the port, generated agents would always run the executor stage even when the distiller answered from context, and the respond primitive in TS prompts would be a dangling reference in ports.
+  - Suggested AxIR work: Landed lockstep in the same change: agent.axir @agent_forward skip branch + respond payload normalization + directRespond policy flags (stage-scoped clone for the executor renderer); rlm-prompts.json: respond primitive + final disabledBy:directRespondOnly + distiller template byte-sync + discover.stages drift fix; Real-engine bootstraps (goja, quickjs java/cpp/rust, python quickjs) install the respond global; Conformance: direct-respond-skip / direct-respond-covenant-with-functions / direct-respond-kill-switch + axagent-real/agent-runtime-real-javascript-respond; ledger capability agent.pipeline.direct_respond
+  - Completed at: 2026-07-04
+  - Completed by: `working-tree`
+  - Verification: `go -C tools/axir test -count=1 ./... (all 5 language conformance incl. the 3 new direct-respond fixtures and the G2 anti-facade self-test); packages/go: go run ./conformance ir/conformance/axagent-real (real goja engine executes model-authored respond() and skips the executor); npx vitest run src/ax/agent (663 tests incl. agent.directRespond.test.ts 20 cases + rlmPromptsSync primitives-parity test); node scripts/axir-prompt-sync-check.mjs`

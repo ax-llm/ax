@@ -211,6 +211,29 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES via npm run test:axir. Anthropic error fixtures assert error.type -> error class + HTTP status (overloaded->Status 529, rate_limit->429, api->500, invalid_request->400, authentication->Auth, unknown->Refusal) on both chat and stream paths. anthropic-stream-retry-overloaded proves a first-delta overloaded_error is retried then the next response's content is returned; anthropic-stream-retry-exhausted proves the 529 surfaces once the retry budget is spent; anthropic-stream-error-overloaded opts out of retries (maxRetries:0) to assert the classification in isolation. balancer-status-529-failover and -stream-failover prove the balancer fails over to a healthy backup on a retryable 529 via both chat() and stream(). peekStreamForFailover/mid-stream recording intentionally not ported (TS-lazy-streaming-specific; the ports stream synchronously)."
+    },
+    {
+      "capability": "agent.pipeline.direct_respond",
+      "summary": "A distiller respond(task, evidence) completion skips the executor stage entirely: @agent_forward re-types the payload to final and runs the responder directly (zero executor stage calls), guarded by directResponse!='off'. Static agents (no callables) render a respond-only distiller prompt (final hidden via disabledBy:directRespondOnly); agents with callables render respond alongside final under the Direct Response covenant (directRespondMode). Executor prompts never see the direct-respond flags (stage-scoped flag clone). Executor-phase respond() aliases to final. Real engines install the respond global producing {type:'respond', args}.",
+      "ir_ops": [
+        "@agent_forward",
+        "@agent_policy_flags",
+        "@normalize_agent_respond_payload",
+        "@normalize_agent_runtime_step_result",
+        "@normalize_agent_completion_payload",
+        "@render_rlm_distiller_description",
+        "@render_rlm_executor_description"
+      ],
+      "fixtures": [
+        "axagent/direct-respond-skip.json",
+        "axagent/direct-respond-covenant-with-functions.json",
+        "axagent/direct-respond-kill-switch.json",
+        "axagent-real/agent-runtime-real-javascript-respond.json"
+      ],
+      "gate": "G2 anti-facade self-test + cross-target coverage + G1 real-engine",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. direct-respond-skip asserts expected_request_count:2 with the evidence value materialized in the responder request and no executor-shaped request; direct-respond-covenant-with-functions asserts the dynamic prompt (covenant section + both completion primitives) with the executor still running on final(); direct-respond-kill-switch asserts directResponse:off removes respond from the prompt and the final flow is unchanged. agent-runtime-real-javascript-respond executes MODEL-AUTHORED respond() code through the real engine (goja verified in-repo; other engines follow the real-final fixture lanes) and asserts the two-request skip. TS parity: agent.directRespond.test.ts (20 cases incl. shared/fallback sessions, cross-run state export, streaming/eval paths)."
     }
   ]
 }

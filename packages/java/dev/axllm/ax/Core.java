@@ -10685,7 +10685,9 @@ final class Core {
     axirCoverageMark("_render_rlm_executor_description");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object contract = Core.get(state, "runtime_contract", empty_map);
-    Object flags = Core._build_rlm_flags(state);
+    Object shared_flags = Core._build_rlm_flags(state);
+    Object flags_base = new java.util.LinkedHashMap<String, Object>();
+    Object flags = Core.mapMerge(flags_base, shared_flags);
     Core.set(flags, "directRespondMode", Boolean.FALSE);
     Core.set(flags, "directRespondOnly", Boolean.FALSE);
     Object primitives_list = Core._render_actor_primitives_list("executor", flags);

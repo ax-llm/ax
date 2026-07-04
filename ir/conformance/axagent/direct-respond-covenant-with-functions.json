@@ -1,0 +1,71 @@
+{
+  "expected_output": {
+    "answer": "active"
+  },
+  "expected_request_count": 3,
+  "expected_request_contains": [
+    "### Direct Response",
+    "await respond(task: string, evidence?: object)",
+    "await final(task: string, context?: object)",
+    "cover what the task needs, forward with `final()`",
+    "never `respond()`",
+    "current, live, or fresh state",
+    "Answer Synthesis Agent"
+  ],
+  "input": {
+    "document": "Vendor v1 is stored in the ERP system.",
+    "question": "What is the live status of vendor v1?"
+  },
+  "kind": "agent_forward",
+  "name": "direct-respond-covenant-with-functions",
+  "options": {
+    "contextFields": ["document"],
+    "functions": [
+      {
+        "description": "Fetch the live vendor record by id",
+        "name": "getVendor"
+      }
+    ],
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Fetch vendor v1 and report its live status\\\", {\\\"vendorId\\\": \\\"v1\\\"})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Report the vendor status\\\", {\\\"status\\\": \\\"active\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"active\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Fetch vendor v1 and report its live status\", {\"vendorId\": \"v1\"})",
+      "result": {
+        "args": [
+          "Fetch vendor v1 and report its live status",
+          {
+            "vendorId": "v1"
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Report the vendor status\", {\"status\": \"active\"})",
+      "result": {
+        "args": [
+          "Report the vendor status",
+          {
+            "status": "active"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "document:string, question:string -> answer:string"
+}

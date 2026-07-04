@@ -1515,11 +1515,14 @@ module @ax.agent version "0.1" {
     body @entry(%state: json, %options: json) {
       %empty_map = core.map
       %contract = core.get %state["runtime_contract"] default %empty_map
-      %flags = core.call @build_rlm_flags(%state)
+      %shared_flags = core.call @build_rlm_flags(%state)
       // Direct-respond flags are distiller-prompt concerns. The executor's
       // primitives render must never see `directRespondOnly` — its `final`
       // stays visible even for static agents (the executor still runs when a
-      // distiller deviates and ends with `final`).
+      // distiller deviates and ends with `final`). Cloned first: the shared
+      // map is state-resident and the distiller renders after this one.
+      %flags_base = core.map
+      %flags = core.call intrinsic.map.merge(%flags_base, %shared_flags)
       core.set %flags["directRespondMode"] = false
       core.set %flags["directRespondOnly"] = false
       %primitives_list = core.call @render_actor_primitives_list("executor", %flags)
