@@ -540,7 +540,11 @@ function collectQualityFailures(rel, html, failures) {
     }
   }
 
-  if (isLanguageDocsPage(rel)) {
+  // Redirect stubs (moved URLs) are not docs pages; they only need the
+  // meta refresh that baseof emits for redirect_to. The minifier may strip
+  // attribute quotes, so match both forms.
+  const isRedirectStub = /http-equiv=["']?refresh/.test(html);
+  if (isLanguageDocsPage(rel) && !isRedirectStub) {
     if (!hasClass(html, 'nav', 'section-nav')) {
       failures.push(`${rel}: missing top section navigation`);
     }
@@ -876,8 +880,9 @@ function collectQualityFailures(rel, html, failures) {
       'built-in memory',
       'skills',
       'typed signatures',
-      'small models',
-      'big ones',
+      'computes on your data instead of reading it',
+      'grounded-audit example',
+      'Long-horizon',
       'agent.optimize',
     ]) {
       if (!html.includes(agentTerm)) {
@@ -1084,7 +1089,7 @@ function isTocExpectedPage(rel) {
 }
 
 function isMermaidExpectedPage(rel) {
-  return /^(?:typescript|python|java|cpp|go|rust)\/(?:quick-start|concepts\/(?:dspy|signatures|tools|agents|llms|mcp|optimization|telemetry)|subsystems\/(?:ai|ax|s|optimize))\/index\.html$/.test(
+  return /^(?:typescript|python|java|cpp|go|rust)\/(?:quick-start|agents(?:\/(?:standard|long-horizon|internals))?|concepts\/(?:dspy|signatures|tools|llms|mcp|optimization|telemetry)|subsystems\/(?:ai|ax|s|optimize))\/index\.html$/.test(
     rel
   );
 }

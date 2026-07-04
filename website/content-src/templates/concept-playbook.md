@@ -53,4 +53,4 @@ The two are complementary: tune instructions with `optimize(...)`, and grow situ
 
 `agent.playbook({ target })` binds a playbook to an agent stage (the actor by default, or the responder). The evolved playbook is injected into the live stage prompt, so an agent can keep a strategy playbook current from real runs via `update(...)`. For tuning agent instructions and demos, use `agent.optimize(...)` ([Optimization]({{langRoot}}/concepts/optimization/)).
 
-See [Agents]({{langRoot}}/concepts/agents/) and [agent() API]({{langRoot}}/api/agent/).
+See [Agents]({{langRoot}}/agents/) and [agent() API]({{langRoot}}/api/agent/).

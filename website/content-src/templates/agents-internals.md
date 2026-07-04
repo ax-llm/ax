@@ -1,6 +1,6 @@
 # Agent Internals
 
-AxAgent is a small, opinionated runtime built from a handful of research ideas. This page explains how it works inside — the three-stage pipeline, the distinct *context objects* it manages, how trajectory compaction actually decides what the model sees again, and the papers each part comes from. For usage and patterns, start at [Agents]({{langRoot}}/concepts/agents/); this page is the "why it is shaped this way".
+AxAgent is a small, opinionated runtime built from a handful of research ideas. This page explains how it works inside — the three-stage pipeline, the distinct *context objects* it manages, how trajectory compaction actually decides what the model sees again, and the papers each part comes from. For usage and patterns, start at [Agents]({{langRoot}}/agents/); this page is the "why it is shaped this way".
 
 ## The Three Stages
 
@@ -24,7 +24,7 @@ The handoff between stages is deliberately narrow. The completion primitive is `
 
 ## The Shared Runtime Session
 
-The distiller and executor run in **one runtime session**, not two. This is the difference between handing off a photocopy and handing off a shared drive: the distiller's `final(request, evidence)` leaves the evidence *in the session* and forwards only a compact shape summary. The executor reads the real values from `inputs.distilledContext` — they are already live — while its prompt carries just the summary (top-level keys, types, sizes, and the field names of array items).
+The distiller and executor run in **one runtime session**, not two. This is the difference between handing off a photocopy and handing off a shared drive: the distiller's `final(request, evidence)` leaves the evidence *in the session* and forwards only a compact shape summary. The executor reads the real values from `inputs.distilledContext` — they are already live — while its prompt carries just the summary (top-level keys, types, sizes, and the field names of array items). (The shared-session execution path ships in the TypeScript runtime today; the generated language ports currently hand the distilled evidence to the executor directly until the port lands.)
 
 Two consequences fall out of this:
 
@@ -77,16 +77,9 @@ Presets tune how aggressive this is:
 
 All of this is observable. The `onContextEvent` callback emits a `budget_check` every turn (with the live mutable prompt size and pressure level) plus `action_compacted`, `checkpoint_created`, and `tombstone_created` events. Aggregating that stream gives the headline numbers worth tracking: peak prompt size, compaction ratio, and cumulative tokens. Sweeping the presets on a long-horizon task is the cleanest way to see the tradeoff — raw replay keeps the most context but costs the most tokens, while the trimming presets cut peak size and token cost at some risk to answer completeness.
 
-## Why This Holds Up
+## Does It Hold Up?
 
-The design goal is *grounding*: the agent should compute on real data and return verifiably correct answers, not plausible ones. The runnable [`agent-grounded-audit.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/agent-grounded-audit.ts) example is a proof you can run: an agent audits a 250-row ledger it never sees in its prompt (it is a runtime-only context field), joins each row to vendor-tier approval thresholds through tools, and reports the total, the count, and the exact list of transactions that breach policy. The example computes the same answer in plain code and asserts the agent matched it — **to the cent, and the exact sorted id list, on a small Gemini Flash model, repeatably.**
-
-Two properties make that reliable, and both are structural rather than model-dependent:
-
-- **Bounded context.** Because evidence passes by reference, the executor's prompt does not grow with the ledger — the 250 rows stay in the runtime, summarized in the prompt. Grounding does not degrade as the data gets larger, and the model is never distracted by bulk it does not need token-by-token.
-- **Shape hints over guessing.** The evidence summary lists the real field names, so the agent writes `amountCents` rather than a hallucinated `amount`. On a benchmark of this audit task against the prior pipeline (which pasted evidence into the prompt and left the distiller to pre-compute), the shared-session pipeline was markedly more accurate at the same token budget — the prior pipeline frequently failed to reach the data at all or miscomputed silently.
-
-One honest caveat on what this is *not*: it is not primarily a token-cost reduction. A code-first agent processes bulk data in code and never re-reads it in-context across turns, so "evidence re-sent each turn" — the thing by-reference would save — does not actually happen. The win is bounded context occupancy, isolation, and correctness, not a smaller bill.
+Measured behavior — the reproducible grounded-audit example, the comparison against the prior pipeline, model guidance, and what we explicitly do not claim — lives on the [Performance]({{langRoot}}/agents/performance/) page.
 
 ## Lineage
 

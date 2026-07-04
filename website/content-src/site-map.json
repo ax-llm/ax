@@ -1,6 +1,20 @@
 {
   "defaultLanguage": "typescript",
   "languages": ["typescript", "python", "java", "cpp", "go", "rust"],
+  "redirects": [
+    {
+      "from": "concepts/agents",
+      "to": "agents",
+      "title": "Agents",
+      "description": "This page moved to the Agents section."
+    },
+    {
+      "from": "concepts/agent-internals",
+      "to": "agents/internals",
+      "title": "Agent Internals",
+      "description": "This page moved to the Agents section."
+    }
+  ],
   "navGroups": [
     {
       "id": "start",
@@ -17,6 +31,48 @@
           "title": "Advanced Start",
           "template": "advanced-start",
           "description": "Follow the Ax story through selected runnable examples."
+        }
+      ]
+    },
+    {
+      "id": "agents",
+      "title": "Agents",
+      "pages": [
+        {
+          "slug": "agents",
+          "title": "Overview",
+          "template": "agents-overview",
+          "description": "One agent harness at every size: typed signatures, tools, and a grounded runtime session."
+        },
+        {
+          "slug": "agents/micro",
+          "title": "Micro Agents",
+          "template": "agents-micro",
+          "description": "One signature and a few tools — the smallest agent, with the full harness by default."
+        },
+        {
+          "slug": "agents/standard",
+          "title": "Standard Agents",
+          "template": "agents-standard",
+          "description": "The workhorse: namespaced tools, child agents, and typed final outputs."
+        },
+        {
+          "slug": "agents/long-horizon",
+          "title": "Long-Horizon Agents",
+          "template": "agents-long-horizon",
+          "description": "Large context, evidence by reference, context policies, memory, skills, and optimization."
+        },
+        {
+          "slug": "agents/performance",
+          "title": "Performance",
+          "template": "agents-performance",
+          "description": "Measured grounding: reproducible audits, model guidance, and what we do not claim."
+        },
+        {
+          "slug": "agents/internals",
+          "title": "Internals",
+          "template": "agents-internals",
+          "description": "AxAgent stages, the four context objects, and the research lineage behind them."
         }
       ]
     },
@@ -53,18 +109,6 @@
           "title": "Tools",
           "template": "concept-tools",
           "description": "Typed host functions, fn(), namespaces, function groups, and discovery."
-        },
-        {
-          "slug": "concepts/agents",
-          "title": "Agents",
-          "template": "concept-agents",
-          "description": "RLM agents, runtime sessions, context, memory, skills, discovery, and delegation."
-        },
-        {
-          "slug": "concepts/agent-internals",
-          "title": "Agent Internals",
-          "template": "concept-agent-internals",
-          "description": "AxAgent stages, the four context objects, and the research lineage behind them."
         },
         {
           "slug": "concepts/mcp",

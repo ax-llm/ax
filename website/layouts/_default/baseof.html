@@ -109,6 +109,7 @@
     {{ end }}
     {{ $sectionLinks := slice
       (dict "label" "Quick Start" "href" (printf "/%s/quick-start/" $currentLang) "active" (or (eq $currentSlug "quick-start") (eq $currentSlug "advanced-start") (eq $currentSection "quick-start")))
+      (dict "label" "Agents" "href" (printf "/%s/agents/" $currentLang) "active" (eq $currentSection "agents"))
       (dict "label" "Examples" "href" (printf "/%s/examples/" $currentLang) "active" (or (eq $currentSlug "examples") (eq $currentSection "examples")))
       (dict "label" "Concepts" "href" (printf "/%s/concepts/dspy/" $currentLang) "active" (eq $currentSection "concepts"))
       (dict "label" "Subsystems" "href" (printf "/%s/subsystems/ai/" $currentLang) "active" (eq $currentSection "subsystems"))

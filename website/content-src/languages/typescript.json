@@ -170,6 +170,128 @@
     ]
   },
   "snippetGroups": {
+    "agents": {
+      "minimal": [
+        "import { agent, ai, f, fn } from '@ax-llm/ax';",
+        "",
+        "const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });",
+        "",
+        "const lookupOrder = fn('lookupOrder')",
+        "  .description('Fetch an order record by id')",
+        "  .arg('orderId', f.string('Order id, e.g. ord-1042'))",
+        "  .returns(f.json('Order record'))",
+        "  .handler(async ({ orderId }) => orderStore.get(orderId))",
+        "  .build();",
+        "",
+        "const support = agent('ticket:string -> reply:string', {",
+        "  functions: [lookupOrder],",
+        "});",
+        "",
+        "const out = await support.forward(llm, {",
+        "  ticket: 'Where is my order ord-1042?',",
+        "});"
+      ],
+      "discovery": {
+        "sourcePath": "src/examples/rlm-discovery.ts",
+        "code": [
+          "import { type AxAgentFunctionGroup, agent } from '@ax-llm/ax';",
+          "",
+          "const groups: AxAgentFunctionGroup[] = [",
+          "  {",
+          "    namespace: 'crm',",
+          "    title: 'Customer Records',",
+          "    selectionCriteria: 'Accounts, contacts, and subscription lookups.',",
+          "    functions: [findAccount, listSubscriptions],",
+          "  },",
+          "  {",
+          "    namespace: 'billing',",
+          "    title: 'Billing',",
+          "    selectionCriteria: 'Charges, invoices, refunds, disputes.',",
+          "    functions: [listCharges, issueRefund],",
+          "  },",
+          "];",
+          "",
+          "const assistant = agent('request:string -> resolution:string', {",
+          "  functions: groups,",
+          "  functionDiscovery: true,",
+          "});",
+          "// The actor sees a compact module index and calls discover(['billing'])",
+          "// to load full function docs only when that module is actually needed."
+        ]
+      },
+      "memory": {
+        "sourcePath": "src/examples/typescript/long-agents/skills-and-memory-assistant.ts",
+        "code": [
+          "const assistant = agent('situation:string -> guidance:string', {",
+          "  // Always-on guidance plus stores the agent searches on demand.",
+          "  skills: [houseStyleSkill],",
+          "  onSkillsSearch, // agent loads runbooks via await discover({ skills })",
+          "  onMemoriesSearch, // agent recalls past facts via await recall([...])",
+          "  onLoadedSkills: (loaded) =>",
+          "    console.log('skills:', loaded.map((s) => s.id ?? s.name)),",
+          "  onUsedMemories: (used) => console.log('memories used:', used),",
+          "});"
+        ]
+      },
+      "contextPolicy": {
+        "sourcePath": "src/examples/rlm-context-management-live.ts",
+        "code": [
+          "const analyst = agent(",
+          "  'incidentLog:string, question:string -> findings:string',",
+          "  {",
+          "    contextFields: ['incidentLog'],",
+          "    runtime: new AxJSRuntime(),",
+          "    maxTurns: 8,",
+          "    contextPolicy: {",
+          "      preset: 'checkpointed', // full | checkpointed | adaptive | lean",
+          "      budget: 'compact',",
+          "    },",
+          "  }",
+          ");"
+        ]
+      },
+      "optimize": {
+        "sourcePath": "src/examples/rlm-agent-optimize.ts",
+        "code": [
+          "const result = await assistant.optimize(",
+          "  { train: trainTasks, validation: validationTasks },",
+          "  { target: 'actor', maxMetricCalls: 28, verbose: true }",
+          ");",
+          "// GEPA evolves the actor's instructions against your metric.",
+          "// Save the returned artifact and load it at startup."
+        ]
+      },
+      "longHorizon": {
+        "illustrative": true,
+        "code": [
+          "const analyst = agent('ledger:json[], question:string -> report:string', {",
+          "  contextFields: ['ledger'], // bulky data lives in the runtime, not the prompt",
+          "  runtime: new AxJSRuntime(),",
+          "  functions: [erpTools],",
+          "  contextPolicy: { preset: 'checkpointed' },",
+          "  onMemoriesSearch,",
+          "  onSkillsSearch,",
+          "  maxTurns: 12,",
+          "});"
+        ]
+      },
+      "groundedAudit": {
+        "sourcePath": "src/examples/agent-grounded-audit.ts",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "const auditor = agent('ledger:json[], question:string -> report:string', {",
+          "  contextFields: ['ledger'], // 250 rows stay in the runtime session",
+          "  functions: [findVendor, findPolicy],",
+          "  runtime: new AxJSRuntime(),",
+          "});",
+          "",
+          "const result = await auditor.forward(llm, { ledger, question });",
+          "// The example computes the same answer in plain code and asserts the",
+          "// agent matched it: total to the cent, count, and the exact id list."
+        ]
+      }
+    },
     "signatures": {
       "standardSchema": [
         "import { z } from 'zod';",

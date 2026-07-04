@@ -227,6 +227,16 @@ for (const language of languages) {
     await writeGeneratedDocPage(language, page);
   }
 
+  for (const redirect of siteMap.redirects ?? []) {
+    await writeRedirectPage(`${language.id}/${redirect.from}/_index.md`, {
+      title: redirect.title,
+      description: redirect.description,
+      language,
+      redirectTo: `/${language.id}/${redirect.to}/`,
+      linkText: redirect.title,
+    });
+  }
+
   await writeExampleGroupPages(language, navPages);
   await writeLanguageSkillPages(
     language,
@@ -253,6 +263,17 @@ async function writeGeneratedDocPage(language, page) {
   }
 
   const context = await renderContext(language, page);
+  const body = renderTemplate(template, context);
+  const unresolved = [
+    ...new Set(
+      [...body.matchAll(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g)].map((m) => m[1])
+    ),
+  ];
+  if (unresolved.length > 0) {
+    throw new Error(
+      `Unresolved template placeholders in ${page.template} (${language.id}): ${unresolved.join(', ')}`
+    );
+  }
   await writePage(`${language.id}/${page.slug}/_index.md`, {
     title: page.title,
     description: page.description,
@@ -265,7 +286,7 @@ async function writeGeneratedDocPage(language, page) {
     body_class: page.bodyClass ?? `docs-${sectionNavForPage(page)}`,
     toc: page.toc ?? page.group !== 'api',
     source: context.source,
-    body: renderTemplate(template, context),
+    body,
   });
 }
 
@@ -380,11 +401,25 @@ async function renderContext(language, page) {
     axMCPExample: snippetBlock(language, 'mcp.axTools'),
     agentCode: lines(snippets.agent),
     agentMinimalExample: snippetBlock(language, 'agents.minimal', 'agent'),
-    agentToolsExample: snippetBlock(language, 'agents.tools'),
-    agentDiscoveryExample: snippetBlock(language, 'agents.discovery'),
-    agentMemoryExample: snippetBlock(language, 'agents.memory'),
-    agentContextPolicyExample: snippetBlock(language, 'agents.contextPolicy'),
-    agentOptimizeExample: snippetBlock(language, 'agents.optimize'),
+    agentToolsExample: snippetBlock(language, 'tools.agentFlat', 'agent'),
+    agentDiscoveryExample: snippetBlock(language, 'agents.discovery', 'agent'),
+    agentMemoryExample: snippetBlock(language, 'agents.memory', 'agent'),
+    agentContextPolicyExample: snippetBlock(
+      language,
+      'agents.contextPolicy',
+      'agent'
+    ),
+    agentOptimizeExample: snippetBlock(language, 'agents.optimize', 'agent'),
+    agentLongHorizonExample: snippetBlock(
+      language,
+      'agents.longHorizon',
+      'agent'
+    ),
+    agentGroundedAuditExample: snippetBlock(
+      language,
+      'agents.groundedAudit',
+      'agent'
+    ),
     agentMCPFlatExample: snippetBlock(language, 'mcp.agentFlat'),
     agentMCPGroupedExample: snippetBlock(language, 'mcp.agentGrouped'),
     mcpStdioExample: snippetBlock(language, 'mcp.stdio'),
@@ -2557,7 +2592,7 @@ async function writeRedirectPage(relPath, page) {
     body: [
       `# ${page.title}`,
       '',
-      `Continue to [Quick Start](${page.redirectTo}).`,
+      `Continue to [${page.linkText ?? 'Quick Start'}](${page.redirectTo}).`,
     ].join('\n'),
   });
 }

@@ -139,7 +139,6 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
   <p class="home-section-label">The ideas behind it</p>
   <h2 id="research">Built on DSPy, GEPA, ACE, RLM, and PEEK.</h2>
   <p>Ax is more than another LLM framework — it is where a serious research lineage ships. The typed signatures, validation with retry feedback, reflective optimization, runtime-backed agents, and context maps you just saw all come from these papers.</p>
-  <p class="home-research-proof">Runtime-backed agents stay grounded: in the <a href="https://github.com/ax-llm/ax/blob/main/src/examples/agent-grounded-audit.ts">grounded-audit example</a>, a small Flash model reproduces the exact answer — total, count, and the full flagged-transaction list — over a 250-row ledger it never sees in its prompt.</p>
 </div>
 <div class="home-research-list home-research-compact">
   <article class="home-paper-item">
@@ -217,8 +216,14 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
 <section class="home-section home-agent-section" aria-labelledby="agents-that-work">
 <div class="home-section-heading home-agent-heading">
   <p class="home-section-label">Agents</p>
-  <h2 id="agents-that-work">Agents built for context, tools, memory, and code.</h2>
-  <p>AxAgent is designed around DSPy, RLM, and PEEK ideas: typed signatures define the job, generated code and host runtimes hold durable state, context maps drive context management, and discovery-based tools load only the schemas needed for the next action. That keeps agents useful with small models and big ones, while built-in memory, skills, child agents, telemetry, and <code>agent.optimize(...)</code> make them practical to operate.</p>
+  <h2 id="agents-that-work">One agent harness, every size of job.</h2>
+  <p>The design bet: <strong>the model computes on your data instead of reading it.</strong> Bulky inputs live in a runtime session; the agent writes small code steps against them; only compact evidence enters the prompt — so prompts stay bounded at any data size and small, cheap models stay exact. Typed signatures define the job, discovery loads only the schemas the next action needs, and built-in memory, skills, child agents, telemetry, and <code>agent.optimize(...)</code> make it practical to operate.</p>
+  <p>Proof you can run: in the <a href="https://github.com/ax-llm/ax/blob/main/src/examples/agent-grounded-audit.ts">grounded-audit example</a>, a small Flash model audits a 250-row ledger it never sees in its prompt and reproduces the exact answer — total to the cent, count, and the full flagged-transaction list — verified against ground truth computed in plain code. <a href="/typescript/agents/performance/">See the measurements</a>.</p>
+</div>
+<div class="home-card-grid three-up">
+  <article class="home-marketing-card">{{< home-icon "zap" "icon-blue" >}}<h3>Micro</h3><p>One signature, a few tools, a typed reply. Zero config still runs the full harness — runtime session included.</p><p><a href="/typescript/agents/micro/">Micro agents</a></p></article>
+  <article class="home-marketing-card">{{< home-icon "bot" "icon-teal" >}}<h3>Standard</h3><p>Namespaced tool catalogs, specialist child agents, structured outputs, and clarification instead of guessing.</p><p><a href="/typescript/agents/standard/">Standard agents</a></p></article>
+  <article class="home-marketing-card">{{< home-icon "brain" "icon-green" >}}<h3>Long-horizon</h3><p>Large context by reference, context policies, memory, skills, and offline optimization for runs that keep going.</p><p><a href="/typescript/agents/long-horizon/">Long-horizon agents</a></p></article>
 </div>
 <div class="home-agent-code">
 {{< home-code topic="agent" group="agent" >}}
@@ -255,7 +260,8 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
   </div>
 </div>
 <div class="home-actions home-section-actions">
-  <a href="/typescript/concepts/agents/">Explore agents</a>
+  <a href="/typescript/agents/">Explore the Agents section</a>
+  <a class="home-button-secondary" href="/typescript/agents/performance/">Performance &amp; measurements</a>
   <a class="home-button-secondary" href="/typescript/concepts/optimization/">Optimization guide</a>
 </div>
 </section>
