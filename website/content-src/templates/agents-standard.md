@@ -29,7 +29,7 @@ flowchart LR
   B -->|no| F[Answer or inspect]
 ```
 
-That is the trick behind very large Ax tool catalogs: the prompt carries the map, not every schema. This especially helps smaller models, which should not have to rank hundreds of function definitions in one prompt. An advisory relevance ranker flags the modules, skills, and memories most likely to matter for the current task, so the actor discovers the right module first.
+That is the trick behind very large Ax tool catalogs: the prompt carries the map, not every schema. This especially helps smaller models, which should not have to rank hundreds of function definitions in one prompt. An advisory relevance ranker flags the modules, skills, and memories most likely to matter for the current task, so the actor discovers the right module first. You usually don't set `functionDiscovery` yourself: `autoUpgrade` (ON by default) turns it on automatically once the inline tool docs get large. Set it explicitly to force the behavior either way.
 
 Keep the top-level `functions` shape either flat or grouped — mixed plain functions and groups are rejected. In grouped mode, put `fn()` tools, MCP providers, and runtime providers inside groups; expose child agents with `childAgent.getFunction()`. MCP servers plug in as ordinary tools — see [MCP]({{langRoot}}/concepts/mcp/).
 
@@ -42,7 +42,8 @@ Agents ask instead of guessing. When required information is genuinely missing, 
 | Option | What it does |
 | --- | --- |
 | `functions` | Flat tools/child agents, or grouped discovery modules |
-| `functionDiscovery` | Module summaries + on-demand `discover(...)` for big catalogs |
+| `functionDiscovery` | Module summaries + on-demand `discover(...)` for big catalogs (auto-enabled by `autoUpgrade` for large catalogs) |
+| `autoUpgrade` | Smart defaults, ON: auto-enable discovery for big catalogs, keep oversized inputs runtime-only |
 | `agentIdentity` | Name, description, and namespace when this agent is someone's child |
 | `maxTurns` | Upper bound on actor turns per forward |
 

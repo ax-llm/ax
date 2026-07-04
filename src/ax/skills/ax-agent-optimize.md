@@ -30,6 +30,7 @@ Your job is to help the model choose a good optimization setup for the user's ac
 - Save artifacts with `axSerializeOptimizedProgram(result.optimizedProgram!)`, then restore with `axDeserializeOptimizedProgram(saved)` and `agent.applyOptimization(...)`.
 - For browser-safe persistence, let the caller store the serialized JSON anywhere they want such as localStorage, IndexedDB, or a backend.
 - If `bootstrap` is enabled, bootstrapped demos are persisted inside `result.optimizedProgram.demos`; raw failed traces are not saved in v1.
+- Auto-promoted context fields (large undeclared inputs kept runtime-only by `autoUpgrade`) appear in captured traces/demos as their truncated preview string, not the full value — same as declared truncate-style `contextFields`. This is expected; do not treat the shortened value as a bug in the saved demos.
 - For first examples, pass a plain task array instead of splitting into `train` and `validation` unless the user already has a holdout set.
 - GEPA-backed `agent.optimize(...)` now optimizes generic components exposed by the selected target programs; `target: 'actor'` only tunes actor components, `target: 'responder'` only tunes responder components, and `target: 'all'` broadens the component set.
 - `result.optimizedProgram.componentMap` is the canonical saved artifact for agent GEPA runs. It may include actor instructions, descriptions, tool descriptions/names, templates, or runtime primitives depending on what the selected target exposes.

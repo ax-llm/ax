@@ -25,6 +25,7 @@ Use this skill to route a context-management need to the right AxAgent tool, the
 - Evolve a context playbook -> `agent.playbook(...)` (offline from examples, or online from live feedback).
 - Tune instructions/demos offline -> `agent.optimize(...)` (GEPA).
 - Fetch facts or guides on demand -> `recall(...)` for memories, `discover({ skills })` for skill guides.
+- A single oversized input value (a pasted doc, a big JSON blob) -> do nothing; `autoUpgrade` (ON by default) keeps it runtime-only with a prompt preview. Reach for `contextFields` only when you want a specific inline policy or the value is a large required non-string field. See `ax-agent-rlm`.
 
 ## Anti-Patterns
 

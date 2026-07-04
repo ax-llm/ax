@@ -12,6 +12,7 @@ Use this skill for code-runtime agents and `llmQuery(...)` semantic-helper behav
 
 - Use `agent(...)`, not `new AxAgent(...)`.
 - In stdout-mode RLM, use one observable `console.log(...)` step per non-final actor turn.
+- Rely on `autoUpgrade` (ON by default) for oversized inputs you did not declare in `contextFields`: any input value over ~8k serialized chars is kept runtime-only automatically, with a 1,200-char prompt preview plus a `contextMetadata` line, while the full value stays live in the runtime as `inputs.<field>`. Declare a field in `contextFields` only when you want a specific inline policy (`promptMaxChars` / `keepInPromptChars`) or need a large required non-string field kept out of the prompt (those are left inline by auto-upgrade).
 - Default to `contextPolicy: { preset: 'checkpointed', budget: 'balanced' }` for most RLM tasks.
 - Prefer `contextPolicy: { preset: 'adaptive', budget: 'balanced' }` when older successful turns should collapse sooner while live runtime state stays visible.
 - Use `contextMap` for recurring long-context corpora when the distiller should start future runs with a small persisted orientation cache.
@@ -142,6 +143,7 @@ Use these top-level controls consistently:
 - `contextPolicy`: replay/checkpointing/compression policy.
 - `contextMap`: optional persistent orientation cache injected into the distiller and updated once after each successful run. `AxAgentContextMap` evolves indefinitely by default; use `{ infiniteEvolve: false, evolveSteps: N }` on the map object for finite warmup followed by reuse.
 - `contextOptions`: distiller-stage forward options.
+- `autoUpgrade`: smart defaults, ON by default. Auto-enables `functionDiscovery` for large tool catalogs and keeps oversized undeclared input values runtime-only with a truncated prompt preview. Set `false` to opt out, or tune per side: `{ functionDiscovery?: boolean | { aboveFunctionDocChars }, contextFields?: boolean | { promoteAboveChars, previewChars } }`. Explicit `functionDiscovery` and declared `contextFields` always win.
 - `executorOptions`: executor-stage forward options such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`.
 - `executorModelPolicy`: executor-only model override rules based on consecutive error turns or discovery fetches from listed namespaces.
 - `responderOptions`: responder-stage forward options.
