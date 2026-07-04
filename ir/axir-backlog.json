@@ -51,7 +51,7 @@
       "sourceCommit": "2d1a5f96f033640bf4e892e866fde99bc92e8268",
       "tsPaths": ["src/ax/ai"],
       "portableSurface": "axai",
-      "impact": "Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording — so transient Anthropic errors hard-fail there with no retry or failover.",
+      "impact": "Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording \u2014 so transient Anthropic errors hard-fail there with no retry or failover.",
       "suggestedAxirWork": [
         "Add or update the TS-derived conformance fixture.",
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
@@ -111,20 +111,15 @@
       "verification": "npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir"
     },
     {
-      "id": "axir-2026-07-04-port-autoupgrade-smart-defaults-auto-function-discovery-and-runt",
+      "id": "axir-2026-07-01-preserve-the-memories-prompt-cache-breakpoint-across-setsignatur",
       "status": "open",
-      "title": "Port autoUpgrade smart defaults: auto function-discovery and runtime-only oversized inputs",
-      "createdAt": "2026-07-04",
+      "title": "Preserve the memories prompt-cache breakpoint across setSignature()",
+      "createdAt": "2026-07-01",
       "sourcePR": null,
-      "sourceCommit": "c1143238",
-      "tsPaths": [
-        "src/ax/agent/agentInternal/runtimeInputState.ts",
-        "src/ax/agent/agentInternal/runtimeDiscovery.ts",
-        "src/ax/agent/runtime.ts",
-        "src/ax/agent/config.ts"
-      ],
+      "sourceCommit": "6d7286ce",
+      "tsPaths": ["src/ax/agent/agentInternal/coordinator.ts"],
       "portableSurface": "axagent",
-      "impact": "autoUpgrade (ON by default in TS) auto-enables functionDiscovery once inline tool docs get large, and keeps any oversized input value runtime-only (a truncated preview plus a shape summary in the prompt while the full value stays live on inputs.<field>) even when the field is not declared in contextFields. The generated ports do not implement autoUpgrade, so they neither switch to discovery for large tool catalogs nor auto-protect oversized inputs, diverging from TS on prompt size and discovery behavior for the same agent config.",
+      "impact": "In TS the memories block keeps its prompt-cache breakpoint after the agent rebuilds its signature via setSignature(); a narrow coordinator fix restored this. Generated Python/Java/C++/Go/Rust ports may drop the memories cache breakpoint when the signature is rebuilt mid-run, losing prompt-cache reuse for the memories section and paying full tokens for it every turn.",
       "suggestedAxirWork": [
         "Add or update the TS-derived conformance fixture.",
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
@@ -135,10 +130,10 @@
       "verification": null
     },
     {
-      "id": "axir-2026-07-04-port-the-shared-distiller-executor-runtime-session-and-evidence-",
+      "id": "axir-2026-07-02-port-the-shared-distiller-executor-runtime-session-and-evidence-",
       "status": "open",
       "title": "Port the shared distiller/executor runtime session and evidence-by-reference handoff",
-      "createdAt": "2026-07-04",
+      "createdAt": "2026-07-02",
       "sourcePR": null,
       "sourceCommit": "23953349",
       "tsPaths": [
@@ -164,10 +159,10 @@
       "verification": null
     },
     {
-      "id": "axir-2026-07-04-port-the-unified-relevance-ranker-catalog-backed-search-and-advi",
+      "id": "axir-2026-07-02-port-the-unified-relevance-ranker-catalog-backed-search-and-advi",
       "status": "open",
       "title": "Port the unified relevance ranker, catalog-backed search, and advisory relevance hints",
-      "createdAt": "2026-07-04",
+      "createdAt": "2026-07-02",
       "sourcePR": null,
       "sourceCommit": "6840ab39",
       "tsPaths": [
@@ -188,15 +183,20 @@
       "verification": null
     },
     {
-      "id": "axir-2026-07-04-preserve-the-memories-prompt-cache-breakpoint-across-setsignatur",
+      "id": "axir-2026-07-03-port-autoupgrade-smart-defaults-auto-function-discovery-and-runt",
       "status": "open",
-      "title": "Preserve the memories prompt-cache breakpoint across setSignature()",
-      "createdAt": "2026-07-04",
+      "title": "Port autoUpgrade smart defaults: auto function-discovery and runtime-only oversized inputs",
+      "createdAt": "2026-07-03",
       "sourcePR": null,
-      "sourceCommit": "6d7286ce",
-      "tsPaths": ["src/ax/agent/agentInternal/coordinator.ts"],
+      "sourceCommit": "c1143238",
+      "tsPaths": [
+        "src/ax/agent/agentInternal/runtimeInputState.ts",
+        "src/ax/agent/agentInternal/runtimeDiscovery.ts",
+        "src/ax/agent/runtime.ts",
+        "src/ax/agent/config.ts"
+      ],
       "portableSurface": "axagent",
-      "impact": "In TS the memories block keeps its prompt-cache breakpoint after the agent rebuilds its signature via setSignature(); a narrow coordinator fix restored this. Generated Python/Java/C++/Go/Rust ports may drop the memories cache breakpoint when the signature is rebuilt mid-run, losing prompt-cache reuse for the memories section and paying full tokens for it every turn.",
+      "impact": "autoUpgrade (ON by default in TS) auto-enables functionDiscovery once inline tool docs get large, and keeps any oversized input value runtime-only (a truncated preview plus a shape summary in the prompt while the full value stays live on inputs.<field>) even when the field is not declared in contextFields. The generated ports do not implement autoUpgrade, so they neither switch to discovery for large tool catalogs nor auto-protect oversized inputs, diverging from TS on prompt size and discovery behavior for the same agent config.",
       "suggestedAxirWork": [
         "Add or update the TS-derived conformance fixture.",
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",

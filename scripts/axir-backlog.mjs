@@ -25,6 +25,11 @@ export const PORTABLE_SURFACES = new Set([
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = path.resolve(scriptDir, '..');
 const noImpactMarker = 'axir-no-impact';
+// A single large push (or a base..head range spanning many commits) can produce
+// a diff far larger than execFileSync's 1 MB default stdout buffer, which throws
+// ENOBUFS and crashes the check before it evaluates anything. Cap high enough to
+// never trip on a real change.
+const GIT_MAX_BUFFER = 512 * 1024 * 1024;
 
 const portableRoots = [
   ['src/ax/ai/', 'axai'],
@@ -712,6 +717,7 @@ function changedFilesFromGit(root, base, head) {
     cwd: root,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'inherit'],
+    maxBuffer: GIT_MAX_BUFFER,
   });
   return output.split(/\r?\n/).map(normalizePath).filter(Boolean);
 }
@@ -725,6 +731,7 @@ function changedLineRangesFromGit(root, base, head) {
       cwd: root,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'inherit'],
+      maxBuffer: GIT_MAX_BUFFER,
     }
   );
   return parseChangedLineRanges(output);
@@ -761,6 +768,7 @@ function commitMessages(root, base, head) {
       cwd: root,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: GIT_MAX_BUFFER,
     });
   } catch {
     return '';
