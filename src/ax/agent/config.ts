@@ -192,11 +192,15 @@ export type AxAgentDirectResponse = 'auto' | 'off';
 /**
  * Default for `directResponse` when unset.
  *
- * ON by default ('auto'). Gate record: see src/examples/direct-respond-eval.ts
- * — the landing bar was 0 false-skips on the must-not-skip scenario set
- * (tool-required facts, stale-context traps, effectful asks) with skip recall
- * >=80% on pure context-Q&A tasks and distiller evidence-quality parity in
- * the 'auto' vs 'off' A/B. (Results recorded here when the gate runs.)
+ * ON by default ('auto') since the landing gate passed (2026-07-04). Gate
+ * record (src/examples/direct-respond-eval.ts, 3 interleaved repeats, fresh
+ * agent per run, per model): gpt-5.4-mini AND gemini-3.5-flash both scored
+ * 0/12 false skips on the must-not-skip set (tool-required nonce facts, a
+ * stale-context trap, an effectful send, context+tool mix), 12/12 skip
+ * recall on pure context-Q&A with irrelevant modules registered, 12/12
+ * deterministic skips on function-less (static) agents, and identical 100%
+ * substance accuracy + tool-use rates between 'auto' and 'off' on the
+ * must-not-skip set (no covenant erosion of distiller forwarding).
  */
 export const DIRECT_RESPONSE_DEFAULT: AxAgentDirectResponse = 'auto';
 

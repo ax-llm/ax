@@ -149,6 +149,7 @@ import {
 } from './agent/completion.js';
 import type {
   AxAgentAutoUpgrade,
+  AxAgentDirectResponse,
   AxResolvedAutoUpgrade,
 } from './agent/config.js';
 import {
@@ -1451,6 +1452,7 @@ export type { AxAgentContextMapUpdateResult };
 export type { AxAgentContextPressure };
 export type { AxAgentContextStage };
 export type { AxAgentDemos };
+export type { AxAgentDirectResponse };
 export type { AxAgentDiscoveryPromptState };
 export type { AxAgentEvalDataset };
 export type { AxAgentEvalFunctionCall };
