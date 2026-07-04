@@ -194,13 +194,16 @@ export type AxAgentDirectResponse = 'auto' | 'off';
  *
  * ON by default ('auto') since the landing gate passed (2026-07-04). Gate
  * record (src/examples/direct-respond-eval.ts, 3 interleaved repeats, fresh
- * agent per run, per model): gpt-5.4-mini AND gemini-3.5-flash both scored
- * 0/12 false skips on the must-not-skip set (tool-required nonce facts, a
- * stale-context trap, an effectful send, context+tool mix), 12/12 skip
- * recall on pure context-Q&A with irrelevant modules registered, 12/12
- * deterministic skips on function-less (static) agents, and identical 100%
- * substance accuracy + tool-use rates between 'auto' and 'off' on the
- * must-not-skip set (no covenant erosion of distiller forwarding).
+ * agent per run, per model): gpt-5.4-mini, gemini-3.5-flash, AND
+ * gemini-flash-lite-latest all scored 0/12 false skips on the must-not-skip
+ * set (tool-required nonce facts, a stale-context trap, an effectful send,
+ * context+tool mix), 12/12 skip recall on pure context-Q&A with irrelevant
+ * modules registered, and 12/12 deterministic skips on function-less
+ * (static) agents. Substance accuracy and tool-use rates were identical
+ * between 'auto' and 'off' on every model (no covenant erosion of distiller
+ * forwarding) — flash-lite's lower 9/12 substance was present with the
+ * feature OFF too, i.e. a small-model writing artifact, not a skip
+ * regression.
  */
 export const DIRECT_RESPONSE_DEFAULT: AxAgentDirectResponse = 'auto';
 
