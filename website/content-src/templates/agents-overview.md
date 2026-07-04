@@ -22,12 +22,13 @@ The design bet behind Ax agents is simple: **the model should compute on your da
 
 ## The Pipeline
 
-Every `forward()` runs three stages:
+Every `forward()` runs up to three stages:
 
 ```mermaid
 flowchart LR
   A[Original typed inputs] --> B[Distiller]
   B -->|executorRequest + evidence by reference| C[Executor]
+  B -->|"respond(...) — no tools needed"| D
   C -->|tool evidence, runtime state, final envelope| D[Responder]
   D --> E[Typed output]
 ```
@@ -36,7 +37,7 @@ flowchart LR
 - **Executor** runs the work: tool use, discovery, memory recall, child-agent calls, and final/clarification envelopes.
 - **Responder** turns the executor evidence into the declared output signature.
 
-The two runtime stages share one session, so evidence passes by reference and the executor's prompt carries only a compact shape summary of it. This is why Ax agents work well with smaller models: each turn is one observable step against live state, not a re-read of a long transcript. [Internals]({{langRoot}}/agents/internals/) explains the stages, the context objects, and the research lineage.
+The two runtime stages share one session, so evidence passes by reference and the executor's prompt carries only a compact shape summary of it. This is why Ax agents work well with smaller models: each turn is one observable step against live state, not a re-read of a long transcript. When a task needs no tools, the distiller answers directly and the executor stage is skipped (`directResponse`, on by default). [Internals]({{langRoot}}/agents/internals/) explains the stages, the context objects, and the research lineage.
 
 ## When Not To Use An Agent
 

@@ -8,7 +8,7 @@ That is the whole program. There is no prompt to write, no parser to maintain, n
 
 ## Zero Config Is The Full Harness
 
-A micro agent is not a lesser mode. With no configuration, `agent()` already runs the complete pipeline — distiller, executor with a live runtime session, responder — the same machinery the [long-horizon tier]({{langRoot}}/agents/long-horizon/) uses. You just haven't needed to touch any of it yet. Two practical consequences:
+A micro agent is not a lesser mode. With no configuration, `agent()` already has the complete pipeline — distiller, executor with a live runtime session, responder — the same machinery the [long-horizon tier]({{langRoot}}/agents/long-horizon/) uses. You just haven't needed to touch any of it yet. (When a micro agent has no tools to run, the distiller answers directly and the executor stage is skipped — one fewer model call, same typed output.) Two practical consequences:
 
 - **Typed outputs are the system boundary.** The reply is validated against the signature and retried with feedback on mismatch, so downstream code consumes data, not prose.
 - **Actions really run.** Tools execute in the runtime; results are inspected before the agent answers. A micro agent that looks up an order answers from the record it fetched, not from a guess.
