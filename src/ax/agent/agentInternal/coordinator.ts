@@ -15,6 +15,7 @@ import type {
   AxProgramTrace,
 } from '../../dsp/types.js';
 import { ActorAgentRLM } from '../AxAgent.js';
+import { type AxResolvedAutoUpgrade, resolveAutoUpgrade } from '../config.js';
 import {
   AxAgentContextMap,
   type AxAgentContextMapConfig,
@@ -92,6 +93,7 @@ const SHARED_KNOB_KEYS = [
   'onUsedMemories',
   'functions',
   'functionDiscovery',
+  'autoUpgrade',
   'onSkillsSearch',
   'skillsCatalog',
   'onLoadedSkills',
@@ -179,6 +181,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   private readonly contextFieldNames: Set<string>;
+  /** Resolved auto-upgrade config; also read by the responder-input helpers. */
+  public readonly autoUpgradeResolved: AxResolvedAutoUpgrade;
   /** Field names stripped from executor inputs (from executorOptions.excludeFields). */
   public readonly executorExcludeFields: Set<string>;
   /** Field names stripped from responder inputs (from responderOptions.excludeFields). */
@@ -223,6 +227,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   ) {
     this.init = init;
     this.options = options;
+    this.autoUpgradeResolved = resolveAutoUpgrade(options.autoUpgrade);
     this.contextMapConfig = options.contextMap;
     this.contextMap = normalizeAgentContextMap(options.contextMap);
     this.fullSignature =
@@ -354,14 +359,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           .cache()
           .optional()
       );
-    // Only pipelines with declared context fields can have runtime-resident
-    // raw context for the executor phase to fall back on.
-    if (ctxFieldInputs.length > 0) {
+    // Declared context fields imply runtime-resident raw context for the
+    // executor phase to fall back on; auto-upgrade can additionally keep
+    // oversized executor inputs runtime-only on the fly.
+    if (
+      ctxFieldInputs.length > 0 ||
+      this.autoUpgradeResolved.contextFields.enabled
+    ) {
       executorSigBuilder = executorSigBuilder.input(
         'contextMetadata',
         f
           .string(
-            'Metadata about raw context variables (type and size) still live in the shared runtime from the context phase. Present only when the runtime session is shared.'
+            'Metadata about raw context variables (type and size) available in this stage runtime — carried from the context phase when the runtime session is shared, plus any oversized inputs auto-kept runtime-only for this stage.'
           )
           .cache()
           .optional()
@@ -764,14 +773,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           .cache()
           .optional()
       );
-    // Only pipelines with declared context fields can have runtime-resident
-    // raw context for the executor phase to fall back on.
-    if (ctxNames.size > 0) {
+    // Declared context fields imply runtime-resident raw context for the
+    // executor phase to fall back on; auto-upgrade can additionally keep
+    // oversized executor inputs runtime-only on the fly. Keep this gate and
+    // description in lockstep with the constructor path.
+    if (ctxNames.size > 0 || this.autoUpgradeResolved.contextFields.enabled) {
       executorSigBuilder = executorSigBuilder.input(
         'contextMetadata',
         f
           .string(
-            'Metadata about raw context variables (type and size) still live in the shared runtime from the context phase. Present only when the runtime session is shared.'
+            'Metadata about raw context variables (type and size) available in this stage runtime — carried from the context phase when the runtime session is shared, plus any oversized inputs auto-kept runtime-only for this stage.'
           )
           .cache()
           .optional()

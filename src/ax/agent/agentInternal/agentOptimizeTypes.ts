@@ -23,6 +23,7 @@ import type {
   AxAgentRecursiveStats,
   AxAgentRecursiveTraceNode,
 } from '../agentRecursiveOptimize.js';
+import type { AxAgentAutoUpgrade } from '../config.js';
 import type { AxAgentOnContextEvent } from '../contextEvents.js';
 import type { AxAgentContextMapConfig } from '../contextMap.js';
 import type { AxContextPolicyConfig } from '../rlm.js';
@@ -203,6 +204,31 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   functions?: AxAgentFunctionCollection;
   /** Enables runtime callable discovery (modules + on-demand definitions). */
   functionDiscovery?: boolean;
+
+  /**
+   * Smart defaults — ON by default (set `false` to opt out). Two upgrades,
+   * both driven by character counts so callers don't have to remember the
+   * underlying knobs:
+   *
+   * - `functionDiscovery`: when the option is left unset and the estimated
+   *   inline docs of discoverable functions exceed `aboveFunctionDocChars`
+   *   (default 10_000), discovery is enabled automatically. An explicit
+   *   `functionDiscovery: true | false` always wins.
+   * - `contextFields`: per run, an undeclared input value whose serialized
+   *   size exceeds `promoteAboveChars` (default 8_000, strictly greater) is
+   *   kept runtime-only like a declared context field: the prompt gets a
+   *   truncated preview (`previewChars`, default 1_200) plus a
+   *   `contextMetadata` entry, while the full value stays addressable in the
+   *   code runtime as `inputs.<field>`. Fields declared in `contextFields`
+   *   keep their declared config. Values in required non-string fields
+   *   (arrays, objects, numbers, media) are left inline — declare those in
+   *   `contextFields` explicitly. Each promotion emits a
+   *   `field_auto_promoted` context event for observability.
+   *
+   * Pass an object to tune or disable each side independently. TS-first: the
+   * 5 non-TS ports do not ship auto-upgrade yet.
+   */
+  autoUpgrade?: AxAgentAutoUpgrade;
 
   /**
    * Advisory local relevance ranker — ON by default (set `false` to opt out).

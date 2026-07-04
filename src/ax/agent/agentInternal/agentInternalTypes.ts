@@ -102,6 +102,14 @@ export type AxResolvedExecutorModelPolicyEntry = {
 export type AxResolvedExecutorModelPolicy =
   readonly AxResolvedExecutorModelPolicyEntry[];
 
+/** One auto-upgrade context promotion, pending `field_auto_promoted` emission. */
+export type AxAgentAutoPromotionRecord = {
+  fieldName: string;
+  originalChars: number;
+  /** Chars kept inline as a preview; undefined => runtime-only. */
+  promptPreviewChars?: number;
+};
+
 export type AxAgentRuntimeInputState = {
   currentInputs: Record<string, unknown>;
   signatureInputFieldNames: Set<string>;
@@ -109,6 +117,8 @@ export type AxAgentRuntimeInputState = {
   getNonContextValues: () => Record<string, unknown>;
   getActorInlineContextValues: () => Record<string, unknown>;
   getContextMetadata: () => string | undefined;
+  /** Returns promotions recorded since the last drain (each field once per run). */
+  drainAutoPromotionEvents: () => readonly AxAgentAutoPromotionRecord[];
 };
 
 export type AxAgentRuntimeCompletionState = {

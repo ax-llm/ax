@@ -10,6 +10,7 @@ import {
   type AxAgentContextMapUpdateResult,
 } from './agent/AxAgent.js';
 import type {
+  AxAgentAutoPromotionRecord,
   AxAgentExecutorResultPayload,
   AxAgentFunctionCall,
   AxAgentFunctionCallRecorder,
@@ -146,6 +147,10 @@ import {
   type AxAgentGuidancePayload,
   AxAgentProtocolCompletionSignal,
 } from './agent/completion.js';
+import type {
+  AxAgentAutoUpgrade,
+  AxResolvedAutoUpgrade,
+} from './agent/config.js';
 import {
   type AxCodeRuntime,
   type AxCodeSession,
@@ -1429,6 +1434,8 @@ export type { AxAPIConfig };
 export type { AxAPIResponseMetadata };
 export type { AxAgentActorTurnCallback };
 export type { AxAgentActorTurnCallbackArgs };
+export type { AxAgentAutoPromotionRecord };
+export type { AxAgentAutoUpgrade };
 export type { AxAgentCatalogSkill };
 export type { AxAgentClarification };
 export type { AxAgentClarificationChoice };
@@ -1754,6 +1761,7 @@ export type { AxRefineOptions };
 export type { AxRefineStrategy };
 export type { AxRelevanceHints };
 export type { AxRenderedPrompt };
+export type { AxResolvedAutoUpgrade };
 export type { AxResolvedContextPolicy };
 export type { AxResolvedExecutorModelPolicy };
 export type { AxResolvedExecutorModelPolicyEntry };

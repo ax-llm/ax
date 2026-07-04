@@ -824,7 +824,11 @@ function describeContextFieldPromptMode(
   }
 
   if (typeof value !== 'string') {
-    return 'runtime-only (keepInPromptChars requires string)';
+    // Auto-promoted non-string values can be inlined as a stringified
+    // preview; declared truncate-config fields never inline non-strings.
+    return isInlined
+      ? `inline-truncated stringified(first ${promptConfig.keepInPromptChars} chars)`
+      : 'runtime-only (keepInPromptChars requires string)';
   }
 
   if (!isInlined) {
@@ -840,7 +844,7 @@ function describeContextFieldPromptMode(
     : `inline-truncated(first ${promptConfig.keepInPromptChars} chars of ${value.length})`;
 }
 
-function estimateValueSize(value: unknown): number {
+export function estimateValueSize(value: unknown): number {
   if (typeof value === 'string') {
     return value.length;
   }
@@ -849,6 +853,34 @@ function estimateValueSize(value: unknown): number {
   } catch {
     return String(value).length;
   }
+}
+
+/**
+ * True when a truncated string preview is a valid value for this input field
+ * (per `validateValue`): untyped fields and scalar string-typed kinds accept
+ * plain strings; arrays, numbers, booleans, objects, and media types do not.
+ */
+export function fieldAcceptsStringPreview(
+  field: Readonly<Pick<AxIField, 'type'>> | undefined
+): boolean {
+  if (!field) {
+    return false;
+  }
+  const type = field.type;
+  if (!type) {
+    return true;
+  }
+  if (type.isArray) {
+    return false;
+  }
+  return (
+    type.name === 'string' ||
+    type.name === 'code' ||
+    type.name === 'class' ||
+    type.name === 'json' ||
+    type.name === 'date' ||
+    type.name === 'datetime'
+  );
 }
 
 export function normalizeContextFields(

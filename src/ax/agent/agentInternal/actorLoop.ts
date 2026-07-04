@@ -82,6 +82,14 @@ export async function runActorLoop<IN extends AxGenIn>(
   inputState.recomputeTurnInputs(false);
 
   const contextStage = normalizeContextStage(s.options?.stageVariant);
+  for (const promotion of inputState.drainAutoPromotionEvents()) {
+    await emitContextEvent(s.onContextEvent, {
+      kind: 'field_auto_promoted',
+      stage: contextStage,
+      turn: 0,
+      ...promotion,
+    });
+  }
   const stagePolicy = resolveStagePolicy(s.options?.stageVariant);
   if (stagePolicy.ingestsForwardSkills) {
     const forwardSkills = (

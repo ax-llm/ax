@@ -81,7 +81,17 @@ export function buildSplitPrograms(self: any): void {
     .addInputFields(nonContextInputs)
     .addInputFields(actorInlineContextInputs);
 
-  if (contextFields.length > 0) {
+  // Declared context fields need the metadata channel; auto-upgrade needs it
+  // too since any oversized run value may be kept runtime-only on the fly.
+  // The executor stage already carries `contextMetadata` in its base
+  // signature (added by the coordinator) — don't add a duplicate.
+  const hasContextMetadataInput = inputFields.some(
+    (fld: FieldLike) => fld.name === 'contextMetadata'
+  );
+  if (
+    !hasContextMetadataInput &&
+    (contextFields.length > 0 || s.autoUpgrade?.contextFields?.enabled === true)
+  ) {
     actorSigBuilder = actorSigBuilder.input(
       'contextMetadata',
       f

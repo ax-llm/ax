@@ -4,14 +4,17 @@ import { AxJSRuntime } from '../../funcs/jsRuntime.js';
 import {
   DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS,
   RELEVANCE_RANKING_DEFAULT,
+  resolveAutoUpgrade,
   resolveExecutorModelPolicy,
 } from '../config.js';
 import { getRuntimeLanguageInfo } from '../rlm.js';
 import {
+  DISCOVERY_DISCOVER_NAME,
   normalizeContextFields,
   shouldEnforceIncrementalConsoleTurns,
 } from '../runtime.js';
 import {
+  estimateInlineFunctionDocChars,
   normalizeAgentFunctionCollection,
   toCamelCase,
 } from '../runtimeDiscovery.js';
@@ -64,6 +67,7 @@ export function initializeAgentInternal(
   s.ai = ai;
   s.judgeAI = judgeAI;
   s.agentIdentity = agentIdentity ? { ...agentIdentity } : undefined;
+  s.autoUpgrade = resolveAutoUpgrade(options.autoUpgrade);
   s.functionDiscoveryEnabled = options.functionDiscovery ?? false;
   // Advisory relevance ranker. Each domain lights up only when its
   // prerequisite is met: modules need discovery; skills/memories need their
@@ -156,12 +160,35 @@ export function initializeAgentInternal(
   s.agents = localAgentFnBundle.agents;
   s._mergeAgentFunctionModuleMetadata(localAgentFnBundle.moduleMetadata);
 
+  // Auto-upgrade: enable discovery for large tool catalogs unless the caller
+  // decided explicitly. Deterministic from the shared function set, so the
+  // distiller and executor stages always agree. Skipped when a `discover`
+  // namespace exists — auto must never turn a working construction into a
+  // reserved-namespace validation error.
+  if (
+    options.functionDiscovery === undefined &&
+    s.autoUpgrade.functionDiscovery.enabled &&
+    !s.agentFunctions.some(
+      (fn: { namespace?: string }) =>
+        (fn.namespace ?? 'utils') === DISCOVERY_DISCOVER_NAME
+    ) &&
+    estimateInlineFunctionDocChars(s.agentFunctions) >
+      s.autoUpgrade.functionDiscovery.aboveFunctionDocChars
+  ) {
+    s.functionDiscoveryEnabled = true;
+    // Hint flags were derived above from the pre-decision discovery flag.
+    s.moduleHintEnabled = relevanceRankingChoice;
+    s.relevanceHintsEnabled =
+      s.moduleHintEnabled || s.skillsHintEnabled || s.memoriesHintEnabled;
+  }
+
   // Create the base program (used for signature/schema access).
   // `description` is stripped because AxAgent owns the per-stage prompts;
   // letting it through would stamp the signature and trip the validator.
   const {
     functions: _fn,
     functionDiscovery: _fd,
+    autoUpgrade: _au,
     relevanceRanking: _rr,
     skills: _sk,
     skillsCatalog: _skc,

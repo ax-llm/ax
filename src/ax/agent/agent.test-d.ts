@@ -740,6 +740,31 @@ import {
   });
 }
 
+// autoUpgrade accepts booleans and per-domain tuning objects
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', { runtime, autoUpgrade: true });
+  agent('query:string -> answer:string', { runtime, autoUpgrade: false });
+  agent('query:string -> answer:string', {
+    runtime,
+    autoUpgrade: { functionDiscovery: false },
+  });
+  agent('query:string -> answer:string', {
+    runtime,
+    autoUpgrade: {
+      functionDiscovery: { aboveFunctionDocChars: 1 },
+      contextFields: { promoteAboveChars: 100, previewChars: 10 },
+    },
+  });
+  agent('query:string -> answer:string', {
+    runtime,
+    autoUpgrade: {
+      // @ts-expect-error thresholds must be numbers
+      contextFields: { promoteAboveChars: 'big' },
+    },
+  });
+}
+
 // AxAgent grouped function modules should reject non-boolean alwaysInclude
 {
   const runtime = {} as AxCodeRuntime;

@@ -514,6 +514,7 @@ async function runDiscoveryPromptScenario(args: {
     | undefined;
   context?: string;
   query?: string;
+  autoUpgrade?: boolean;
 }) {
   let actorCallCount = 0;
   let capturedActorActionLogPrompt = '';
@@ -597,6 +598,9 @@ async function runDiscoveryPromptScenario(args: {
     functions: makeDiscoveryFunctionGroups(),
     functionDiscovery: true,
     contextPolicy: args.contextPolicy,
+    ...(args.autoUpgrade !== undefined
+      ? { autoUpgrade: args.autoUpgrade }
+      : {}),
   });
 
   const result = await testAgent.forward(testMockAI, {
@@ -1468,9 +1472,14 @@ describe('Split-architecture signature derivation', () => {
 
     expect(actorInputs.find((f: AxIField) => f.name === 'query')).toBeDefined();
     expect(actorInputs.find((f: AxIField) => f.name === 'note')).toBeDefined();
-    expect(
-      actorInputs.find((f: AxIField) => f.name === 'contextMetadata')
-    ).toBeUndefined();
+    // Auto-upgrade (default ON) keeps the contextMetadata channel available
+    // even without declared contextFields — oversized run values may be
+    // auto-kept runtime-only.
+    const contextMetadataField = actorInputs.find(
+      (f: AxIField) => f.name === 'contextMetadata'
+    );
+    expect(contextMetadataField).toBeDefined();
+    expect(contextMetadataField?.isOptional).toBe(true);
     expect(
       actorInputs.find((f: AxIField) => f.name === 'guidanceLog')
     ).toBeDefined();
@@ -1493,6 +1502,21 @@ describe('Split-architecture signature derivation', () => {
 
     expect(functionSchema.properties?.query).toBeDefined();
     expect(functionSchema.properties?.note).toBeDefined();
+  });
+
+  it('should omit contextMetadata without contextFields when autoUpgrade is off', () => {
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      autoUpgrade: false,
+    });
+
+    const actorSig = getInternal(testAgent).actorProgram.getSignature();
+    expect(
+      actorSig
+        .getInputFields()
+        .find((f: AxIField) => f.name === 'contextMetadata')
+    ).toBeUndefined();
   });
 
   it('should reject setSignature when configured fields are removed', () => {
@@ -3878,6 +3902,7 @@ describe('Actor/Responder execution loop', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
+      autoUpgrade: false,
       contextFields: ['context'],
       runtime,
       maxTurns: 6,
@@ -4010,6 +4035,7 @@ describe('Actor/Responder execution loop', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
+      autoUpgrade: false,
       contextFields: ['context'],
       runtime,
       maxTurns: 5,
@@ -4153,6 +4179,7 @@ describe('Actor/Responder execution loop', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
+      autoUpgrade: false,
       contextFields: ['context'],
       runtime,
       maxTurns: 5,
@@ -4518,6 +4545,7 @@ describe('Actor/Responder execution loop', () => {
         },
         context: 'ctx',
         query: 'q'.repeat(13_000),
+        autoUpgrade: false,
       });
 
     expect(result.answer).toBe('done');
@@ -4679,6 +4707,7 @@ describe('Actor/Responder execution loop', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
+      autoUpgrade: false,
       contextFields: ['context'],
       runtime,
       maxTurns: 4,
@@ -4817,6 +4846,7 @@ describe('Actor/Responder execution loop', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
+      autoUpgrade: false,
       contextFields: ['context'],
       runtime,
       maxTurns: 2,
@@ -10354,6 +10384,7 @@ describe('actor turn callbacks', () => {
 
     const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
+      autoUpgrade: false,
       contextFields: [],
       runtime,
       functions: [uppercaseFn],

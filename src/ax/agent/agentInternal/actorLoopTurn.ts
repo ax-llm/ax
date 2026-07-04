@@ -87,6 +87,14 @@ export async function runActorTurn<_IN extends AxGenIn>(
   const actorInstruction = refreshActorInstruction();
   await applyInputUpdateCallback();
   inputState.recomputeTurnInputs(true);
+  for (const promotion of inputState.drainAutoPromotionEvents()) {
+    await emitContextEvent(s.onContextEvent, {
+      kind: 'field_auto_promoted',
+      stage: contextStage,
+      turn: turn + 1,
+      ...promotion,
+    });
+  }
   if (await refreshCheckpointSummary(actionLogEntries.length)) {
     resetActorModelErrorState();
   }

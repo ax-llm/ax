@@ -572,6 +572,43 @@ export function renderDiscoveryFunctionDefinitionsMarkdown(
     .join('\n\n');
 }
 
+/**
+ * Estimate the chars the discoverable (non-`alwaysInclude`) functions would
+ * occupy when inlined into the actor prompt with discovery off. Deliberately
+ * runtime-independent (schema JSON, not the runtime-specific callable
+ * renderer) so the distiller and executor stages reach the identical
+ * auto-discovery decision even when they run different runtimes. Examples are
+ * excluded — they are only rendered after discovery, never inline.
+ */
+export function estimateInlineFunctionDocChars(
+  functions: readonly AxAgentFunction[]
+): number {
+  const safeJsonLen = (value: unknown): number => {
+    if (value === undefined) {
+      return 0;
+    }
+    try {
+      return JSON.stringify(value)?.length ?? 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  let total = 0;
+  for (const fn of functions) {
+    if ((fn as { _alwaysInclude?: boolean })._alwaysInclude === true) {
+      continue;
+    }
+    total +=
+      fn.name.length +
+      (fn.description?.length ?? 0) +
+      safeJsonLen(fn.parameters) +
+      safeJsonLen(fn.returns) +
+      40;
+  }
+  return total;
+}
+
 export function toCamelCase(inputString: string): string {
   const parts = inputString
     .trim()

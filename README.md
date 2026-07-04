@@ -333,6 +333,8 @@ const result = await analyzer.forward(llm, {
 
 The **recursive runtime** (RLM) keeps long context out of the root prompt: the executor runs JS in a persistent sandboxed session, narrows context with `llmQuery(...)` sub-calls, and uses checkpointed replay so older turns collapse into summaries instead of growing the prompt unbounded.
 
+You don't have to remember the knobs: `autoUpgrade` (ON by default) keeps oversized input values runtime-only with a truncated prompt preview even when they aren't declared in `contextFields`, and turns on `functionDiscovery` automatically when the inline tool docs get large. Explicit settings always win; pass `autoUpgrade: false` to opt out.
+
 Runnable: [`src/examples/rlm-agent-controlled.ts`](src/examples/rlm-agent-controlled.ts), [`src/examples/rlm-discovery.ts`](src/examples/rlm-discovery.ts).
 
 ### Context map, memories, skills, sandboxed runtime

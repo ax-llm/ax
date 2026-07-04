@@ -69,6 +69,22 @@ export type AxAgentContextEvent =
       shortlist: { id: string; score: number }[];
       /** True when the low-confidence guard emitted nothing. */
       suppressed: boolean;
+    }
+  /**
+   * Emitted once per field per run when `autoUpgrade.contextFields` keeps an
+   * oversized undeclared input value runtime-only. The value stays available
+   * in the code runtime as `inputs.<fieldName>`; the prompt carries a
+   * truncated preview (or nothing when `promptPreviewChars` is undefined)
+   * plus a `contextMetadata` entry.
+   */
+  | {
+      kind: 'field_auto_promoted';
+      stage: AxAgentContextStage;
+      turn: number;
+      fieldName: string;
+      originalChars: number;
+      /** Chars kept inline as a preview; undefined => runtime-only. */
+      promptPreviewChars?: number;
     };
 
 export type AxAgentOnContextEvent = (

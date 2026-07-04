@@ -14,6 +14,10 @@ import type {
 } from '../../dsp/types.js';
 import { flow } from '../../flow/flow.js';
 import { DEFAULT_RLM_MAX_LLM_CALLS } from '../config.js';
+import {
+  buildContextFieldPromptInlineValue,
+  fieldAcceptsStringPreview,
+} from '../runtime.js';
 import type { AxAgentClarification } from './agentStateTypes.js';
 import { AxAgentClarificationError } from './agentStateTypes.js';
 import { transcribeAgentAudioInputs } from './audioInputs.js';
@@ -24,6 +28,7 @@ import type {
   AxAgentUsedMemoriesCallback,
   AxAgentUsedMemory,
 } from './memoriesTypes.js';
+import { AUTO_PROMOTION_RESERVED_FIELDS } from './runtimeInputState.js';
 import {
   AxAgentSharedRuntimeSession,
   buildEvidenceDescriptor,
@@ -442,6 +447,62 @@ function buildExecutorInputsFromDistiller(p: any, state: any) {
 }
 
 /**
+ * Assemble the responder's non-context values from the executor stage's
+ * returned values plus the original input. Restores executor-excluded fields
+ * and any original key the executor stage dropped (stage-level auto-promotion
+ * keeps oversized values runtime-only, so they never come back in
+ * `nonContextValues`), substitutes a truncated preview for oversized string
+ * values when auto-upgrade is on (the responder synthesizes from executor
+ * evidence — it has no runtime to read full values from, so non-string
+ * oversized values pass through untouched), then drops
+ * `responderExcludeFields`. Shared by the flow, streaming, and evaluation
+ * paths.
+ */
+export function finalizeResponderNonContextValues(
+  p: any,
+  nonCtxFromExecutor: Record<string, unknown>,
+  originalNonCtxValues: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...nonCtxFromExecutor };
+  const executorExclude: Set<string> = p.executorExcludeFields;
+  for (const [key, value] of Object.entries(originalNonCtxValues)) {
+    if (executorExclude.has(key) || !(key in out)) {
+      out[key] = value;
+    }
+  }
+
+  const autoContext = p.autoUpgradeResolved?.contextFields as
+    | { enabled: boolean; promoteAboveChars: number; previewChars: number }
+    | undefined;
+  if (autoContext?.enabled) {
+    const fieldByName = new Map<string, { type?: unknown }>(
+      (p.fullSignature?.getInputFields?.() ?? []).map(
+        (fld: { name: string }) => [fld.name, fld]
+      )
+    );
+    for (const [key, value] of Object.entries(out)) {
+      if (
+        typeof value !== 'string' ||
+        value.length <= autoContext.promoteAboveChars ||
+        AUTO_PROMOTION_RESERVED_FIELDS.has(key) ||
+        !fieldAcceptsStringPreview(fieldByName.get(key) as any)
+      ) {
+        continue;
+      }
+      out[key] = buildContextFieldPromptInlineValue(value, {
+        kind: 'truncate',
+        keepInPromptChars: autoContext.previewChars,
+        reverseTruncate: false,
+      });
+    }
+  }
+
+  const responderExclude: Set<string> = p.responderExcludeFields;
+  for (const key of responderExclude) delete out[key];
+  return out;
+}
+
+/**
  * After the executor runs, build the input for the responder. Starts
  * from the task executor's nonContextValues (so inputUpdateCallback edits
  * survive), restores actor-excluded fields from the original input, then
@@ -461,15 +522,11 @@ function buildResponderInputFromExecutor(p: any, state: any) {
     string,
     unknown
   >;
-  const nonCtxForResponder: Record<string, unknown> = { ...nonCtxFromExecutor };
-  const executorExclude: Set<string> = p.executorExcludeFields;
-  for (const key of executorExclude) {
-    if (key in originalNonCtxValues) {
-      nonCtxForResponder[key] = originalNonCtxValues[key];
-    }
-  }
-  const responderExclude: Set<string> = p.responderExcludeFields;
-  for (const key of responderExclude) delete nonCtxForResponder[key];
+  const nonCtxForResponder = finalizeResponderNonContextValues(
+    p,
+    nonCtxFromExecutor,
+    originalNonCtxValues
+  );
   const usedMemories = mergeUsedMemoryResults(
     state.distillerResult?.usedMemories,
     executorRun.usedMemories ?? []
@@ -713,19 +770,11 @@ export async function* streamingForwardPipeline<
       memories: _ignoreM,
       ...nonCtxFromExecutor
     } = executorRun.nonContextValues as Record<string, unknown>;
-    const nonCtxForResponder: Record<string, unknown> = {
-      ...nonCtxFromExecutor,
-    };
-    const executorExclude: Set<string> = p.executorExcludeFields;
-    for (const key of executorExclude) {
-      if (key in (nonCtxValues as Record<string, unknown>)) {
-        nonCtxForResponder[key] = (nonCtxValues as Record<string, unknown>)[
-          key
-        ];
-      }
-    }
-    const responderExclude: Set<string> = p.responderExcludeFields;
-    for (const key of responderExclude) delete nonCtxForResponder[key];
+    const nonCtxForResponder = finalizeResponderNonContextValues(
+      p,
+      nonCtxFromExecutor,
+      nonCtxValues as Record<string, unknown>
+    );
     yield* p.responder.streamingForward(responderAi, {
       nonContextValues: nonCtxForResponder,
       executorResult: executorRun.executorResult,

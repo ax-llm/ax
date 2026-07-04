@@ -50,6 +50,138 @@ export const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
  */
 export const RELEVANCE_RANKING_DEFAULT = true;
 
+/**
+ * Default for the auto-upgrade smart defaults when `autoUpgrade` is unset.
+ *
+ * ON by default: the agent enables `functionDiscovery` when the inline tool
+ * docs would be large, and keeps oversized input values runtime-only with a
+ * truncated prompt preview, so callers don't have to remember either knob.
+ * Set `autoUpgrade: false` to restore fully manual behavior. Explicit
+ * settings always win: a caller-provided `functionDiscovery` boolean or a
+ * field declared in `contextFields` is never overridden.
+ *
+ * NOTE: TS-first by explicit decision — the 5 non-TS ports do not ship
+ * auto-upgrade yet, so cross-language behavior diverges on this point until
+ * they catch up (port work tracked as the follow-up).
+ */
+export const AUTO_UPGRADE_DEFAULT = true;
+/**
+ * Auto-enable `functionDiscovery` once the estimated inline docs of
+ * discoverable (non-`alwaysInclude`) functions exceed this many chars.
+ * ~10k chars is roughly 12-15 mid-size tool schemas — past that, a module
+ * catalog plus on-demand `discover()` beats a wall of inline schemas.
+ */
+export const DEFAULT_AUTO_DISCOVERY_FUNCTION_DOC_CHARS = 10_000;
+/**
+ * Auto-treat an undeclared input value as runtime-only context once its
+ * serialized size exceeds this many chars (strictly greater). Half the
+ * default 16k `targetPromptChars` budget: one field eating more than half
+ * the prompt budget is pathological in every stage it touches.
+ */
+export const DEFAULT_AUTO_CONTEXT_PROMOTE_CHARS = 8_000;
+/**
+ * Chars of an auto-promoted value kept inline as a truncated preview.
+ * Mirrors DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS so auto-promoted fields
+ * read like declared truncate-style context fields.
+ */
+export const DEFAULT_AUTO_CONTEXT_PREVIEW_CHARS = 1_200;
+
+/**
+ * Smart-defaults knob: `true`/`false` toggles both upgrades; an object tunes
+ * each independently (an object value implies enabled for that domain).
+ */
+export type AxAgentAutoUpgrade =
+  | boolean
+  | {
+      /** Auto-enable runtime callable discovery for large tool catalogs. */
+      functionDiscovery?: boolean | { aboveFunctionDocChars?: number };
+      /** Auto-keep oversized undeclared input values runtime-only. */
+      contextFields?:
+        | boolean
+        | { promoteAboveChars?: number; previewChars?: number };
+    };
+
+export type AxResolvedAutoUpgrade = {
+  functionDiscovery: { enabled: boolean; aboveFunctionDocChars: number };
+  contextFields: {
+    enabled: boolean;
+    promoteAboveChars: number;
+    previewChars: number;
+  };
+};
+
+function normalizeAutoUpgradeThreshold(
+  value: unknown,
+  fieldName: string,
+  fallback: number,
+  minExclusive: number
+): number {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    value <= minExclusive
+  ) {
+    throw new Error(`${fieldName} must be a finite number > ${minExclusive}`);
+  }
+
+  return value;
+}
+
+export function resolveAutoUpgrade(
+  value: AxAgentAutoUpgrade | undefined
+): AxResolvedAutoUpgrade {
+  const root = value ?? AUTO_UPGRADE_DEFAULT;
+  let discoveryOpt: boolean | { aboveFunctionDocChars?: number } | undefined;
+  let contextOpt:
+    | boolean
+    | { promoteAboveChars?: number; previewChars?: number }
+    | undefined;
+  if (typeof root === 'boolean') {
+    discoveryOpt = root;
+    contextOpt = root;
+  } else {
+    discoveryOpt = root.functionDiscovery;
+    contextOpt = root.contextFields;
+  }
+
+  const discoveryEnabled =
+    discoveryOpt === undefined ? true : discoveryOpt !== false;
+  const contextEnabled = contextOpt === undefined ? true : contextOpt !== false;
+  const discoveryTuning = typeof discoveryOpt === 'object' ? discoveryOpt : {};
+  const contextTuning = typeof contextOpt === 'object' ? contextOpt : {};
+
+  return {
+    functionDiscovery: {
+      enabled: discoveryEnabled,
+      aboveFunctionDocChars: normalizeAutoUpgradeThreshold(
+        discoveryTuning.aboveFunctionDocChars,
+        'autoUpgrade.functionDiscovery.aboveFunctionDocChars',
+        DEFAULT_AUTO_DISCOVERY_FUNCTION_DOC_CHARS,
+        0
+      ),
+    },
+    contextFields: {
+      enabled: contextEnabled,
+      promoteAboveChars: normalizeAutoUpgradeThreshold(
+        contextTuning.promoteAboveChars,
+        'autoUpgrade.contextFields.promoteAboveChars',
+        DEFAULT_AUTO_CONTEXT_PROMOTE_CHARS,
+        0
+      ),
+      previewChars: normalizeAutoUpgradeThreshold(
+        contextTuning.previewChars,
+        'autoUpgrade.contextFields.previewChars',
+        DEFAULT_AUTO_CONTEXT_PREVIEW_CHARS,
+        -1
+      ),
+    },
+  };
+}
+
 /** System prompt size at which the chat budget hits the floor ratio. */
 const BUDGET_CURVE_MAX_SYSTEM_CHARS = 30_000;
 /** Minimum fraction of targetPromptChars always reserved for chat context. */

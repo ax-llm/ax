@@ -48,7 +48,7 @@ Use a flat `functions` list for small stable sets: local `fn()` tools, child age
 
 {{agentToolsExample}}
 
-Use grouped functions when the catalog is large or easier to reason about by domain. Each group gives the actor a namespace plus module-level selection criteria; with `functionDiscovery: true`, concrete schemas are loaded only after the actor calls `discover(...)`.
+Use grouped functions when the catalog is large or easier to reason about by domain. Each group gives the actor a namespace plus module-level selection criteria; with `functionDiscovery: true`, concrete schemas are loaded only after the actor calls `discover(...)`. You rarely need to set the flag yourself: `autoUpgrade` (ON by default) enables discovery automatically once the inline tool docs get large, and likewise keeps oversized input values runtime-only with a truncated prompt preview when they aren't declared in `contextFields`. Explicit settings always win; pass `autoUpgrade: false` to opt out.
 
 {{agentDiscoveryExample}}
 

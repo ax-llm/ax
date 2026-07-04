@@ -788,6 +788,7 @@ export class ActorAgentRLM<
     const {
       functions: _fn,
       functionDiscovery: _fd,
+      autoUpgrade: _au,
       relevanceRanking: _rr,
       skills: _sk,
       skillsCatalog: _skc,

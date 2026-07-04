@@ -45,6 +45,7 @@ Map user intent to agent shape before writing code:
 - Use `agent(...)` factory syntax for new code.
 - Add child agents to the parent's `functions: [...]` list. Each child's `agentIdentity.namespace` (or `utils`, the default) determines the runtime call site, e.g. `await team.writer({...})`.
 - If discovery is enabled, call `discover(...)` before using callables whose docs are not already in the prompt.
+- `autoUpgrade` is ON by default: large tool catalogs auto-enable discovery, and oversized undeclared input values are auto-kept runtime-only with a truncated prompt preview. Explicit `functionDiscovery` and declared `contextFields` always win; set `autoUpgrade: false` to opt out.
 - If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)` or `extra.protocol.askClarification(...)`.
 - In public `forward()` and `streamingForward()` flows, `askClarification(...)` throws `AxAgentClarificationError`; it does not go through the responder.
 - When resuming after clarification, prefer `error.getState()` from the thrown `AxAgentClarificationError`, then call `agent.setState(savedState)` before the next `forward(...)`.
@@ -526,6 +527,7 @@ agent(signature, {
   contextFields,
   functions,
   functionDiscovery,
+  autoUpgrade,
   ...agentOptions,
 });
 ```
@@ -552,6 +554,26 @@ Each `contextFields` entry is either a plain field name string or an object cont
 - `{ field, keepInPromptChars: N, reverseTruncate?: boolean }`: always inline a truncated string excerpt; `reverseTruncate: true` keeps the last `N` chars.
 
 Use `promptMaxChars` when partial data is worse than no data. Use `keepInPromptChars` when a prefix or suffix alone is useful. The two options are mutually exclusive on one field.
+
+### Auto-upgrade defaults
+
+`autoUpgrade` is ON by default: the agent applies both knobs above on the user's behalf based on character counts, so forgetting them no longer floods prompts.
+
+- Function discovery: when `functionDiscovery` is left unset and the estimated inline docs of discoverable functions exceed ~10k chars, discovery is enabled automatically. An explicit `functionDiscovery: true | false` always wins.
+- Context fields: per run, an undeclared input value whose serialized size exceeds 8k chars is kept runtime-only like a declared context field — the prompt gets a 1,200-char truncated preview plus a `contextMetadata` entry, while the full value stays addressable as `inputs.<field>` in the code runtime (the responder stage gets the same preview). Fields declared in `contextFields` keep their declared config.
+
+```typescript
+autoUpgrade?: boolean | {
+  functionDiscovery?: boolean | { aboveFunctionDocChars?: number };  // default 10_000
+  contextFields?: boolean | { promoteAboveChars?: number; previewChars?: number };  // 8_000 / 1_200
+}
+```
+
+Rules:
+
+- Set `autoUpgrade: false` (or disable one side) to restore fully manual behavior.
+- Values in required non-string fields (arrays, objects, numbers, media) are never auto-promoted — declare those in `contextFields` explicitly when they can be large.
+- Each promotion emits a `field_auto_promoted` context event (`onContextEvent`) with the field name, original size, and preview size; use it to observe what was kept out of the prompt.
 
 ## Public Surface
 

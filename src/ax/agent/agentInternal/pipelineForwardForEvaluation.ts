@@ -17,6 +17,7 @@ import {
   beginPipelineSharedSession,
   buildExecutorHandoffInputs,
   endPipelineSharedSession,
+  finalizeResponderNonContextValues,
 } from './pipelineForward.js';
 import type {
   AxAgentClarification,
@@ -162,19 +163,11 @@ export async function forwardPipelineForEvaluation<
       memories: _ignoreM,
       ...nonCtxFromExecutor
     } = nonContextValues as Record<string, unknown>;
-    const nonCtxForResponder: Record<string, unknown> = {
-      ...nonCtxFromExecutor,
-    };
-    const executorExcludeForResponder: Set<string> = p.executorExcludeFields;
-    for (const key of executorExcludeForResponder) {
-      if (key in nonCtxValues) {
-        nonCtxForResponder[key] = (nonCtxValues as Record<string, unknown>)[
-          key
-        ];
-      }
-    }
-    const responderExclude: Set<string> = p.responderExcludeFields;
-    for (const key of responderExclude) delete nonCtxForResponder[key];
+    const nonCtxForResponder = finalizeResponderNonContextValues(
+      p,
+      nonCtxFromExecutor,
+      nonCtxValues as Record<string, unknown>
+    );
     const responderResult = await p.responder.forward(ai, {
       nonContextValues: nonCtxForResponder,
       executorResult,
