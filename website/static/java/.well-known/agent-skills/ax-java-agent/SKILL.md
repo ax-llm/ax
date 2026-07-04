@@ -1,6 +1,6 @@
 ---
 name: "ax-java-agent"
-description: "Use when writing Java code with `dev.axllm:ax` for agents, child delegation, tools, MCP, clarification, runtime state, and final typed responses."
+description: "Use when writing Java code with `dev.axllm:ax` for agents, child delegation, tools, MCP, clarification, runtime state, final typed responses, and direct-respond executor skipping."
 version: "22.0.9"
 ---
 # AxAgent For Java
@@ -10,7 +10,8 @@ This skill helps an agent write Java code with the generated Ax package `dev.axl
 ## When To Use
 
 - Create an RLM agent with tools, child agents, or MCP clients.
-- Use clarification, discovery, recall, or final-response envelopes.
+- Use clarification, discovery, recall, final, or respond envelopes.
+- Skip the executor stage for no-tool tasks with a distiller `respond` envelope (`directResponse`, on by default).
 - Save and restore agent runtime state around long-running tasks.
 
 ## Package Facts

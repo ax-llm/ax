@@ -79,10 +79,11 @@ var packageSkillSpecs = []packageSkillSpec{
 		ID:          "agent",
 		Title:       "AxAgent",
 		Area:        "RLM agents and tools",
-		Description: "agents, child delegation, tools, MCP, clarification, runtime state, and final typed responses",
+		Description: "agents, child delegation, tools, MCP, clarification, runtime state, final typed responses, and direct-respond executor skipping",
 		UseWhen: []string{
 			"Create an RLM agent with tools, child agents, or MCP clients.",
-			"Use clarification, discovery, recall, or final-response envelopes.",
+			"Use clarification, discovery, recall, final, or respond envelopes.",
+			"Skip the executor stage for no-tool tasks with a distiller `respond` envelope (`directResponse`, on by default).",
 			"Save and restore agent runtime state around long-running tasks.",
 		},
 		Sections: []string{"agents-rlm", "runtime-profiles", "mcp"},
