@@ -79,7 +79,7 @@ impl AxCodeRuntime for QuickJsCodeRuntime {
     }
 
     fn usage_instructions(&self) -> &str {
-        "JavaScript QuickJS runtime profile. Use final(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), reportFailure(...), and guideAgent(...). Filesystem, network, process, module loading, and native host objects are not exposed by default."
+        "JavaScript QuickJS runtime profile. Use final(...), respond(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), reportFailure(...), and guideAgent(...). Filesystem, network, process, module loading, and native host objects are not exposed by default."
     }
 
     fn create_session(&mut self, globals: Value, options: Value) -> AxResult<Box<dyn AxCodeSession>> {
@@ -507,6 +507,7 @@ fn is_builtin_reserved_name(name: &str) -> bool {
             | "encodeURIComponent"
             | "console"
             | "final"
+            | "respond"
             | "askClarification"
             | "discover"
             | "recall"
@@ -533,7 +534,7 @@ const __ax_builtin_reserved = [
   "AggregateError", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError",
   "URIError", "globalThis", "JSON", "Math", "Reflect", "Proxy", "eval", "isFinite",
   "isNaN", "decodeURI", "decodeURIComponent", "encodeURI", "encodeURIComponent",
-  "console", "final", "askClarification", "discover", "recall", "used", "reportSuccess",
+  "console", "final", "respond", "askClarification", "discover", "recall", "used", "reportSuccess",
   "reportFailure", "guideAgent", "fetch", "require", "process", "module", "exports",
   "prototype", "__proto__", "constructor"
 ];
@@ -583,6 +584,7 @@ function __ax_install_host_callables() {
   }
 }
 function final() { return __ax_complete({ type: "final", args: Array.from(arguments) }); }
+function respond() { return __ax_complete({ type: "respond", args: Array.from(arguments) }); }
 function askClarification() { return __ax_complete({ type: "askClarification", args: Array.from(arguments) }); }
 function discover(request) { return __ax_complete({ kind: "discover", discover: request }); }
 function recall(request) { return __ax_complete({ kind: "recall", recall: request }); }

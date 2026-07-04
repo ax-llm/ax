@@ -90,7 +90,7 @@ func (r *Runtime) RegisterHostCallable(name string, handler func(ax.Value) (ax.V
 func (r *Runtime) Language() string { return "JavaScript" }
 
 func (r *Runtime) UsageInstructions() string {
-	return "JavaScript goja runtime profile. Use final(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), reportFailure(...), and guideAgent(...). Filesystem, network, process, module loading, and native host objects are not exposed by default."
+	return "JavaScript goja runtime profile. Use final(...), respond(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), reportFailure(...), and guideAgent(...). Filesystem, network, process, module loading, and native host objects are not exposed by default."
 }
 
 func (r *Runtime) RuntimePolicy() map[string]ax.Value {
@@ -299,6 +299,9 @@ func (s *Session) installBuiltins() {
 	s.defineProtected("console", console)
 	s.setPrimitive("final", func(args []ax.Value) ax.Value {
 		return map[string]ax.Value{"type": "final", "args": args}
+	})
+	s.setPrimitive("respond", func(args []ax.Value) ax.Value {
+		return map[string]ax.Value{"type": "respond", "args": args}
 	})
 	s.setPrimitive("askClarification", func(args []ax.Value) ax.Value {
 		return map[string]ax.Value{"type": "askClarification", "args": args}
@@ -570,7 +573,7 @@ var builtinReservedNameSet = func() map[string]bool {
 		"AggregateError", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError",
 		"URIError", "globalThis", "JSON", "Math", "Reflect", "Proxy", "eval", "isFinite",
 		"isNaN", "decodeURI", "decodeURIComponent", "encodeURI", "encodeURIComponent",
-		"console", "inputs", "final", "askClarification", "discover", "recall", "used", "reportSuccess",
+		"console", "inputs", "final", "respond", "askClarification", "discover", "recall", "used", "reportSuccess",
 		"reportFailure", "guideAgent", "fetch", "require", "process", "module", "exports",
 		"prototype", "__proto__", "constructor", "__ax_deepFreeze",
 	} {

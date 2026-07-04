@@ -5,10 +5,7 @@
     }
   },
   "create_options": {
-    "reservedNames": [
-      "inputs",
-      "final"
-    ],
+    "reservedNames": ["inputs", "final", "respond"],
     "timeoutMs": 123
   },
   "execute_code": "final()",
@@ -39,10 +36,7 @@
   },
   "expected_inspect_subset": {
     "__create_options": {
-      "reservedNames": [
-        "inputs",
-        "final"
-      ],
+      "reservedNames": ["inputs", "final", "respond"],
       "timeoutMs": 123
     },
     "__last_execute_options": {

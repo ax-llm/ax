@@ -180,7 +180,7 @@ async function __ax_run(payloadJson) {
     "URIError", "globalThis", "JSON", "Math", "Reflect", "Proxy", "eval", "isFinite",
     "isNaN", "decodeURI", "decodeURIComponent", "encodeURI", "encodeURIComponent",
     "console", "Javy", "plugin", "main", "quickjs4j_engine", "axir", "axir_host",
-    "final", "askClarification", "discover", "recall", "used", "reportSuccess",
+    "final", "respond", "askClarification", "discover", "recall", "used", "reportSuccess",
     "reportFailure", "guideAgent"
   ]);
   function isHostCallable(value) {
@@ -221,6 +221,7 @@ async function __ax_run(payloadJson) {
   }
   function complete(value) { globalThis.__ax_completion = value; return value; }
   globalThis.final = function() { return complete({type: "final", args: Array.from(arguments)}); };
+  globalThis.respond = function() { return complete({type: "respond", args: Array.from(arguments)}); };
   globalThis.askClarification = function() { return complete({type: "askClarification", args: Array.from(arguments)}); };
   globalThis.discover = function(request) { return complete({kind: "discover", discover: request}); };
   globalThis.recall = function(request) { return complete({kind: "recall", recall: request}); };

@@ -2647,6 +2647,7 @@ writeFixture('runtime-host-boundary-globals-options', {
         reservedNames: [
           'inputs',
           'final',
+          'respond',
           'askClarification',
           'discover',
           'recall',
@@ -2677,6 +2678,7 @@ writeFixture('runtime-host-boundary-globals-options', {
     reservedNames: [
       'inputs',
       'final',
+      'respond',
       'askClarification',
       'discover',
       'recall',
@@ -2694,6 +2696,7 @@ writeFixture('runtime-host-boundary-globals-options', {
     reservedNames: [
       'inputs',
       'final',
+      'respond',
       'askClarification',
       'discover',
       'recall',

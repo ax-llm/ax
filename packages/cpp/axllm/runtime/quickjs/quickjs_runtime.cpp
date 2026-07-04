@@ -69,7 +69,7 @@ const __ax_builtin_reserved = [
   "AggregateError", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError",
   "URIError", "globalThis", "JSON", "Math", "Reflect", "Proxy", "eval", "isFinite",
   "isNaN", "decodeURI", "decodeURIComponent", "encodeURI", "encodeURIComponent",
-  "console", "final", "askClarification", "discover", "recall", "used", "reportSuccess",
+  "console", "final", "respond", "askClarification", "discover", "recall", "used", "reportSuccess",
   "reportFailure", "guideAgent"
 ];
 // Persistence: top-level const/let/var declared this turn are block-scoped to the async
@@ -134,6 +134,7 @@ function __ax_install_host_callables() {
   }
 }
 function final() { return __ax_complete({ type: "final", args: Array.from(arguments) }); }
+function respond() { return __ax_complete({ type: "respond", args: Array.from(arguments) }); }
 function askClarification() { return __ax_complete({ type: "askClarification", args: Array.from(arguments) }); }
 function discover(request) { return __ax_complete({ kind: "discover", discover: request }); }
 function recall(request) { return __ax_complete({ kind: "recall", recall: request }); }
@@ -356,7 +357,7 @@ void QuickJsCodeSession::set_global(const std::string& name, const Value& value)
 }
 
 std::string QuickJsCodeRuntime::usage_instructions() const {
-  return "JavaScript QuickJS runtime profile. Use final(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), and reportFailure(...). Filesystem, network, and native host APIs are not exposed by default.";
+  return "JavaScript QuickJS runtime profile. Use final(...), respond(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), and reportFailure(...). Filesystem, network, and native host APIs are not exposed by default.";
 }
 
 QuickJsCodeRuntime::QuickJsCodeRuntime(Value runtime_policy) : runtime_policy_(default_runtime_policy(std::move(runtime_policy))) {}

@@ -26,6 +26,7 @@ from .agent import AxCodeRuntime, AxCodeSession
 _PRELUDE = (
     "function axComplete(v){globalThis.__ax_completion=v;return v;}"
     "function final(){return axComplete({type:'final',args:Array.from(arguments)});}"
+    "function respond(){return axComplete({type:'respond',args:Array.from(arguments)});}"
     "function askClarification(){return axComplete({type:'askClarification',args:Array.from(arguments)});}"
     "function discover(r){return axComplete({kind:'discover',discover:r});}"
     "function recall(r){return axComplete({kind:'recall',recall:r});}"
@@ -164,7 +165,7 @@ class AxQuickJsCodeRuntime(AxCodeRuntime):
         return self
 
     def get_usage_instructions(self) -> str:
-        return "In-process QuickJS runtime. Use final(...), askClarification(...), and namespaced tools."
+        return "In-process QuickJS runtime. Use final(...), respond(...), askClarification(...), and namespaced tools."
 
     def create_session(self, globals: dict[str, Any], options: dict[str, Any] | None = None):
         return AxQuickJsCodeSession(self, globals, options)

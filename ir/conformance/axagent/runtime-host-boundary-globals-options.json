@@ -21,6 +21,7 @@
     "reservedNames": [
       "inputs",
       "final",
+      "respond",
       "askClarification",
       "discover",
       "recall",
@@ -38,6 +39,7 @@
     "reservedNames": [
       "inputs",
       "final",
+      "respond",
       "askClarification",
       "discover",
       "recall",
@@ -78,6 +80,7 @@
         "reservedNames": [
           "inputs",
           "final",
+          "respond",
           "askClarification",
           "discover",
           "recall",

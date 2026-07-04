@@ -18,7 +18,7 @@ public final class AxQuickJsCodeRuntime implements AxCodeRuntime, AutoCloseable 
   }
 
   public String getUsageInstructions() {
-    return "JavaScript QuickJS runtime profile. Use final(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), and reportFailure(...). Filesystem, network, and native host APIs are not exposed by default.";
+    return "JavaScript QuickJS runtime profile. Use final(...), respond(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), and reportFailure(...). Filesystem, network, and native host APIs are not exposed by default.";
   }
 
   public Map<String, Object> getRuntimePolicy() {

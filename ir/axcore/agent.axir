@@ -547,7 +547,7 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, json, json) -> json"
+    type signature = "(json, json, json) -> json throws"
     body @entry(%options: json, %callable_split: json, %auto_upgrade: json) {
       %empty_list = core.list
       %has_function_discovery_camel = core.call intrinsic.map.contains(%options, "functionDiscovery")
@@ -624,6 +624,30 @@ module @ax.agent version "0.1" {
       %domain_hint_left = core.call intrinsic.or(%module_hint_enabled, %skills_hint_enabled)
       %relevance_hints_enabled = core.call intrinsic.or(%domain_hint_left, %memories_hint_enabled)
       %combined_discovery_skills = core.call intrinsic.and(%function_discovery, %skills_mode)
+      // Direct-respond: 'auto' (default) lets the distiller end the run with
+      // respond(task, evidence) and skip the executor. Static (no callables)
+      // agents run respond-only; agents with callables get respond alongside
+      // final under the covenant. 'off' removes the primitive everywhere.
+      %direct_response_camel = core.get %options["directResponse"] default "auto"
+      %direct_response = core.get %options["direct_response"] default %direct_response_camel
+      %direct_response_is_auto = core.call intrinsic.eq(%direct_response, "auto")
+      %direct_response_is_off = core.call intrinsic.eq(%direct_response, "off")
+      %direct_response_valid = core.call intrinsic.or(%direct_response_is_auto, %direct_response_is_off)
+      %direct_response_invalid = core.call intrinsic.not(%direct_response_valid)
+      core.if %direct_response_invalid {
+        %direct_response_error = core.call intrinsic.error.runtime("directResponse must be 'auto' or 'off'")
+        core.raise %direct_response_error
+      }
+      %direct_respond_enabled = core.call intrinsic.not(%direct_response_is_off)
+      %inline_callables = core.get %callable_split["inline"] default %empty_list
+      %discoverable_callables = core.get %callable_split["discoverable"] default %empty_list
+      %inline_callable_count = core.call intrinsic.len(%inline_callables)
+      %discoverable_callable_count = core.call intrinsic.len(%discoverable_callables)
+      %callable_count = core.call intrinsic.add(%inline_callable_count, %discoverable_callable_count)
+      %has_callables = core.call intrinsic.gt(%callable_count, 0)
+      %direct_respond_static = core.call intrinsic.not(%has_callables)
+      %direct_respond_mode = core.call intrinsic.and(%direct_respond_enabled, %has_callables)
+      %direct_respond_only = core.call intrinsic.and(%direct_respond_enabled, %direct_respond_static)
       %out = core.map
       core.set %out["discoveryMode"] = %function_discovery
       core.set %out["skillsMode"] = %skills_mode
@@ -636,6 +660,9 @@ module @ax.agent version "0.1" {
       core.set %out["skillsHintEnabled"] = %skills_hint_enabled
       core.set %out["memoriesHintEnabled"] = %memories_hint_enabled
       core.set %out["relevanceHintsEnabled"] = %relevance_hints_enabled
+      core.set %out["directRespondEnabled"] = %direct_respond_enabled
+      core.set %out["directRespondMode"] = %direct_respond_mode
+      core.set %out["directRespondOnly"] = %direct_respond_only
       core.set %out["discoveryMode+skillsMode"] = %combined_discovery_skills
       core.return %out
     }
@@ -675,6 +702,7 @@ module @ax.agent version "0.1" {
       %primitive_names = core.map
       core.set %primitive_names["llm_query"] = "llmQuery"
       core.set %primitive_names["final"] = "final"
+      core.set %primitive_names["respond"] = "respond"
       core.set %primitive_names["ask_clarification"] = "askClarification"
       core.set %primitive_names["report_success"] = "reportSuccess"
       core.set %primitive_names["report_failure"] = "reportFailure"
@@ -688,6 +716,7 @@ module @ax.agent version "0.1" {
       %reserved = core.list
       core.append %reserved, "inputs"
       core.append %reserved, "final"
+      core.append %reserved, "respond"
       core.append %reserved, "askClarification"
       core.append %reserved, "discover"
       core.append %reserved, "recall"
@@ -1024,6 +1053,11 @@ module @ax.agent version "0.1" {
       core.append %actor_primitives, %llm
       %final_action = core.call @agent_policy_action(%final_name, "actor_primitive", "completion", %distiller_executor, "always", "ends actor turn with final payload", "runtime_completion_signal", true)
       core.append %actor_primitives, %final_action
+      %respond_name = core.get %primitive_names["respond"] default "respond"
+      %distiller_only = core.list
+      core.append %distiller_only, "distiller"
+      %respond_action = core.call @agent_policy_action(%respond_name, "actor_primitive", "completion", %distiller_only, "directRespondEnabled", "ends the run and skips the executor with a respond payload", "runtime_completion_signal", true)
+      core.append %actor_primitives, %respond_action
       %clarify = core.call @agent_policy_action(%ask_clarification_name, "actor_primitive", "completion", %distiller_executor, "always", "throws clarification payload", "runtime_completion_signal", true)
       core.append %actor_primitives, %clarify
       %success = core.call @agent_policy_action(%report_success_name, "actor_primitive", "status", %executor_only, "hasAgentStatusCallback", "records successful progress status", "status_callback", true)
@@ -1482,6 +1516,12 @@ module @ax.agent version "0.1" {
       %empty_map = core.map
       %contract = core.get %state["runtime_contract"] default %empty_map
       %flags = core.call @build_rlm_flags(%state)
+      // Direct-respond flags are distiller-prompt concerns. The executor's
+      // primitives render must never see `directRespondOnly` — its `final`
+      // stays visible even for static agents (the executor still runs when a
+      // distiller deviates and ends with `final`).
+      core.set %flags["directRespondMode"] = false
+      core.set %flags["directRespondOnly"] = false
       %primitives_list = core.call @render_actor_primitives_list("executor", %flags)
       %language = core.get %contract["language"] default "JavaScript"
       %code_field_title = core.get %contract["code_field_title"] default "Javascript Code"
@@ -1614,6 +1654,10 @@ module @ax.agent version "0.1" {
       core.set %vars["memoriesMode"] = %memories_mode
       core.set %vars["memoryUsageMode"] = %memory_usage_mode
       core.set %vars["skillUsageMode"] = %skill_usage_mode
+      %direct_respond_mode = core.get %flags["directRespondMode"] default false
+      %direct_respond_only = core.get %flags["directRespondOnly"] default false
+      core.set %vars["directRespondMode"] = %direct_respond_mode
+      core.set %vars["directRespondOnly"] = %direct_respond_only
       core.set %vars["primitivesList"] = %primitives_list
       core.set %vars["runtimeCodeFenceLanguage"] = %code_fence_language
       core.set %vars["runtimeCodeFieldTitle"] = %code_field_title
@@ -4410,6 +4454,29 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.runtime @normalize_agent_respond_payload {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> json"
+    body @entry(%value: json) {
+      %is_map = core.type_is %value type "object"
+      core.if %is_map {
+        %type = core.get %value["type"] default ""
+        %is_respond = core.call intrinsic.eq(%type, "respond")
+        core.if %is_respond {
+          core.return %value
+        }
+      }
+      %args = core.list
+      core.append %args, %value
+      %out = core.map
+      core.set %out["type"] = "respond"
+      core.set %out["args"] = %args
+      core.return %out
+    }
+  }
+
   op ax.agent.runtime @normalize_agent_clarification_payload {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -5027,8 +5094,10 @@ module @ax.agent version "0.1" {
       core.if %completion_is_map {
       } else {
         %is_final_kind = core.call intrinsic.eq(%kind, "final")
+        %is_respond_kind = core.call intrinsic.eq(%kind, "respond")
         %is_clarification_kind = core.call intrinsic.eq(%kind, "askClarification")
-        %is_protocol_kind = core.call intrinsic.or(%is_final_kind, %is_clarification_kind)
+        %is_completion_kind = core.call intrinsic.or(%is_final_kind, %is_respond_kind)
+        %is_protocol_kind = core.call intrinsic.or(%is_completion_kind, %is_clarification_kind)
         core.if %is_protocol_kind {
           %completion_payload = core.let %raw
         }
@@ -5041,10 +5110,16 @@ module @ax.agent version "0.1" {
           %completion_payload = core.call @normalize_agent_final_payload(%completion_payload)
           %kind = core.let "final"
         } else {
-          %is_clarification = core.call intrinsic.eq(%completion_type, "askClarification")
-          core.if %is_clarification {
-            %completion_payload = core.call @normalize_agent_clarification_payload(%completion_payload)
-            %kind = core.let "askClarification"
+          %is_respond = core.call intrinsic.eq(%completion_type, "respond")
+          core.if %is_respond {
+            %completion_payload = core.call @normalize_agent_respond_payload(%completion_payload)
+            %kind = core.let "respond"
+          } else {
+            %is_clarification = core.call intrinsic.eq(%completion_type, "askClarification")
+            core.if %is_clarification {
+              %completion_payload = core.call @normalize_agent_clarification_payload(%completion_payload)
+              %kind = core.let "askClarification"
+            }
           }
         }
       }
@@ -6338,8 +6413,10 @@ module @ax.agent version "0.1" {
       %payload = core.get %completion["executorResult"] default %completion
       %type = core.get %payload["type"]
       %is_final = core.call intrinsic.eq(%type, "final")
+      %is_respond = core.call intrinsic.eq(%type, "respond")
       %is_clarification = core.call intrinsic.eq(%type, "askClarification")
-      %valid = core.call intrinsic.or(%is_final, %is_clarification)
+      %is_completion = core.call intrinsic.or(%is_final, %is_respond)
+      %valid = core.call intrinsic.or(%is_completion, %is_clarification)
       %invalid = core.call intrinsic.not(%valid)
       core.if %invalid {
         %message = core.call intrinsic.string.format("agent stage did not return a completion payload (a live model returns prose, but this stage expects a structured completion): pass options.runtime with a code engine so the executor runs model-generated code that calls final(...), or use a client that returns a structured final/askClarification completion. got: {}", %payload)
@@ -7168,7 +7245,38 @@ module @ax.agent version "0.1" {
       }
       core.call @throw_agent_clarification(%distiller_payload, %state)
       %executor_payload = core.call intrinsic.none()
-      core.if %runtime_enabled {
+      // Direct-respond skip: a distiller `respond(task, evidence)` completion
+      // ends the run without the executor stage. The payload is re-typed to
+      // `final` so the responder consumes it exactly like an executor
+      // final(task, evidence); the respond binding already carried real
+      // evidence across the runtime boundary. The live runtime session (set
+      // above) stays in state, so cross-run continuity is unchanged.
+      %distiller_payload_type = core.get %distiller_payload["type"] default ""
+      %distiller_is_respond = core.call intrinsic.eq(%distiller_payload_type, "respond")
+      core.if %distiller_is_respond {
+        %skip_empty_map = core.map
+        %skip_policy_flags = core.get %state["policy_flags"] default %skip_empty_map
+        %skip_enabled = core.get %skip_policy_flags["directRespondEnabled"] default true
+        %skip_disabled = core.call intrinsic.not(%skip_enabled)
+        core.if %skip_disabled {
+          %skip_error = core.call intrinsic.error.runtime("agent distiller produced a respond() payload while directResponse is 'off'")
+          core.raise %skip_error
+        }
+        %skip_args_empty = core.list
+        %skip_args = core.get %distiller_payload["args"] default %skip_args_empty
+        %skip_payload = core.map
+        core.set %skip_payload["type"] = "final"
+        core.set %skip_payload["args"] = %skip_args
+        %executor_payload = core.let %skip_payload
+        %skip_event = core.map
+        core.set %skip_event["stage"] = "executor"
+        core.set %skip_event["reason"] = "direct_respond"
+        core.set %skip_event["component_id"] = "agent.stage.executor"
+        core.call @agent_record_trace_event(%state, "stage_skipped", %skip_event)
+      }
+      %run_executor = core.call intrinsic.not(%distiller_is_respond)
+      %runtime_executor_enabled = core.call intrinsic.and(%run_executor, %runtime_enabled)
+      core.if %runtime_executor_enabled {
         // Expose the distiller's handoff (executorRequest + distilledContext) in the
         // executor's runtime as inputs.executorRequest / inputs.distilledContext, so
         // the model references them in code (e.g. final(task, inputs.distilledContext))
@@ -7237,13 +7345,23 @@ module @ax.agent version "0.1" {
           %completion_payload = core.get %runtime_step["completion_payload"] default null
           %has_completion = core.type_is %completion_payload type "object"
           core.if %has_completion {
+            // An executor-phase respond() aliases to final: the payload shape
+            // is identical and the skip decision belongs to the distiller.
+            %executor_completion_type = core.get %completion_payload["type"] default ""
+            %executor_completion_is_respond = core.call intrinsic.eq(%executor_completion_type, "respond")
+            core.if %executor_completion_is_respond {
+              core.set %completion_payload["type"] = "final"
+            }
             core.call @throw_agent_clarification(%completion_payload, %state)
             %executor_payload = core.let %completion_payload
             core.break
           }
           %step = core.call intrinsic.add(%step, 1)
         }
-      } else {
+      }
+      %runtime_disabled = core.call intrinsic.not(%runtime_enabled)
+      %non_runtime_executor = core.call intrinsic.and(%run_executor, %runtime_disabled)
+      core.if %non_runtime_executor {
         %executor_values = core.call @build_executor_inputs(%state, %values, %distiller_payload)
         %executor_request_event = core.map
         core.set %executor_request_event["stage"] = "executor"
@@ -7258,6 +7376,12 @@ module @ax.agent version "0.1" {
         core.call @agent_record_trace_event(%state, "stage_response", %executor_response_event)
         %executor_payload = core.call @normalize_agent_completion_payload(%executor_output)
         core.call @throw_agent_clarification(%executor_payload, %state)
+        // Executor-phase respond() aliases to final (see the runtime loop).
+        %executor_payload_type = core.get %executor_payload["type"] default ""
+        %executor_payload_is_respond = core.call intrinsic.eq(%executor_payload_type, "respond")
+        core.if %executor_payload_is_respond {
+          core.set %executor_payload["type"] = "final"
+        }
       }
       core.call @agent_apply_llm_checkpoint_summary(%state, %client, %options)
       core.call @agent_apply_context_management(%state)

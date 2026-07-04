@@ -546,6 +546,7 @@ struct Core {
   static Value _agent_append_guidance(Value state, Value payload);
   static Value _agent_execute_callable(Value state, Value request, Value options);
   static Value _normalize_agent_final_payload(Value value);
+  static Value _normalize_agent_respond_payload(Value value);
   static Value _normalize_agent_clarification_payload(Value value);
   static Value _agent_optimizer_metadata(Value state);
   static Value _agent_begin_trace(Value state, Value input);
