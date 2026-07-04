@@ -27,6 +27,8 @@ sequenceDiagram
 
 Declare bulky inputs as `contextFields` and they stay in the runtime session instead of the prompt. The distiller narrows them with code; its evidence passes to the executor **by reference** in the shared session when the runtime supports it, while the executor's prompt carries only a compact shape summary — real field names included, so the actor writes `t.amountCents`, not a guess. Generated language ports use the same executor prompt contract, with a fallback handoff for non-JavaScript runtimes. The prompt does not grow with your data, at any data size.
 
+When the task needs no tools at all, the distiller can finish the run itself with `respond(task, evidence)` and the executor stage is skipped entirely — one fewer model round for pure read-and-synthesize questions (`directResponse`, ON by default; see [Internals]({{langRoot}}/agents/internals/)).
+
 You don't have to catch every case by hand. `autoUpgrade` (ON by default) keeps any oversized input value runtime-only even when you forget to declare it — the prompt gets a truncated preview plus a shape summary while the full value stays live as `inputs.<field>`. Declare a field in `contextFields` when you want a specific inline policy, and set `autoUpgrade: false` to turn the automatic behavior off.
 
 The Smart Defaults Agent in the [long-agent examples]({{langRoot}}/examples/long-agents/) shows that default-on path with runtime tools, relevance hints, and an oversized undeclared incident log in every generated language.

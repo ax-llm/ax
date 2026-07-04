@@ -10,6 +10,7 @@ Every `forward()` runs three programs in sequence:
 flowchart LR
   A[Original typed inputs] --> B[Distiller]
   B -->|executorRequest + evidence by reference| C[Executor]
+  B -->|"respond(task, evidence) — executor skipped"| D
   C -->|evidence + runtime state + final envelope| D[Responder]
   D --> E[Typed output]
 ```
@@ -21,6 +22,15 @@ flowchart LR
 - **Responder** turns the executor's evidence into the declared output signature.
 
 The handoff between stages is deliberately narrow. The completion primitive is `final(task, context?)` — exactly two arguments. Gathered evidence rides inside that optional `context` object; there is no separate side channel. Keeping the envelope to two positional arguments is what lets the same protocol run identically across every Ax language backend.
+
+### When the executor is skipped
+
+Not every task needs tools. With `directResponse: 'auto'` (the default), the distiller can end the run with a second completion primitive, `respond(task, evidence)` — same two-argument envelope, different destination. The pipeline synthesizes the executor's envelope host-side with **zero executor model calls** and goes straight to the responder. Two cases:
+
+- An agent with **no functions at all** runs respond-only: the skip is deterministic and every run is distiller → responder.
+- An agent **with functions** offers `respond` under a conservative covenant — only for tasks answered purely by reading the provided context, never when a registered function's domain covers the need, never for current/live-state asks (context may be stale; tools are the source of truth for "now"), never for side effects.
+
+Because the responder lives outside the runtime, `respond`'s evidence does cross into its prompt — under the same `maxEvidenceChars` budget that bounds every host-crossing evidence object — and the distiller's runtime variables are exported as the cross-run state exactly as the executor's would have been. Language ports implement the identical skip protocol. Set `directResponse: 'off'` to always run the executor.
 
 ## The Shared Runtime Session
 

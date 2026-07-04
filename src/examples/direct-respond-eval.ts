@@ -29,7 +29,13 @@
  *     npx tsx src/examples/direct-respond-eval.ts
  *   Add GOOGLE_APIKEY=... to also run the gemini-3.5-flash lane.
  */
-import { type AxAgentFunctionGroup, agent, ai } from '@ax-llm/ax';
+import {
+  type AxAgentFunctionGroup,
+  type AxAIGoogleGeminiModel,
+  type AxAIOpenAIModel,
+  agent,
+  ai,
+} from '@ax-llm/ax';
 
 const openaiKey = process.env.OPENAI_APIKEY;
 const googleKey = process.env.GOOGLE_APIKEY;
@@ -52,7 +58,7 @@ if (openaiKey) {
     llm: ai({
       name: 'openai',
       apiKey: openaiKey,
-      config: { model: openaiModel },
+      config: { model: openaiModel as AxAIOpenAIModel },
     }),
   });
 }
@@ -62,7 +68,7 @@ if (googleKey) {
     llm: ai({
       name: 'google-gemini',
       apiKey: googleKey,
-      config: { model: googleModel },
+      config: { model: googleModel as AxAIGoogleGeminiModel },
     }),
   });
 }

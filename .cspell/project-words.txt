@@ -45,10 +45,10 @@ checkpointed
 checkpointing
 chrono
 chunker
-codellama
 Codellama
-codestral
+codellama
 Codestral
+codestral
 commandline
 companys
 configtestagent
@@ -60,8 +60,8 @@ daterange
 datetime
 datetimerange
 datetimes
-davinci
 Davinci
+davinci
 DAXLLM
 dedup
 deduper
@@ -72,6 +72,7 @@ desirables
 distractor
 dosco
 dspy
+effectful
 Evals
 every time
 failer
@@ -87,8 +88,8 @@ fstate
 funca
 funcb
 generativelanguage
-GEPA
 gepa
+GEPA
 goja
 googleauth
 GPTOSS
@@ -113,8 +114,8 @@ Kore
 llmclient
 LLMQUERY
 lockdown
-logit
 Logit
+logit
 Logprob
 logprobs
 Logprobs
@@ -143,8 +144,8 @@ multiservice
 multistep
 mundo
 nanos
-nemo
 Nemo
+nemo
 neumann
 nonportable
 Northstar
@@ -189,8 +190,8 @@ Rpbw
 runbook
 région
 sandboxed
-Scalarize
 scalarize
+Scalarize
 scalarized
 Scalarizer
 scorable
@@ -251,8 +252,8 @@ vectorize
 videodata
 Vikram
 voxtral
-weaviate
 Weaviate
+weaviate
 webllm
 xfailed
 xhigh
