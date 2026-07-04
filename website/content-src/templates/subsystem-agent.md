@@ -52,6 +52,8 @@ Use grouped functions when the catalog is large or easier to reason about by dom
 
 {{agentDiscoveryExample}}
 
+For the cross-language smart-default path, see the Smart Defaults Agent in the [long-agent examples]({{langRoot}}/examples/long-agents/).
+
 Grouped mode keeps big catalogs out of the prompt until needed. Keep the top-level list either flat or grouped. If a child agent belongs inside a group, pass `childAgent.getFunction()` inside the group's `functions` list.
 
 ### Memory, skills, and context policy

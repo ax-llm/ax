@@ -7,12 +7,12 @@ import java.util.Map;
 
 public final class AxAgent implements AxProgram {
   final Map<String, Object> options;
-  final Map<String, Object> state;
-  final Object signature;
-  final AxGen distiller;
-  final AxGen executor;
-  final AxGen responder;
-  final AxGen llmQuery;
+  Map<String, Object> state;
+  Object signature;
+  AxGen distiller;
+  AxGen executor;
+  AxGen responder;
+  AxGen llmQuery;
 
   public AxAgent(String signature, Map<String, Object> options) {
     this((Object) signature, options);
@@ -21,12 +21,26 @@ public final class AxAgent implements AxProgram {
   @SuppressWarnings("unchecked")
   public AxAgent(Object signature, Map<String, Object> options) {
     this.options = options == null ? new LinkedHashMap<>() : new LinkedHashMap<>(options);
+    rebuildFromSignature(signature);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void rebuildFromSignature(Object signature) {
     this.state = Core.asMap(Core._agent_factory(signature, this.options));
     this.signature = Core.get(state, "signature", signature);
     this.distiller = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "distiller_signature", "input:json -> completion:json"))), Map.of("validation_retries", 0, "id", "ctx.root.actor", "instruction", Core.get(state, "distiller_description", "")));
     this.executor = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "executor_signature", "input:json -> completion:json"))), Map.of("validation_retries", 0, "id", "task.root.actor", "instruction", Core.get(state, "executor_description", "")));
     this.responder = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "responder_signature", "input:json -> completion:json"))), Map.of("validation_retries", this.options.getOrDefault("validation_retries", 2), "id", "task.root.responder", "instruction", Core.get(state, "responder_description", "")));
     this.llmQuery = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "llm_query_signature", "task:string, context:json -> answer:string"))), Map.of("validation_retries", 1, "id", "rlm.llmquery", "instruction", Core.get(state, "llm_query_description", "")));
+  }
+
+  public AxAgent setSignature(String signature) {
+    return setSignature((Object) signature);
+  }
+
+  public AxAgent setSignature(Object signature) {
+    rebuildFromSignature(signature);
+    return this;
   }
 
   public Map<String, Object> forward(AiClient client, Map<String, Object> values) {

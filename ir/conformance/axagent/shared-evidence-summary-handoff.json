@@ -1,0 +1,96 @@
+{
+  "expected_action_log_subset": [
+    {
+      "action": "create_session",
+      "type": "runtime_session"
+    },
+    {
+      "action": "patch_globals",
+      "type": "runtime_session"
+    }
+  ],
+  "expected_executed": [
+    "final(\"Use matched docs\", {\"matched\":[{\"id\":\"a\",\"title\":\"rawAlphaEvidenceValue\",\"score\":1}],\"meta\":{\"source\":\"fixture\"}})",
+    "final(\"Answer with matched docs\", {\"answer\":\"done\"})"
+  ],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_count": 3,
+  "expected_request_contains": [
+    "Distilled Context Summary",
+    "inputs.distilledContext",
+    "item keys:",
+    "`matched`",
+    "`meta`"
+  ],
+  "expected_runtime_contract_subset": {
+    "is_javascript": true,
+    "language": "JavaScript"
+  },
+  "expected_stage_request_not_contains": [
+    {
+      "absent": ["rawAlphaEvidenceValue"],
+      "index": 1
+    }
+  ],
+  "input": {
+    "document": "Find the matching document by id only.",
+    "question": "Answer from the matched record."
+  },
+  "kind": "agent_forward",
+  "name": "shared-evidence-summary-handoff",
+  "options": {
+    "contextFields": ["document"],
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Use matched docs\\\", {\\\"matched\\\":[{\\\"id\\\":\\\"a\\\",\\\"title\\\":\\\"rawAlphaEvidenceValue\\\",\\\"score\\\":1}],\\\"meta\\\":{\\\"source\\\":\\\"fixture\\\"}})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer with matched docs\\\", {\\\"answer\\\":\\\"done\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"done\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Use matched docs\", {\"matched\":[{\"id\":\"a\",\"title\":\"rawAlphaEvidenceValue\",\"score\":1}],\"meta\":{\"source\":\"fixture\"}})",
+      "result": {
+        "args": [
+          "Use matched docs",
+          {
+            "matched": [
+              {
+                "id": "a",
+                "score": 1,
+                "title": "rawAlphaEvidenceValue"
+              }
+            ],
+            "meta": {
+              "source": "fixture"
+            }
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer with matched docs\", {\"answer\":\"done\"})",
+      "result": {
+        "args": [
+          "Answer with matched docs",
+          {
+            "answer": "done"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "document:string, question:string -> answer:string"
+}

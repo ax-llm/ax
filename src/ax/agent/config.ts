@@ -43,10 +43,6 @@ export const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
  * (2.45->2.12). An earlier apparent -14pp control regression at n=21 was a
  * verbatim-judge artifact (paraphrases scored as failures) and reversed under
  * substance judging. Ranker precision@1 was 100% in every run.
- *
- * NOTE: TS-first by explicit decision — the 5 non-TS ports do not ship the
- * ranker yet, so cross-language behavior diverges on this point until they
- * catch up (port work tracked as the follow-up).
  */
 export const RELEVANCE_RANKING_DEFAULT = true;
 
@@ -59,10 +55,6 @@ export const RELEVANCE_RANKING_DEFAULT = true;
  * Set `autoUpgrade: false` to restore fully manual behavior. Explicit
  * settings always win: a caller-provided `functionDiscovery` boolean or a
  * field declared in `contextFields` is never overridden.
- *
- * NOTE: TS-first by explicit decision — the 5 non-TS ports do not ship
- * auto-upgrade yet, so cross-language behavior diverges on this point until
- * they catch up (port work tracked as the follow-up).
  */
 export const AUTO_UPGRADE_DEFAULT = true;
 /**

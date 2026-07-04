@@ -1,7 +1,7 @@
 ---
 name: ax-agent-memory-skills
-description: This skill helps an LLM generate correct AxAgent memory retrieval, context-map, and dynamic skill-loading code using @ax-llm/ax. Use when the user asks about contextMap, AxAgentContextMap, onMemoriesSearch, recall(...), inputs.memories, onLoadedMemories, onUsedMemories, onSkillsSearch, discover({ skills }), onLoadedSkills, onUsedSkills, preloaded skills, loaded memory/skill IDs, or carrying memories across forward() calls.
-version: "22.0.7"
+description: This skill helps an LLM generate correct AxAgent memory retrieval, context-map, and dynamic skill-loading code using @ax-llm/ax. Use when the user asks about contextMap, AxAgentContextMap, onMemoriesSearch, memoriesCatalog, recall(...), inputs.memories, onLoadedMemories, onUsedMemories, onSkillsSearch, skillsCatalog, AxAgentCatalogSkill, discover({ skills }), onLoadedSkills, onUsedSkills, preloaded skills, preloading memories at forward time, relevanceRanking hints, loaded memory/skill IDs, or carrying memories across forward() calls.
+version: "22.0.9"
 ---
 
 # AxAgent Memory And Skills Rules (@ax-llm/ax)
@@ -10,11 +10,12 @@ Use this skill when an agent needs a persistent context map, task-relevant memor
 
 ## Use These Defaults
 
-- Use `onMemoriesSearch` when the agent should pull relevant context from an external store instead of stuffing everything into the prompt upfront.
+- Use a static `skillsCatalog` / `memoriesCatalog` when the skill guides or memories fit in a plain array — Ax then backs `discover({ skills })` / `recall(...)` with a built-in deterministic local search and no host search code is needed.
+- Use `onSkillsSearch` / `onMemoriesSearch` when retrieval needs a real backend (vector DB, BM25 service, KV). A host callback always takes precedence over the catalog's built-in search.
 - Use `contextMap` when repeated runs inspect the same long external context and should accumulate a small orientation cache automatically.
-- Use `onSkillsSearch` when the agent should load usage guides, runbooks, or domain conventions into the executor prompt on demand.
-- `recall(...)` is available to distiller and executor stages when `onMemoriesSearch` is set.
-- `discover({ skills })` is available to the executor when `onSkillsSearch` is set.
+- `recall(...)` is available to distiller and executor stages when `onMemoriesSearch` or a non-empty `memoriesCatalog` is set.
+- `discover({ skills })` is available to the executor when `onSkillsSearch` or a non-empty `skillsCatalog` is set.
+- With `skillsCatalog`, the executor prompt also gains a static `### Available Skills` index (id + name + description), so skill discovery is targeted instead of blind.
 - Both `recall(...)` and `discover({ skills })` return `void`. The loaded content appears on the next turn.
 - Use `onLoadedMemories` / `onLoadedSkills` to observe what got loaded.
 - Use `onUsedMemories` / `onUsedSkills` to track what the actor says it actually relied on.
@@ -112,6 +113,37 @@ type AxAgentMemoryResult = {
 };
 ```
 
+### Static catalog (no callback)
+
+If the memory set fits in a plain array, skip the callback entirely: pass `memoriesCatalog` and Ax backs `recall(...)` with a built-in deterministic local search (idf-weighted token overlap over `id` + content; not regex, not embeddings). The `alreadyLoaded` contract is preserved — entries already on `inputs.memories` are excluded before ranking.
+
+```typescript
+const myAgent = agent('task:string -> answer:string', {
+  contextFields: [],
+  memoriesCatalog: [
+    { id: 'deploy-window', content: 'Prod deploys only on Tuesday afternoons.' },
+    { id: 'user-prefs', content: 'User prefers concise answers.' },
+  ],
+});
+```
+
+Rules:
+
+- If both `memoriesCatalog` and `onMemoriesSearch` are set, the host callback handles all `recall(...)` searches; the catalog still powers the advisory `relevanceRanking` hint.
+- Catalog content is NOT preloaded into the prompt; entries load only when recalled.
+- The built-in search is lexical. For semantic retrieval over large stores, supply `onMemoriesSearch` instead.
+
+### Preloading memories at forward time
+
+To seed specific memories for one run (no recall round-trip), pass them as the `memories` input value. They render on `inputs.memories` from the first turn and merge with anything recalled later (deduped by `id`).
+
+```typescript
+await myAgent.forward(ai, {
+  task: 'Plan the deploy',
+  memories: [{ id: 'deploy-window', content: 'Prod deploys only on Tuesday afternoons.' }],
+});
+```
+
 ### Actor usage
 
 ```javascript
@@ -170,12 +202,12 @@ const myAgent = agent('task:string -> answer:string', {
 
 Use `onSkillsSearch` when the agent needs to load skill guides such as usage instructions, runbooks, or domain conventions into the executor's system prompt on demand. The actor decides which skills to fetch and when, so you do not pre-render every skill into every prompt.
 
-When `onSkillsSearch` is set, the executor stage gains:
+When `onSkillsSearch` is set, the distiller and executor stages gain:
 
 1. A "Loaded Skills" section in the system prompt that renders matched skill bodies with stable `ID:` values sorted by `id`.
 2. A `discover({ skills })` path the actor `await`s to load more skills. Loaded entries appear in the next turn's prompt. `discover(...)` returns nothing.
 
-The distiller and responder do not see skills. Only the executor.
+Skills the distiller loads carry over to the executor automatically. The responder does not see skills.
 
 ### Enabling
 
@@ -209,6 +241,43 @@ type AxAgentSkillResult = {
   content: string;
 };
 ```
+
+### Static catalog (no callback)
+
+If the skill set fits in a plain array, skip the callback entirely: pass `skillsCatalog` and Ax backs `discover({ skills })` with a built-in deterministic local search (idf-weighted token overlap over `id` + `name`×2 + `description`×2 + the first 600 chars of `content`; not regex, not embeddings). The executor prompt also gains a static, cache-stable `### Available Skills` index (id + name + description, sorted by id), so the actor searches by known ids instead of guessing.
+
+```typescript
+import type { AxAgentCatalogSkill } from '@ax-llm/ax';
+
+const catalog: AxAgentCatalogSkill[] = [
+  {
+    id: 'release-checklist',
+    name: 'Release checklist',
+    description: 'Steps for shipping a package release safely', // high-signal for matching
+    content: '1. Bump version\n2. Run tests\n3. Tag and publish',
+  },
+];
+
+const myAgent = agent('task:string -> answer:string', {
+  contextFields: [],
+  skillsCatalog: catalog,
+});
+```
+
+```typescript
+type AxAgentCatalogSkill = {
+  id: string;
+  name: string;
+  description?: string;
+  content: string;
+};
+```
+
+Rules:
+
+- If both `skillsCatalog` and `onSkillsSearch` are set, the host callback handles all `discover({ skills })` searches; the catalog still powers the `### Available Skills` index and the advisory `relevanceRanking` hint.
+- Catalog content is NOT preloaded into the prompt (unlike `skills`); entries load only when matched. Use `skills` for guides that must always be in context, `skillsCatalog` for a larger set loaded on demand.
+- The built-in search is lexical. For semantic retrieval over large stores, supply `onSkillsSearch` instead.
 
 ### Actor usage
 
@@ -270,6 +339,29 @@ await releaseAgent.forward(
 
 You can use `skills` without setting `onSkillsSearch` at all. That is useful for static guides where the actor never needs to fetch more.
 
+## Advisory Relevance Hints (`relevanceRanking`)
+
+`relevanceRanking` is ON by default — leave it unset; set `relevanceRanking: false` to opt out. The default was flipped after its A/B gate passed (substance-judged, 49 runs per variant per model: small-model first-lookup precision 24%→90% and answer accuracy 14%→29%; frontier-model control accuracy 63%→88% with fewer turns). The generated language ports implement the same advisory hint contract through AxIR Core.
+
+When enabled, a deterministic local ranker scores the agent's discoverable capabilities against the task once per `forward(...)` and injects a short advisory `### Likely Relevant` shortlist into the executor turn — modules (needs `functionDiscovery`), catalog skills (needs `skillsCatalog`), and catalog memories (needs `memoriesCatalog`). The hint is non-authoritative: the full lists still apply and the actor may `discover`/`recall` anything else.
+
+```typescript
+const myAgent = agent('task:string -> answer:string', {
+  contextFields: [],
+  functionDiscovery: true,
+  skillsCatalog: catalog,
+  relevanceRanking: true, // or { topK: 3, minScore: 0.08 }
+});
+```
+
+Rules:
+
+- Default is ON across TypeScript and generated language ports; domains still self-gate on their prerequisites (`functionDiscovery` for modules, catalogs for skills/memories), so agents without those see no change. Everything else in this skill (catalog search, the Available Skills index) is independent of the flag.
+- The shortlist rides a dynamic, non-cached prompt field; the cached system prompt stays byte-stable across tasks.
+- On low confidence the ranker emits nothing rather than guessing.
+- Memory hint entries include an ~80-char content snippet; very short memories may be usable from the hint alone without a `recall(...)` (such use is not visible to `onUsedMemories`).
+- Observe outcomes via the `relevance_ranking` context event (see `ax-agent-observability`).
+
 ## Loaded And Used Tracking
 
 `onLoadedMemories` reports what `recall(...)` loaded. `onLoadedSkills` reports what `discover({ skills })` loaded. To track what the actor says it actually relied on, use `onUsedMemories` / `onUsedSkills`.
@@ -318,6 +410,9 @@ onUsedSkills?: (
 
 contextMap?: AxAgentContextMapConfig;
 skills?: readonly AxAgentSkillResult[];
+skillsCatalog?: readonly AxAgentCatalogSkill[];
+memoriesCatalog?: readonly AxAgentMemoryResult[];
+relevanceRanking?: boolean | { topK?: number; minScore?: number };
 ```
 
 ## Examples
@@ -331,10 +426,13 @@ Fetch this for full working code:
 
 - Do not assign the result of `await recall(...)` or `await discover(...)`; both return `void`.
 - Do not call `recall()` from the responder stage.
-- Do not call `discover({ skills })` from the distiller or responder stages.
+- Do not call `discover({ skills })` from the responder stage.
 - Do not loop `recall()` calls or wrap them in `Promise.all(...)`.
 - Do not loop `discover()` calls or wrap them in `Promise.all(...)`.
 - Do not assume child agents inherit `onMemoriesSearch` or `onSkillsSearch`.
 - Do not pass `onMemoriesSearch` results via shared fields as a workaround; use `recall(...)`.
 - Do not assume `inputs.memories` persists across `.forward()` calls.
 - Do not use `onLoadedMemories` / `onLoadedSkills` as proof that the actor relied on an item; use `onUsedMemories` / `onUsedSkills` for actual-use tracking.
+- Do not write an `onSkillsSearch` / `onMemoriesSearch` callback that just scans a static array; pass the array as `skillsCatalog` / `memoriesCatalog` instead.
+- Do not rely on the built-in catalog search for semantic matching over large stores; it is lexical token overlap — supply a host callback for embeddings/vector search.
+- Do not confuse `skills` (always preloaded into the prompt) with `skillsCatalog` (searchable, loaded on demand).

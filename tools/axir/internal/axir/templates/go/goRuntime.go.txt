@@ -3338,11 +3338,29 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	executorOptions := Object("validation_retries", 0, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
 	responderOptions := Object("validation_retries", coreGet(options, "validation_retries", 2), "id", "task.root.responder", "instruction", coreGet(state, "responder_description", ""))
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
-	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContext:json -> completion:json"))
+	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
 	responderSignature := display(coreGet(state, "responder_signature", signature))
 	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
 	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions)}
+}
+func (a *AxAgent) SetSignature(signature string) *AxAgent {
+	state := asMap(mustCore(_agent_factory(signature, a.Options)))
+	a.Signature = NewSignature(signature)
+	a.State = state
+	distillerOptions := Object("validation_retries", 0, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
+	executorOptions := Object("validation_retries", 0, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
+	responderOptions := Object("validation_retries", coreGet(a.Options, "validation_retries", 2), "id", "task.root.responder", "instruction", coreGet(state, "responder_description", ""))
+	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
+	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
+	responderSignature := display(coreGet(state, "responder_signature", signature))
+	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
+	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
+	a.Distiller = NewAx(distillerSignature, distillerOptions)
+	a.Executor = NewAx(executorSignature, executorOptions)
+	a.Responder = NewAx(responderSignature, responderOptions)
+	a.LlmQuery = NewAx(llmQuerySignature, llmQueryOptions)
+	return a
 }
 func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
 	boundClient := bindAIClientContext(ctx, client)
@@ -7915,6 +7933,9 @@ func runConformanceAgentRuntimePolicy(fixture map[string]Value) {
 	var ag *AxAgent
 	_, err := safeValue(func() Value {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), asMap(coreGet(fixture, "options", Object())))
+		if next := coreGet(fixture, "set_signature", nil); next != nil {
+			ag.SetSignature(display(next))
+		}
 		if request := coreGet(fixture, "discover", nil); request != nil {
 			result := ag.Discover(request)
 			if expected, ok := fixture["expected_discover_result"]; ok {
@@ -7995,6 +8016,9 @@ func runConformanceAgentRuntimePolicy(fixture map[string]Value) {
 	}
 	if expected := coreGet(fixture, "expected_policy_registry_subset", nil); expected != nil {
 		assertSubset(ag.GetPolicyRegistry(), expected, "policy registry")
+	}
+	if expected := coreGet(fixture, "expected_state_subset", nil); expected != nil {
+		assertSubset(ag.GetState(), expected, "agent state")
 	}
 	registry := ag.GetPolicyRegistry()
 	if expected := coreGet(fixture, "expected_actor_primitives_subset", nil); expected != nil {
@@ -8295,6 +8319,9 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	}
 	if expected := coreGet(fixture, "expected_exported_state_subset", nil); expected != nil {
 		assertSubset(exported, expected, "runtime state")
+	}
+	if expected := coreGet(fixture, "expected_context_events_subset", nil); expected != nil {
+		assertListSubset(coreGet(exported, "context_events", Array()), expected, "agent context events")
 	}
 	if expected := coreGet(fixture, "expected_action_log_subset", nil); expected != nil {
 		assertListSubset(coreGet(exported, "action_log", Array()), expected, "action log")

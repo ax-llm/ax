@@ -1369,6 +1369,7 @@ public final class Conformance {
     Map<String, Object> exported = agent.exportRuntimeState();
     if (fixture.containsKey("expected_runtime_contract_subset")) assertSubset(agent.getRuntimeContract(), fixture.get("expected_runtime_contract_subset"), "runtime contract");
     if (fixture.containsKey("expected_exported_state_subset")) assertSubset(exported, fixture.get("expected_exported_state_subset"), "runtime state");
+    if (fixture.containsKey("expected_context_events_subset")) assertListSubset(Core.asList(exported.get("context_events")), fixture.get("expected_context_events_subset"), "agent context events");
     if (fixture.containsKey("expected_action_log_subset")) assertListSubset(Core.asList(exported.get("action_log")), fixture.get("expected_action_log_subset"), "action log");
     if (runtime != null && fixture.containsKey("expected_executed")) assertEqual(runtime.executed, fixture.get("expected_executed"), "executed code");
     assertAgentTrace(agent, fixture);
@@ -1378,6 +1379,7 @@ public final class Conformance {
     AxAgent agent = null;
     try {
       agent = Ax.agent(String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string")), Core.asMap(fixture.getOrDefault("options", Map.of())));
+      if (fixture.containsKey("set_signature")) agent.setSignature(fixture.get("set_signature"));
       if (fixture.containsKey("discover")) {
         Object discoverValue = fixture.getOrDefault("discover", Map.of());
         Object result = agent.discover(discoverValue instanceof Map<?, ?> ? Core.asMap(discoverValue) : new LinkedHashMap<>(Map.of("tools", discoverValue)));
@@ -1423,6 +1425,7 @@ public final class Conformance {
     if (fixture.containsKey("expected_runtime_contract_subset")) assertSubset(agent.getRuntimeContract(), fixture.get("expected_runtime_contract_subset"), "runtime contract");
     if (fixture.containsKey("expected_policy_subset")) assertSubset(agent.getPolicy(), fixture.get("expected_policy_subset"), "agent policy");
     if (fixture.containsKey("expected_policy_registry_subset")) assertSubset(agent.getPolicyRegistry(), fixture.get("expected_policy_registry_subset"), "policy registry");
+    if (fixture.containsKey("expected_state_subset")) assertSubset(agent.getState(), fixture.get("expected_state_subset"), "agent state");
     Map<String, Object> registry = agent.getPolicyRegistry();
     if (fixture.containsKey("expected_actor_primitives_subset")) assertListSubset(Core.asList(registry.get("actor_primitives")), fixture.get("expected_actor_primitives_subset"), "actor primitives");
     if (fixture.containsKey("expected_protocol_actions_subset")) assertListSubset(Core.asList(registry.get("protocol_actions")), fixture.get("expected_protocol_actions_subset"), "protocol actions");

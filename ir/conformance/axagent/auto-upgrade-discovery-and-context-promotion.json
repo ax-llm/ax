@@ -1,0 +1,104 @@
+{
+  "expected_context_events_subset": [
+    {
+      "fieldName": "document",
+      "kind": "field_auto_promoted",
+      "originalChars": 54,
+      "promptPreviewChars": 8
+    }
+  ],
+  "expected_exported_state_subset": {
+    "policy_registry": {
+      "flags": {
+        "discoveryMode": true
+      }
+    }
+  },
+  "expected_output": {
+    "answer": "promoted"
+  },
+  "expected_request_count": 3,
+  "expected_request_contains": [
+    "[runtime-only context:",
+    "inputs.document",
+    "ABCDEFGH",
+    "### Available Modules",
+    "`docs`"
+  ],
+  "expected_stage_request_not_contains": [
+    {
+      "absent": ["ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"],
+      "index": 0
+    },
+    {
+      "absent": ["ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"],
+      "index": 1
+    }
+  ],
+  "input": {
+    "document": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+    "question": "Summarize the oversized document."
+  },
+  "kind": "agent_forward",
+  "name": "auto-upgrade-discovery-and-context-promotion",
+  "options": {
+    "autoUpgrade": {
+      "contextFields": {
+        "previewChars": 8,
+        "promoteAboveChars": 20
+      },
+      "functionDiscovery": {
+        "aboveFunctionDocChars": 5
+      }
+    },
+    "functions": [
+      {
+        "description": "Long document tools",
+        "functions": [
+          {
+            "description": "Search a very long document catalog",
+            "name": "search"
+          }
+        ],
+        "namespace": "docs",
+        "selectionCriteria": "document search"
+      }
+    ],
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Forward promoted document\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer after promotion\\\", {\\\"answer\\\":\\\"promoted\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"promoted\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Forward promoted document\", {})",
+      "result": {
+        "args": ["Forward promoted document", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer after promotion\", {\"answer\":\"promoted\"})",
+      "result": {
+        "args": [
+          "Answer after promotion",
+          {
+            "answer": "promoted"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "document:string, question:string -> answer:string"
+}

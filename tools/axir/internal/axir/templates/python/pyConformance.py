@@ -1433,6 +1433,8 @@ def _run_agent_forward(fixture):
         _assert_subset(ag.get_runtime_contract(), fixture["expected_runtime_contract_subset"], "runtime contract")
     if "expected_exported_state_subset" in fixture:
         _assert_subset(exported, fixture["expected_exported_state_subset"], "runtime state")
+    if "expected_context_events_subset" in fixture:
+        _assert_list_subset(exported.get("context_events") or [], fixture["expected_context_events_subset"], "agent context events")
     if "expected_action_log_subset" in fixture:
         _assert_list_subset(exported.get("action_log") or [], fixture["expected_action_log_subset"], "action log")
     if runtime is not None and "expected_executed" in fixture:
@@ -1464,6 +1466,8 @@ def _run_agent_runtime_policy(fixture):
     ag = None
     try:
         ag = agent(fixture.get("signature", "question:string -> answer:string"), fixture.get("options") or {})
+        if "set_signature" in fixture:
+            ag.set_signature(fixture.get("set_signature"))
         if "discover" in fixture:
             result = ag.discover(fixture.get("discover") or {})
             if "expected_discover_result" in fixture:
@@ -1516,6 +1520,8 @@ def _run_agent_runtime_policy(fixture):
         _assert_subset(ag.get_policy(), fixture["expected_policy_subset"], "agent policy")
     if "expected_policy_registry_subset" in fixture:
         _assert_subset(ag.get_policy_registry(), fixture["expected_policy_registry_subset"], "policy registry")
+    if "expected_state_subset" in fixture:
+        _assert_subset(ag.get_state(), fixture["expected_state_subset"], "agent state")
     registry = ag.get_policy_registry()
     if "expected_actor_primitives_subset" in fixture:
         _assert_list_subset(registry.get("actor_primitives") or [], fixture["expected_actor_primitives_subset"], "actor primitives")

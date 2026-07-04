@@ -31,6 +31,8 @@ flowchart LR
 
 That is the trick behind very large Ax tool catalogs: the prompt carries the map, not every schema. This especially helps smaller models, which should not have to rank hundreds of function definitions in one prompt. An advisory relevance ranker flags the modules, skills, and memories most likely to matter for the current task, so the actor discovers the right module first. You usually don't set `functionDiscovery` yourself: `autoUpgrade` (ON by default) turns it on automatically once the inline tool docs get large. Set it explicitly to force the behavior either way.
 
+The default ranker and smart-upgrade behavior are shared by the generated language packages as well as TypeScript; the Smart Defaults Agent in the [long-agent examples]({{langRoot}}/examples/long-agents/) is the copyable cross-language form.
+
 Keep the top-level `functions` shape either flat or grouped — mixed plain functions and groups are rejected. In grouped mode, put `fn()` tools, MCP providers, and runtime providers inside groups; expose child agents with `childAgent.getFunction()`. MCP servers plug in as ordinary tools — see [MCP]({{langRoot}}/concepts/mcp/).
 
 ## Clarification And Resume

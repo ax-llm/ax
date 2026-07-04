@@ -1,0 +1,42 @@
+{
+  "expected_exported_state_subset": {
+    "actor_prompt_policy": {
+      "cache_order": "stable_before_dynamic",
+      "dynamic_uncached_fields": [
+        "guidanceLog",
+        "actionLog",
+        "liveRuntimeState",
+        "contextPressure"
+      ],
+      "stable_cached_fields": [
+        "input",
+        "executorRequest",
+        "distilledContextSummary",
+        "contextMetadata",
+        "contextMap",
+        "memories",
+        "discoveredToolDocs",
+        "loadedSkills",
+        "summarizedActorLog"
+      ]
+    },
+    "distiller_signature": "input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> javascriptCode:code",
+    "executor_signature": "input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> javascriptCode:code",
+    "policy_registry": {
+      "flags": {
+        "memoriesMode": true
+      }
+    },
+    "responder_signature": "context:string, question:string, contextData:json -> answer:string"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "signature-update-preserves-memories-cache",
+  "options": {
+    "memoriesMode": true,
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "set_signature": "context:string, question:string -> answer:string",
+  "signature": "question:string -> answer:string"
+}

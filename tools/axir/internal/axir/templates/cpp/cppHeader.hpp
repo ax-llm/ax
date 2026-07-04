@@ -860,6 +860,7 @@ class AxPlaybook {
 class AxAgent : public AxProgram {
  public:
   explicit AxAgent(Value signature, Value options = Value::object());
+  AxAgent& set_signature(Value signature);
   Value forward(AIClient& client, Value values, Value options = Value::object());
   Value test(AxCodeRuntime& runtime, Value code, Value context_values = Value::object(), Value options = Value::object());
   Value execute_actor_step(AxCodeRuntime& runtime, Value code, Value values = Value::object(), Value options = Value::object());

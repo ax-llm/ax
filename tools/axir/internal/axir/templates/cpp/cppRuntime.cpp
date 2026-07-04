@@ -4350,6 +4350,16 @@ AxAgent::AxAgent(Value signature, Value options) {
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
 }
 
+AxAgent& AxAgent::set_signature(Value signature) {
+  Value options = Core::get(state_, "options", Value::object());
+  state_ = Core::_agent_factory(std::move(signature), options);
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
+  llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  return *this;
+}
+
 Value AxAgent::forward(AIClient& client, Value values, Value options) {
   // Wire the built-in llmQuery primitive onto the runtime carried in agent
   // options (the same runtime the actor loop will create sessions on),

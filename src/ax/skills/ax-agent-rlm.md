@@ -32,7 +32,7 @@ distiller (RLM actor) -> executor (RLM actor) -> responder (synthesizer)
 ```
 
 - **distiller** always runs first. It sees all original inputs so it can understand and normalize the task; declared `contextFields` stay runtime-only when present. It distils relevant evidence by writing runtime-language code in a multi-turn loop, then calls the runtime-exposed `final(request, evidence)` primitive. The request becomes the executor's `inputs.executorRequest`; it must be self-contained and restate the concrete action, target, and constraints, not vague wording like "do it". The distiller should expand the original user task with facts found in context, including follow-ups like "yes, do it". When no `contextFields` are configured, it still performs request normalization over the original inputs with `contextFields: []`. **The distiller has no tools and is not a capability gate.**
-- **executor** always runs. It receives non-context inputs plus `inputs.executorRequest` and `inputs.distilledContext` from the distiller's `final(request, evidence)` payload. Raw context fields are not present in the executor stage. The executor owns tool use, decides whether to call its available functions or finish directly from distilled evidence, and reports actual tool results or failures.
+- **executor** always runs. It receives non-context inputs plus `inputs.executorRequest`, a compact `distilledContextSummary` prompt field, and the real evidence live as `inputs.distilledContext` from the distiller's `final(request, evidence)` payload. Declared or auto-promoted context fields stay runtime-readable as `inputs.<field>` when `contextMetadata` lists them, but their raw contents are not pasted into the executor prompt. The executor owns tool use, decides whether to call its available functions or finish directly from distilled evidence, and reports actual tool results or failures.
 - **responder** always runs last. It synthesizes the user's output signature from whichever upstream actor finished the run and must not contradict tool evidence gathered upstream.
 
 Treat both actor stages as long-running code runtime sessions that the actor steers over multiple turns, not as fresh script generators on every turn. `AxJSRuntime` is the default; custom runtimes set `language` so the actor code field becomes `<language>Code` such as `pythonCode` while JavaScript keeps the legacy `javascriptCode`.
@@ -252,7 +252,7 @@ Prompt/cache shape:
 
 - Actor turns are compact observable turns, not replayed chat transcripts.
 - Stable system prompt: role/stage rules, primitive descriptions, static module list, always-included callable signatures, output contract, and field definitions.
-- Cached working inputs: task inputs, inline context, `contextMetadata`, `contextMap`, `memories`, `executorRequest`, `distilledContext`, `discoveredToolDocs`, `loadedSkills`, and `summarizedActorLog`.
+- Cached working inputs: task inputs, inline context, `contextMetadata`, `contextMap`, `memories`, `executorRequest`, `distilledContextSummary`, `discoveredToolDocs`, `loadedSkills`, and `summarizedActorLog`.
 - Dynamic turn tail: `guidanceLog`, `actionLog`, `liveRuntimeState`, and `contextPressure`.
 - Prefer one compact inspection per non-final turn. Never combine inspection output with `final(...)` or `askClarification(...)`.
 
@@ -478,6 +478,7 @@ Flagship real-world long-agents (also ported to Python, Go, Rust, Java, and C++ 
 - [Incident Log Forensics](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/incident-log-forensics.ts) - large-context log forensics over `contextFields` (Gemini)
 - [Codebase Peek Map](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/codebase-peek-map.ts) - Peek-paper context-map orientation over a large repo snapshot
 - [Data Analyst with Tools](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/data-analyst-with-tools.ts) - large data dictionary in `contextFields` + typed warehouse tools the model queries instead of inlining
+- [Smart Defaults Agent](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/smart-defaults-agent.ts) - oversized undeclared context auto-promoted runtime-only, with relevance hints and runtime tools
 - [Self-Improving Lab](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/self-improving-lab.ts) - many-tool agent that runs experiments, grades them with an independent verifier, and distills verified rules into memory
 
 ## Do Not Generate

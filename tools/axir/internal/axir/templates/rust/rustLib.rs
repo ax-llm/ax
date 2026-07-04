@@ -2652,6 +2652,13 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
 }
 
 impl AxAgent {
+    pub fn set_signature(&mut self, spec: &str) -> AxResult<&mut Self> {
+        let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
+        let rebuilt = agent_with_core_options(spec, options)?;
+        *self = rebuilt;
+        Ok(self)
+    }
+
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         self.forward_with_options(client, input, json!({}))
     }
@@ -7295,6 +7302,13 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_exported_state_subset") {
         expect_json_subset("runtime state", &exported, expected)?;
     }
+    if let Some(expected) = fixture.get("expected_context_events_subset").and_then(Value::as_array) {
+        expect_json_list_subset(
+            "agent context events",
+            exported.get("context_events").unwrap_or(&json!([])),
+            expected,
+        )?;
+    }
     if let Some(expected) = fixture.get("expected_action_log_subset").and_then(Value::as_array) {
         expect_json_list_subset(
             "action log",
@@ -8232,6 +8246,9 @@ fn run_agent_runtime_policy_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_policy_registry_subset") {
         expect_json_subset("policy registry", &agent.get_policy_registry(), expected)?;
     }
+    if let Some(expected) = fixture.get("expected_state_subset") {
+        expect_json_subset("agent state", &agent.get_state()?, expected)?;
+    }
     let registry = agent.get_policy_registry();
     for (label, registry_key, expected_key) in [
         ("actor primitives", "actor_primitives", "expected_actor_primitives_subset"),
@@ -8296,6 +8313,9 @@ fn run_agent_runtime_policy_operations(fixture: &Value) -> AxResult<AxAgent> {
     let agent_options =
         core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
     let mut agent = agent_with_core_options(signature, agent_options)?;
+    if let Some(next_signature) = fixture.get("set_signature").and_then(Value::as_str) {
+        agent.set_signature(next_signature)?;
+    }
     if let Some(request) = fixture.get("discover") {
         let request = if core_json_truthy(request) {
             request.clone()

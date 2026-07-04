@@ -24,7 +24,7 @@ The handoff between stages is deliberately narrow. The completion primitive is `
 
 ## The Shared Runtime Session
 
-The distiller and executor run in **one runtime session**, not two. This is the difference between handing off a photocopy and handing off a shared drive: the distiller's `final(request, evidence)` leaves the evidence *in the session* and forwards only a compact shape summary. The executor reads the real values from `inputs.distilledContext` — they are already live — while its prompt carries just the summary (top-level keys, types, sizes, and the field names of array items). (The shared-session execution path ships in the TypeScript runtime today; the generated language ports currently hand the distilled evidence to the executor directly until the port lands.)
+The distiller and executor run in **one runtime session**, not two. This is the difference between handing off a photocopy and handing off a shared drive: the distiller's `final(request, evidence)` leaves the evidence *in the session* and forwards only a compact shape summary. The executor reads the real values from `inputs.distilledContext` — they are already live — while its prompt carries just the summary (top-level keys, types, sizes, and the field names of array items). Generated language ports use the same prompt summary contract; JavaScript-capable runtimes share the session directly, and non-JavaScript runtimes preserve the same executor-facing shape with a fallback handoff.
 
 Two consequences fall out of this:
 

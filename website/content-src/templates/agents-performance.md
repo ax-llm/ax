@@ -48,6 +48,7 @@ Treat this as guidance, not a leaderboard: it is one task family, and models mov
 ## Practical Reliability Notes
 
 - **Keep small tool sets flat and inline.** Grouped discovery earns its keep at catalog scale; below that, inline schemas are the most reliable shape, especially on smaller models.
+- **Let smart defaults catch accidental prompt floods.** Oversized undeclared inputs are promoted runtime-only by default, and the Smart Defaults Agent in the [long-agent examples]({{langRoot}}/examples/long-agents/) shows the same behavior across the generated packages.
 - **Assert ground truth where you can.** The grounded-audit pattern — compute the expected answer in code, assert the agent matched — is cheap insurance for any agent with a deterministic sub-result.
 - **Prefer typed outputs over prose parsing.** The signature validates and retries with feedback; that loop is where a lot of practical reliability comes from.
 

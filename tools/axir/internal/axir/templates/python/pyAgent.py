@@ -1241,12 +1241,19 @@ def _score_optimization_prediction(task, prediction, options):
 class AxAgent:
     def __init__(self, signature, options: dict[str, Any] | None = None):
         self.options = dict(options or {})
+        self._rebuild_from_signature(signature)
+
+    def _rebuild_from_signature(self, signature):
         self.state = _agent_factory(signature, self.options)
         self.signature = _core_get(self.state, "signature")
         self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": 0, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", "")})
         self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": 0, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
         self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
         self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
+
+    def set_signature(self, signature):
+        self._rebuild_from_signature(signature)
+        return self
 
     def forward(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
         options = options or {}

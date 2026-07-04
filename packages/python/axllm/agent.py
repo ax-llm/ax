@@ -1243,12 +1243,19 @@ def _score_optimization_prediction(task, prediction, options):
 class AxAgent:
     def __init__(self, signature, options: dict[str, Any] | None = None):
         self.options = dict(options or {})
+        self._rebuild_from_signature(signature)
+
+    def _rebuild_from_signature(self, signature):
         self.state = _agent_factory(signature, self.options)
         self.signature = _core_get(self.state, "signature")
         self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": 0, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", "")})
         self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": 0, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
         self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
         self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
+
+    def set_signature(self, signature):
+        self._rebuild_from_signature(signature)
+        return self
 
     def forward(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
         options = options or {}
@@ -1931,14 +1938,29 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     has_runtime_config_snake = _core_map_contains(options, "runtime_config")
     has_any_runtime_config = _core_or(has_runtime_config, has_runtime_config_snake)
     runtime_enabled = _core_or(has_runtime_direct, has_any_runtime_config)
-    policy = _normalize_agent_policy(options)
-    policy_flags = _agent_policy_flags(options)
-    policy_registry = _agent_policy_registry(policy, policy_flags)
     context_policy = _resolve_agent_context_policy(options)
     executor_model_policy = _resolve_agent_executor_model_policy(options)
     callable_inventory = _normalize_agent_callable_inventory(options)
     callable_split = _split_agent_callable_inventory(callable_inventory)
+    auto_upgrade = _resolve_agent_auto_upgrade(options)
+    policy = _normalize_agent_policy(options)
+    policy_flags = _agent_policy_flags(options, callable_split, auto_upgrade)
+    policy_registry = _agent_policy_registry(policy, policy_flags)
     discovery_catalog = _render_agent_discovery_catalog(callable_split)
+    skills_catalog_camel = _core_get(options, "skillsCatalog", empty_list)
+    skills_catalog = _core_get(options, "skills_catalog", skills_catalog_camel)
+    skills_catalog_is_list = _core_type_is(skills_catalog, "list")
+    if skills_catalog_is_list:
+        pass
+    else:
+        skills_catalog = empty_list
+    memories_catalog_camel = _core_get(options, "memoriesCatalog", empty_list)
+    memories_catalog = _core_get(options, "memories_catalog", memories_catalog_camel)
+    memories_catalog_is_list = _core_type_is(memories_catalog, "list")
+    if memories_catalog_is_list:
+        pass
+    else:
+        memories_catalog = empty_list
     discovered_tool_docs = []
     loaded_skill_docs = []
     loaded_memories = []
@@ -1961,14 +1983,14 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     state["executor_exclude_fields"] = executor_exclude
     state["responder_exclude_fields"] = responder_exclude
     code_field_name = _core_get(runtime_contract, "code_field_name", "javascriptCode")
-    runtime_distiller_signature = _core_string_format("input:json, context:json, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
+    runtime_distiller_signature = _core_string_format("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
     distiller_signature = "input:json, context:json -> completion:json"
     if runtime_enabled:
         distiller_signature = runtime_distiller_signature
     else:
         pass
     state["distiller_signature"] = distiller_signature
-    runtime_executor_signature = _core_string_format("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
+    runtime_executor_signature = _core_string_format("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
     executor_signature = "input:json, executorRequest:string, distilledContext:json -> completion:json"
     if runtime_enabled:
         executor_signature = runtime_executor_signature
@@ -1992,6 +2014,7 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     state["policy_flags"] = policy_flags
     state["policy_registry"] = policy_registry
     state["context_policy"] = context_policy
+    state["auto_upgrade"] = auto_upgrade
     context_map_config = _core_get(options, "contextMap", None)
     has_cm_config = _core_is_not_none(context_map_config)
     if has_cm_config:
@@ -2035,6 +2058,8 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     state["callable_inventory"] = callable_inventory
     state["callable_split"] = callable_split
     state["discovery_catalog"] = discovery_catalog
+    state["skills_catalog"] = skills_catalog
+    state["memories_catalog"] = memories_catalog
     state["discovered_tool_docs"] = discovered_tool_docs
     state["loaded_skill_docs"] = loaded_skill_docs
     state["loaded_memories"] = loaded_memories
@@ -2253,18 +2278,272 @@ def _normalize_agent_policy(options: Any) -> Any:
     return out
 
 
-def _agent_policy_flags(options: Any) -> Any:
+def _resolve_agent_auto_upgrade(options: Any) -> Any:
+    _core_coverage_mark("_resolve_agent_auto_upgrade")
+    empty_map = {}
+    raw_camel = _core_get(options, "autoUpgrade", True)
+    raw = _core_get(options, "auto_upgrade", raw_camel)
+    root_is_bool = _core_type_is(raw, "bool")
+    root_is_object = _core_type_is(raw, "object")
+    root_enabled = True
+    function_enabled = True
+    context_enabled = True
+    function_cfg = empty_map
+    context_cfg = empty_map
+    if root_is_bool:
+        root_enabled = raw
+        function_enabled = raw
+        context_enabled = raw
+    else:
+        if root_is_object:
+            raw_function = _core_get(raw, "functionDiscovery", True)
+            raw_function = _core_get(raw, "function_discovery", raw_function)
+            raw_context = _core_get(raw, "contextFields", True)
+            raw_context = _core_get(raw, "context_fields", raw_context)
+            raw_function_is_bool = _core_type_is(raw_function, "bool")
+            if raw_function_is_bool:
+                function_enabled = raw_function
+            else:
+                raw_function_is_object = _core_type_is(raw_function, "object")
+                if raw_function_is_object:
+                    function_cfg = raw_function
+                    function_enabled = True
+                else:
+                    pass
+            raw_context_is_bool = _core_type_is(raw_context, "bool")
+            if raw_context_is_bool:
+                context_enabled = raw_context
+            else:
+                raw_context_is_object = _core_type_is(raw_context, "object")
+                if raw_context_is_object:
+                    context_cfg = raw_context
+                    context_enabled = True
+                else:
+                    pass
+        else:
+            root_enabled = True
+    above_camel = _core_get(function_cfg, "aboveFunctionDocChars", 10000)
+    above = _core_get(function_cfg, "above_function_doc_chars", above_camel)
+    promote_camel = _core_get(context_cfg, "promoteAboveChars", 8000)
+    promote = _core_get(context_cfg, "promote_above_chars", promote_camel)
+    preview_camel = _core_get(context_cfg, "previewChars", 1200)
+    preview = _core_get(context_cfg, "preview_chars", preview_camel)
+    above_is_number = _core_type_is(above, "number")
+    promote_is_number = _core_type_is(promote, "number")
+    preview_is_number = _core_type_is(preview, "number")
+    above_bad_type = _core_not(above_is_number)
+    if above_bad_type:
+        error = _core_runtime_error("autoUpgrade.functionDiscovery.aboveFunctionDocChars must be a finite number > 0")
+        raise error
+    else:
+        pass
+    above_too_low = _core_lte(above, 0)
+    if above_too_low:
+        error2 = _core_runtime_error("autoUpgrade.functionDiscovery.aboveFunctionDocChars must be a finite number > 0")
+        raise error2
+    else:
+        pass
+    promote_bad_type = _core_not(promote_is_number)
+    if promote_bad_type:
+        error3 = _core_runtime_error("autoUpgrade.contextFields.promoteAboveChars must be a finite number > 0")
+        raise error3
+    else:
+        pass
+    promote_too_low = _core_lte(promote, 0)
+    if promote_too_low:
+        error4 = _core_runtime_error("autoUpgrade.contextFields.promoteAboveChars must be a finite number > 0")
+        raise error4
+    else:
+        pass
+    preview_bad_type = _core_not(preview_is_number)
+    if preview_bad_type:
+        error5 = _core_runtime_error("autoUpgrade.contextFields.previewChars must be a finite number > -1")
+        raise error5
+    else:
+        pass
+    preview_too_low = _core_lt(preview, 0)
+    if preview_too_low:
+        error6 = _core_runtime_error("autoUpgrade.contextFields.previewChars must be a finite number > -1")
+        raise error6
+    else:
+        pass
+    function = {}
+    function["enabled"] = function_enabled
+    function["aboveFunctionDocChars"] = above
+    function["above_function_doc_chars"] = above
+    context = {}
+    context["enabled"] = context_enabled
+    context["promoteAboveChars"] = promote
+    context["promote_above_chars"] = promote
+    context["previewChars"] = preview
+    context["preview_chars"] = preview
+    out = {}
+    out["enabled"] = root_enabled
+    out["functionDiscovery"] = function
+    out["function_discovery"] = function
+    out["contextFields"] = context
+    out["context_fields"] = context
+    return out
+
+
+def _map_optimization_judge_quality_to_score(quality: str) -> f64:
+    _core_coverage_mark("_map_optimization_judge_quality_to_score")
+    normalized = _core_string_lower(quality)
+    is_excellent = _core_eq(normalized, "excellent")
+    if is_excellent:
+        return 1
+    else:
+        pass
+    is_good = _core_eq(normalized, "good")
+    if is_good:
+        return 0.8
+    else:
+        pass
+    is_acceptable = _core_eq(normalized, "acceptable")
+    if is_acceptable:
+        return 0.5
+    else:
+        pass
+    is_poor = _core_eq(normalized, "poor")
+    if is_poor:
+        return 0.2
+    else:
+        pass
+    is_unacceptable = _core_eq(normalized, "unacceptable")
+    if is_unacceptable:
+        return 0
+    else:
+        pass
+    return 0.5
+
+
+def _build_optimization_judge_payload(task: Any, prediction: Any, criteria: str) -> Any:
+    _core_coverage_mark("_build_optimization_judge_payload")
+    empty_list = []
+    out = {}
+    task_input = _core_get(task, "input", task)
+    out["taskInput"] = task_input
+    task_criteria = _core_get(task, "criteria", criteria)
+    out["criteria"] = task_criteria
+    expected_output = _core_get(task, "expectedOutput", None)
+    out["expectedOutput"] = expected_output
+    expected_actions = _core_get(task, "expectedActions", empty_list)
+    out["expectedActions"] = expected_actions
+    forbidden_actions = _core_get(task, "forbiddenActions", empty_list)
+    out["forbiddenActions"] = forbidden_actions
+    metadata = _core_get(task, "metadata", None)
+    out["metadata"] = metadata
+    completion_type = _core_get(prediction, "completionType", "error")
+    out["completionType"] = completion_type
+    clarification = _core_get(prediction, "clarification", None)
+    out["clarification"] = clarification
+    final_output = _core_get(prediction, "output", prediction)
+    out["finalOutput"] = final_output
+    guidance_log = _core_get(prediction, "guidanceLog", "")
+    out["guidanceLog"] = guidance_log
+    action_log = _core_get(prediction, "actionLog", empty_list)
+    out["actionLog"] = action_log
+    function_calls = _core_get(prediction, "functionCalls", empty_list)
+    out["functionCalls"] = function_calls
+    tool_errors = _core_get(prediction, "toolErrors", empty_list)
+    out["toolErrors"] = tool_errors
+    turn_count = _core_get(prediction, "turnCount", 0)
+    out["turnCount"] = turn_count
+    usage = _core_get(prediction, "usage", empty_list)
+    out["usage"] = usage
+    trace = _core_get(prediction, "trace", None)
+    out["trace"] = trace
+    return out
+
+
+def _agent_discoverable_doc_chars(callable_split: Any) -> number:
+    _core_coverage_mark("_agent_discoverable_doc_chars")
+    empty_list = []
+    discoverable = _core_get(callable_split, "discoverable", empty_list)
+    text = _core_json_stringify(discoverable)
+    chars = _core_len(text)
+    return chars
+
+
+def _agent_has_discover_namespace(callable_split: Any) -> bool:
+    _core_coverage_mark("_agent_has_discover_namespace")
+    empty_list = []
+    inline = _core_get(callable_split, "inline", empty_list)
+    discoverable = _core_get(callable_split, "discoverable", empty_list)
+    for group in inline:
+        namespace = _core_get(group, "namespace", "")
+        is_discover = _core_eq(namespace, "discover")
+        if is_discover:
+            return True
+        else:
+            pass
+    for group2 in discoverable:
+        namespace2 = _core_get(group2, "namespace", "")
+        is_discover2 = _core_eq(namespace2, "discover")
+        if is_discover2:
+            return True
+        else:
+            pass
+    return False
+
+
+def _agent_policy_flags(options: Any, callable_split: Any, auto_upgrade: Any) -> Any:
     _core_coverage_mark("_agent_policy_flags")
+    empty_list = []
+    has_function_discovery_camel = _core_map_contains(options, "functionDiscovery")
+    has_function_discovery_snake = _core_map_contains(options, "function_discovery")
+    has_function_discovery = _core_or(has_function_discovery_camel, has_function_discovery_snake)
     function_discovery_camel = _core_get(options, "functionDiscovery", False)
-    function_discovery = _core_get(options, "function_discovery", function_discovery_camel)
+    function_discovery_direct = _core_get(options, "function_discovery", function_discovery_camel)
+    function_discovery = function_discovery_direct
+    if has_function_discovery:
+        pass
+    else:
+        auto_function = _core_get(auto_upgrade, "functionDiscovery", None)
+        auto_function_enabled = _core_get(auto_function, "enabled", True)
+        auto_threshold = _core_get(auto_function, "aboveFunctionDocChars", 10000)
+        doc_chars = _agent_discoverable_doc_chars(callable_split)
+        above_threshold = _core_gt(doc_chars, auto_threshold)
+        has_discover_namespace = _agent_has_discover_namespace(callable_split)
+        safe_namespace = _core_not(has_discover_namespace)
+        auto_allowed = _core_and(auto_function_enabled, above_threshold)
+        auto_enabled = _core_and(auto_allowed, safe_namespace)
+        if auto_enabled:
+            function_discovery = True
+        else:
+            function_discovery = False
     skills_camel = _core_get(options, "skillsMode", False)
     skills_direct = _core_get(options, "skills_mode", skills_camel)
     has_skills_callback = _core_map_contains(options, "onSkillsSearch")
-    skills_mode = _core_or(skills_direct, has_skills_callback)
+    has_skills_callback_snake = _core_map_contains(options, "on_skills_search")
+    has_any_skills_callback = _core_or(has_skills_callback, has_skills_callback_snake)
+    skills_catalog_camel = _core_get(options, "skillsCatalog", empty_list)
+    skills_catalog = _core_get(options, "skills_catalog", skills_catalog_camel)
+    skills_catalog_is_list = _core_type_is(skills_catalog, "list")
+    skills_catalog_count = 0
+    if skills_catalog_is_list:
+        skills_catalog_count = _core_len(skills_catalog)
+    else:
+        pass
+    has_skills_catalog = _core_gt(skills_catalog_count, 0)
+    skills_callback_mode = _core_or(skills_direct, has_any_skills_callback)
+    skills_mode = _core_or(skills_callback_mode, has_skills_catalog)
     memories_camel = _core_get(options, "memoriesMode", False)
     memories_direct = _core_get(options, "memories_mode", memories_camel)
     has_memories_callback = _core_map_contains(options, "onMemoriesSearch")
-    memories_mode = _core_or(memories_direct, has_memories_callback)
+    has_memories_callback_snake = _core_map_contains(options, "on_memories_search")
+    has_any_memories_callback = _core_or(has_memories_callback, has_memories_callback_snake)
+    memories_catalog_camel = _core_get(options, "memoriesCatalog", empty_list)
+    memories_catalog = _core_get(options, "memories_catalog", memories_catalog_camel)
+    memories_catalog_is_list = _core_type_is(memories_catalog, "list")
+    memories_catalog_count = 0
+    if memories_catalog_is_list:
+        memories_catalog_count = _core_len(memories_catalog)
+    else:
+        pass
+    has_memories_catalog = _core_gt(memories_catalog_count, 0)
+    memories_callback_mode = _core_or(memories_direct, has_any_memories_callback)
+    memories_mode = _core_or(memories_callback_mode, has_memories_catalog)
     usage_camel = _core_get(options, "usageTrackingMode", False)
     usage_enabled = _core_get(options, "usage_tracking_mode", usage_camel)
     status_camel = _core_get(options, "hasAgentStatusCallback", False)
@@ -2276,6 +2555,16 @@ def _agent_policy_flags(options: Any) -> Any:
     context_config = _core_get(options, "context", None)
     has_context_config = _core_type_is(context_config, "object")
     inspect_mode = _core_or(inspect_direct, has_context_config)
+    relevance_camel = _core_get(options, "relevanceRanking", True)
+    relevance_raw = _core_get(options, "relevance_ranking", relevance_camel)
+    relevance_is_false = _core_eq(relevance_raw, False)
+    relevance_enabled = _core_not(relevance_is_false)
+    module_hint_enabled = _core_and(relevance_enabled, function_discovery)
+    skills_hint_enabled = _core_and(relevance_enabled, has_skills_catalog)
+    memories_hint_enabled = _core_and(relevance_enabled, has_memories_catalog)
+    domain_hint_left = _core_or(module_hint_enabled, skills_hint_enabled)
+    relevance_hints_enabled = _core_or(domain_hint_left, memories_hint_enabled)
+    combined_discovery_skills = _core_and(function_discovery, skills_mode)
     out = {}
     out["discoveryMode"] = function_discovery
     out["skillsMode"] = skills_mode
@@ -2283,6 +2572,12 @@ def _agent_policy_flags(options: Any) -> Any:
     out["usageTrackingMode"] = usage_enabled
     out["hasAgentStatusCallback"] = status_mode
     out["hasInspectRuntime"] = inspect_mode
+    out["relevanceRanking"] = relevance_enabled
+    out["moduleHintEnabled"] = module_hint_enabled
+    out["skillsHintEnabled"] = skills_hint_enabled
+    out["memoriesHintEnabled"] = memories_hint_enabled
+    out["relevanceHintsEnabled"] = relevance_hints_enabled
+    out["discoveryMode+skillsMode"] = combined_discovery_skills
     return out
 
 
@@ -2528,73 +2823,19 @@ def _agent_policy_vocabulary_registry() -> Any:
     return registry
 
 
-def _map_optimization_judge_quality_to_score(quality: str) -> f64:
-    _core_coverage_mark("_map_optimization_judge_quality_to_score")
-    normalized = _core_string_lower(quality)
-    is_excellent = _core_eq(normalized, "excellent")
-    if is_excellent:
-        return 1
-    else:
-        pass
-    is_good = _core_eq(normalized, "good")
-    if is_good:
-        return 0.8
-    else:
-        pass
-    is_acceptable = _core_eq(normalized, "acceptable")
-    if is_acceptable:
-        return 0.5
-    else:
-        pass
-    is_poor = _core_eq(normalized, "poor")
-    if is_poor:
-        return 0.2
-    else:
-        pass
-    is_unacceptable = _core_eq(normalized, "unacceptable")
-    if is_unacceptable:
-        return 0
-    else:
-        pass
-    return 0.5
-
-
-def _build_optimization_judge_payload(task: Any, prediction: Any, criteria: str) -> Any:
-    _core_coverage_mark("_build_optimization_judge_payload")
-    empty_list = []
+def _build_agent_eval_prediction(output: Any, action_log: Any, usage: Any, trace: Any) -> Any:
+    _core_coverage_mark("_build_agent_eval_prediction")
     out = {}
-    task_input = _core_get(task, "input", task)
-    out["taskInput"] = task_input
-    task_criteria = _core_get(task, "criteria", criteria)
-    out["criteria"] = task_criteria
-    expected_output = _core_get(task, "expectedOutput", None)
-    out["expectedOutput"] = expected_output
-    expected_actions = _core_get(task, "expectedActions", empty_list)
-    out["expectedActions"] = expected_actions
-    forbidden_actions = _core_get(task, "forbiddenActions", empty_list)
-    out["forbiddenActions"] = forbidden_actions
-    metadata = _core_get(task, "metadata", None)
-    out["metadata"] = metadata
-    completion_type = _core_get(prediction, "completionType", "error")
-    out["completionType"] = completion_type
-    clarification = _core_get(prediction, "clarification", None)
-    out["clarification"] = clarification
-    final_output = _core_get(prediction, "output", prediction)
-    out["finalOutput"] = final_output
-    guidance_log = _core_get(prediction, "guidanceLog", "")
-    out["guidanceLog"] = guidance_log
-    action_log = _core_get(prediction, "actionLog", empty_list)
+    out["completionType"] = "final"
+    out["output"] = output
+    out["finalOutput"] = output
     out["actionLog"] = action_log
-    function_calls = _core_get(prediction, "functionCalls", empty_list)
-    out["functionCalls"] = function_calls
-    tool_errors = _core_get(prediction, "toolErrors", empty_list)
-    out["toolErrors"] = tool_errors
-    turn_count = _core_get(prediction, "turnCount", 0)
-    out["turnCount"] = turn_count
-    usage = _core_get(prediction, "usage", empty_list)
     out["usage"] = usage
-    trace = _core_get(prediction, "trace", None)
     out["trace"] = trace
+    empty_list = []
+    out["functionCalls"] = empty_list
+    out["toolErrors"] = empty_list
+    out["turnCount"] = 0
     return out
 
 
@@ -2780,22 +3021,6 @@ def _policy_flag_enabled(flags: Any, condition: str) -> bool:
     return out
 
 
-def _build_agent_eval_prediction(output: Any, action_log: Any, usage: Any, trace: Any) -> Any:
-    _core_coverage_mark("_build_agent_eval_prediction")
-    out = {}
-    out["completionType"] = "final"
-    out["output"] = output
-    out["finalOutput"] = output
-    out["actionLog"] = action_log
-    out["usage"] = usage
-    out["trace"] = trace
-    empty_list = []
-    out["functionCalls"] = empty_list
-    out["toolErrors"] = empty_list
-    out["turnCount"] = 0
-    return out
-
-
 def _select_actor_primitives(registry: Any, stage: str) -> Any:
     _core_coverage_mark("_select_actor_primitives")
     empty_list = []
@@ -2941,7 +3166,7 @@ def _render_runtime_primitive(primitive: Any, flags: Any) -> str:
 
 def _render_actor_primitives_list(stage: str, flags: Any) -> str:
     _core_coverage_mark("_render_actor_primitives_list")
-    data = _core_json_parse("{\"schema_version\":\"axir-rlm-prompts-v1\",\"executor_template\":\"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller stage produced two extra inputs:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.\\n\\nRead `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"responder_template\":\"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\"distiller_template\":\"## Distiller\\n\\nYou (`distiller`) read the available context and forward an actionable request to the downstream **executor** stage, which owns any available tools/functions and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete; put exact inputs (paths, ids, selected records, constraints) in `evidence`, or `{}` if context has nothing to narrow. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of tools or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration when context has nothing to narrow** (direct action request, or schema is already known) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"primitives\":[{\"id\":\"llmQuery\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask focused questions about the narrowed context you pass in.\",\"signatures\":[{\"code\":\"await llmQuery([{ query: string, context: any }, ...]): string[]\"}]},{\"id\":\"final\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\"signatures\":[{\"code\":\"await final(task: string, context?: object)\"}]},{\"id\":\"askClarification\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\"signatures\":[{\"code\":\"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"}]},{\"id\":\"reportSuccess\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportSuccess(message: string)\"}]},{\"id\":\"reportFailure\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportFailure(message: string)\"}]},{\"id\":\"inspectRuntime\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"hasInspectRuntime\",\"description\":\"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\"signatures\":[{\"code\":\"await inspectRuntime(): string\"}]},{\"id\":\"discover\",\"stages\":[\"executor\"],\"enabledByAny\":[\"discoveryMode\",\"skillsMode\"],\"description\":\"Load tool docs and skill guides into the next turn. Use one batched call.\",\"signatures\":[{\"code\":\"await discover(item: string): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(items: string[]): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { skills: string | string[] }): void\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}],\"examples\":[{\"code\":\"await discover('db');\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(['db', 'db.search']);\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ skills: ['release checklist'] });\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ tools: ['db'], skills: ['release checklist'] });\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}]},{\"id\":\"recall\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"memoriesMode\",\"description\":\"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\"signatures\":[{\"code\":\"await recall(searches: string[]): void\"}]},{\"id\":\"used\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"usageTrackingMode\",\"description\":\"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\"signatures\":[{\"code\":\"await used(id: string, reason?: string): void\"}]}]}")
+    data = _core_json_parse("{\n  \"schema_version\": \"axir-rlm-prompts-v1\",\n  \"executor_template\": \"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller (context) phase ran in this same {{ runtimeLanguageName }} runtime session and handed off:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — the evidence object the distiller selected, live in the runtime. The `Distilled Context Summary` input field describes its shape; the data itself exists only in the runtime — read it with code.\\n- Variables the distiller created remain live (see Live Runtime State). When a `Context Metadata` field is present, the raw context variables it lists are also still readable on `inputs`.\\n\\nWork from `executorRequest` and the distilled evidence first — they are your primary source. When the distilled evidence is insufficient for the request, fall back to the raw `inputs.*` context variables listed in `Context Metadata` — probe and narrow them with code before concluding anything is missing. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run (including any the context phase discovered). Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasRelevanceHints }}\\n### Likely Relevant\\n\\nWhen `inputs.relevanceHints` is provided, a local ranker has flagged the modules, skills, or memories most likely relevant to this task. It is advisory, not a restriction — the full lists above still apply and you may load anything else. If the task needs data or effects from a hinted module whose functions are not yet documented above, call `discover([...])` for it first and use the returned docs on the next turn — do not call `final()` in the same turn as `discover()`.\\n{{ /if }}\\n{{ if hasSkills }}\\n{{ if hasSkillsCatalog }}\\n### Available Skills\\n{{ skillsCatalogList }}\\n\\nLoad a skill's full guide with the runtime-exposed `discover` primitive{{ if isJavaScriptRuntime }}, e.g. `await discover({ skills: ['<id>'] })`{{ /if }}; the guide appears in `inputs.loadedSkills` on the next turn.\\n{{ /if }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive, forward-time skills, or guides carried over from the context phase. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log, and don't redo context narrowing the distiller already did — its variables are still live.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Never conclude information is unavailable while an undiscovered module plausibly provides it.** If the request needs data your evidence lacks (a status, a record, a lookup) and a listed module or hint covers that domain, `discover` it and attempt the call before finalizing.\\n- **Never write a field name you haven't seen.** The Distilled Context Summary and Context Metadata list the real item keys — use those exact names. For function results, use the documented return schema or inspect the actual result before chaining on its fields; guessed field names silently produce zeros and empty results.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\n  \"responder_template\": \"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\n  \"distiller_template\": \"## Distiller\\n\\nYou (`distiller`) are the reconnaissance phase of a two-phase pipeline that shares one {{ runtimeLanguageName }} runtime session. You read the available context, learn what the downstream **executor** phase will need, and forward an actionable request plus evidence. The executor owns tool execution and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete. `evidence` is handed to the executor **by reference in the shared runtime** — put narrowed runtime values in it (the exact inputs the executor's functions will need: ids, paths, selected records, constraints), or `{}` if context has nothing to narrow. Variables you create stay live for the executor, so name them well. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of execution or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if hasExecutorFunctions }}\\n\\n### Executor Functions (reference only — you cannot call these)\\n\\nThe executor phase will have these functions. Their schemas tell you which exact inputs to extract into `evidence`. Calling one here throws — extraction, not execution, is your job.\\n\\n{{ functionsList }}\\n{{ /if }}\\n{{ if discoveryMode }}\\n{{ if hasModules }}\\n\\n### Available Modules\\n\\nModules the executor can use. Call `discover([...])` to load a module's function docs when knowing its exact inputs would sharpen what you extract; docs appear in `inputs.discoveredToolDocs` next turn and carry over to the executor phase.\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them to target your extraction. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n{{ if hasSkillsCatalog }}\\n\\n### Available Skills\\n\\n{{ skillsCatalogList }}\\n\\nLoad a skill's full guide with the runtime-exposed `discover` primitive{{ if isJavaScriptRuntime }}, e.g. `await discover({ skills: ['<id>'] })`{{ /if }}; the guide appears in `inputs.loadedSkills` on the next turn and carries over to the executor phase.\\n{{ /if }}\\n\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive. Apply relevant guides to how you narrow and what you extract.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration only when the request needs nothing from context** (direct action request whose targets are already explicit) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs. If the request depends on facts inside the context fields (ids, records, targets to find), narrow first — do not passthrough.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **Extract what the tools consume**: when the task will need executor functions, put the exact parameter values their schemas ask for (ids, keys, emails, dates, records) in `evidence` — not prose summaries of them.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Never write a field name you haven't seen.** Context Metadata lists the real item keys of each context variable — use those exact names. If a key you need isn't listed, inspect one element first; guessed field names silently produce zeros and empty results.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\n  \"primitives\": [\n    {\n      \"id\": \"llmQuery\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"description\": \"Ask focused questions about the narrowed context you pass in.\",\n      \"signatures\": [\n        {\n          \"code\": \"await llmQuery([{ query: string, context: any }, ...]): string[]\"\n        }\n      ]\n    },\n    {\n      \"id\": \"final\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"description\": \"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\n      \"signatures\": [\n        {\n          \"code\": \"await final(task: string, context?: object)\"\n        }\n      ]\n    },\n    {\n      \"id\": \"askClarification\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"description\": \"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\n      \"signatures\": [\n        {\n          \"code\": \"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"\n        }\n      ]\n    },\n    {\n      \"id\": \"reportSuccess\",\n      \"stages\": [\n        \"executor\"\n      ],\n      \"enabledBy\": \"hasAgentStatusCallback\",\n      \"description\": \"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\n      \"signatures\": [\n        {\n          \"code\": \"await reportSuccess(message: string)\"\n        }\n      ]\n    },\n    {\n      \"id\": \"reportFailure\",\n      \"stages\": [\n        \"executor\"\n      ],\n      \"enabledBy\": \"hasAgentStatusCallback\",\n      \"description\": \"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\n      \"signatures\": [\n        {\n          \"code\": \"await reportFailure(message: string)\"\n        }\n      ]\n    },\n    {\n      \"id\": \"inspectRuntime\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"enabledBy\": \"hasInspectRuntime\",\n      \"description\": \"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\n      \"signatures\": [\n        {\n          \"code\": \"await inspectRuntime(): string\"\n        }\n      ]\n    },\n    {\n      \"id\": \"discover\",\n      \"stages\": [\n        \"executor\"\n      ],\n      \"enabledByAny\": [\n        \"discoveryMode\",\n        \"skillsMode\"\n      ],\n      \"description\": \"Load tool docs and skill guides into the next turn. Use one batched call.\",\n      \"signatures\": [\n        {\n          \"code\": \"await discover(item: string): void\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(items: string[]): void\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(request: { skills: string | string[] }): void\",\n          \"enabledBy\": \"skillsMode\",\n          \"disabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\n          \"enabledByAny\": [\n            \"discoveryMode+skillsMode\"\n          ]\n        }\n      ],\n      \"examples\": [\n        {\n          \"code\": \"await discover('db');\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(['db', 'db.search']);\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover({ skills: ['release checklist'] });\",\n          \"enabledBy\": \"skillsMode\",\n          \"disabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover({ tools: ['db'], skills: ['release checklist'] });\",\n          \"enabledByAny\": [\n            \"discoveryMode+skillsMode\"\n          ]\n        }\n      ]\n    },\n    {\n      \"id\": \"recall\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"enabledBy\": \"memoriesMode\",\n      \"description\": \"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\n      \"signatures\": [\n        {\n          \"code\": \"await recall(searches: string[]): void\"\n        }\n      ]\n    },\n    {\n      \"id\": \"used\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"enabledBy\": \"usageTrackingMode\",\n      \"description\": \"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\n      \"signatures\": [\n        {\n          \"code\": \"await used(id: string, reason?: string): void\"\n        }\n      ]\n    }\n  ]\n}\n")
     empty_list = []
     primitives = _core_get(data, "primitives", empty_list)
     blocks = []
@@ -2961,9 +3186,10 @@ def _render_actor_primitives_list(stage: str, flags: Any) -> str:
     return out
 
 
-def _build_rlm_flags(options: Any) -> Any:
+def _build_rlm_flags(state: Any) -> Any:
     _core_coverage_mark("_build_rlm_flags")
-    flags = _agent_policy_flags(options)
+    empty_map = {}
+    flags = _core_get(state, "policy_flags", empty_map)
     disc = _core_get(flags, "discoveryMode", False)
     skills = _core_get(flags, "skillsMode", False)
     combined = _core_and(disc, skills)
@@ -3005,6 +3231,57 @@ def _rlm_context_var_summary(context_fields: Any) -> str:
     return out
 
 
+def _render_agent_inline_functions_list(callable_split: Any) -> str:
+    _core_coverage_mark("_render_agent_inline_functions_list")
+    empty_list = []
+    inline = _core_get(callable_split, "inline", empty_list)
+    lines = []
+    for group in inline:
+        callables = _core_get(group, "callables", empty_list)
+        for callable in callables:
+            qualified = _core_get(callable, "qualified_name", "")
+            description = _core_get(callable, "description", "")
+            line = _core_string_format("- `{}` — {}", qualified, description)
+            lines.append(line)
+    out = _core_string_join("\n", lines)
+    return out
+
+
+def _render_agent_modules_list(callable_split: Any) -> str:
+    _core_coverage_mark("_render_agent_modules_list")
+    empty_list = []
+    discoverable = _core_get(callable_split, "discoverable", empty_list)
+    lines = []
+    for group in discoverable:
+        namespace = _core_get(group, "namespace", "")
+        title = _core_get(group, "title", namespace)
+        selection = _core_get(group, "selection_criteria", "")
+        description = _core_get(group, "description", "")
+        summary = selection
+        summary_empty = _core_eq(summary, "")
+        if summary_empty:
+            summary = description
+        else:
+            pass
+        line = _core_string_format("- `{}` — {}. {}", namespace, title, summary)
+        lines.append(line)
+    out = _core_string_join("\n", lines)
+    return out
+
+
+def _render_agent_skills_catalog_list(skills_catalog: Any) -> str:
+    _core_coverage_mark("_render_agent_skills_catalog_list")
+    lines = []
+    for skill in skills_catalog:
+        id = _core_get(skill, "id", "")
+        name = _core_get(skill, "name", id)
+        description = _core_get(skill, "description", "")
+        line = _core_string_format("- `{}` — {}. {}", id, name, description)
+        lines.append(line)
+    out = _core_string_join("\n", lines)
+    return out
+
+
 def _rlm_render_template(template: str, vars: Any, context: str) -> str:
     _core_coverage_mark("_rlm_render_template")
     rendered = render_template_content(template, vars, context)
@@ -3017,7 +3294,7 @@ def _render_rlm_executor_description(state: Any, options: Any) -> str:
     _core_coverage_mark("_render_rlm_executor_description")
     empty_map = {}
     contract = _core_get(state, "runtime_contract", empty_map)
-    flags = _build_rlm_flags(options)
+    flags = _build_rlm_flags(state)
     primitives_list = _render_actor_primitives_list("executor", flags)
     language = _core_get(contract, "language", "JavaScript")
     code_field_title = _core_get(contract, "code_field_title", "Javascript Code")
@@ -3028,10 +3305,23 @@ def _render_rlm_executor_description(state: Any, options: Any) -> str:
     skills_mode = _core_get(flags, "skillsMode", False)
     memories_mode = _core_get(flags, "memoriesMode", False)
     status_callback = _core_get(flags, "hasAgentStatusCallback", False)
+    relevance_hints_mode = _core_get(flags, "relevanceHintsEnabled", False)
     memory_usage_camel = _core_get(options, "memoryUsageMode", False)
     memory_usage_mode = _core_get(options, "memory_usage_mode", memory_usage_camel)
     skill_usage_camel = _core_get(options, "skillUsageMode", False)
     skill_usage_mode = _core_get(options, "skill_usage_mode", skill_usage_camel)
+    callable_split = _core_get(state, "callable_split", empty_map)
+    functions_list = _render_agent_inline_functions_list(callable_split)
+    modules_list = _render_agent_modules_list(callable_split)
+    has_modules = _core_ne(modules_list, "")
+    skills_catalog = _core_get(state, "skills_catalog", None)
+    skills_catalog_is_list = _core_type_is(skills_catalog, "list")
+    if skills_catalog_is_list:
+        pass
+    else:
+        skills_catalog = []
+    skills_catalog_list = _render_agent_skills_catalog_list(skills_catalog)
+    has_skills_catalog = _core_ne(skills_catalog_list, "")
     vars = {}
     vars["runtimeLanguageName"] = language
     vars["runtimeCodeFieldTitle"] = code_field_title
@@ -3039,17 +3329,20 @@ def _render_rlm_executor_description(state: Any, options: Any) -> str:
     vars["isJavaScriptRuntime"] = is_javascript
     vars["runtimeUsageInstructions"] = usage_instructions
     vars["primitivesList"] = primitives_list
-    vars["functionsList"] = ""
-    vars["modulesList"] = ""
+    vars["functionsList"] = functions_list
+    vars["modulesList"] = modules_list
     vars["discoveryMode"] = discovery_mode
-    vars["hasModules"] = False
+    vars["hasModules"] = has_modules
     vars["hasDiscoveredDocs"] = discovery_mode
+    vars["hasRelevanceHints"] = relevance_hints_mode
     vars["hasSkills"] = skills_mode
+    vars["hasSkillsCatalog"] = has_skills_catalog
+    vars["skillsCatalogList"] = skills_catalog_list
     vars["skillUsageMode"] = skill_usage_mode
     vars["memoriesMode"] = memories_mode
     vars["memoryUsageMode"] = memory_usage_mode
     vars["hasAgentStatusCallback"] = status_callback
-    data = _core_json_parse("{\"schema_version\":\"axir-rlm-prompts-v1\",\"executor_template\":\"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller stage produced two extra inputs:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.\\n\\nRead `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"responder_template\":\"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\"distiller_template\":\"## Distiller\\n\\nYou (`distiller`) read the available context and forward an actionable request to the downstream **executor** stage, which owns any available tools/functions and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete; put exact inputs (paths, ids, selected records, constraints) in `evidence`, or `{}` if context has nothing to narrow. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of tools or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration when context has nothing to narrow** (direct action request, or schema is already known) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"primitives\":[{\"id\":\"llmQuery\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask focused questions about the narrowed context you pass in.\",\"signatures\":[{\"code\":\"await llmQuery([{ query: string, context: any }, ...]): string[]\"}]},{\"id\":\"final\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\"signatures\":[{\"code\":\"await final(task: string, context?: object)\"}]},{\"id\":\"askClarification\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\"signatures\":[{\"code\":\"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"}]},{\"id\":\"reportSuccess\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportSuccess(message: string)\"}]},{\"id\":\"reportFailure\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportFailure(message: string)\"}]},{\"id\":\"inspectRuntime\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"hasInspectRuntime\",\"description\":\"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\"signatures\":[{\"code\":\"await inspectRuntime(): string\"}]},{\"id\":\"discover\",\"stages\":[\"executor\"],\"enabledByAny\":[\"discoveryMode\",\"skillsMode\"],\"description\":\"Load tool docs and skill guides into the next turn. Use one batched call.\",\"signatures\":[{\"code\":\"await discover(item: string): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(items: string[]): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { skills: string | string[] }): void\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}],\"examples\":[{\"code\":\"await discover('db');\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(['db', 'db.search']);\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ skills: ['release checklist'] });\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ tools: ['db'], skills: ['release checklist'] });\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}]},{\"id\":\"recall\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"memoriesMode\",\"description\":\"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\"signatures\":[{\"code\":\"await recall(searches: string[]): void\"}]},{\"id\":\"used\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"usageTrackingMode\",\"description\":\"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\"signatures\":[{\"code\":\"await used(id: string, reason?: string): void\"}]}]}")
+    data = _core_json_parse("{\n  \"schema_version\": \"axir-rlm-prompts-v1\",\n  \"executor_template\": \"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller (context) phase ran in this same {{ runtimeLanguageName }} runtime session and handed off:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — the evidence object the distiller selected, live in the runtime. The `Distilled Context Summary` input field describes its shape; the data itself exists only in the runtime — read it with code.\\n- Variables the distiller created remain live (see Live Runtime State). When a `Context Metadata` field is present, the raw context variables it lists are also still readable on `inputs`.\\n\\nWork from `executorRequest` and the distilled evidence first — they are your primary source. When the distilled evidence is insufficient for the request, fall back to the raw `inputs.*` context variables listed in `Context Metadata` — probe and narrow them with code before concluding anything is missing. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run (including any the context phase discovered). Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasRelevanceHints }}\\n### Likely Relevant\\n\\nWhen `inputs.relevanceHints` is provided, a local ranker has flagged the modules, skills, or memories most likely relevant to this task. It is advisory, not a restriction — the full lists above still apply and you may load anything else. If the task needs data or effects from a hinted module whose functions are not yet documented above, call `discover([...])` for it first and use the returned docs on the next turn — do not call `final()` in the same turn as `discover()`.\\n{{ /if }}\\n{{ if hasSkills }}\\n{{ if hasSkillsCatalog }}\\n### Available Skills\\n{{ skillsCatalogList }}\\n\\nLoad a skill's full guide with the runtime-exposed `discover` primitive{{ if isJavaScriptRuntime }}, e.g. `await discover({ skills: ['<id>'] })`{{ /if }}; the guide appears in `inputs.loadedSkills` on the next turn.\\n{{ /if }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive, forward-time skills, or guides carried over from the context phase. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log, and don't redo context narrowing the distiller already did — its variables are still live.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Never conclude information is unavailable while an undiscovered module plausibly provides it.** If the request needs data your evidence lacks (a status, a record, a lookup) and a listed module or hint covers that domain, `discover` it and attempt the call before finalizing.\\n- **Never write a field name you haven't seen.** The Distilled Context Summary and Context Metadata list the real item keys — use those exact names. For function results, use the documented return schema or inspect the actual result before chaining on its fields; guessed field names silently produce zeros and empty results.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\n  \"responder_template\": \"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\n  \"distiller_template\": \"## Distiller\\n\\nYou (`distiller`) are the reconnaissance phase of a two-phase pipeline that shares one {{ runtimeLanguageName }} runtime session. You read the available context, learn what the downstream **executor** phase will need, and forward an actionable request plus evidence. The executor owns tool execution and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete. `evidence` is handed to the executor **by reference in the shared runtime** — put narrowed runtime values in it (the exact inputs the executor's functions will need: ids, paths, selected records, constraints), or `{}` if context has nothing to narrow. Variables you create stay live for the executor, so name them well. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of execution or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if hasExecutorFunctions }}\\n\\n### Executor Functions (reference only — you cannot call these)\\n\\nThe executor phase will have these functions. Their schemas tell you which exact inputs to extract into `evidence`. Calling one here throws — extraction, not execution, is your job.\\n\\n{{ functionsList }}\\n{{ /if }}\\n{{ if discoveryMode }}\\n{{ if hasModules }}\\n\\n### Available Modules\\n\\nModules the executor can use. Call `discover([...])` to load a module's function docs when knowing its exact inputs would sharpen what you extract; docs appear in `inputs.discoveredToolDocs` next turn and carry over to the executor phase.\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them to target your extraction. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n{{ if hasSkillsCatalog }}\\n\\n### Available Skills\\n\\n{{ skillsCatalogList }}\\n\\nLoad a skill's full guide with the runtime-exposed `discover` primitive{{ if isJavaScriptRuntime }}, e.g. `await discover({ skills: ['<id>'] })`{{ /if }}; the guide appears in `inputs.loadedSkills` on the next turn and carries over to the executor phase.\\n{{ /if }}\\n\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive. Apply relevant guides to how you narrow and what you extract.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration only when the request needs nothing from context** (direct action request whose targets are already explicit) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs. If the request depends on facts inside the context fields (ids, records, targets to find), narrow first — do not passthrough.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **Extract what the tools consume**: when the task will need executor functions, put the exact parameter values their schemas ask for (ids, keys, emails, dates, records) in `evidence` — not prose summaries of them.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Never write a field name you haven't seen.** Context Metadata lists the real item keys of each context variable — use those exact names. If a key you need isn't listed, inspect one element first; guessed field names silently produce zeros and empty results.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\n  \"primitives\": [\n    {\n      \"id\": \"llmQuery\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"description\": \"Ask focused questions about the narrowed context you pass in.\",\n      \"signatures\": [\n        {\n          \"code\": \"await llmQuery([{ query: string, context: any }, ...]): string[]\"\n        }\n      ]\n    },\n    {\n      \"id\": \"final\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"description\": \"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\n      \"signatures\": [\n        {\n          \"code\": \"await final(task: string, context?: object)\"\n        }\n      ]\n    },\n    {\n      \"id\": \"askClarification\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"description\": \"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\n      \"signatures\": [\n        {\n          \"code\": \"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"\n        }\n      ]\n    },\n    {\n      \"id\": \"reportSuccess\",\n      \"stages\": [\n        \"executor\"\n      ],\n      \"enabledBy\": \"hasAgentStatusCallback\",\n      \"description\": \"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\n      \"signatures\": [\n        {\n          \"code\": \"await reportSuccess(message: string)\"\n        }\n      ]\n    },\n    {\n      \"id\": \"reportFailure\",\n      \"stages\": [\n        \"executor\"\n      ],\n      \"enabledBy\": \"hasAgentStatusCallback\",\n      \"description\": \"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\n      \"signatures\": [\n        {\n          \"code\": \"await reportFailure(message: string)\"\n        }\n      ]\n    },\n    {\n      \"id\": \"inspectRuntime\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"enabledBy\": \"hasInspectRuntime\",\n      \"description\": \"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\n      \"signatures\": [\n        {\n          \"code\": \"await inspectRuntime(): string\"\n        }\n      ]\n    },\n    {\n      \"id\": \"discover\",\n      \"stages\": [\n        \"executor\"\n      ],\n      \"enabledByAny\": [\n        \"discoveryMode\",\n        \"skillsMode\"\n      ],\n      \"description\": \"Load tool docs and skill guides into the next turn. Use one batched call.\",\n      \"signatures\": [\n        {\n          \"code\": \"await discover(item: string): void\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(items: string[]): void\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(request: { skills: string | string[] }): void\",\n          \"enabledBy\": \"skillsMode\",\n          \"disabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\n          \"enabledByAny\": [\n            \"discoveryMode+skillsMode\"\n          ]\n        }\n      ],\n      \"examples\": [\n        {\n          \"code\": \"await discover('db');\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(['db', 'db.search']);\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover({ skills: ['release checklist'] });\",\n          \"enabledBy\": \"skillsMode\",\n          \"disabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover({ tools: ['db'], skills: ['release checklist'] });\",\n          \"enabledByAny\": [\n            \"discoveryMode+skillsMode\"\n          ]\n        }\n      ]\n    },\n    {\n      \"id\": \"recall\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"enabledBy\": \"memoriesMode\",\n      \"description\": \"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\n      \"signatures\": [\n        {\n          \"code\": \"await recall(searches: string[]): void\"\n        }\n      ]\n    },\n    {\n      \"id\": \"used\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"enabledBy\": \"usageTrackingMode\",\n      \"description\": \"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\n      \"signatures\": [\n        {\n          \"code\": \"await used(id: string, reason?: string): void\"\n        }\n      ]\n    }\n  ]\n}\n")
     template = _core_get(data, "executor_template", "")
     out = _rlm_render_template(template, vars, "rlm/executor.md")
     return out
@@ -3064,7 +3357,7 @@ def _render_rlm_responder_description(state: Any, options: Any) -> str:
     vars["contextVarSummary"] = summary
     vars["hasAgentIdentity"] = False
     vars["agentIdentityText"] = ""
-    data = _core_json_parse("{\"schema_version\":\"axir-rlm-prompts-v1\",\"executor_template\":\"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller stage produced two extra inputs:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.\\n\\nRead `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"responder_template\":\"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\"distiller_template\":\"## Distiller\\n\\nYou (`distiller`) read the available context and forward an actionable request to the downstream **executor** stage, which owns any available tools/functions and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete; put exact inputs (paths, ids, selected records, constraints) in `evidence`, or `{}` if context has nothing to narrow. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of tools or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration when context has nothing to narrow** (direct action request, or schema is already known) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"primitives\":[{\"id\":\"llmQuery\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask focused questions about the narrowed context you pass in.\",\"signatures\":[{\"code\":\"await llmQuery([{ query: string, context: any }, ...]): string[]\"}]},{\"id\":\"final\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\"signatures\":[{\"code\":\"await final(task: string, context?: object)\"}]},{\"id\":\"askClarification\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\"signatures\":[{\"code\":\"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"}]},{\"id\":\"reportSuccess\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportSuccess(message: string)\"}]},{\"id\":\"reportFailure\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportFailure(message: string)\"}]},{\"id\":\"inspectRuntime\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"hasInspectRuntime\",\"description\":\"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\"signatures\":[{\"code\":\"await inspectRuntime(): string\"}]},{\"id\":\"discover\",\"stages\":[\"executor\"],\"enabledByAny\":[\"discoveryMode\",\"skillsMode\"],\"description\":\"Load tool docs and skill guides into the next turn. Use one batched call.\",\"signatures\":[{\"code\":\"await discover(item: string): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(items: string[]): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { skills: string | string[] }): void\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}],\"examples\":[{\"code\":\"await discover('db');\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(['db', 'db.search']);\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ skills: ['release checklist'] });\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ tools: ['db'], skills: ['release checklist'] });\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}]},{\"id\":\"recall\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"memoriesMode\",\"description\":\"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\"signatures\":[{\"code\":\"await recall(searches: string[]): void\"}]},{\"id\":\"used\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"usageTrackingMode\",\"description\":\"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\"signatures\":[{\"code\":\"await used(id: string, reason?: string): void\"}]}]}")
+    data = _core_json_parse("{\n  \"schema_version\": \"axir-rlm-prompts-v1\",\n  \"executor_template\": \"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller (context) phase ran in this same {{ runtimeLanguageName }} runtime session and handed off:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — the evidence object the distiller selected, live in the runtime. The `Distilled Context Summary` input field describes its shape; the data itself exists only in the runtime — read it with code.\\n- Variables the distiller created remain live (see Live Runtime State). When a `Context Metadata` field is present, the raw context variables it lists are also still readable on `inputs`.\\n\\nWork from `executorRequest` and the distilled evidence first — they are your primary source. When the distilled evidence is insufficient for the request, fall back to the raw `inputs.*` context variables listed in `Context Metadata` — probe and narrow them with code before concluding anything is missing. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run (including any the context phase discovered). Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasRelevanceHints }}\\n### Likely Relevant\\n\\nWhen `inputs.relevanceHints` is provided, a local ranker has flagged the modules, skills, or memories most likely relevant to this task. It is advisory, not a restriction — the full lists above still apply and you may load anything else. If the task needs data or effects from a hinted module whose functions are not yet documented above, call `discover([...])` for it first and use the returned docs on the next turn — do not call `final()` in the same turn as `discover()`.\\n{{ /if }}\\n{{ if hasSkills }}\\n{{ if hasSkillsCatalog }}\\n### Available Skills\\n{{ skillsCatalogList }}\\n\\nLoad a skill's full guide with the runtime-exposed `discover` primitive{{ if isJavaScriptRuntime }}, e.g. `await discover({ skills: ['<id>'] })`{{ /if }}; the guide appears in `inputs.loadedSkills` on the next turn.\\n{{ /if }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive, forward-time skills, or guides carried over from the context phase. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log, and don't redo context narrowing the distiller already did — its variables are still live.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Never conclude information is unavailable while an undiscovered module plausibly provides it.** If the request needs data your evidence lacks (a status, a record, a lookup) and a listed module or hint covers that domain, `discover` it and attempt the call before finalizing.\\n- **Never write a field name you haven't seen.** The Distilled Context Summary and Context Metadata list the real item keys — use those exact names. For function results, use the documented return schema or inspect the actual result before chaining on its fields; guessed field names silently produce zeros and empty results.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\n  \"responder_template\": \"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\n  \"distiller_template\": \"## Distiller\\n\\nYou (`distiller`) are the reconnaissance phase of a two-phase pipeline that shares one {{ runtimeLanguageName }} runtime session. You read the available context, learn what the downstream **executor** phase will need, and forward an actionable request plus evidence. The executor owns tool execution and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete. `evidence` is handed to the executor **by reference in the shared runtime** — put narrowed runtime values in it (the exact inputs the executor's functions will need: ids, paths, selected records, constraints), or `{}` if context has nothing to narrow. Variables you create stay live for the executor, so name them well. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of execution or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if hasExecutorFunctions }}\\n\\n### Executor Functions (reference only — you cannot call these)\\n\\nThe executor phase will have these functions. Their schemas tell you which exact inputs to extract into `evidence`. Calling one here throws — extraction, not execution, is your job.\\n\\n{{ functionsList }}\\n{{ /if }}\\n{{ if discoveryMode }}\\n{{ if hasModules }}\\n\\n### Available Modules\\n\\nModules the executor can use. Call `discover([...])` to load a module's function docs when knowing its exact inputs would sharpen what you extract; docs appear in `inputs.discoveredToolDocs` next turn and carry over to the executor phase.\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them to target your extraction. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n{{ if hasSkillsCatalog }}\\n\\n### Available Skills\\n\\n{{ skillsCatalogList }}\\n\\nLoad a skill's full guide with the runtime-exposed `discover` primitive{{ if isJavaScriptRuntime }}, e.g. `await discover({ skills: ['<id>'] })`{{ /if }}; the guide appears in `inputs.loadedSkills` on the next turn and carries over to the executor phase.\\n{{ /if }}\\n\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive. Apply relevant guides to how you narrow and what you extract.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration only when the request needs nothing from context** (direct action request whose targets are already explicit) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs. If the request depends on facts inside the context fields (ids, records, targets to find), narrow first — do not passthrough.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **Extract what the tools consume**: when the task will need executor functions, put the exact parameter values their schemas ask for (ids, keys, emails, dates, records) in `evidence` — not prose summaries of them.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Never write a field name you haven't seen.** Context Metadata lists the real item keys of each context variable — use those exact names. If a key you need isn't listed, inspect one element first; guessed field names silently produce zeros and empty results.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\n  \"primitives\": [\n    {\n      \"id\": \"llmQuery\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"description\": \"Ask focused questions about the narrowed context you pass in.\",\n      \"signatures\": [\n        {\n          \"code\": \"await llmQuery([{ query: string, context: any }, ...]): string[]\"\n        }\n      ]\n    },\n    {\n      \"id\": \"final\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"description\": \"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\n      \"signatures\": [\n        {\n          \"code\": \"await final(task: string, context?: object)\"\n        }\n      ]\n    },\n    {\n      \"id\": \"askClarification\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"description\": \"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\n      \"signatures\": [\n        {\n          \"code\": \"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"\n        }\n      ]\n    },\n    {\n      \"id\": \"reportSuccess\",\n      \"stages\": [\n        \"executor\"\n      ],\n      \"enabledBy\": \"hasAgentStatusCallback\",\n      \"description\": \"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\n      \"signatures\": [\n        {\n          \"code\": \"await reportSuccess(message: string)\"\n        }\n      ]\n    },\n    {\n      \"id\": \"reportFailure\",\n      \"stages\": [\n        \"executor\"\n      ],\n      \"enabledBy\": \"hasAgentStatusCallback\",\n      \"description\": \"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\n      \"signatures\": [\n        {\n          \"code\": \"await reportFailure(message: string)\"\n        }\n      ]\n    },\n    {\n      \"id\": \"inspectRuntime\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"enabledBy\": \"hasInspectRuntime\",\n      \"description\": \"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\n      \"signatures\": [\n        {\n          \"code\": \"await inspectRuntime(): string\"\n        }\n      ]\n    },\n    {\n      \"id\": \"discover\",\n      \"stages\": [\n        \"executor\"\n      ],\n      \"enabledByAny\": [\n        \"discoveryMode\",\n        \"skillsMode\"\n      ],\n      \"description\": \"Load tool docs and skill guides into the next turn. Use one batched call.\",\n      \"signatures\": [\n        {\n          \"code\": \"await discover(item: string): void\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(items: string[]): void\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(request: { skills: string | string[] }): void\",\n          \"enabledBy\": \"skillsMode\",\n          \"disabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\n          \"enabledByAny\": [\n            \"discoveryMode+skillsMode\"\n          ]\n        }\n      ],\n      \"examples\": [\n        {\n          \"code\": \"await discover('db');\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(['db', 'db.search']);\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover({ skills: ['release checklist'] });\",\n          \"enabledBy\": \"skillsMode\",\n          \"disabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover({ tools: ['db'], skills: ['release checklist'] });\",\n          \"enabledByAny\": [\n            \"discoveryMode+skillsMode\"\n          ]\n        }\n      ]\n    },\n    {\n      \"id\": \"recall\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"enabledBy\": \"memoriesMode\",\n      \"description\": \"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\n      \"signatures\": [\n        {\n          \"code\": \"await recall(searches: string[]): void\"\n        }\n      ]\n    },\n    {\n      \"id\": \"used\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"enabledBy\": \"usageTrackingMode\",\n      \"description\": \"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\n      \"signatures\": [\n        {\n          \"code\": \"await used(id: string, reason?: string): void\"\n        }\n      ]\n    }\n  ]\n}\n")
     template = _core_get(data, "responder_template", "")
     out = _rlm_render_template(template, vars, "rlm/responder.md")
     return out
@@ -3075,7 +3368,7 @@ def _render_rlm_distiller_description(state: Any, options: Any) -> str:
     empty_map = {}
     empty_list = []
     contract = _core_get(state, "runtime_contract", empty_map)
-    flags = _build_rlm_flags(options)
+    flags = _build_rlm_flags(state)
     primitives_list = _render_actor_primitives_list("distiller", flags)
     context_fields = _core_get(state, "context_fields", empty_list)
     context_var_list = _rlm_context_var_list(context_fields)
@@ -3085,8 +3378,25 @@ def _render_rlm_distiller_description(state: Any, options: Any) -> str:
     is_javascript = _core_get(contract, "is_javascript", True)
     usage_instructions = _core_get(contract, "usage_instructions", "")
     memories_mode = _core_get(flags, "memoriesMode", False)
+    discovery_mode = _core_get(flags, "discoveryMode", False)
+    skills_mode = _core_get(flags, "skillsMode", False)
     memory_usage_camel = _core_get(options, "memoryUsageMode", False)
     memory_usage_mode = _core_get(options, "memory_usage_mode", memory_usage_camel)
+    skill_usage_camel = _core_get(options, "skillUsageMode", False)
+    skill_usage_mode = _core_get(options, "skill_usage_mode", skill_usage_camel)
+    callable_split = _core_get(state, "callable_split", empty_map)
+    functions_list = _render_agent_inline_functions_list(callable_split)
+    modules_list = _render_agent_modules_list(callable_split)
+    has_executor_functions = _core_ne(functions_list, "")
+    has_modules = _core_ne(modules_list, "")
+    skills_catalog = _core_get(state, "skills_catalog", None)
+    skills_catalog_is_list = _core_type_is(skills_catalog, "list")
+    if skills_catalog_is_list:
+        pass
+    else:
+        skills_catalog = []
+    skills_catalog_list = _render_agent_skills_catalog_list(skills_catalog)
+    has_skills_catalog = _core_ne(skills_catalog_list, "")
     cm_state = _core_get(state, "context_map", None)
     cm_text = _core_get(cm_state, "text", "")
     cm_has = _core_ne(cm_text, "")
@@ -3094,15 +3404,25 @@ def _render_rlm_distiller_description(state: Any, options: Any) -> str:
     vars["contextVarList"] = context_var_list
     vars["hasContextMap"] = cm_has
     vars["contextMapText"] = cm_text
+    vars["functionsList"] = functions_list
+    vars["modulesList"] = modules_list
+    vars["hasExecutorFunctions"] = has_executor_functions
+    vars["discoveryMode"] = discovery_mode
+    vars["hasModules"] = has_modules
+    vars["hasDiscoveredDocs"] = discovery_mode
+    vars["hasSkills"] = skills_mode
+    vars["hasSkillsCatalog"] = has_skills_catalog
+    vars["skillsCatalogList"] = skills_catalog_list
     vars["isJavaScriptRuntime"] = is_javascript
     vars["memoriesMode"] = memories_mode
     vars["memoryUsageMode"] = memory_usage_mode
+    vars["skillUsageMode"] = skill_usage_mode
     vars["primitivesList"] = primitives_list
     vars["runtimeCodeFenceLanguage"] = code_fence_language
     vars["runtimeCodeFieldTitle"] = code_field_title
     vars["runtimeLanguageName"] = language
     vars["runtimeUsageInstructions"] = usage_instructions
-    data = _core_json_parse("{\"schema_version\":\"axir-rlm-prompts-v1\",\"executor_template\":\"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller stage produced two extra inputs:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.\\n\\nRead `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"responder_template\":\"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\"distiller_template\":\"## Distiller\\n\\nYou (`distiller`) read the available context and forward an actionable request to the downstream **executor** stage, which owns any available tools/functions and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete; put exact inputs (paths, ids, selected records, constraints) in `evidence`, or `{}` if context has nothing to narrow. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of tools or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration when context has nothing to narrow** (direct action request, or schema is already known) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\"primitives\":[{\"id\":\"llmQuery\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask focused questions about the narrowed context you pass in.\",\"signatures\":[{\"code\":\"await llmQuery([{ query: string, context: any }, ...]): string[]\"}]},{\"id\":\"final\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\"signatures\":[{\"code\":\"await final(task: string, context?: object)\"}]},{\"id\":\"askClarification\",\"stages\":[\"distiller\",\"executor\"],\"description\":\"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\"signatures\":[{\"code\":\"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"}]},{\"id\":\"reportSuccess\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportSuccess(message: string)\"}]},{\"id\":\"reportFailure\",\"stages\":[\"executor\"],\"enabledBy\":\"hasAgentStatusCallback\",\"description\":\"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\"signatures\":[{\"code\":\"await reportFailure(message: string)\"}]},{\"id\":\"inspectRuntime\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"hasInspectRuntime\",\"description\":\"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\"signatures\":[{\"code\":\"await inspectRuntime(): string\"}]},{\"id\":\"discover\",\"stages\":[\"executor\"],\"enabledByAny\":[\"discoveryMode\",\"skillsMode\"],\"description\":\"Load tool docs and skill guides into the next turn. Use one batched call.\",\"signatures\":[{\"code\":\"await discover(item: string): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(items: string[]): void\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { skills: string | string[] }): void\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}],\"examples\":[{\"code\":\"await discover('db');\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover(['db', 'db.search']);\",\"enabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ skills: ['release checklist'] });\",\"enabledBy\":\"skillsMode\",\"disabledBy\":\"discoveryMode\"},{\"code\":\"await discover({ tools: ['db'], skills: ['release checklist'] });\",\"enabledByAny\":[\"discoveryMode+skillsMode\"]}]},{\"id\":\"recall\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"memoriesMode\",\"description\":\"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\"signatures\":[{\"code\":\"await recall(searches: string[]): void\"}]},{\"id\":\"used\",\"stages\":[\"distiller\",\"executor\"],\"enabledBy\":\"usageTrackingMode\",\"description\":\"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\"signatures\":[{\"code\":\"await used(id: string, reason?: string): void\"}]}]}")
+    data = _core_json_parse("{\n  \"schema_version\": \"axir-rlm-prompts-v1\",\n  \"executor_template\": \"## Executor\\n\\nYou (`executor`) are the task-execution stage in a two-stage pipeline. Your ONLY job is to write {{ runtimeLanguageName }} code that runs in the {{ runtimeLanguageName }} runtime (REPL) to complete tasks using the tools available to you. A separate (`responder`) agent downstream synthesizes the final answer.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Executor Request & Distilled Context\\n\\nThe prior distiller (context) phase ran in this same {{ runtimeLanguageName }} runtime session and handed off:\\n\\n- `inputs.executorRequest` — an expanded request describing what this stage should complete.\\n- `inputs.distilledContext` — the evidence object the distiller selected, live in the runtime. The `Distilled Context Summary` input field describes its shape; the data itself exists only in the runtime — read it with code.\\n- Variables the distiller created remain live (see Live Runtime State). When a `Context Metadata` field is present, the raw context variables it lists are also still readable on `inputs`.\\n\\nWork from `executorRequest` and the distilled evidence first — they are your primary source. When the distilled evidence is insufficient for the request, fall back to the raw `inputs.*` context variables listed in `Context Metadata` — probe and narrow them with code before concluding anything is missing. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n\\n{{ functionsList }}\\n{{ if discoveryMode }}\\n\\n{{ if hasModules }}\\n### Available Modules\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run (including any the context phase discovered). Use them directly. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasRelevanceHints }}\\n### Likely Relevant\\n\\nWhen `inputs.relevanceHints` is provided, a local ranker has flagged the modules, skills, or memories most likely relevant to this task. It is advisory, not a restriction — the full lists above still apply and you may load anything else. If the task needs data or effects from a hinted module whose functions are not yet documented above, call `discover([...])` for it first and use the returned docs on the next turn — do not call `final()` in the same turn as `discover()`.\\n{{ /if }}\\n{{ if hasSkills }}\\n{{ if hasSkillsCatalog }}\\n### Available Skills\\n{{ skillsCatalogList }}\\n\\nLoad a skill's full guide with the runtime-exposed `discover` primitive{{ if isJavaScriptRuntime }}, e.g. `await discover({ skills: ['<id>'] })`{{ /if }}; the guide appears in `inputs.loadedSkills` on the next turn.\\n{{ /if }}\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive, forward-time skills, or guides carried over from the context phase. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn.\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n\\n### How to Work\\n\\n- Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log, and don't redo context narrowing the distiller already did — its variables are still live.\\n- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.\\n- **Never conclude information is unavailable while an undiscovered module plausibly provides it.** If the request needs data your evidence lacks (a status, a record, a lookup) and a listed module or hint covers that domain, `discover` it and attempt the call before finalizing.\\n- **Never write a field name you haven't seen.** The Distilled Context Summary and Context Metadata list the real item keys — use those exact names. For function results, use the documented return schema or inspect the actual result before chaining on its fields; guessed field names silently produce zeros and empty results.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.\\n- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final(\\\"...\\\", { result })` instead of logging.\\n{{ else }}\\n- Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.\\n{{ /if }}\\n- Before calling `askClarification`, check whether any available function can resolve the need first.\\n{{ if hasAgentStatusCallback }}\\n- Keep the user updated: call the runtime-exposed `reportSuccess` primitive after completing sub-tasks and `reportFailure` when something goes wrong{{ if isJavaScriptRuntime }} (for example, `await reportSuccess(message)`){{ /if }}.\\n{{ /if }}\\n{{ if isJavaScriptRuntime }}\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst plan = await llmQuery([{\\n  query: 'Determine which messages require a refund response and draft a compact action plan.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(plan);\\n```\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n{{ /if }}\\n\\n{{ if isJavaScriptRuntime }}\\nWhen done, call `await final(task, evidence)`:\\n{{ else }}\\nWhen done, call the runtime-exposed `final(task, evidence)` primitive:\\n{{ /if }}\\n\\n- `task` — a one-line instruction the **responder** will follow when writing the user-facing output fields (e.g. \\\"Answer the user's question using the matched emails\\\").\\n- `evidence` — the curated data the responder will read to follow `task`. Pass narrowed runtime values with only the fields that matter, not raw `inputs.*`. Use plain keys (for example, `matchedEmails`) — don't wrap under the output field name.\\n\\nDo not pre-format the answer; the responder writes the output fields.\\n\\nValid completion turns:\\n\\n{{ if isJavaScriptRuntime }}\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Answer the user's question using the gathered evidence\\\", { evidence });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which file should I analyze?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\n  \"responder_template\": \"## Answer Synthesis Agent\\n\\nYou synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.\\n\\n### Reading the actor's payload\\n\\n`Context Data` has two keys:\\n\\n- `task` — a one-line instruction telling you what to write into the output fields.\\n- `evidence` — the data the actor curated for you to follow that instruction.\\n\\n### Rules\\n\\n1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.\\n2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.\\n3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.\\n4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.\\n\\n### Context variables that were analyzed (metadata only)\\n{{ contextVarSummary }}\\n{{ if hasAgentIdentity }}\\n\\n### Agent Identity\\n\\nUser-facing identity:\\n{{ agentIdentityText }}\\n{{ /if }}\\n\",\n  \"distiller_template\": \"## Distiller\\n\\nYou (`distiller`) are the reconnaissance phase of a two-phase pipeline that shares one {{ runtimeLanguageName }} runtime session. You read the available context, learn what the downstream **executor** phase will need, and forward an actionable request plus evidence. The executor owns tool execution and capability checks. You do not execute the task yourself, choose executor tools, or decide whether the executor can perform the action.\\n\\nCall `final(request, evidence)` to forward. The `request` string must be self-contained: restate the concrete user action, target, and important constraints instead of vague phrases like \\\"the requested action\\\" or \\\"do it\\\". Expand the user's original task with facts from context so the request is clear and complete. `evidence` is handed to the executor **by reference in the shared runtime** — put narrowed runtime values in it (the exact inputs the executor's functions will need: ids, paths, selected records, constraints), or `{}` if context has nothing to narrow. Variables you create stay live for the executor, so name them well. Resolve follow-ups against prior conversation. Never refuse, answer, or ask clarification because of your own lack of execution or perceived executor capabilities — forwarding *is* the response. Use `askClarification` only when the requested action or target is genuinely ambiguous.\\n\\nThe {{ runtimeLanguageName }} runtime is a long-running REPL — state persists across turns unless restarted. Each **turn**: write code → it executes → you see output → write the next block.\\n\\n### Context Fields\\n\\nContext fields are available as globals (in the REPL) on the `inputs` object:\\n{{ contextVarList }}\\n\\n### Available Functions\\n\\n{{ primitivesList }}\\n{{ if hasExecutorFunctions }}\\n\\n### Executor Functions (reference only — you cannot call these)\\n\\nThe executor phase will have these functions. Their schemas tell you which exact inputs to extract into `evidence`. Calling one here throws — extraction, not execution, is your job.\\n\\n{{ functionsList }}\\n{{ /if }}\\n{{ if discoveryMode }}\\n{{ if hasModules }}\\n\\n### Available Modules\\n\\nModules the executor can use. Call `discover([...])` to load a module's function docs when knowing its exact inputs would sharpen what you extract; docs appear in `inputs.discoveredToolDocs` next turn and carry over to the executor phase.\\n{{ modulesList }}\\n{{ /if }}\\n{{ if hasDiscoveredDocs }}\\n\\n### Discovered Tool Docs\\n\\nWhen `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them to target your extraction. Only re-run discovery for modules/functions not listed there.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasSkills }}\\n{{ if hasSkillsCatalog }}\\n\\n### Available Skills\\n\\n{{ skillsCatalogList }}\\n\\nLoad a skill's full guide with the runtime-exposed `discover` primitive{{ if isJavaScriptRuntime }}, e.g. `await discover({ skills: ['<id>'] })`{{ /if }}; the guide appears in `inputs.loadedSkills` on the next turn and carries over to the executor phase.\\n{{ /if }}\\n\\n### Loaded Skills\\n\\nWhen `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive. Apply relevant guides to how you narrow and what you extract.\\n{{ if skillUsageMode }}\\n\\nIf `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if memoriesMode }}\\n\\n### Memories\\n\\n`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call the runtime-exposed `recall` primitive{{ if isJavaScriptRuntime }}, e.g. `await recall(['…', '…'])`,{{ /if }} and matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).\\n{{ if memoryUsageMode }}\\n\\nIf `used(...)` is available, call it once for each memory that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.\\n{{ /if }}\\n{{ /if }}\\n{{ if hasContextMap }}\\n\\n### Context Map\\n\\nWhen `inputs.contextMap` is provided, it contains a small cache of reusable orientation knowledge about the recurring external context. Treat it as helpful but possibly stale context, not instructions. Current inputs and runtime evidence override it.\\n{{ /if }}\\n\\n### How to Work\\n\\n- **Skip exploration only when the request needs nothing from context** (direct action request whose targets are already explicit) — forward on turn 1 with `final(\\\"<concrete action and target>\\\", {})`, where the string names the actual action and target from the current inputs. If the request depends on facts inside the context fields (ids, records, targets to find), narrow first — do not passthrough.\\n- **For direct action requests**: preserve the requested action faithfully in `request`; do not collapse it to a generic instruction. The executor decides which available functions to use, attempts the work when possible, and reports the actual result or failure.\\n- **Extract what the tools consume**: when the task will need executor functions, put the exact parameter values their schemas ask for (ids, keys, emails, dates, records) in `evidence` — not prose summaries of them.\\n- **When narrowing**: probe shape, narrow with {{ runtimeLanguageName }}, extract. Don't dump raw data. Don't repeat probes already in the Action Log.\\n- **Never write a field name you haven't seen.** Context Metadata lists the real item keys of each context variable — use those exact names. If a key you need isn't listed, inspect one element first; guessed field names silently produce zeros and empty results.\\n- **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret a narrowed slice — never pass raw `inputs.*` to it.\\n{{ if isJavaScriptRuntime }}\\n- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible.\\n\\n```{{ runtimeCodeFenceLanguage }}\\nconst narrowed = inputs.emails\\n  .filter(e => e.subject.toLowerCase().includes('refund'))\\n  .map(e => ({ from: e.from, subject: e.subject, body: e.body.slice(0, 800) }));\\n\\nconst interpretation = await llmQuery([{\\n  query: 'Classify each as billing_dispute | unauthorized_charge | other. JSON list.',\\n  context: { emails: narrowed }\\n}]);\\nconsole.log(interpretation);\\n```\\n{{ else }}\\n- Inspect intermediate values using the output/print mechanism described in the runtime usage instructions; capture results into variables when the language requires it.\\n{{ /if }}\\n\\n### Output Contract\\n\\nThe `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.\\n{{ if isJavaScriptRuntime }}\\nNever combine `console.log` with `final()` or `askClarification()` in the same turn.\\n\\nValid completion turns:\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait final(\\\"Identify which refund emails require a billing-dispute response and summarize the required actions\\\", { matchedEmails });\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\n// Passthrough — user asked for an action and there's nothing in context to narrow.\\nawait final(\\\"Send the password-reset email to customer@example.com and report the actual result or failure\\\", {});\\n```\\n\\n```{{ runtimeCodeFenceLanguage }}\\nawait askClarification(\\\"Which context should I inspect?\\\");\\n```\\n{{ else }}\\nCompletion turns must call the runtime-exposed `final` or `askClarification` primitive using the syntax described in the runtime usage instructions.\\n{{ /if }}\\n\\n## {{ runtimeLanguageName }} Runtime Usage Instructions\\n{{ runtimeUsageInstructions }}\\n\",\n  \"primitives\": [\n    {\n      \"id\": \"llmQuery\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"description\": \"Ask focused questions about the narrowed context you pass in.\",\n      \"signatures\": [\n        {\n          \"code\": \"await llmQuery([{ query: string, context: any }, ...]): string[]\"\n        }\n      ]\n    },\n    {\n      \"id\": \"final\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"description\": \"End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\",\n      \"signatures\": [\n        {\n          \"code\": \"await final(task: string, context?: object)\"\n        }\n      ]\n    },\n    {\n      \"id\": \"askClarification\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"description\": \"Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\",\n      \"signatures\": [\n        {\n          \"code\": \"await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void\"\n        }\n      ]\n    },\n    {\n      \"id\": \"reportSuccess\",\n      \"stages\": [\n        \"executor\"\n      ],\n      \"enabledBy\": \"hasAgentStatusCallback\",\n      \"description\": \"Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\",\n      \"signatures\": [\n        {\n          \"code\": \"await reportSuccess(message: string)\"\n        }\n      ]\n    },\n    {\n      \"id\": \"reportFailure\",\n      \"stages\": [\n        \"executor\"\n      ],\n      \"enabledBy\": \"hasAgentStatusCallback\",\n      \"description\": \"Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\",\n      \"signatures\": [\n        {\n          \"code\": \"await reportFailure(message: string)\"\n        }\n      ]\n    },\n    {\n      \"id\": \"inspectRuntime\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"enabledBy\": \"hasInspectRuntime\",\n      \"description\": \"Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\",\n      \"signatures\": [\n        {\n          \"code\": \"await inspectRuntime(): string\"\n        }\n      ]\n    },\n    {\n      \"id\": \"discover\",\n      \"stages\": [\n        \"executor\"\n      ],\n      \"enabledByAny\": [\n        \"discoveryMode\",\n        \"skillsMode\"\n      ],\n      \"description\": \"Load tool docs and skill guides into the next turn. Use one batched call.\",\n      \"signatures\": [\n        {\n          \"code\": \"await discover(item: string): void\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(items: string[]): void\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(request: { skills: string | string[] }): void\",\n          \"enabledBy\": \"skillsMode\",\n          \"disabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(request: { tools?: string | string[], skills?: string | string[] }): void\",\n          \"enabledByAny\": [\n            \"discoveryMode+skillsMode\"\n          ]\n        }\n      ],\n      \"examples\": [\n        {\n          \"code\": \"await discover('db');\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover(['db', 'db.search']);\",\n          \"enabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover({ skills: ['release checklist'] });\",\n          \"enabledBy\": \"skillsMode\",\n          \"disabledBy\": \"discoveryMode\"\n        },\n        {\n          \"code\": \"await discover({ tools: ['db'], skills: ['release checklist'] });\",\n          \"enabledByAny\": [\n            \"discoveryMode+skillsMode\"\n          ]\n        }\n      ]\n    },\n    {\n      \"id\": \"recall\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"enabledBy\": \"memoriesMode\",\n      \"description\": \"Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\",\n      \"signatures\": [\n        {\n          \"code\": \"await recall(searches: string[]): void\"\n        }\n      ]\n    },\n    {\n      \"id\": \"used\",\n      \"stages\": [\n        \"distiller\",\n        \"executor\"\n      ],\n      \"enabledBy\": \"usageTrackingMode\",\n      \"description\": \"Declare a loaded memory id or skill id that actually influenced this turn. Loaded-but-unused entries must be omitted. Returns nothing.\",\n      \"signatures\": [\n        {\n          \"code\": \"await used(id: string, reason?: string): void\"\n        }\n      ]\n    }\n  ]\n}\n")
     template = _core_get(data, "distiller_template", "")
     out = _rlm_render_template(template, vars, "rlm/distiller.md")
     return out
@@ -3147,10 +3467,13 @@ def _build_agent_actor_prompt_policy(state: Any) -> Any:
     code_field_name = _core_get(runtime_contract, "code_field_name", "javascriptCode")
     code_field_title = _core_get(runtime_contract, "code_field_title", "Javascript Code")
     code_fence_language = _core_get(runtime_contract, "code_fence_language", "js")
+    empty_map = {}
+    flags = _core_get(state, "policy_flags", empty_map)
+    relevance_hints_enabled = _core_get(flags, "relevanceHintsEnabled", False)
     stable = []
     stable.append("input")
     stable.append("executorRequest")
-    stable.append("distilledContext")
+    stable.append("distilledContextSummary")
     stable.append("contextMetadata")
     stable.append("contextMap")
     stable.append("memories")
@@ -3160,6 +3483,10 @@ def _build_agent_actor_prompt_policy(state: Any) -> Any:
     dynamic = []
     dynamic.append("guidanceLog")
     dynamic.append("actionLog")
+    if relevance_hints_enabled:
+        dynamic.append("relevanceHints")
+    else:
+        pass
     dynamic.append("liveRuntimeState")
     dynamic.append("contextPressure")
     out = {}
@@ -3797,6 +4124,12 @@ def _agent_render_full_action_entry(state: Any, entry: Any) -> str:
         pass
     code = _core_get(entry, "code", "")
     output = _core_get(entry, "output", "")
+    kind = _core_get(entry, "kind", "")
+    is_final_action = _core_eq(kind, "final")
+    if is_final_action:
+        code = "// final() completed; evidence omitted from actor prompt"
+    else:
+        pass
     full_is_error = _core_get(entry, "is_error", False)
     if full_is_error:
         full_error = _core_get(entry, "error", "")
@@ -4419,6 +4752,7 @@ def _agent_render_runtime_state_summary(state: Any, policy: Any) -> str:
     _core_coverage_mark("_agent_render_runtime_state_summary")
     empty_map = {}
     empty_list = []
+    auto_promoted_fields = _agent_auto_promoted_fields(state)
     session_state = _core_get(state, "runtime_session_state", empty_map)
     state_summary = _core_get(policy, "stateSummary", empty_map)
     enabled = _core_get(state_summary, "enabled", False)
@@ -4444,6 +4778,9 @@ def _agent_render_runtime_state_summary(state: Any, policy: Any) -> str:
                     size = _core_get(entry, "size", "")
                     preview = _core_get(entry, "preview", "")
                     ctor = _core_get(entry, "ctor", "")
+                    is_promoted_name = _core_contains(auto_promoted_fields, name)
+                    is_context_name = _core_eq(name, "context")
+                    is_distilled_name = _core_eq(name, "distilledContext")
                     type_label = type
                     object_type = _core_eq(type, "object")
                     has_ctor = _core_ne(ctor, "")
@@ -4461,6 +4798,18 @@ def _agent_render_runtime_state_summary(state: Any, policy: Any) -> str:
                     has_preview = _core_ne(preview, "")
                     if has_preview:
                         preview_text = _core_string_format(" = {}", preview)
+                    else:
+                        pass
+                    if is_promoted_name:
+                        preview_text = _core_string_format(" = [runtime-only context available as inputs.{}]", name)
+                    else:
+                        pass
+                    if is_context_name:
+                        preview_text = " = [runtime context map; values omitted from prompt]"
+                    else:
+                        pass
+                    if is_distilled_name:
+                        preview_text = " = [distilled evidence object; values omitted from prompt]"
                     else:
                         pass
                     prov = _core_get(provenance, name, None)
@@ -4528,6 +4877,21 @@ def _agent_render_runtime_state_summary(state: Any, policy: Any) -> str:
         if include_key:
             value = _core_get(bindings, key, None)
             text = _core_json_stringify(value)
+            is_promoted_binding = _core_contains(auto_promoted_fields, key)
+            if is_promoted_binding:
+                text = _core_string_format("[runtime-only context available as inputs.{}]", key)
+            else:
+                pass
+            is_context_binding = _core_eq(key, "context")
+            if is_context_binding:
+                text = "[runtime context map; values omitted from prompt]"
+            else:
+                pass
+            is_distilled_binding = _core_eq(key, "distilledContext")
+            if is_distilled_binding:
+                text = "[distilled evidence object; values omitted from prompt]"
+            else:
+                pass
             line = _core_string_format("- {}: {}", key, text)
             parts.append(line)
             count = _core_add(count, 1)
@@ -4541,6 +4905,29 @@ def _agent_render_runtime_state_summary(state: Any, policy: Any) -> str:
         pass
     out = _core_string_format("Current runtime state:\n{}", body)
     state["runtime_state_summary"] = out
+    return out
+
+
+def _agent_auto_promoted_fields(state: Any) -> list[Any]:
+    _core_coverage_mark("_agent_auto_promoted_fields")
+    empty_list = []
+    events = _core_get(state, "context_events", empty_list)
+    out = []
+    for event in events:
+        kind = _core_get(event, "kind", "")
+        is_auto = _core_eq(kind, "field_auto_promoted")
+        if is_auto:
+            field = _core_get(event, "fieldName", "")
+            has_field = _core_ne(field, "")
+            already = _core_contains(out, field)
+            fresh = _core_not(already)
+            take = _core_and(has_field, fresh)
+            if take:
+                out.append(field)
+            else:
+                pass
+        else:
+            pass
     return out
 
 
@@ -5945,6 +6332,9 @@ def _agent_export_runtime_state(state: Any) -> Any:
     actor_prompt_policy = _core_get(state, "actor_prompt_policy", empty_map)
     policy_registry = _core_get(state, "policy_registry", empty_map)
     context_policy = _core_get(state, "context_policy", empty_map)
+    distiller_signature = _core_get(state, "distiller_signature", "")
+    executor_signature = _core_get(state, "executor_signature", "")
+    responder_signature = _core_get(state, "responder_signature", "")
     context_events = _core_get(state, "context_events", empty_list)
     checkpoint_state = _core_get(state, "checkpoint_state", None)
     context_map = _core_get(state, "context_map", None)
@@ -5971,6 +6361,9 @@ def _agent_export_runtime_state(state: Any) -> Any:
     out["actor_prompt_policy"] = actor_prompt_policy
     out["policy_registry"] = policy_registry
     out["context_policy"] = context_policy
+    out["distiller_signature"] = distiller_signature
+    out["executor_signature"] = executor_signature
+    out["responder_signature"] = responder_signature
     out["context_events"] = context_events
     out["checkpoint_state"] = checkpoint_state
     out["context_map"] = context_map
@@ -6516,6 +6909,530 @@ def _agent_runtime_close_session(state: Any, session: Any) -> Any:
     return closed
 
 
+def _agent_reserved_auto_promotion_fields() -> list[Any]:
+    _core_coverage_mark("_agent_reserved_auto_promotion_fields")
+    fields = []
+    fields.append("executorRequest")
+    fields.append("distilledContextSummary")
+    fields.append("contextMetadata")
+    fields.append("memories")
+    fields.append("contextMap")
+    fields.append("discoveredToolDocs")
+    fields.append("loadedSkills")
+    fields.append("relevanceHints")
+    fields.append("summarizedActorLog")
+    fields.append("guidanceLog")
+    fields.append("actionLog")
+    fields.append("liveRuntimeState")
+    fields.append("contextPressure")
+    fields.append("contextData")
+    return fields
+
+
+def _agent_value_kind(value: Any) -> str:
+    _core_coverage_mark("_agent_value_kind")
+    is_none = _core_is_none(value)
+    if is_none:
+        return "null"
+    else:
+        pass
+    is_string = _core_type_is(value, "string")
+    if is_string:
+        return "string"
+    else:
+        pass
+    is_number = _core_type_is(value, "number")
+    if is_number:
+        return "number"
+    else:
+        pass
+    is_bool = _core_type_is(value, "bool")
+    if is_bool:
+        return "boolean"
+    else:
+        pass
+    is_list = _core_type_is(value, "list")
+    if is_list:
+        return "array"
+    else:
+        pass
+    is_object = _core_type_is(value, "object")
+    if is_object:
+        return "object"
+    else:
+        pass
+    return "value"
+
+
+def _agent_take_strings(items: Any, limit: number) -> list[Any]:
+    _core_coverage_mark("_agent_take_strings")
+    out = []
+    index = 0
+    for item in items:
+        under = _core_lt(index, limit)
+        if under:
+            item_text = _core_string_format("{}", item)
+            out.append(item_text)
+        else:
+            pass
+        index = _core_add(index, 1)
+    return out
+
+
+def _agent_object_keys_sample(value: Any, limit: number) -> list[Any]:
+    _core_coverage_mark("_agent_object_keys_sample")
+    empty = []
+    is_object = _core_type_is(value, "object")
+    if is_object:
+        keys = _core_map_keys(value)
+        out = _agent_take_strings(keys, limit)
+        return out
+    else:
+        pass
+    return empty
+
+
+def _agent_evidence_entry_descriptor(key: str, value: Any) -> Any:
+    _core_coverage_mark("_agent_evidence_entry_descriptor")
+    text = _core_json_stringify(value)
+    size = _core_len(text)
+    kind = _agent_value_kind(value)
+    entry = {}
+    entry["key"] = key
+    entry["type"] = kind
+    entry["size"] = size
+    is_list = _core_type_is(value, "list")
+    if is_list:
+        length = _core_len(value)
+        entry["length"] = length
+        first = _core_list_get(value, 0, None)
+        item_keys = _agent_object_keys_sample(first, 12)
+        item_key_count = _core_len(item_keys)
+        has_item_keys = _core_gt(item_key_count, 0)
+        if has_item_keys:
+            entry["itemKeys"] = item_keys
+        else:
+            pass
+    else:
+        pass
+    is_object = _core_type_is(value, "object")
+    if is_object:
+        keys = _agent_object_keys_sample(value, 12)
+        key_count = _core_len(keys)
+        has_keys = _core_gt(key_count, 0)
+        if has_keys:
+            entry["keys"] = keys
+        else:
+            pass
+    else:
+        pass
+    return entry
+
+
+def _agent_build_evidence_descriptor(evidence: Any) -> Any:
+    _core_coverage_mark("_agent_build_evidence_descriptor")
+    empty_map = {}
+    payload = evidence
+    is_object = _core_type_is(payload, "object")
+    if is_object:
+        pass
+    else:
+        payload = empty_map
+    text = _core_json_stringify(payload)
+    total = _core_len(text)
+    entries = []
+    keys = _core_map_keys(payload)
+    for key in keys:
+        value = _core_get(payload, key, None)
+        entry = _agent_evidence_entry_descriptor(key, value)
+        entries.append(entry)
+    out = {}
+    out["kind"] = "axEvidenceDescriptor"
+    out["totalChars"] = total
+    out["entries"] = entries
+    return out
+
+
+def _agent_render_evidence_descriptor(descriptor: Any) -> str:
+    _core_coverage_mark("_agent_render_evidence_descriptor")
+    empty_list = []
+    kind = _core_get(descriptor, "kind", "")
+    is_descriptor = _core_eq(kind, "axEvidenceDescriptor")
+    if is_descriptor:
+        pass
+    else:
+        descriptor = _agent_build_evidence_descriptor(descriptor)
+    total = _core_get(descriptor, "totalChars", 0)
+    entries = _core_get(descriptor, "entries", empty_list)
+    entry_count = _core_len(entries)
+    empty = _core_eq(entry_count, 0)
+    if empty:
+        return "Evidence object is available in the runtime as `inputs.distilledContext` (empty)."
+    else:
+        pass
+    lines = []
+    header = _core_string_format("Evidence keys available in the runtime as `inputs.distilledContext` (~{} chars total):", total)
+    lines.append(header)
+    for entry in entries:
+        key = _core_get(entry, "key", "")
+        type = _core_get(entry, "type", "value")
+        size = _core_get(entry, "size", 0)
+        line = _core_string_format("- `{}`: {} ({} chars)", key, type, size)
+        length = _core_get(entry, "length", None)
+        has_length = _core_is_not_none(length)
+        if has_length:
+            line = _core_string_format("{}; length {}", line, length)
+        else:
+            pass
+        keys = _core_get(entry, "keys", empty_list)
+        keys_count = _core_len(keys)
+        has_keys = _core_gt(keys_count, 0)
+        if has_keys:
+            keys_text = _core_string_join(", ", keys)
+            line = _core_string_format("{}; keys: {}", line, keys_text)
+        else:
+            pass
+        item_keys = _core_get(entry, "itemKeys", empty_list)
+        item_keys_count = _core_len(item_keys)
+        has_item_keys = _core_gt(item_keys_count, 0)
+        if has_item_keys:
+            item_keys_text = _core_string_join(", ", item_keys)
+            line = _core_string_format("{}; item keys: {}", line, item_keys_text)
+        else:
+            pass
+        lines.append(line)
+    out = _core_string_join("\n", lines)
+    return out
+
+
+def _agent_relevance_tokens(text: str) -> list[Any]:
+    _core_coverage_mark("_agent_relevance_tokens")
+    stopwords = _core_json_parse("[\n  \"a\",\n  \"an\",\n  \"and\",\n  \"are\",\n  \"as\",\n  \"at\",\n  \"be\",\n  \"by\",\n  \"for\",\n  \"from\",\n  \"has\",\n  \"have\",\n  \"how\",\n  \"i\",\n  \"in\",\n  \"into\",\n  \"is\",\n  \"it\",\n  \"of\",\n  \"on\",\n  \"or\",\n  \"our\",\n  \"please\",\n  \"show\",\n  \"that\",\n  \"the\",\n  \"their\",\n  \"this\",\n  \"to\",\n  \"use\",\n  \"with\",\n  \"you\"\n]\n")
+    lower = _core_string_lower(text)
+    clean = _core_regex_replace("[^a-z0-9]+", " ", lower)
+    parts = _core_string_split_trim_nonempty(clean, " ")
+    out = []
+    for part in parts:
+        len = _core_len(part)
+        long_enough = _core_gt(len, 1)
+        is_stop = _core_contains(stopwords, part)
+        not_stop = _core_not(is_stop)
+        ok = _core_and(long_enough, not_stop)
+        if ok:
+            already = _core_contains(out, part)
+            fresh = _core_not(already)
+            if fresh:
+                out.append(part)
+            else:
+                pass
+        else:
+            pass
+    return out
+
+
+def _agent_relevance_score(tokens: Any, text: str) -> number:
+    _core_coverage_mark("_agent_relevance_score")
+    doc = _core_string_lower(text)
+    score = 0
+    for token in tokens:
+        hit = _core_contains(doc, token)
+        if hit:
+            score = _core_add(score, 1)
+        else:
+            pass
+    return score
+
+
+def _agent_relevance_has_id(items: Any, field: str, id: str) -> bool:
+    _core_coverage_mark("_agent_relevance_has_id")
+    for item in items:
+        existing = _core_get(item, field, "")
+        matches = _core_eq(existing, id)
+        if matches:
+            return True
+        else:
+            pass
+    return False
+
+
+def _agent_rank_relevance_modules(state: Any, task: str) -> Any:
+    _core_coverage_mark("_agent_rank_relevance_modules")
+    empty_list = []
+    tokens = _agent_relevance_tokens(task)
+    token_count = _core_len(tokens)
+    no_tokens = _core_eq(token_count, 0)
+    if no_tokens:
+        return empty_list
+    else:
+        pass
+    split = _core_get(state, "callable_split", None)
+    discoverable = _core_get(split, "discoverable", empty_list)
+    out = []
+    thresholds = []
+    thresholds.append(3)
+    thresholds.append(2)
+    thresholds.append(1)
+    for threshold in thresholds:
+        for group in discoverable:
+            out_count = _core_len(out)
+            under = _core_lt(out_count, 3)
+            if under:
+                namespace = _core_get(group, "namespace", "")
+                already = _agent_relevance_has_id(out, "namespace", namespace)
+                fresh = _core_not(already)
+                if fresh:
+                    title = _core_get(group, "title", "")
+                    description = _core_get(group, "description", "")
+                    selection = _core_get(group, "selection_criteria", "")
+                    callables = _core_get(group, "callables", empty_list)
+                    pieces = []
+                    pieces.append(namespace)
+                    pieces.append(title)
+                    pieces.append(description)
+                    pieces.append(selection)
+                    pieces.append(selection)
+                    for callable in callables:
+                        name = _core_get(callable, "name", "")
+                        qualified = _core_get(callable, "qualified_name", "")
+                        cdesc = _core_get(callable, "description", "")
+                        pieces.append(name)
+                        pieces.append(qualified)
+                        pieces.append(cdesc)
+                        params = _core_get(callable, "parameters", None)
+                        properties = _core_get(params, "properties", None)
+                        props_is_object = _core_type_is(properties, "object")
+                        if props_is_object:
+                            prop_keys = _core_map_keys(properties)
+                            prop_text = _core_string_join(" ", prop_keys)
+                            pieces.append(prop_text)
+                        else:
+                            pass
+                    text = _core_string_join(" ", pieces)
+                    score = _agent_relevance_score(tokens, text)
+                    passes = _core_gte(score, threshold)
+                    if passes:
+                        entry = {}
+                        entry["namespace"] = namespace
+                        entry["score"] = score
+                        out.append(entry)
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+    return out
+
+
+def _agent_rank_relevance_skills(state: Any, task: str) -> Any:
+    _core_coverage_mark("_agent_rank_relevance_skills")
+    empty_list = []
+    tokens = _agent_relevance_tokens(task)
+    token_count = _core_len(tokens)
+    no_tokens = _core_eq(token_count, 0)
+    if no_tokens:
+        return empty_list
+    else:
+        pass
+    catalog = _core_get(state, "skills_catalog", empty_list)
+    out = []
+    thresholds = []
+    thresholds.append(3)
+    thresholds.append(2)
+    thresholds.append(1)
+    for threshold in thresholds:
+        for skill in catalog:
+            out_count = _core_len(out)
+            under = _core_lt(out_count, 3)
+            if under:
+                id = _core_get(skill, "id", "")
+                already = _agent_relevance_has_id(out, "id", id)
+                fresh = _core_not(already)
+                if fresh:
+                    name = _core_get(skill, "name", id)
+                    description = _core_get(skill, "description", "")
+                    content = _core_get(skill, "content", "")
+                    text_parts = []
+                    text_parts.append(id)
+                    text_parts.append(name)
+                    text_parts.append(description)
+                    text_parts.append(content)
+                    text = _core_string_join(" ", text_parts)
+                    score = _agent_relevance_score(tokens, text)
+                    passes = _core_gte(score, threshold)
+                    if passes:
+                        entry = {}
+                        entry["id"] = id
+                        entry["name"] = name
+                        entry["score"] = score
+                        out.append(entry)
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+    return out
+
+
+def _agent_rank_relevance_memories(state: Any, task: str) -> Any:
+    _core_coverage_mark("_agent_rank_relevance_memories")
+    empty_list = []
+    tokens = _agent_relevance_tokens(task)
+    token_count = _core_len(tokens)
+    no_tokens = _core_eq(token_count, 0)
+    if no_tokens:
+        return empty_list
+    else:
+        pass
+    catalog = _core_get(state, "memories_catalog", empty_list)
+    loaded = _core_get(state, "loaded_memories", empty_list)
+    out = []
+    thresholds = []
+    thresholds.append(3)
+    thresholds.append(2)
+    thresholds.append(1)
+    for threshold in thresholds:
+        for memory in catalog:
+            out_count = _core_len(out)
+            under = _core_lt(out_count, 3)
+            if under:
+                id = _core_get(memory, "id", "")
+                already_out = _agent_relevance_has_id(out, "id", id)
+                already_loaded = _agent_relevance_has_id(loaded, "id", id)
+                already_any = _core_or(already_out, already_loaded)
+                fresh = _core_not(already_any)
+                if fresh:
+                    content = _core_get(memory, "content", "")
+                    score = _agent_relevance_score(tokens, content)
+                    passes = _core_gte(score, threshold)
+                    if passes:
+                        snippet = _core_string_slice(content, 0, 120)
+                        entry = {}
+                        entry["id"] = id
+                        entry["snippet"] = snippet
+                        entry["score"] = score
+                        out.append(entry)
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+    return out
+
+
+def _agent_render_relevance_hints(hints: Any) -> str:
+    _core_coverage_mark("_agent_render_relevance_hints")
+    empty_list = []
+    sections = []
+    modules = _core_get(hints, "modules", empty_list)
+    module_count = _core_len(modules)
+    has_modules = _core_gt(module_count, 0)
+    if has_modules:
+        lines = []
+        for module in modules:
+            namespace = _core_get(module, "namespace", "")
+            line = _core_string_format("- `{}`", namespace)
+            lines.append(line)
+        body = _core_string_join("\n", lines)
+        section = _core_string_format("Modules:\n{}", body)
+        sections.append(section)
+    else:
+        pass
+    skills = _core_get(hints, "skills", empty_list)
+    skill_count = _core_len(skills)
+    has_skills = _core_gt(skill_count, 0)
+    if has_skills:
+        skill_lines = []
+        for skill in skills:
+            id = _core_get(skill, "id", "")
+            name = _core_get(skill, "name", id)
+            line = _core_string_format("- `{}` — {}", id, name)
+            skill_lines.append(line)
+        skill_body = _core_string_join("\n", skill_lines)
+        skill_section = _core_string_format("Skills:\n{}", skill_body)
+        sections.append(skill_section)
+    else:
+        pass
+    memories = _core_get(hints, "memories", empty_list)
+    memory_count = _core_len(memories)
+    has_memories = _core_gt(memory_count, 0)
+    if has_memories:
+        memory_lines = []
+        for memory in memories:
+            id2 = _core_get(memory, "id", "")
+            snippet = _core_get(memory, "snippet", "")
+            line2 = _core_string_format("- `{}`", id2)
+            has_snippet = _core_ne(snippet, "")
+            if has_snippet:
+                line2 = _core_string_format("{} — {}", line2, snippet)
+            else:
+                pass
+            memory_lines.append(line2)
+        memory_body = _core_string_join("\n", memory_lines)
+        memory_section = _core_string_format("Memories:\n{}", memory_body)
+        sections.append(memory_section)
+    else:
+        pass
+    out = _core_string_join("\n", sections)
+    return out
+
+
+def _agent_rank_task_text(values: Any, executor_request: str) -> str:
+    _core_coverage_mark("_agent_rank_task_text")
+    reserved = _agent_reserved_auto_promotion_fields()
+    parts = []
+    for key in values:
+        is_reserved = _core_contains(reserved, key)
+        not_reserved = _core_not(is_reserved)
+        if not_reserved:
+            value = _core_get(values, key, None)
+            is_string = _core_type_is(value, "string")
+            if is_string:
+                parts.append(value)
+            else:
+                pass
+        else:
+            pass
+    parts.append(executor_request)
+    out = _core_string_join(" ", parts)
+    return out
+
+
+def _agent_build_relevance_hints(state: Any, values: Any, executor_request: str) -> Any:
+    _core_coverage_mark("_agent_build_relevance_hints")
+    empty_list = []
+    empty_map = {}
+    flags = _core_get(state, "policy_flags", empty_map)
+    enabled = _core_get(flags, "relevanceHintsEnabled", False)
+    if enabled:
+        pass
+    else:
+        return empty_map
+    task = _agent_rank_task_text(values, executor_request)
+    out = {}
+    module_enabled = _core_get(flags, "moduleHintEnabled", False)
+    if module_enabled:
+        modules = _agent_rank_relevance_modules(state, task)
+        out["modules"] = modules
+    else:
+        out["modules"] = empty_list
+    skills_enabled = _core_get(flags, "skillsHintEnabled", False)
+    if skills_enabled:
+        skills = _agent_rank_relevance_skills(state, task)
+        out["skills"] = skills
+    else:
+        out["skills"] = empty_list
+    memories_enabled = _core_get(flags, "memoriesHintEnabled", False)
+    if memories_enabled:
+        memories = _agent_rank_relevance_memories(state, task)
+        out["memories"] = memories
+    else:
+        out["memories"] = empty_list
+    return out
+
+
 def _agent_runtime_test(state: Any, runtime: Any, code: str, values: Any, options: Any) -> Any:
     _core_coverage_mark("_agent_runtime_test")
     globals = _agent_runtime_build_globals(state, values)
@@ -6537,6 +7454,12 @@ def _split_context_values(state: Any, values: Any) -> Any:
     _core_coverage_mark("_split_context_values")
     empty_list = []
     context_fields = _core_get(state, "context_fields", empty_list)
+    auto_upgrade = _core_get(state, "auto_upgrade", None)
+    auto_context = _core_get(auto_upgrade, "contextFields", None)
+    auto_enabled = _core_get(auto_context, "enabled", False)
+    promote_above = _core_get(auto_context, "promoteAboveChars", 8000)
+    preview_chars = _core_get(auto_context, "previewChars", 1200)
+    reserved = _agent_reserved_auto_promotion_fields()
     ctx_values = {}
     non_ctx_values = {}
     for key in values:
@@ -6545,15 +7468,90 @@ def _split_context_values(state: Any, values: Any) -> Any:
         if is_context:
             ctx_values[key] = value
         else:
-            non_ctx_values[key] = value
+            promoted = False
+            is_reserved = _core_contains(reserved, key)
+            not_reserved = _core_not(is_reserved)
+            can_auto = _core_and(auto_enabled, not_reserved)
+            if can_auto:
+                value_text = _core_json_stringify(value)
+                value_len = _core_len(value_text)
+                too_large = _core_gt(value_len, promote_above)
+                if too_large:
+                    promoted = True
+                    ctx_values[key] = value
+                    is_string = _core_type_is(value, "string")
+                    preview_source = value_text
+                    if is_string:
+                        preview_source = value
+                    else:
+                        pass
+                    preview = _core_string_slice(preview_source, 0, preview_chars)
+                    preview_value = _core_string_format("[runtime-only context: {} chars available as inputs.{}; preview]\n{}", value_len, key, preview)
+                    non_ctx_values[key] = preview_value
+                    event = {}
+                    event["kind"] = "field_auto_promoted"
+                    event["fieldName"] = key
+                    event["originalChars"] = value_len
+                    event["promptPreviewChars"] = preview_chars
+                    events = _core_get(state, "context_events", empty_list)
+                    events.append(event)
+                    state["context_events"] = events
+                else:
+                    pass
+            else:
+                pass
+            not_promoted = _core_not(promoted)
+            if not_promoted:
+                non_ctx_values[key] = value
+            else:
+                pass
     out = {}
     out["context"] = ctx_values
     out["values"] = non_ctx_values
     return out
 
 
+def _agent_render_context_metadata(context: Any) -> str:
+    _core_coverage_mark("_agent_render_context_metadata")
+    lines = []
+    for ck in context:
+        cv = _core_get(context, ck, None)
+        cv_str = _core_json_stringify(cv)
+        cv_len = _core_len(cv_str)
+        cv_type = _agent_value_kind(cv)
+        runtime_ref = _core_string_format("inputs.{} ({} chars)", ck, cv_len)
+        line = _core_string_format("- {}: {} loaded in the runtime as {} — read and narrow it with code; never retype its contents", ck, cv_type, runtime_ref)
+        keys = _agent_object_keys_sample(cv, 12)
+        key_count = _core_len(keys)
+        has_keys = _core_gt(key_count, 0)
+        if has_keys:
+            keys_text = _core_string_join(", ", keys)
+            line = _core_string_format("{}; keys: {}", line, keys_text)
+        else:
+            pass
+        is_list = _core_type_is(cv, "list")
+        if is_list:
+            length = _core_len(cv)
+            line = _core_string_format("{}; length {}", line, length)
+            first = _core_list_get(cv, 0, None)
+            item_keys = _agent_object_keys_sample(first, 12)
+            item_key_count = _core_len(item_keys)
+            has_item_keys = _core_gt(item_key_count, 0)
+            if has_item_keys:
+                item_keys_text = _core_string_join(", ", item_keys)
+                line = _core_string_format("{}; item keys: {}", line, item_keys_text)
+            else:
+                pass
+        else:
+            pass
+        lines.append(line)
+    out = _core_string_join("\n", lines)
+    return out
+
+
 def _build_distiller_inputs(state: Any, values: Any) -> Any:
     _core_coverage_mark("_build_distiller_inputs")
+    empty_list = []
     empty_map = {}
     split = _split_context_values(state, values)
     context = _core_get(split, "context", empty_map)
@@ -6581,6 +7579,14 @@ def _build_distiller_inputs(state: Any, values: Any) -> Any:
     summary_text = _core_get(actor_context, "summarizedActorLog", "")
     runtime_text = _core_get(actor_context, "liveRuntimeState", "")
     pressure_text = _core_get(actor_context, "contextPressure", "")
+    discovered_docs = _core_get(state, "discovered_tool_docs", empty_list)
+    loaded_skills = _core_get(state, "loaded_skill_docs", empty_list)
+    loaded_memories = _core_get(state, "loaded_memories", empty_list)
+    discovered_text = _agent_render_discovered_tool_docs(discovered_docs)
+    skills_text = _agent_render_loaded_skills(loaded_skills)
+    out["discoveredToolDocs"] = discovered_text
+    out["loadedSkills"] = skills_text
+    out["memories"] = loaded_memories
     out["summarizedActorLog"] = summary_text
     out["guidanceLog"] = guidance_text
     out["actionLog"] = action_text
@@ -6594,6 +7600,7 @@ def _build_executor_inputs(state: Any, values: Any, distiller_payload: Any) -> A
     empty_list = []
     empty_map = {}
     split = _split_context_values(state, values)
+    context = _core_get(split, "context", empty_map)
     non_ctx = _core_get(split, "values", empty_map)
     empty = {}
     out = _core_map_merge(non_ctx, empty)
@@ -6608,9 +7615,29 @@ def _build_executor_inputs(state: Any, values: Any, distiller_payload: Any) -> A
         executor_request_coerced = _core_string_format("{}", executor_request_raw)
         executor_request = executor_request_coerced
     distilled_context = _core_list_get(args, 1, empty_map)
+    distilled_context_summary = _agent_render_evidence_descriptor(distilled_context)
     out["input"] = non_ctx
     out["executorRequest"] = executor_request
-    out["distilledContext"] = distilled_context
+    out["distilledContextSummary"] = distilled_context_summary
+    state_runtime_enabled = _core_get(state, "runtime_enabled", False)
+    state_runtime_disabled = _core_not(state_runtime_enabled)
+    if state_runtime_disabled:
+        out["distilledContext"] = distilled_context
+    else:
+        pass
+    context_metadata = _agent_render_context_metadata(context)
+    has_context_metadata = _core_ne(context_metadata, "")
+    if has_context_metadata:
+        out["contextMetadata"] = context_metadata
+    else:
+        pass
+    hints = _agent_build_relevance_hints(state, non_ctx, executor_request)
+    hints_text = _agent_render_relevance_hints(hints)
+    has_hints = _core_ne(hints_text, "")
+    if has_hints:
+        out["relevanceHints"] = hints_text
+    else:
+        pass
     discovered_docs = _core_get(state, "discovered_tool_docs", empty_list)
     loaded_skills = _core_get(state, "loaded_skill_docs", empty_list)
     loaded_memories = _core_get(state, "loaded_memories", empty_list)
@@ -7489,11 +8516,16 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
             else:
                 pass
             distiller_step = _core_add(distiller_step, 1)
-        distiller_session_reset = _core_none()
-        state["runtime_session"] = distiller_session_reset
+        shared_contract = _core_get(state, "runtime_contract", None)
+        shared_js = _core_get(shared_contract, "is_javascript", True)
+        if shared_js:
+            state["runtime_session"] = distiller_session
+        else:
+            distiller_session_reset = _core_none()
+            state["runtime_session"] = distiller_session_reset
+            distiller_state_reset = {}
+            state["runtime_session_state"] = distiller_state_reset
         state["action_log"] = distiller_saved_action_log
-        distiller_state_reset = {}
-        state["runtime_session_state"] = distiller_state_reset
     else:
         distiller_values = _build_distiller_inputs(state, values)
         distiller_request_event = {}
@@ -7532,6 +8564,13 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
         exec_runtime_values = _core_map_merge(values, exec_extras)
         globals = _agent_runtime_build_globals(state, exec_runtime_values)
         session = _core_get(state, "runtime_session", None)
+        has_shared_session = _core_is_not_none(session)
+        if has_shared_session:
+            patch_snapshot = {}
+            patch_snapshot["globals"] = globals
+            _agent_runtime_restore_session_state(state, session, patch_snapshot, options)
+        else:
+            pass
         max_steps = _core_get(options, "max_actor_steps", 4)
         step = 0
         while True:

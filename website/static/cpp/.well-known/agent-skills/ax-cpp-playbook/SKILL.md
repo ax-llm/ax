@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-playbook"
 description: "Use when writing C++ code with `axllm` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program."
-version: "22.0.7"
+version: "22.0.9"
 ---
 # Ax Playbook For C++
 

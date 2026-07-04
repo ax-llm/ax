@@ -1,7 +1,7 @@
 ---
 name: ax-llm
 description: This skill helps with using the @ax-llm/ax TypeScript library for building LLM applications. Use when the user asks about ax(), ai(), f(), s(), agent(), flow(), AxGen, AxAgent, AxFlow, signatures, streaming, or mentions @ax-llm/ax.
-version: "22.0.7"
+version: "22.0.9"
 ---
 
 # Ax Library (@ax-llm/ax) Quick Reference

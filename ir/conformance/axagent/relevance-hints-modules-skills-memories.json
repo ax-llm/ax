@@ -1,0 +1,120 @@
+{
+  "expected_exported_state_subset": {
+    "policy_registry": {
+      "flags": {
+        "memoriesHintEnabled": true,
+        "moduleHintEnabled": true,
+        "relevanceHintsEnabled": true,
+        "relevanceRanking": true,
+        "skillsHintEnabled": true
+      }
+    }
+  },
+  "expected_output": {
+    "answer": "ranked"
+  },
+  "expected_request_count": 3,
+  "expected_request_contains": [
+    "### Likely Relevant",
+    "Modules:",
+    "`billing`",
+    "Skills:",
+    "`refund-skill`",
+    "Memories:",
+    "`mem-refund`"
+  ],
+  "input": {
+    "question": "Check the refund invoice status for the customer."
+  },
+  "kind": "agent_forward",
+  "name": "relevance-hints-modules-skills-memories",
+  "options": {
+    "functionDiscovery": true,
+    "functions": [
+      {
+        "description": "Billing records and invoice disputes",
+        "functions": [
+          {
+            "description": "Lookup refund invoices",
+            "name": "lookupRefund"
+          }
+        ],
+        "namespace": "billing",
+        "selectionCriteria": "refund invoice billing disputes",
+        "title": "Billing"
+      },
+      {
+        "description": "Weather records and forecasts",
+        "functions": [
+          {
+            "description": "Forecast weather",
+            "name": "forecast"
+          }
+        ],
+        "namespace": "weather",
+        "selectionCriteria": "forecast rain temperature",
+        "title": "Weather"
+      }
+    ],
+    "memoriesCatalog": [
+      {
+        "content": "Customer prefers refund status by invoice.",
+        "id": "mem-refund"
+      },
+      {
+        "content": "Customer likes weekly weather digests.",
+        "id": "mem-weather"
+      }
+    ],
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "skillsCatalog": [
+      {
+        "content": "Use this skill for billing refund invoice status checks.",
+        "description": "Billing refunds and invoice status",
+        "id": "refund-skill",
+        "name": "Refund SOP"
+      },
+      {
+        "content": "Use this skill for weather summaries.",
+        "description": "Weather forecast summary",
+        "id": "weather-skill",
+        "name": "Weather SOP"
+      }
+    ]
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Forward refund status check\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer with ranking evidence\\\", {\\\"answer\\\":\\\"ranked\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"ranked\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Forward refund status check\", {})",
+      "result": {
+        "args": ["Forward refund status check", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer with ranking evidence\", {\"answer\":\"ranked\"})",
+      "result": {
+        "args": [
+          "Answer with ranking evidence",
+          {
+            "answer": "ranked"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

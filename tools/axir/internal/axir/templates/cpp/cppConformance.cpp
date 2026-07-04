@@ -1299,6 +1299,7 @@ static void run_agent_forward(Value fixture) {
   Value exported = ag->export_runtime_state();
   if (!Core::get(fixture, "expected_runtime_contract_subset").is_null()) assert_subset(ag->get_runtime_contract(), Core::get(fixture, "expected_runtime_contract_subset"), "runtime contract");
   if (!Core::get(fixture, "expected_exported_state_subset").is_null()) assert_subset(exported, Core::get(fixture, "expected_exported_state_subset"), "runtime state");
+  if (!Core::get(fixture, "expected_context_events_subset").is_null()) assert_list_subset(Core::get(exported, "context_events", Value::array()), Core::get(fixture, "expected_context_events_subset"), "agent context events");
   if (!Core::get(fixture, "expected_action_log_subset").is_null()) assert_list_subset(Core::get(exported, "action_log", Value::array()), Core::get(fixture, "expected_action_log_subset"), "action log");
   if (runtime && !Core::get(fixture, "expected_executed").is_null()) assert_equal(Value(runtime->executed), Core::get(fixture, "expected_executed"), "executed code");
   assert_agent_trace(*ag, fixture);
@@ -1332,6 +1333,7 @@ static void run_agent_runtime_policy(Value fixture) {
   std::unique_ptr<AxAgent> ag;
   try {
     ag = std::make_unique<AxAgent>(Core::get(fixture, "signature", "question:string -> answer:string"), Core::get(fixture, "options", Value::object()));
+    if (!Core::get(fixture, "set_signature").is_null()) ag->set_signature(Core::get(fixture, "set_signature"));
     if (!Core::get(fixture, "discover").is_null()) {
       Value result = ag->discover(Core::get(fixture, "discover", Value::object()));
       if (!Core::get(fixture, "expected_discover_result").is_null()) assert_equal(result, Core::get(fixture, "expected_discover_result"), "discover result");
@@ -1377,6 +1379,7 @@ static void run_agent_runtime_policy(Value fixture) {
   if (!Core::get(fixture, "expected_runtime_contract_subset").is_null()) assert_subset(ag->get_runtime_contract(), Core::get(fixture, "expected_runtime_contract_subset"), "runtime contract");
   if (!Core::get(fixture, "expected_policy_subset").is_null()) assert_subset(ag->get_policy(), Core::get(fixture, "expected_policy_subset"), "agent policy");
   if (!Core::get(fixture, "expected_policy_registry_subset").is_null()) assert_subset(ag->get_policy_registry(), Core::get(fixture, "expected_policy_registry_subset"), "policy registry");
+  if (!Core::get(fixture, "expected_state_subset").is_null()) assert_subset(ag->get_state(), Core::get(fixture, "expected_state_subset"), "agent state");
   Value registry = ag->get_policy_registry();
   if (!Core::get(fixture, "expected_actor_primitives_subset").is_null()) assert_list_subset(Core::get(registry, "actor_primitives", Value::array()), Core::get(fixture, "expected_actor_primitives_subset"), "actor primitives");
   if (!Core::get(fixture, "expected_protocol_actions_subset").is_null()) assert_list_subset(Core::get(registry, "protocol_actions", Value::array()), Core::get(fixture, "expected_protocol_actions_subset"), "protocol actions");

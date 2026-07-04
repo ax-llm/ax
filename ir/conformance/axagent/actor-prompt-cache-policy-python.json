@@ -8,13 +8,14 @@
       "dynamic_uncached_fields": [
         "guidanceLog",
         "actionLog",
+        "relevanceHints",
         "liveRuntimeState",
         "contextPressure"
       ],
       "stable_cached_fields": [
         "input",
         "executorRequest",
-        "distilledContext",
+        "distilledContextSummary",
         "contextMetadata",
         "contextMap",
         "memories",
@@ -34,9 +35,7 @@
   "kind": "agent_runtime_policy",
   "name": "actor-prompt-cache-policy-python",
   "options": {
-    "contextFields": [
-      "document"
-    ],
+    "contextFields": ["document"],
     "functionDiscovery": true,
     "runtime": {
       "language": "Python"

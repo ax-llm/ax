@@ -456,11 +456,15 @@ struct Core {
   static Value _agent_runtime_code_fence_language(Value tokens, Value alias_key, Value is_javascript);
   static Value _normalize_agent_runtime(Value options);
   static Value _normalize_agent_policy(Value options);
-  static Value _agent_policy_flags(Value options);
-  static Value _agent_policy_action(Value id, Value category, Value kind, Value stages, Value availability, Value effect, Value host_boundary, Value actor_visible);
-  static Value _agent_policy_vocabulary_registry();
+  static Value _resolve_agent_auto_upgrade(Value options);
   static Value _map_optimization_judge_quality_to_score(Value quality);
   static Value _build_optimization_judge_payload(Value task, Value prediction, Value criteria);
+  static Value _agent_discoverable_doc_chars(Value callable_split);
+  static Value _agent_has_discover_namespace(Value callable_split);
+  static Value _agent_policy_flags(Value options, Value callable_split, Value auto_upgrade);
+  static Value _agent_policy_action(Value id, Value category, Value kind, Value stages, Value availability, Value effect, Value host_boundary, Value actor_visible);
+  static Value _agent_policy_vocabulary_registry();
+  static Value _build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace);
   static Value _agent_context_policy_registry();
   static Value _agent_context_policy_migration_error(Value key);
   static Value _agent_context_budget_profile(Value budget);
@@ -469,7 +473,6 @@ struct Core {
   static Value _agent_context_event_reason(Value stable_id);
   static Value _agent_policy_registry(Value policy, Value flags);
   static Value _policy_flag_enabled(Value flags, Value condition);
-  static Value _build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace);
   static Value _select_actor_primitives(Value registry, Value stage);
   static Value _select_protocol_actions(Value registry);
   static Value _select_runtime_globals(Value registry);
@@ -480,9 +483,12 @@ struct Core {
   static Value _rlm_entry_enabled(Value entry, Value flags);
   static Value _render_runtime_primitive(Value primitive, Value flags);
   static Value _render_actor_primitives_list(Value stage, Value flags);
-  static Value _build_rlm_flags(Value options);
+  static Value _build_rlm_flags(Value state);
   static Value _rlm_context_var_list(Value context_fields);
   static Value _rlm_context_var_summary(Value context_fields);
+  static Value _render_agent_inline_functions_list(Value callable_split);
+  static Value _render_agent_modules_list(Value callable_split);
+  static Value _render_agent_skills_catalog_list(Value skills_catalog);
   static Value _rlm_render_template(Value template_, Value vars, Value context);
   static Value _render_rlm_executor_description(Value state, Value options);
   static Value _render_rlm_responder_description(Value state, Value options);
@@ -515,6 +521,7 @@ struct Core {
   static Value _agent_refresh_checkpoint_state(Value state);
   static Value _agent_build_action_log_parts(Value state, Value hygiene_mode);
   static Value _agent_render_runtime_state_summary(Value state, Value policy);
+  static Value _agent_auto_promoted_fields(Value state);
   static Value _agent_prepare_actor_context(Value state);
   static Value _agent_build_action_evidence_summary(Value state);
   static Value _agent_sanitize_action_log_entries(Value entries);
@@ -563,8 +570,25 @@ struct Core {
   static Value _agent_runtime_refresh_state_summary(Value state, Value session, Value options);
   static Value _agent_runtime_restore_session_state(Value state, Value session, Value snapshot, Value options);
   static Value _agent_runtime_close_session(Value state, Value session);
+  static Value _agent_reserved_auto_promotion_fields();
+  static Value _agent_value_kind(Value value);
+  static Value _agent_take_strings(Value items, Value limit);
+  static Value _agent_object_keys_sample(Value value, Value limit);
+  static Value _agent_evidence_entry_descriptor(Value key, Value value);
+  static Value _agent_build_evidence_descriptor(Value evidence);
+  static Value _agent_render_evidence_descriptor(Value descriptor);
+  static Value _agent_relevance_tokens(Value text);
+  static Value _agent_relevance_score(Value tokens, Value text);
+  static Value _agent_relevance_has_id(Value items, Value field, Value id);
+  static Value _agent_rank_relevance_modules(Value state, Value task);
+  static Value _agent_rank_relevance_skills(Value state, Value task);
+  static Value _agent_rank_relevance_memories(Value state, Value task);
+  static Value _agent_render_relevance_hints(Value hints);
+  static Value _agent_rank_task_text(Value values, Value executor_request);
+  static Value _agent_build_relevance_hints(Value state, Value values, Value executor_request);
   static Value _agent_runtime_test(Value state, Value runtime, Value code, Value values, Value options);
   static Value _split_context_values(Value state, Value values);
+  static Value _agent_render_context_metadata(Value context);
   static Value _build_distiller_inputs(Value state, Value values);
   static Value _build_executor_inputs(Value state, Value values, Value distiller_payload);
   static Value _build_responder_inputs(Value state, Value values, Value executor_payload);
@@ -1272,6 +1296,7 @@ class AxPlaybook {
 class AxAgent : public AxProgram {
  public:
   explicit AxAgent(Value signature, Value options = Value::object());
+  AxAgent& set_signature(Value signature);
   Value forward(AIClient& client, Value values, Value options = Value::object());
   Value test(AxCodeRuntime& runtime, Value code, Value context_values = Value::object(), Value options = Value::object());
   Value execute_actor_step(AxCodeRuntime& runtime, Value code, Value values = Value::object(), Value options = Value::object());

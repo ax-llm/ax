@@ -341,7 +341,7 @@ You can use `skills` without setting `onSkillsSearch` at all. That is useful for
 
 ## Advisory Relevance Hints (`relevanceRanking`)
 
-`relevanceRanking` is ON by default in TypeScript — leave it unset; set `relevanceRanking: false` to opt out. The default was flipped after its A/B gate passed (substance-judged, 49 runs per variant per model: small-model first-lookup precision 24%→90% and answer accuracy 14%→29%; frontier-model control accuracy 63%→88% with fewer turns). The five non-TS ports do not ship the ranker yet, so cross-language behavior diverges on this point until they catch up.
+`relevanceRanking` is ON by default — leave it unset; set `relevanceRanking: false` to opt out. The default was flipped after its A/B gate passed (substance-judged, 49 runs per variant per model: small-model first-lookup precision 24%→90% and answer accuracy 14%→29%; frontier-model control accuracy 63%→88% with fewer turns). The generated language ports implement the same advisory hint contract through AxIR Core.
 
 When enabled, a deterministic local ranker scores the agent's discoverable capabilities against the task once per `forward(...)` and injects a short advisory `### Likely Relevant` shortlist into the executor turn — modules (needs `functionDiscovery`), catalog skills (needs `skillsCatalog`), and catalog memories (needs `memoriesCatalog`). The hint is non-authoritative: the full lists still apply and the actor may `discover`/`recall` anything else.
 
@@ -356,7 +356,7 @@ const myAgent = agent('task:string -> answer:string', {
 
 Rules:
 
-- Default is ON (TypeScript); domains still self-gate on their prerequisites (`functionDiscovery` for modules, catalogs for skills/memories), so agents without those see no change. Everything else in this skill (catalog search, the Available Skills index) is independent of the flag.
+- Default is ON across TypeScript and generated language ports; domains still self-gate on their prerequisites (`functionDiscovery` for modules, catalogs for skills/memories), so agents without those see no change. Everything else in this skill (catalog search, the Available Skills index) is independent of the flag.
 - The shortlist rides a dynamic, non-cached prompt field; the cached system prompt stays byte-stable across tasks.
 - On low confidence the ranker emits nothing rather than guessing.
 - Memory hint entries include an ~80-char content snippet; very short memories may be usable from the hint alone without a `recall(...)` (such use is not visible to `onUsedMemories`).

@@ -1,7 +1,7 @@
 ---
 name: ax-agent
 description: This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.
-version: "22.0.7"
+version: "22.0.9"
 ---
 
 # AxAgent Codegen Rules (@ax-llm/ax)
@@ -45,6 +45,7 @@ Map user intent to agent shape before writing code:
 - Use `agent(...)` factory syntax for new code.
 - Add child agents to the parent's `functions: [...]` list. Each child's `agentIdentity.namespace` (or `utils`, the default) determines the runtime call site, e.g. `await team.writer({...})`.
 - If discovery is enabled, call `discover(...)` before using callables whose docs are not already in the prompt.
+- `autoUpgrade` is ON by default: large tool catalogs auto-enable discovery, and oversized undeclared input values are auto-kept runtime-only with a truncated prompt preview. Explicit `functionDiscovery` and declared `contextFields` always win; set `autoUpgrade: false` to opt out.
 - If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)` or `extra.protocol.askClarification(...)`.
 - In public `forward()` and `streamingForward()` flows, `askClarification(...)` throws `AxAgentClarificationError`; it does not go through the responder.
 - When resuming after clarification, prefer `error.getState()` from the thrown `AxAgentClarificationError`, then call `agent.setState(savedState)` before the next `forward(...)`.
@@ -260,6 +261,7 @@ Rules:
 - A group is `{ namespace, title, description, functions: [...] }`.
 - `selectionCriteria` is optional but useful in discovery mode; it tells the actor when to choose that module.
 - The group's `namespace`, `title`, `selectionCriteria`, and `description` show up in `discover(...)` module docs.
+- `relevanceRanking` (default ON — set `false` to opt out): a deterministic local ranker that injects an advisory `### Likely Relevant` shortlist into the executor turn (dynamic, non-cached field — the cached prompt stays byte-stable). Enabled by default after its A/B gate passed on both small and frontier models and implemented in the generated language ports through AxIR Core. Details in `ax-agent-memory-skills`; outcomes observable via the `relevance_ranking` context event (`ax-agent-observability`).
 - Add `alwaysInclude: true` to a group when discovery mode is on but the actor should always see that group's full callable definitions inline in the prompt.
 - Keep `functions: [...]` either flat or grouped. Runtime validation rejects mixed plain function entries and group objects.
 - In flat mode, pass `fn(...)` tools, child agents, and `toFunction()` providers directly.
@@ -525,6 +527,7 @@ agent(signature, {
   contextFields,
   functions,
   functionDiscovery,
+  autoUpgrade,
   ...agentOptions,
 });
 ```
@@ -551,6 +554,26 @@ Each `contextFields` entry is either a plain field name string or an object cont
 - `{ field, keepInPromptChars: N, reverseTruncate?: boolean }`: always inline a truncated string excerpt; `reverseTruncate: true` keeps the last `N` chars.
 
 Use `promptMaxChars` when partial data is worse than no data. Use `keepInPromptChars` when a prefix or suffix alone is useful. The two options are mutually exclusive on one field.
+
+### Auto-upgrade defaults
+
+`autoUpgrade` is ON by default: the agent applies both knobs above on the user's behalf based on character counts, so forgetting them no longer floods prompts.
+
+- Function discovery: when `functionDiscovery` is left unset and the estimated inline docs of discoverable functions exceed ~10k chars, discovery is enabled automatically. An explicit `functionDiscovery: true | false` always wins.
+- Context fields: per run, an undeclared input value whose serialized size exceeds 8k chars is kept runtime-only like a declared context field — the prompt gets a 1,200-char truncated preview plus a `contextMetadata` entry, while the full value stays addressable as `inputs.<field>` in the code runtime (the responder stage gets the same preview). Fields declared in `contextFields` keep their declared config.
+
+```typescript
+autoUpgrade?: boolean | {
+  functionDiscovery?: boolean | { aboveFunctionDocChars?: number };  // default 10_000
+  contextFields?: boolean | { promoteAboveChars?: number; previewChars?: number };  // 8_000 / 1_200
+}
+```
+
+Rules:
+
+- Set `autoUpgrade: false` (or disable one side) to restore fully manual behavior.
+- Values in required non-string fields (arrays, objects, numbers, media) are never auto-promoted — declare those in `contextFields` explicitly when they can be large.
+- Each promotion emits a `field_auto_promoted` context event (`onContextEvent`) with the field name, original size, and preview size; use it to observe what was kept out of the prompt.
 
 ## Public Surface
 
@@ -590,6 +613,7 @@ Fetch these for full working code:
 - [Smart Home](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/smart-home.ts) - state management
 - [Customer Support](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/customer-support.ts) - classification agent
 - [Abort Patterns](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/abort-patterns.ts) - abort handling
+- [Smart Defaults Agent](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/smart-defaults-agent.ts) - auto-upgrade context promotion, relevance hints, and runtime tools
 
 RLM examples are listed in `ax-agent-rlm`. Memory/skills examples are listed in `ax-agent-memory-skills`.
 

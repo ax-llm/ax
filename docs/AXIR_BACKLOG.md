@@ -14,30 +14,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-07-01-preserve-the-memories-prompt-cache-breakpoint-across-setsignatur` [axagent] Preserve the memories prompt-cache breakpoint across setSignature()
-  - Status: open
-  - Source commit: `6d7286ce`
-  - TS paths: `src/ax/agent/agentInternal/coordinator.ts`
-  - Impact: In TS the memories block keeps its prompt-cache breakpoint after the agent rebuilds its signature via setSignature(); a narrow coordinator fix restored this. Generated Python/Java/C++/Go/Rust ports may drop the memories cache breakpoint when the signature is rebuilt mid-run, losing prompt-cache reuse for the memories section and paying full tokens for it every turn.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-07-02-port-the-shared-distiller-executor-runtime-session-and-evidence-` [axagent] Port the shared distiller/executor runtime session and evidence-by-reference handoff
-  - Status: open
-  - Source commit: `23953349`
-  - TS paths: `src/ax/agent/agentInternal/sharedSession.ts`, `src/ax/agent/agentInternal/runtimeExecution.ts`, `src/ax/agent/agentInternal/runtimeExecutionSession.ts`, `src/ax/agent/agentInternal/pipelineForward.ts`, `src/ax/agent/agentInternal/stagePolicy.ts`, `src/ax/agent/agentInternal/coordinator.ts`, `src/ax/agent/rlm.ts`, `src/ax/agent/templates/rlm/distiller.md`, `src/ax/agent/templates/rlm/executor.md`
-  - Impact: Generated Python/Java/C++/Go/Rust agents still run the distiller and executor as isolated stages and materialize the distilled evidence into the executor prompt. They lack the single shared runtime session (evidence passed by reference as inputs.distilledContext with a compact Distilled Context Summary), the shape hints (real item keys) that stop field-name guessing, the stage-policy table, and the discover-before-declaring-unavailable executor mandate. On the ports the executor prompt still grows with evidence size, raw context is not isolated from the tool-using stage, and grounding degrades on large inputs where TS now stays exact.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-07-02-port-the-unified-relevance-ranker-catalog-backed-search-and-advi` [axagent] Port the unified relevance ranker, catalog-backed search, and advisory relevance hints
-  - Status: open
-  - Source commit: `6840ab39`
-  - TS paths: `src/ax/agent/agentInternal/relevanceRanker.ts`, `src/ax/agent/agentInternal/skillsHelpers.ts`, `src/ax/agent/agentInternal/skillsTypes.ts`, `src/ax/agent/agentInternal/memoriesHelpers.ts`
-  - Impact: The local relevance ranker (rankDocuments), catalog-backed skills/memories search with host precedence, the advisory relevanceHints input field, and the Available Skills index are TS-only and default-ON in TypeScript (RELEVANCE_RANKING_DEFAULT). The five generated ports do not ship the ranker, so module/skill/memory discovery is unranked there and discover precision-at-1 plus substance accuracy on weaker models diverge from TS. config.ts documents this as the tracked follow-up.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-07-03-port-autoupgrade-smart-defaults-auto-function-discovery-and-runt` [axagent] Port autoUpgrade smart defaults: auto function-discovery and runtime-only oversized inputs
-  - Status: open
-  - Source commit: `c1143238`
-  - TS paths: `src/ax/agent/agentInternal/runtimeInputState.ts`, `src/ax/agent/agentInternal/runtimeDiscovery.ts`, `src/ax/agent/runtime.ts`, `src/ax/agent/config.ts`
-  - Impact: autoUpgrade (ON by default in TS) auto-enables functionDiscovery once inline tool docs get large, and keeps any oversized input value runtime-only (a truncated preview plus a shape summary in the prompt while the full value stays live on inputs.<field>) even when the field is not declared in contextFields. The generated ports do not implement autoUpgrade, so they neither switch to discovery for large tool catalogs nor auto-protect oversized inputs, diverging from TS on prompt size and discovery behavior for the same agent config.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -89,3 +66,39 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-06-30
   - Completed by: `working-tree`
   - Verification: `npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir`
+- `axir-2026-07-01-preserve-the-memories-prompt-cache-breakpoint-across-setsignatur` [axagent] Preserve the memories prompt-cache breakpoint across setSignature()
+  - Status: done
+  - Source commit: `6d7286ce`
+  - TS paths: `src/ax/agent/agentInternal/coordinator.ts`
+  - Impact: In TS the memories block keeps its prompt-cache breakpoint after the agent rebuilds its signature via setSignature(); a narrow coordinator fix restored this. Generated Python/Java/C++/Go/Rust ports may drop the memories cache breakpoint when the signature is rebuilt mid-run, losing prompt-cache reuse for the memories section and paying full tokens for it every turn.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-04
+  - Completed by: `working-tree`
+  - Verification: `npm run axir:conformance:check; npm run axir:generate-packages; npm run axir:check-packages; npm run test:axir; npm run axir:backlog:validate; npm run example -- list --json; npm run website:prepare; npm run website:check; npm run test:examples:generated; git diff --check`
+- `axir-2026-07-02-port-the-shared-distiller-executor-runtime-session-and-evidence-` [axagent] Port the shared distiller/executor runtime session and evidence-by-reference handoff
+  - Status: done
+  - Source commit: `23953349`
+  - TS paths: `src/ax/agent/agentInternal/sharedSession.ts`, `src/ax/agent/agentInternal/runtimeExecution.ts`, `src/ax/agent/agentInternal/runtimeExecutionSession.ts`, `src/ax/agent/agentInternal/pipelineForward.ts`, `src/ax/agent/agentInternal/stagePolicy.ts`, `src/ax/agent/agentInternal/coordinator.ts`, `src/ax/agent/rlm.ts`, `src/ax/agent/templates/rlm/distiller.md`, `src/ax/agent/templates/rlm/executor.md`
+  - Impact: Historical impact before completion: generated Python/Java/C++/Go/Rust agents ran the distiller and executor as isolated stages and materialized distilled evidence into the executor prompt. This completed port now keeps one shared runtime session for JavaScript-capable runtimes, exposes evidence by reference as inputs.distilledContext, sends only a compact Distilled Context Summary in the executor prompt, preserves real shape hints, and keeps the fallback prompt-summary contract for non-JavaScript runtimes.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-04
+  - Completed by: `working-tree`
+  - Verification: `npm run axir:conformance:check; npm run axir:generate-packages; npm run axir:check-packages; npm run test:axir; npm run axir:backlog:validate; npm run example -- list --json; npm run website:prepare; npm run website:check; npm run test:examples:generated; git diff --check`
+- `axir-2026-07-02-port-the-unified-relevance-ranker-catalog-backed-search-and-advi` [axagent] Port the unified relevance ranker, catalog-backed search, and advisory relevance hints
+  - Status: done
+  - Source commit: `6840ab39`
+  - TS paths: `src/ax/agent/agentInternal/relevanceRanker.ts`, `src/ax/agent/agentInternal/skillsHelpers.ts`, `src/ax/agent/agentInternal/skillsTypes.ts`, `src/ax/agent/agentInternal/memoriesHelpers.ts`
+  - Impact: The local relevance ranker (rankDocuments), catalog-backed skills/memories search with host precedence, the advisory relevanceHints input field, and the Available Skills index are TS-only and default-ON in TypeScript (RELEVANCE_RANKING_DEFAULT). The five generated ports do not ship the ranker, so module/skill/memory discovery is unranked there and discover precision-at-1 plus substance accuracy on weaker models diverge from TS. config.ts documents this as the tracked follow-up.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-04
+  - Completed by: `working-tree`
+  - Verification: `npm run axir:conformance:check; npm run axir:generate-packages; npm run axir:check-packages; npm run test:axir; npm run axir:backlog:validate; npm run example -- list --json; npm run website:prepare; npm run website:check; npm run test:examples:generated; git diff --check`
+- `axir-2026-07-03-port-autoupgrade-smart-defaults-auto-function-discovery-and-runt` [axagent] Port autoUpgrade smart defaults: auto function-discovery and runtime-only oversized inputs
+  - Status: done
+  - Source commit: `c1143238`
+  - TS paths: `src/ax/agent/agentInternal/runtimeInputState.ts`, `src/ax/agent/agentInternal/runtimeDiscovery.ts`, `src/ax/agent/runtime.ts`, `src/ax/agent/config.ts`
+  - Impact: autoUpgrade (ON by default in TS) auto-enables functionDiscovery once inline tool docs get large, and keeps any oversized input value runtime-only (a truncated preview plus a shape summary in the prompt while the full value stays live on inputs.<field>) even when the field is not declared in contextFields. The generated ports do not implement autoUpgrade, so they neither switch to discovery for large tool catalogs nor auto-protect oversized inputs, diverging from TS on prompt size and discovery behavior for the same agent config.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-04
+  - Completed by: `working-tree`
+  - Verification: `npm run axir:conformance:check; npm run axir:generate-packages; npm run axir:check-packages; npm run test:axir; npm run axir:backlog:validate; npm run example -- list --json; npm run website:prepare; npm run website:check; npm run test:examples:generated; git diff --check`

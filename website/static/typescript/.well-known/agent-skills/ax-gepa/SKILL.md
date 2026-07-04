@@ -1,7 +1,7 @@
 ---
 name: ax-gepa
 description: This skill helps an LLM generate correct AxGEPA optimization code using @ax-llm/ax. Use when the user asks about AxGEPA, GEPA, Pareto optimization, multi-objective prompt tuning, reflective prompt evolution, validationExamples, maxMetricCalls, or optimizing a generator, flow, or agent tree.
-version: "22.0.7"
+version: "22.0.9"
 ---
 
 # GEPA Optimization Codegen Rules (@ax-llm/ax)

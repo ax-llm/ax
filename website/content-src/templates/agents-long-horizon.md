@@ -25,9 +25,11 @@ sequenceDiagram
 
 ## Context Fields: Data The Model Computes On, Not Reads
 
-Declare bulky inputs as `contextFields` and they stay in the runtime session instead of the prompt. The distiller narrows them with code; its evidence passes to the executor **by reference** in the shared session, while the executor's prompt carries only a compact shape summary — real field names included, so the actor writes `t.amountCents`, not a guess. The prompt does not grow with your data, at any data size. (The shared-session execution path ships in the TypeScript runtime today; the generated language ports currently hand the distilled evidence to the executor directly.)
+Declare bulky inputs as `contextFields` and they stay in the runtime session instead of the prompt. The distiller narrows them with code; its evidence passes to the executor **by reference** in the shared session when the runtime supports it, while the executor's prompt carries only a compact shape summary — real field names included, so the actor writes `t.amountCents`, not a guess. Generated language ports use the same executor prompt contract, with a fallback handoff for non-JavaScript runtimes. The prompt does not grow with your data, at any data size.
 
-You don't have to catch every case by hand. `autoUpgrade` (ON by default) keeps any oversized input value runtime-only even when you forget to declare it — the prompt gets a truncated preview plus a shape summary while the full value stays live as `inputs.<field>`. Declare a field in `contextFields` when you want a specific inline policy, and set `autoUpgrade: false` to turn the automatic behavior off. (TypeScript today; port parity is the follow-up.)
+You don't have to catch every case by hand. `autoUpgrade` (ON by default) keeps any oversized input value runtime-only even when you forget to declare it — the prompt gets a truncated preview plus a shape summary while the full value stays live as `inputs.<field>`. Declare a field in `contextFields` when you want a specific inline policy, and set `autoUpgrade: false` to turn the automatic behavior off.
+
+The Smart Defaults Agent in the [long-agent examples]({{langRoot}}/examples/long-agents/) shows that default-on path with runtime tools, relevance hints, and an oversized undeclared incident log in every generated language.
 
 This is the property the [grounded-audit example](https://github.com/ax-llm/ax/blob/main/src/examples/agent-grounded-audit.ts) demonstrates end to end — a 250-row ledger the model never sees in its prompt, audited exactly. Measurements on the [Performance]({{langRoot}}/agents/performance/) page.
 
