@@ -1,7 +1,7 @@
 ---
 name: "ax-python-playbook"
 description: "Use when writing Python code with `axllm` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program."
-version: "22.0.9"
+version: "23.0.0"
 ---
 # Ax Playbook For Python
 

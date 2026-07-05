@@ -1,7 +1,7 @@
 ---
 name: "ax-go-agent-context"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents."
-version: "22.0.9"
+version: "23.0.0"
 ---
 # AxAgent Context Selection For Go
 

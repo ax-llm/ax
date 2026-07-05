@@ -1,7 +1,7 @@
 ---
 name: "ax-java-agent-memory-skills"
 description: "Use when writing Java code with `dev.axllm:ax` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking."
-version: "22.0.9"
+version: "23.0.0"
 ---
 # AxAgent Memory And Skills For Java
 

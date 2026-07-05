@@ -1,5 +1,35 @@
 # Changelog
 
+## [23.0.0](https://github.com/ax-llm/ax/compare/22.0.8...22.0.9) (2026-07-05)
+
+### Features
+
+* **agent:** auto-upgrade smart defaults for discovery and context fields ([c114323](https://github.com/ax-llm/ax/commit/c1143238765bd7ae85fe17678d7013f23e6f9238))
+* **agent:** direct-respond — distiller respond(task, evidence) skips the executor ([8df3c3c](https://github.com/ax-llm/ax/commit/8df3c3c2b715c70ec77441453079a089cd3ea547))
+* **agent:** direct-respond live eval gate — 0 false-skips, 100% skip recall on both pinned models ([30669f1](https://github.com/ax-llm/ax/commit/30669f163981dc81928cb8cb16b937c43093b5f0))
+* **agent:** shape hints in evidence descriptors and context metadata ([3306475](https://github.com/ax-llm/ax/commit/3306475085414d36aee4411ad2466e08e53bef8a))
+* **agent:** shared runtime session across distiller/executor phases ([2395334](https://github.com/ax-llm/ax/commit/23953349a02a5f3b43845d69dbba99033919cf75))
+* **agent:** unified relevance layer with catalog-backed search and advisory hints ([6840ab3](https://github.com/ax-llm/ax/commit/6840ab390a69bdb3e0e52a35c72c26b33b994329))
+* **axir:** port agent backlog to generated packages ([d22f09d](https://github.com/ax-llm/ax/commit/d22f09d5595a221eae9a86fa5e0b76e66e9332c3))
+* **axir:** port direct-respond to AxIR and all five language runtimes ([b86d16d](https://github.com/ax-llm/ax/commit/b86d16dce93ca4a8afb2d2946b38bcd54e4cf127))
+
+### Bug Fixes
+
+* **agent:** executor must discover before declaring data unavailable ([6c72769](https://github.com/ax-llm/ax/commit/6c727693c3b781e9471f75cd6c1d0ebe7d7d4254))
+* **agent:** keep memories cache breakpoint after setSignature() ([6d7286c](https://github.com/ax-llm/ax/commit/6d7286ce8ea519f5d80bb3d75e8b2c71b76a8069))
+* **axir:** stop the backlog gate crashing on large diffs; order open entries by landing date ([6f85dc9](https://github.com/ax-llm/ax/commit/6f85dc9ca057331f59baaefaf370fb113e089c58))
+* **examples:** repair CI type checks ([d42d379](https://github.com/ax-llm/ax/commit/d42d379d0bb722c5602d5baa726b6dfb66589ef0))
+
+## [22.0.9](https://github.com/ax-llm/ax/compare/22.0.8...22.0.9) (2026-06-30)
+
+### Features
+
+* **anthropic:** add Claude Sonnet 5 support ([#558](https://github.com/ax-llm/ax/issues/558)) ([811dee8](https://github.com/ax-llm/ax/commit/811dee880ff6a52f6432812f045029ea2fbe9ba0))
+
+### Bug Fixes
+
+* add AxIR terms to spelling dictionary ([592b7fb](https://github.com/ax-llm/ax/commit/592b7fbe39a7acca265b5c947e4ed69bb3190ca8))
+
 ## [22.0.9](https://github.com/ax-llm/ax/compare/22.0.7...22.0.8) (2026-06-30)
 
 ### Features
