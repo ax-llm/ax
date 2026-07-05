@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AxAgent } from './AxAgent.js';
-import {
-  AX_HOST_SNIPPET_MARKER,
-  AX_INPUTS_PATCH_GLOBAL,
-} from './agentInternal/sharedSession.js';
+import { AX_INPUTS_PATCH_GLOBAL } from './agentInternal/sharedSession.js';
 import type { AxCodeRuntime } from './rlm.js';
 
 const noopRuntime: AxCodeRuntime = {

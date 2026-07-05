@@ -86,9 +86,11 @@ const getRunbook = fn('getRunbook')
 const analyst = agent(
   'incidentLog:string, question:string -> rootCause:string, actions:string[] "Recommended remediation actions from the runbook", evidence:string[]',
   {
-    name: 'SmartDefaultsIncidentAgent',
-    description:
-      'Investigate checkout incidents. Use runtime tools for facts, relevance hints for runbooks and memories, and avoid copying raw logs.',
+    agentIdentity: {
+      name: 'Smart Defaults Incident Agent',
+      description:
+        'Investigate checkout incidents using runtime tools, relevance hints, and compact evidence.',
+    },
     functions: [summarizeIncident, getTimeline, getRunbook],
     runtime: new AxJSRuntime(),
     skillsCatalog: [
@@ -121,6 +123,7 @@ const analyst = agent(
       description:
         'Call incident.summarizeIncident, incident.getTimeline, and incident.getRunbook before answering. The large incidentLog input is intentionally not declared as a context field; smart defaults keep it available at runtime without flooding the prompt. Return the first three remediation actions, not historical timeline events.',
     },
+    maxTurns: 30,
   }
 );
 
@@ -130,14 +133,10 @@ const llm = ai({
   config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
 });
 
-const result = await analyst.forward(
-  llm,
-  {
-    incidentLog,
-    question:
-      'Find the root cause, first three remediation actions, and concrete evidence for the checkout payment incident.',
-  },
-  { maxTurns: 30 }
-);
+const result = await analyst.forward(llm, {
+  incidentLog,
+  question:
+    'Find the root cause, first three remediation actions, and concrete evidence for the checkout payment incident.',
+});
 
 console.log(JSON.stringify(result, null, 2));

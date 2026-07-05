@@ -24,10 +24,16 @@
  *   OPENAI_APIKEY=... EVAL_MODEL=gpt-5.4-mini EVAL_REPEATS=3 \
  *     npx tsx src/examples/module-ranking-eval.ts
  */
-import { type AxAgentFunctionGroup, agent, ai } from '@ax-llm/ax';
+import {
+  type AxAgentFunctionGroup,
+  AxAIOpenAIModel,
+  agent,
+  ai,
+} from '@ax-llm/ax';
 
 const apiKey = process.env.OPENAI_APIKEY;
-const model = process.env.EVAL_MODEL ?? 'gpt-5.4-mini';
+const model = (process.env.EVAL_MODEL ??
+  AxAIOpenAIModel.GPT54Mini) as AxAIOpenAIModel;
 const repeats = Math.max(1, Number(process.env.EVAL_REPEATS ?? 3) || 3);
 
 if (!apiKey) {

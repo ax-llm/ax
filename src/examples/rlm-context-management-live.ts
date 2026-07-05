@@ -137,8 +137,10 @@ for (const event of contextEvents) {
     console.log(
       `- ${event.stage} turn ${event.turn}: ${event.pressure}, checkpoint=${event.checkpointActive}`
     );
-  } else {
+  } else if ('turn' in event) {
     console.log(`- ${event.stage} turn ${event.turn}: ${event.kind}`);
+  } else {
+    console.log(`- ${event.stage}: ${event.kind}`);
   }
 }
 
