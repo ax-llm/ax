@@ -683,7 +683,10 @@ function createMessages<TModel>(
                 case 'text':
                   return { type: 'text' as const, text: c.text };
                 case 'image': {
-                  const url = `data:${c.mimeType};base64,${c.image}`;
+                  const url =
+                    'fileUri' in c
+                      ? c.fileUri
+                      : `data:${c.mimeType};base64,${c.image}`;
                   return {
                     type: 'image_url' as const,
                     image_url: { url, details: c.details ?? 'auto' },

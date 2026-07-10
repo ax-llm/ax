@@ -1391,11 +1391,17 @@ function createMessages(
             case 'image':
               return {
                 type: 'image' as const,
-                source: {
-                  type: 'base64' as const,
-                  media_type: v.mimeType,
-                  data: v.image,
-                },
+                source:
+                  'fileUri' in v
+                    ? {
+                        type: 'url' as const,
+                        url: v.fileUri,
+                      }
+                    : {
+                        type: 'base64' as const,
+                        media_type: v.mimeType,
+                        data: v.image,
+                      },
                 ...(v.cache
                   ? { cache_control: { type: 'ephemeral' as const } }
                   : {}),

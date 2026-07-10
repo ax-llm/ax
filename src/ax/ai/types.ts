@@ -422,9 +422,23 @@ export type AxChatRequest<TModel = string> = {
                   cache?: boolean;
                 }
               | {
+                  /** Image content type with inline base64 data */
                   type: 'image';
                   mimeType: string;
                   image: string;
+                  details?: 'high' | 'low' | 'auto';
+                  cache?: boolean;
+                  /** Optimization preference for image processing */
+                  optimize?: 'quality' | 'size' | 'auto';
+                  /** Fallback text description when images aren't supported */
+                  altText?: string;
+                }
+              | {
+                  /** Image content type with a URI (e.g. https:// or gs:// URL) */
+                  type: 'image';
+                  /** Image URI (e.g., https:// or gs:// URL) */
+                  fileUri: string;
+                  mimeType: string;
                   details?: 'high' | 'low' | 'auto';
                   cache?: boolean;
                   /** Optimization preference for image processing */

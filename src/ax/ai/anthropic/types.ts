@@ -157,7 +157,9 @@ export type AxAIAnthropicChatRequest = {
                 } & AxAIAnthropicChatRequestCacheParam)
               | ({
                   type: 'image';
-                  source: { type: 'base64'; media_type: string; data: string };
+                  source:
+                    | { type: 'base64'; media_type: string; data: string }
+                    | { type: 'url'; url: string };
                 } & AxAIAnthropicChatRequestCacheParam)
               | ({
                   type: 'tool_result';

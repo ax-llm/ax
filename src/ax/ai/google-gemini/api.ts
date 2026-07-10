@@ -255,6 +255,24 @@ export interface AxAIGoogleGeminiArgs<TModelKey> {
   modelInfo?: AxModelInfo[];
 }
 
+// Maps an image/file content part to a Gemini part: fileUri -> fileData,
+// otherwise inline base64 -> inlineData. Image base64 lives on `image`,
+// file base64 on `data`.
+const toGeminiMediaPart = (
+  c:
+    | { mimeType: string; image: string }
+    | { mimeType: string; data: string }
+    | { mimeType: string; fileUri: string }
+) =>
+  'fileUri' in c
+    ? { fileData: { mimeType: c.mimeType, fileUri: c.fileUri } }
+    : {
+        inlineData: {
+          mimeType: c.mimeType,
+          data: 'image' in c ? c.image : c.data,
+        },
+      };
+
 class AxAIGoogleGeminiImpl
   implements
     AxAIServiceImpl<
@@ -772,9 +790,8 @@ class AxAIGoogleGeminiImpl
                   case 'text':
                     return { text: c.text };
                   case 'image':
-                    return {
-                      inlineData: { mimeType: c.mimeType, data: c.image },
-                    };
+                  case 'file':
+                    return toGeminiMediaPart(c);
                   case 'audio':
                     return {
                       inlineData: {
@@ -783,20 +800,6 @@ class AxAIGoogleGeminiImpl
                         data: c.data,
                       },
                     };
-                  case 'file':
-                    // Support both inline data and fileUri formats
-                    if ('fileUri' in c) {
-                      return {
-                        fileData: {
-                          mimeType: c.mimeType,
-                          fileUri: c.fileUri,
-                        },
-                      };
-                    } else {
-                      return {
-                        inlineData: { mimeType: c.mimeType, data: c.data },
-                      };
-                    }
                   default:
                     throw new Error(
                       `Chat prompt content type not supported (index: ${idx})`
@@ -1837,9 +1840,8 @@ class AxAIGoogleGeminiImpl
                   parts.push({ text: c.text });
                   break;
                 case 'image':
-                  parts.push({
-                    inlineData: { mimeType: c.mimeType, data: c.image },
-                  });
+                case 'file':
+                  parts.push(toGeminiMediaPart(c));
                   break;
                 case 'audio':
                   parts.push({
@@ -1849,17 +1851,6 @@ class AxAIGoogleGeminiImpl
                       data: c.data,
                     },
                   });
-                  break;
-                case 'file':
-                  if ('fileUri' in c) {
-                    parts.push({
-                      fileData: { mimeType: c.mimeType, fileUri: c.fileUri },
-                    });
-                  } else {
-                    parts.push({
-                      inlineData: { mimeType: c.mimeType, data: c.data },
-                    });
-                  }
                   break;
               }
             }
@@ -1996,9 +1987,8 @@ class AxAIGoogleGeminiImpl
                 parts.push({ text: c.text });
                 break;
               case 'image':
-                parts.push({
-                  inlineData: { mimeType: c.mimeType, data: c.image },
-                });
+              case 'file':
+                parts.push(toGeminiMediaPart(c));
                 break;
               case 'audio':
                 parts.push({
@@ -2008,17 +1998,6 @@ class AxAIGoogleGeminiImpl
                     data: c.data,
                   },
                 });
-                break;
-              case 'file':
-                if ('fileUri' in c) {
-                  parts.push({
-                    fileData: { mimeType: c.mimeType, fileUri: c.fileUri },
-                  });
-                } else {
-                  parts.push({
-                    inlineData: { mimeType: c.mimeType, data: c.data },
-                  });
-                }
                 break;
             }
           }
