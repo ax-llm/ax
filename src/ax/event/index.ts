@@ -1,4 +1,11 @@
 export type {
+  AxEventStoreConformanceFactory,
+  AxEventStoreConformanceFactoryOptions,
+  AxEventStoreConformanceInstance,
+  AxEventStoreConformanceReport,
+} from './conformance.js';
+export { runAxEventStoreConformance } from './conformance.js';
+export type {
   AxMCPDefaultEventRoutesOptions,
   AxMCPEventSourceIdentity,
   AxMCPEventSourceOptions,
@@ -33,6 +40,7 @@ export type {
   AxEventInheritance,
   AxEventInvalidator,
   AxEventMatcher,
+  AxEventPayloadStore,
   AxEventProgramStateAdapter,
   AxEventPublishReceipt,
   AxEventRoute,

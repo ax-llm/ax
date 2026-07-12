@@ -58,6 +58,10 @@ await source.publish({ event, identity, trust: 'authenticated' });
   events is part of the route's declared policy.
 - Observe source failures with `onSourceError`.
 - The in-memory store is volatile and single-process.
+- For cooperating Node processes on one local disk, use
+  `AxSQLiteEventStore` from `@ax-llm/ax-tools/event/sqlite` with explicit
+  retention and `coordination: 'multi-worker'`. Never recommend SQLite on a
+  network filesystem.
 - Close the runtime and caller-owned protocol clients explicitly.
 
 ## Continuation Pattern
@@ -86,3 +90,8 @@ Use `AxManualEventClock`, `AxInMemoryEventStore`, deterministic event IDs, and
 an output-capturing sink. Assert that unmatched or observe-only events never
 invoke the program, tenant scopes do not collide, outputs exist before sinks,
 and uncertain side effects become `outcome_unknown`.
+
+Persistent store implementations must pass
+`runAxEventStoreConformance(createStore, { clock })`. A store must not advertise
+multi-worker capability without the conformance marker checked by runtime
+startup.

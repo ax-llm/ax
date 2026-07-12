@@ -19,6 +19,12 @@ A transport for the Model Context Protocol (MCP) that communicates with MCP
 servers via stdin/stdout. This enables running local MCP servers as child
 processes.
 
+### Persistent event runtime store
+
+`@ax-llm/ax-tools/event/sqlite` exports `AxSQLiteEventStore` and
+`AX_SQLITE_EVENT_STANDARD_RETENTION`. It supports cooperating Node processes
+that share a local SQLite file. It is not intended for network filesystems.
+
 ### Function Tools
 
 `AxJSRuntime` has moved to `@ax-llm/ax`.
@@ -34,7 +40,7 @@ npm install @ax-llm/ax-tools
 ### Basic MCP Stdio Transport
 
 ```typescript
-import { ai, AxMCPClient } from "@ax-llm/ax";
+import { ax, AxMCPClient } from "@ax-llm/ax";
 import { AxMCPStdioTransport } from "@ax-llm/ax-tools";
 
 // Create a stdio transport for an MCP server
@@ -48,9 +54,8 @@ const transport = new AxMCPStdioTransport({
 const client = new AxMCPClient(transport, { debug: true });
 await client.init();
 
-// Use the client as a function provider
-const functions = client.toFunction();
-console.log(`Available functions: ${functions.map((f) => f.name).join(", ")}`);
+// Attach the live client natively to AxGen, AxAgent, or AxFlow.
+const program = ax('question:string -> answer:string', { mcp: client });
 ```
 
 ### With Factory Function

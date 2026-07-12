@@ -851,6 +851,13 @@ import type {
   AxUsable,
 } from './dsp/types.js';
 import {
+  type AxEventStoreConformanceFactory,
+  type AxEventStoreConformanceFactoryOptions,
+  type AxEventStoreConformanceInstance,
+  type AxEventStoreConformanceReport,
+  runAxEventStoreConformance,
+} from './event/conformance.js';
+import {
   type AxMCPDefaultEventRoutesOptions,
   AxMCPEventSource,
   type AxMCPEventSourceIdentity,
@@ -893,6 +900,7 @@ import {
   type AxEventInvalidator,
   type AxEventMatcher,
   AxEventOutcomeUnknownError,
+  type AxEventPayloadStore,
   type AxEventProgramStateAdapter,
   type AxEventPublishReceipt,
   type AxEventRoute,
@@ -1483,6 +1491,7 @@ export { fn };
 export { optimize };
 export { playbook };
 export { refine };
+export { runAxEventStoreConformance };
 export { s };
 
 // Type exports
@@ -1855,6 +1864,7 @@ export type { AxEventIngress };
 export type { AxEventInheritance };
 export type { AxEventInvalidator };
 export type { AxEventMatcher };
+export type { AxEventPayloadStore };
 export type { AxEventProgramStateAdapter };
 export type { AxEventPublishReceipt };
 export type { AxEventRoute };
@@ -1871,6 +1881,10 @@ export type { AxEventSourceContext };
 export type { AxEventSourceHandle };
 export type { AxEventStore };
 export type { AxEventStoreCapabilities };
+export type { AxEventStoreConformanceFactory };
+export type { AxEventStoreConformanceFactoryOptions };
+export type { AxEventStoreConformanceInstance };
+export type { AxEventStoreConformanceReport };
 export type { AxEventTarget };
 export type { AxEventTargetInputContext };
 export type { AxEventTrust };

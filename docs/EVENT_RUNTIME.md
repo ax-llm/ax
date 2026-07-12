@@ -151,8 +151,38 @@ Pass `AxManualEventClock` to the runtime and in-memory store. Retry delay,
 debounce, continuation expiry, and backpressure then advance only when the test
 calls `advanceBy`, avoiding wall-clock flakes.
 
-Persistent and multi-worker guarantees are capability-gated. Ax documents
-those guarantees only for stores that pass the event-store conformance kit.
+Persistent and multi-worker guarantees are capability-gated. The Node-only
+`AxSQLiteEventStore` is the first conforming implementation:
+
+```ts
+import {
+  AX_SQLITE_EVENT_STANDARD_RETENTION,
+  AxSQLiteEventStore,
+} from '@ax-llm/ax-tools/event/sqlite';
+
+const store = new AxSQLiteEventStore({
+  filename: './events.sqlite',
+  retention: AX_SQLITE_EVENT_STANDARD_RETENTION,
+});
+const runtime = eventRuntime({
+  store,
+  programStateStore: store,
+  coordination: 'multi-worker',
+  routes,
+});
+```
+
+It uses WAL transactions, busy timeouts, leases, monotonically increasing
+fencing tokens, state compare-and-set, and output persistence before sinks. Its
+claim is limited to cooperating Node processes sharing one local SQLite file;
+do not deploy it on a network filesystem. `runAxEventStoreConformance(...)` is
+the normative kit for other stores.
+
+Retention is required. The standard preset keeps event/result payloads and
+completed continuations for seven days and run metadata/dead letters for 30
+days. Inline payloads default to 16 MiB. Larger outputs require an
+`AxEventPayloadStore`; otherwise the run records `output_persistence_failed`,
+does not dispatch sinks, and never repeats the completed model call.
 
 ## MCP Adapter
 

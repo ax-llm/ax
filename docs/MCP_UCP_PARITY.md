@@ -39,6 +39,9 @@ The target is MCP `2025-11-25`, the current official extensions, and UCP
 | Events | Explicit resource notification to Agent wake | Implemented | `AxMCPEventSource`, authenticated route test, and `mcp-resource-wake-agent.ts` |
 | Events | Task progress observe and terminal continuation resume | Implemented | automatic task correlation, default MCP routes, and `mcp-task-resume-flow.ts` |
 | Events | Listening reconnect and logical resubscription | Implemented | nonblocking listening handle and listener-failure recovery test |
+| Event durability | Volatile single-worker inbox | Implemented | `AxInMemoryEventStore` capability contract and deterministic tests |
+| Event durability | Persistent cooperating-process store | Implemented | Node-only `AxSQLiteEventStore`, WAL transactions, leases, fencing, retention, and conformance test |
+| Event durability | Multi-worker capability negotiation | Implemented | runtime startup rejects stores without the `axevent-store-v1` conformance marker |
 | Completion | `completion/complete` | Implemented | client and AxAgent runtime module |
 | Logging | logging level and server messages | Implemented | client APIs and callbacks |
 | Roots | capability negotiation and `roots/list` | Implemented | server-request test and AxIR fixture |

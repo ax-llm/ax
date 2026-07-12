@@ -104,7 +104,7 @@
       "type": "skill-md",
       "description": "Use AxEventRuntime to ingest events, explicitly wake or resume AxGen, AxAgent, and AxFlow, persist state and results, and route outputs safely.",
       "url": "ax-event-runtime/SKILL.md",
-      "digest": "sha256:066cf2f418d48fe43b2dd63f74216fd6486fd2ab1817fd46c0842acf8086c7a8"
+      "digest": "sha256:707493a44c84198ba1a31f3a98daed269ddb84db00421648e45c7fdcb47a9446"
     },
     {
       "name": "ax-playbook",

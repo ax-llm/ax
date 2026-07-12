@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['index.ts'],
+  entry: ['index.ts', 'event/sqlite.ts'],
   format: ['esm', 'cjs'],
   dts: true,
   splitting: true, // Enable code splitting for better tree-shaking
@@ -13,6 +13,7 @@ export default defineConfig({
   external: [
     // Keep dependencies external so consumers can choose how to bundle
     '@opentelemetry/api',
+    'better-sqlite3',
   ],
   // Ensure proper module resolution for different environments
   esbuildOptions(options) {

@@ -62,7 +62,8 @@ class AxRuntimeEventContext implements AxEventContext {
     readonly attempt: number,
     readonly idempotencyKey: string,
     readonly abortSignal: AbortSignal,
-    readonly continuation?: Readonly<AxEventContinuation>
+    readonly continuation?: Readonly<AxEventContinuation>,
+    readonly fencingToken?: number
   ) {}
 
   registerContinuation(
@@ -181,6 +182,28 @@ export class AxEventRuntime {
         `Event sources ${durableRequired.map((source) => source.id).join(', ')} require a persistent AxEventStore`
       );
     }
+    if (this.options.coordination === 'multi-worker') {
+      const capability = this.store.capabilities;
+      if (
+        capability.coordination !== 'multi-worker' ||
+        !capability.leases ||
+        !capability.transactions ||
+        !capability.compareAndSet ||
+        !capability.outputPersistence ||
+        !capability.conformance?.multiWorker
+      ) {
+        throw new Error(
+          'AxEventRuntime multi-worker mode requires a conforming persistent store with leases, transactions, compare-and-set, and output persistence'
+        );
+      }
+    }
+    const leaseMs = this.options.leaseMs ?? 30_000;
+    const heartbeatMs = this.options.heartbeatMs ?? Math.floor(leaseMs / 3);
+    if (leaseMs < 100 || heartbeatMs < 1 || heartbeatMs >= leaseMs) {
+      throw new Error(
+        'AxEventRuntime requires 0 < heartbeatMs < leaseMs and leaseMs >= 100'
+      );
+    }
     this.started = true;
     const workers = this.options.workerConcurrency ?? 4;
     if (!Number.isInteger(workers) || workers < 1) {
@@ -230,6 +253,7 @@ export class AxEventRuntime {
       availableAt: number;
       coalesce?: 'latest';
       ordering?: 'strict' | 'relaxed';
+      retrySafety?: 'idempotent' | 'unknown';
     }> = [];
     for (const route of this.routes.values()) {
       if (!(await this.routeMatches(route, normalized))) continue;
@@ -247,7 +271,10 @@ export class AxEventRuntime {
         sizeBytes,
         availableAt: this.clock.now() + (route.debounceMs ?? 0),
         ...(route.coalesce ? { coalesce: route.coalesce } : {}),
-        ...(route.ordering ? { ordering: route.ordering } : {}),
+        ordering: route.ordering ?? 'strict',
+        retrySafety: route.target
+          ? (route.target.retrySafety ?? 'unknown')
+          : 'idempotent',
       });
     }
     return this.store.enqueue(
@@ -379,7 +406,11 @@ export class AxEventRuntime {
   private async workerLoop(workerId: string): Promise<void> {
     const signal = this.workerController.signal;
     while (!signal.aborted) {
-      const delivery = await this.store.claim(workerId, this.clock.now());
+      const delivery = await this.store.claim(
+        workerId,
+        this.clock.now(),
+        this.options.leaseMs ?? 30_000
+      );
       if (!delivery) {
         try {
           const now = this.clock.now();
@@ -394,13 +425,35 @@ export class AxEventRuntime {
         }
         continue;
       }
-      await this.processDelivery(delivery).catch(() => undefined);
+      await this.processDelivery(delivery, workerId).catch(() => undefined);
     }
   }
 
   private async processDelivery(
-    claimed: Readonly<AxEventDelivery>
+    claimed: Readonly<AxEventDelivery>,
+    workerId: string
   ): Promise<void> {
+    if (
+      claimed.recoveredFromExpiredLease &&
+      claimed.invocationStarted &&
+      claimed.retrySafety !== 'idempotent'
+    ) {
+      const reason =
+        'outcome_unknown: expired worker lease after invocation started';
+      await this.store.saveDelivery({
+        ...claimed,
+        status: 'outcome_unknown',
+        error: reason,
+      });
+      await this.store.addDeadLetter({
+        id: axEventId('dead-letter'),
+        kind: 'delivery',
+        deliveryId: claimed.id,
+        reason,
+        createdAt: this.clock.now(),
+      });
+      return;
+    }
     const route = this.routes.get(claimed.routeId);
     if (!route) {
       await this.deadLetterDelivery(
@@ -441,6 +494,7 @@ export class AxEventRuntime {
 
       const runId = axEventId('event-run');
       const controller = new AbortController();
+      const heartbeatController = new AbortController();
       this.activeRuns.set(runId, controller);
       const attempt = claimed.attempt + 1;
       const eventContext = new AxRuntimeEventContext(
@@ -456,7 +510,8 @@ export class AxEventRuntime {
         attempt,
         claimed.id,
         controller.signal,
-        continuation
+        continuation,
+        claimed.fencingToken
       );
       let run: AxEventRun = {
         id: runId,
@@ -467,6 +522,9 @@ export class AxEventRuntime {
         status: 'running',
         attempt,
         startedAt: this.clock.now(),
+        ...(claimed.fencingToken !== undefined
+          ? { fencingToken: claimed.fencingToken }
+          : {}),
       };
       await this.store.saveDelivery({
         ...claimed,
@@ -475,6 +533,12 @@ export class AxEventRuntime {
         runId,
       });
       await this.store.saveRun(run);
+      const heartbeat = this.heartbeatClaim(
+        claimed,
+        workerId,
+        controller,
+        heartbeatController.signal
+      );
       let invoked = false;
       try {
         let result: InvocationResult = { waiting: false, invoked: false };
@@ -483,6 +547,13 @@ export class AxEventRuntime {
         } else if (route.action === 'invalidate') {
           await route.invalidator!.invalidate(claimed.ingress, eventContext);
         } else {
+          await this.store.saveDelivery({
+            ...claimed,
+            status: 'running',
+            attempt,
+            runId,
+            invocationStarted: true,
+          });
           result = await this.invokeTarget(
             target!,
             instanceKey,
@@ -563,6 +634,33 @@ export class AxEventRuntime {
           });
           return;
         }
+        if (axEventErrorMessage(error).includes('output_persistence_failed')) {
+          run = {
+            ...run,
+            output: undefined,
+            chunks: undefined,
+            status: 'output_persistence_failed',
+            finishedAt: this.clock.now(),
+            error: axEventErrorMessage(error),
+          };
+          await this.store.saveRun(run);
+          await this.store.saveDelivery({
+            ...claimed,
+            status: 'output_persistence_failed',
+            attempt,
+            runId,
+            error: run.error,
+          });
+          await this.store.addDeadLetter({
+            id: axEventId('dead-letter'),
+            kind: 'delivery',
+            deliveryId: claimed.id,
+            runId,
+            reason: run.error ?? 'output_persistence_failed',
+            createdAt: this.clock.now(),
+          });
+          return;
+        }
         const unsafe =
           error instanceof AxEventOutcomeUnknownError ||
           (invoked && target?.retrySafety !== 'idempotent');
@@ -626,6 +724,8 @@ export class AxEventRuntime {
           run.error ?? 'Event delivery failed'
         );
       } finally {
+        heartbeatController.abort('Event delivery completed');
+        await heartbeat;
         this.activeRuns.delete(runId);
       }
     } catch (error) {
@@ -701,7 +801,13 @@ export class AxEventRuntime {
       if (error instanceof AxAgentClarificationError) {
         const state = error.getState();
         if (stateAdapter && state !== undefined) {
-          await this.persistProgramState(stateKey, stored, stateAdapter, state);
+          await this.persistProgramState(
+            stateKey,
+            stored,
+            stateAdapter,
+            state,
+            eventContext
+          );
         }
         eventContext.registerContinuation({
           correlation: [{ kind: 'ax.clarification', value: run.id }],
@@ -711,14 +817,26 @@ export class AxEventRuntime {
       }
       if (stateAdapter) {
         const state = await stateAdapter.capture(program);
-        await this.persistProgramState(stateKey, stored, stateAdapter, state);
+        await this.persistProgramState(
+          stateKey,
+          stored,
+          stateAdapter,
+          state,
+          eventContext
+        );
       }
       throw error;
     }
     if (stateAdapter) {
       const state = await stateAdapter.capture(program);
       try {
-        await this.persistProgramState(stateKey, stored, stateAdapter, state);
+        await this.persistProgramState(
+          stateKey,
+          stored,
+          stateAdapter,
+          state,
+          eventContext
+        );
       } catch (error) {
         throw new AxEventOutcomeUnknownError(
           `Program completed but state persistence failed: ${axEventErrorMessage(error)}`,
@@ -738,14 +856,25 @@ export class AxEventRuntime {
     key: string,
     stored: Readonly<AxProgramStateEnvelope> | undefined,
     adapter: Readonly<AxEventProgramStateAdapter<AnyProgram>>,
-    state: unknown
+    state: unknown,
+    eventContext: Readonly<AxEventContext>
   ): Promise<void> {
-    await this.stateStore.compareAndSet(key, stored?.revision, {
-      schemaVersion: adapter.schemaVersion,
-      programVersion: adapter.programVersion,
-      state,
-      updatedAt: this.clock.now(),
-    });
+    await this.stateStore.compareAndSet(
+      key,
+      stored?.revision,
+      {
+        schemaVersion: adapter.schemaVersion,
+        programVersion: adapter.programVersion,
+        state,
+        updatedAt: this.clock.now(),
+      },
+      eventContext.fencingToken === undefined
+        ? undefined
+        : {
+            deliveryId: eventContext.deliveryId,
+            fencingToken: eventContext.fencingToken,
+          }
+    );
   }
 
   private async resolveProgram(
@@ -870,6 +999,34 @@ export class AxEventRuntime {
         reason: `Streaming chunk delivery failed: ${axEventErrorMessage(error)}`,
         createdAt: this.clock.now(),
       });
+    }
+  }
+
+  private async heartbeatClaim(
+    delivery: Readonly<AxEventDelivery>,
+    workerId: string,
+    runController: AbortController,
+    signal: AbortSignal
+  ): Promise<void> {
+    if (delivery.fencingToken === undefined) return;
+    const heartbeatMs =
+      this.options.heartbeatMs ??
+      Math.floor((this.options.leaseMs ?? 30_000) / 3);
+    const leaseMs = this.options.leaseMs ?? 30_000;
+    while (!signal.aborted) {
+      try {
+        await this.clock.sleep(heartbeatMs, signal);
+        if (signal.aborted) return;
+        await this.store.renewClaim(
+          delivery.id,
+          workerId,
+          delivery.fencingToken,
+          this.clock.now() + leaseMs
+        );
+      } catch (error) {
+        if (!signal.aborted) runController.abort(error);
+        return;
+      }
     }
   }
 

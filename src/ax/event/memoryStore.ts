@@ -117,6 +117,8 @@ export class AxInMemoryEventStore implements AxEventStore {
           availableAt: descriptor.availableAt ?? request.acceptedAt,
           acceptedAt: request.acceptedAt,
           sizeBytes: descriptor.sizeBytes,
+          retrySafety: descriptor.retrySafety ?? coalesced.retrySafety,
+          ordering: descriptor.ordering ?? coalesced.ordering,
         };
         this.deliveries.set(coalesced.id, replaced);
         this.deliveryOrdering.set(
@@ -142,6 +144,8 @@ export class AxInMemoryEventStore implements AxEventStore {
         availableAt: descriptor.availableAt ?? request.acceptedAt,
         acceptedAt: request.acceptedAt,
         sizeBytes: descriptor.sizeBytes,
+        retrySafety: descriptor.retrySafety ?? 'unknown',
+        ordering: descriptor.ordering ?? 'strict',
       };
       this.deliveries.set(id, delivery);
       this.deliveryOrdering.set(id, descriptor.ordering ?? 'strict');
@@ -166,7 +170,8 @@ export class AxInMemoryEventStore implements AxEventStore {
 
   async claim(
     workerId: string,
-    now: number
+    now: number,
+    leaseMs = 30_000
   ): Promise<AxEventDelivery | undefined> {
     for (const id of this.deliveryOrder) {
       const delivery = this.deliveries.get(id);
@@ -177,11 +182,30 @@ export class AxInMemoryEventStore implements AxEventStore {
         ...delivery,
         status: 'claimed',
         claimedBy: workerId,
+        fencingToken: (delivery.fencingToken ?? 0) + 1,
+        leaseExpiresAt: now + leaseMs,
       };
       this.deliveries.set(id, claimed);
       return structuredClone(claimed);
     }
     return;
+  }
+
+  async renewClaim(
+    deliveryId: string,
+    workerId: string,
+    fencingToken: number,
+    leaseExpiresAt: number
+  ): Promise<void> {
+    const delivery = this.deliveries.get(deliveryId);
+    if (
+      !delivery ||
+      delivery.claimedBy !== workerId ||
+      delivery.fencingToken !== fencingToken
+    ) {
+      throw new Error(`Stale event claim for ${deliveryId}`);
+    }
+    this.deliveries.set(deliveryId, { ...delivery, leaseExpiresAt });
   }
 
   async getDelivery(
@@ -450,6 +474,7 @@ export class AxInMemoryEventStore implements AxEventStore {
       status === 'failed' ||
       status === 'cancelled' ||
       status === 'dead_lettered' ||
+      status === 'output_persistence_failed' ||
       status === 'outcome_unknown' ||
       status === 'waiting_event'
     );
@@ -474,7 +499,8 @@ export class AxInMemoryProgramStateStore implements AxProgramStateStore {
   async compareAndSet(
     key: string,
     expectedRevision: number | undefined,
-    state: Readonly<Omit<AxProgramStateEnvelope, 'revision'>>
+    state: Readonly<Omit<AxProgramStateEnvelope, 'revision'>>,
+    _fence?: Readonly<{ deliveryId: string; fencingToken: number }>
   ): Promise<Readonly<AxProgramStateEnvelope>> {
     const current = this.states.get(key);
     if (current?.revision !== expectedRevision) {

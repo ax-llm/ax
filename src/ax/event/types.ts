@@ -193,6 +193,7 @@ export interface AxEventContext {
   readonly trust: AxEventTrust;
   readonly attempt: number;
   readonly idempotencyKey: string;
+  readonly fencingToken?: number;
   readonly abortSignal: AbortSignal;
   readonly continuation?: Readonly<AxEventContinuation>;
   registerContinuation(
@@ -215,7 +216,8 @@ export interface AxProgramStateStore {
   compareAndSet(
     key: string,
     expectedRevision: number | undefined,
-    state: Readonly<Omit<AxProgramStateEnvelope, 'revision'>>
+    state: Readonly<Omit<AxProgramStateEnvelope, 'revision'>>,
+    fence?: Readonly<{ deliveryId: string; fencingToken: number }>
   ): Promise<Readonly<AxProgramStateEnvelope>>;
   delete(key: string): Promise<void>;
 }
@@ -324,6 +326,7 @@ export type AxEventDeliveryStatus =
   | 'failed'
   | 'cancelled'
   | 'dead_lettered'
+  | 'output_persistence_failed'
   | 'outcome_unknown';
 
 export interface AxEventDelivery {
@@ -343,6 +346,12 @@ export interface AxEventDelivery {
   runId?: string;
   error?: string;
   sizeBytes: number;
+  retrySafety: 'idempotent' | 'unknown';
+  ordering: 'strict' | 'relaxed';
+  leaseExpiresAt?: number;
+  fencingToken?: number;
+  invocationStarted?: boolean;
+  recoveredFromExpiredLease?: boolean;
 }
 
 export type AxEventRunStatus =
@@ -352,6 +361,7 @@ export type AxEventRunStatus =
   | 'succeeded'
   | 'failed'
   | 'cancelled'
+  | 'output_persistence_failed'
   | 'outcome_unknown';
 
 export interface AxEventSinkAttempt {
@@ -376,6 +386,8 @@ export interface AxEventRun<OUT = unknown> {
   error?: string;
   continuationIds?: readonly string[];
   sinks?: readonly AxEventSinkAttempt[];
+  fencingToken?: number;
+  outputRef?: string;
 }
 
 export interface AxEventDeadLetter {
@@ -395,6 +407,7 @@ export interface AxEventStoreCapabilities {
   transactions: boolean;
   compareAndSet: boolean;
   outputPersistence: boolean;
+  conformance?: Readonly<{ multiWorker?: string; schemaVersion?: number }>;
 }
 
 export interface AxEventEnqueueRequest {
@@ -406,6 +419,7 @@ export interface AxEventEnqueueRequest {
     > & {
       availableAt?: number;
       coalesce?: 'latest';
+      retrySafety?: 'idempotent' | 'unknown';
       ordering?: 'strict' | 'relaxed';
     }
   >[];
@@ -419,7 +433,17 @@ export interface AxEventStore {
     request: Readonly<AxEventEnqueueRequest>,
     signal?: AbortSignal
   ): Promise<AxEventPublishReceipt>;
-  claim(workerId: string, now: number): Promise<AxEventDelivery | undefined>;
+  claim(
+    workerId: string,
+    now: number,
+    leaseMs?: number
+  ): Promise<AxEventDelivery | undefined>;
+  renewClaim(
+    deliveryId: string,
+    workerId: string,
+    fencingToken: number,
+    leaseExpiresAt: number
+  ): Promise<void>;
   getDelivery(
     deliveryId: string
   ): Promise<Readonly<AxEventDelivery> | undefined>;
@@ -482,6 +506,15 @@ export interface AxEventRuntimeOptions {
   publishTimeoutMs?: number;
   allowVolatile?: boolean;
   onSourceError?: (sourceId: string, error: unknown) => void | Promise<void>;
+  coordination?: 'single-worker' | 'multi-worker';
+  leaseMs?: number;
+  heartbeatMs?: number;
+}
+
+export interface AxEventPayloadStore {
+  put(key: string, value: unknown): Promise<string>;
+  get(reference: string): Promise<unknown>;
+  delete(reference: string): Promise<void>;
 }
 
 export interface AxEventCloseOptions {

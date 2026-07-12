@@ -421,6 +421,16 @@ describe('AxEventRuntime', () => {
     await expect(runtime.start()).rejects.toThrow('require a persistent');
   });
 
+  it('refuses multi-worker mode without a conforming persistent store', async () => {
+    const runtime = new AxEventRuntime({
+      coordination: 'multi-worker',
+      routes: [],
+    });
+    await expect(runtime.start()).rejects.toThrow(
+      'conforming persistent store'
+    );
+  });
+
   it('uses the injected clock for deterministic backpressure timeouts', async () => {
     const clock = new AxManualEventClock(1_000);
     const store = new AxInMemoryEventStore({
