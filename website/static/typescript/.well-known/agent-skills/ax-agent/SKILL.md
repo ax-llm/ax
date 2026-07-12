@@ -262,6 +262,9 @@ Rules:
 - In flat mode, pass `fn(...)` tools and child agents directly.
 - In grouped mode, put callable entries inside groups. To expose a child agent inside a group, use `childAgent.getFunction()`.
 - Do not place MCP clients in `functions`; use `mcp` so tasks, resources, subscriptions, elicitation, sampling, authorization, cancellation, and protocol metadata remain available.
+- To wake an Agent from a resource subscription, use `AxMCPEventSource` and an
+  explicit authenticated `wake` route. MCP sessions are not tenant identity;
+  supply identity from the application's authenticated token mapping.
 
 ## Host-Side Completion From Functions
 

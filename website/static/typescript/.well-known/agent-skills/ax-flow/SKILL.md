@@ -446,6 +446,10 @@ the Flow's typed initial state and propagates `eventContext`, cancellation, and
 idempotency metadata to every node. Abandoned branches still use normal Flow
 cancellation semantics.
 
+Task-backed MCP tools called by a Flow node register a continuation on the
+shared event context. `axMCPEventRoutes` observes progress and resumes the Flow
+on input-required or terminal task notifications.
+
 ## Do Not Generate
 
 - Do not use `new AxFlow(...)` for new code.

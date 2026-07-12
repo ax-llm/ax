@@ -8,7 +8,11 @@ import type {
 } from '../ai/types.js';
 import { randomUUID } from '../util/crypto.js';
 import type { AxMCPExtensionCapability } from './extensions.js';
-import type { AxMCPRequestOptions, AxMCPTransport } from './transport.js';
+import type {
+  AxMCPListeningHandle,
+  AxMCPRequestOptions,
+  AxMCPTransport,
+} from './transport.js';
 import {
   AX_MCP_PROTOCOL_VERSION,
   AX_MCP_SUPPORTED_PROTOCOL_VERSIONS,
@@ -67,6 +71,30 @@ export interface AxMCPFunctionOverride {
     /** Alternative description for the function */
     description?: string;
   };
+}
+
+export type AxMCPClientEvent =
+  | {
+      type: 'catalog_changed';
+      catalog: 'tools' | 'prompts' | 'resources';
+      revision: number;
+    }
+  | { type: 'resource_updated'; uri: string }
+  | {
+      type: 'logging';
+      params: Readonly<Record<string, unknown>>;
+    }
+  | {
+      type: 'progress';
+      params: Readonly<AxMCPProgressNotificationParams>;
+    }
+  | { type: 'task_status'; task: Readonly<AxMCPTask> }
+  | { type: 'notification'; notification: Readonly<AxMCPJSONRPCNotification> };
+
+export interface AxMCPClientListeningOptions {
+  signal?: AbortSignal;
+  retryDelayMs?: number;
+  onError?: (error: unknown) => void | Promise<void>;
 }
 
 export interface AxMCPClientOptions {
@@ -174,6 +202,9 @@ export class AxMCPClient {
   private readonly resourceSubscriptions = new Set<string>();
   private readonly taskStatusListeners = new Set<
     (task: Readonly<AxMCPTask>) => void | Promise<void>
+  >();
+  private readonly eventListeners = new Set<
+    (event: Readonly<AxMCPClientEvent>) => void | Promise<void>
   >();
   private sessionRecoveryPromise?: Promise<void>;
 
@@ -902,6 +933,58 @@ export class AxMCPClient {
     return () => this.taskStatusListeners.delete(listener);
   }
 
+  subscribeEvents(
+    listener: (event: Readonly<AxMCPClientEvent>) => void | Promise<void>
+  ): () => void {
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
+  }
+
+  async startListening(
+    options: Readonly<AxMCPClientListeningOptions> = {}
+  ): Promise<AxMCPListeningHandle> {
+    await this.init();
+    const controller = new AbortController();
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, controller.signal])
+      : controller.signal;
+    let active: AxMCPListeningHandle | undefined;
+    const done = (async () => {
+      if (!this.transport.startListening) {
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) return resolve();
+          signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+        return;
+      }
+      while (!signal.aborted) {
+        try {
+          active = await this.transport.startListening({ signal });
+          await active.done;
+          if (signal.aborted) return;
+          throw new Error('MCP listening transport ended unexpectedly');
+        } catch (error) {
+          if (signal.aborted) return;
+          await options.onError?.(error);
+          try {
+            await this.recoverSession();
+          } catch (recoveryError) {
+            await options.onError?.(recoveryError);
+          }
+          await this.listeningDelay(options.retryDelayMs ?? 1_000, signal);
+        }
+      }
+    })();
+    return {
+      done,
+      close: async () => {
+        controller.abort('MCP client listener closed');
+        await active?.close();
+        await done;
+      },
+    };
+  }
+
   async waitForTask<T = AxMCPToolCallResult>(
     taskId: string,
     options: Readonly<{
@@ -1161,14 +1244,29 @@ export class AxMCPClient {
       case 'notifications/tools/list_changed':
         await this.refresh();
         await this.options.onToolsChanged?.();
+        await this.emitEvent({
+          type: 'catalog_changed',
+          catalog: 'tools',
+          revision: this.catalogRevision,
+        });
         break;
       case 'notifications/prompts/list_changed':
         await this.refresh();
         await this.options.onPromptsChanged?.();
+        await this.emitEvent({
+          type: 'catalog_changed',
+          catalog: 'prompts',
+          revision: this.catalogRevision,
+        });
         break;
       case 'notifications/resources/list_changed':
         await this.refresh();
         await this.options.onResourcesChanged?.();
+        await this.emitEvent({
+          type: 'catalog_changed',
+          catalog: 'resources',
+          revision: this.catalogRevision,
+        });
         break;
       case 'notifications/resources/updated': {
         const uri =
@@ -1177,16 +1275,28 @@ export class AxMCPClient {
           'uri' in notification.params
             ? String((notification.params as { uri: unknown }).uri)
             : undefined;
-        if (uri) await this.options.onResourceUpdated?.(uri);
+        if (uri) {
+          await this.options.onResourceUpdated?.(uri);
+          await this.emitEvent({ type: 'resource_updated', uri });
+        }
         break;
       }
       case 'notifications/message':
         await this.options.onLoggingMessage?.(notification.params ?? {});
+        await this.emitEvent({
+          type: 'logging',
+          params: notification.params ?? {},
+        });
         break;
       case 'notifications/progress':
         await this.options.onProgress?.(
           notification.params as unknown as AxMCPProgressNotificationParams
         );
+        await this.emitEvent({
+          type: 'progress',
+          params:
+            notification.params as unknown as AxMCPProgressNotificationParams,
+        });
         break;
       case 'notifications/tasks/status': {
         const params = notification.params as
@@ -1200,6 +1310,8 @@ export class AxMCPClient {
         if (task?.taskId) await this.recordTask(task);
         break;
       }
+      default:
+        await this.emitEvent({ type: 'notification', notification });
     }
   }
 
@@ -1210,6 +1322,28 @@ export class AxMCPClient {
     await Promise.all(
       [...this.taskStatusListeners].map((listener) => listener(snapshot))
     );
+    await this.emitEvent({ type: 'task_status', task: snapshot });
+  }
+
+  private async emitEvent(event: Readonly<AxMCPClientEvent>): Promise<void> {
+    await Promise.all(
+      [...this.eventListeners].map((listener) => listener(event))
+    );
+  }
+
+  private listeningDelay(ms: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      signal.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true }
+      );
+    });
   }
 
   private assertPaginationPage(

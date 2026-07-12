@@ -322,6 +322,9 @@ Decision rules:
 
 - MCP/UCP evaluation defaults to replay or sandbox mode. A live client is rejected unless `mcpEvaluation: 'live'` is explicit.
 - Use `AxMCPRecordingTransport` to capture a real session once and `AxMCPReplayTransport` for deterministic optimization/evaluation.
+- Replay normalized MCP notifications and task transitions through
+  `AxEventRuntime`; do not leave a live subscription active in a default
+  optimization run.
 - Action traces include qualified MCP/UCP operations, approvals, task transitions, raw protocol errors, and business outcomes for judges and deterministic metrics.
 - `agent.optimize(...)` runs each evaluation rollout from a clean continuation state.
 - Saved runtime state from `getState()` and `setState(...)` is not used during eval rollouts.

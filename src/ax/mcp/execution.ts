@@ -6,7 +6,6 @@ import type {
   AxMCPPromptGetResult,
   AxMCPResourceReadResult,
   AxMCPTool,
-  AxMCPToolCallResult,
 } from './types.js';
 
 export type AxMCPInheritance = 'all' | 'none' | readonly string[];
@@ -375,8 +374,35 @@ export class AxMCPExecutionContext {
         annotations: tool.annotations as Record<string, unknown> | undefined,
         meta: tool._meta,
       },
-      func: async (args, extra): Promise<AxMCPToolCallResult> =>
-        client.callTool(tool.name, args ?? {}, { signal: extra?.abortSignal }),
+      func: async (args, extra): Promise<unknown> => {
+        if (tool.execution?.taskSupport === 'required') {
+          const result = await client.callToolTask(
+            tool.name,
+            args ?? {},
+            {},
+            {
+              signal: extra?.abortSignal,
+            }
+          );
+          extra?.eventContext?.registerContinuation({
+            correlation: [
+              {
+                kind: 'mcp.task',
+                value: `${client.getNamespace()}:${result.task.taskId}`,
+              },
+            ],
+            metadata: {
+              namespace: client.getNamespace(),
+              taskId: result.task.taskId,
+              tool: tool.name,
+            },
+          });
+          return result;
+        }
+        return client.callTool(tool.name, args ?? {}, {
+          signal: extra?.abortSignal,
+        });
+      },
     };
   }
 

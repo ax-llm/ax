@@ -72,6 +72,14 @@ eventContext.registerContinuation({
 Route progress to `observe`. Route `input_required`, completed, failed, or
 cancelled task events to `resume` when the owning program must run again.
 
+## MCP Adapter
+
+Use `AxMCPEventSource({ client, resources, identity, trust })`. Identity must
+come from the application's authenticated client or token mapping; a bare MCP
+session is anonymous. Add `...axMCPEventRoutes({ client })` for catalog
+invalidation, progress/log observation, and task resume. Resource notifications
+never get an implicit wake route.
+
 ## Testing
 
 Use `AxManualEventClock`, `AxInMemoryEventStore`, deterministic event IDs, and

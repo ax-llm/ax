@@ -20,6 +20,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/event`
   - Impact: Generated Python, Java, C++, Go, and Rust packages do not yet expose the AxEventRuntime envelope, routing, continuation, store, source, sink, and state-transition APIs.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-12-port-mcp-event-listening-and-axeventruntime-adapter-semantics` [axmcp] Port MCP event listening and AxEventRuntime adapter semantics
+  - Status: open
+  - Source commit: `47856347b35aed15f2ec0f7884c235f0868c3f88`
+  - TS paths: `src/ax/mcp/client.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust packages do not yet expose composable MCP client events, supervised listening recovery, or the AxMCPEventSource normalization and continuation bridge.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

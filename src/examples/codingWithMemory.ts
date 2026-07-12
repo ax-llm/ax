@@ -29,6 +29,8 @@ const toAgentFunctions = (functions: AxFunction[]): AxFunction[] =>
   }));
 
 const functions = toAgentFunctions([
+  // Compatibility-only example: toFunction() is lossy. New Ax code should
+  // attach the client with `mcp: mcpClient` instead.
   ...mcpClient.toFunction(),
   jsRuntime.toFunction(),
 ]);

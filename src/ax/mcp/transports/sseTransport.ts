@@ -1,6 +1,6 @@
 import { axApplyMCPAuthentication } from '../authentication.js';
 import { OAuthHelper } from '../oauth/oauthHelper.js';
-import type { AxMCPTransport } from '../transport.js';
+import type { AxMCPListeningHandle, AxMCPTransport } from '../transport.js';
 import type {
   AxMCPJSONRPCMessage,
   AxMCPJSONRPCNotification,
@@ -28,6 +28,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
     message: Readonly<AxMCPJSONRPCMessage>
   ) => void | Promise<void>;
   private endpointReady?: { resolve: () => void; promise: Promise<void> };
+  private streamDone?: Promise<void>;
 
   constructor(
     sseUrl: string,
@@ -103,7 +104,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
     if (!res.ok) throw new Error('Failed to establish SSE connection');
 
     const ready = this.createEndpointReady();
-    void this.consumeSSEStream(res);
+    this.streamDone = this.consumeSSEStream(res);
     await ready;
   }
 
@@ -188,6 +189,14 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
   async connect(): Promise<void> {
     const headers = this.buildHeaders({ Accept: 'text/event-stream' });
     await this.openSSEWithFetch(headers);
+  }
+
+  async startListening(): Promise<AxMCPListeningHandle> {
+    if (!this.streamDone) await this.connect();
+    return {
+      done: this.streamDone ?? Promise.resolve(),
+      close: () => this.close(),
+    };
   }
 
   async send(

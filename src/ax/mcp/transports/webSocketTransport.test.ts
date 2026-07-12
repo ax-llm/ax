@@ -78,4 +78,16 @@ describe('AxMCPWebSocketTransport', () => {
       { jsonrpc: '2.0', id: 'two', result: { prompts: [] } },
     ]);
   });
+
+  it('exposes unexpected disconnects through the listening handle', async () => {
+    const socket = new FakeWebSocket();
+    const transport = new AxMCPWebSocketTransport('wss://mcp.example', {
+      webSocketFactory: () => socket,
+    });
+    const listeningPromise = transport.startListening();
+    socket.open();
+    const listening = await listeningPromise;
+    socket.close();
+    await expect(listening.done).rejects.toThrow('MCP WebSocket closed');
+  });
 });

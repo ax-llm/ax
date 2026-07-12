@@ -2,7 +2,12 @@ import { mergeAbortSignals } from '../../util/abort.js';
 import { axApplyMCPAuthentication } from '../authentication.js';
 import { OAuthHelper } from '../oauth/oauthHelper.js';
 import type { TokenSet } from '../oauth/types.js';
-import type { AxMCPRequestOptions, AxMCPTransport } from '../transport.js';
+import type {
+  AxMCPListeningHandle,
+  AxMCPListeningOptions,
+  AxMCPRequestOptions,
+  AxMCPTransport,
+} from '../transport.js';
 import type {
   AxMCPJSONRPCMessage,
   AxMCPJSONRPCNotification,
@@ -153,6 +158,25 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
     const ac = new AbortController();
     this.listeningAbort = ac;
     await this.consumeListeningStream(ac.signal);
+  }
+
+  startListening(
+    options: Readonly<AxMCPListeningOptions> = {}
+  ): AxMCPListeningHandle {
+    this.listeningAbort?.abort();
+    const controller = new AbortController();
+    this.listeningAbort = controller;
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, controller.signal])
+      : controller.signal;
+    const done = this.consumeListeningStream(signal).catch((error) => {
+      if (signal.aborted) return;
+      throw error;
+    });
+    return {
+      done,
+      close: () => controller.abort('MCP listening stream closed'),
+    };
   }
 
   async send(
@@ -504,7 +528,7 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
         if (message) await this.messageHandler?.(message);
       });
       if (signal.aborted) return;
-      await this.delay(retryMs);
+      await this.delay(retryMs, signal);
     }
   }
 

@@ -342,6 +342,11 @@ const transport = axCreateMCPStdioTransport({
 const client = new AxMCPClient(transport);
 ```
 
+For server notifications, call `client.startListening({ signal, onError })` or
+attach the client through `AxMCPEventSource`. The event adapter is preferred
+for autonomous work because protocol callbacks only enqueue; explicit routes
+decide whether to observe, invalidate, resume, or wake.
+
 ## Critical Rules
 
 - Use `ai()` factory for all providers.

@@ -153,3 +153,12 @@ calls `advanceBy`, avoiding wall-clock flakes.
 
 Persistent and multi-worker guarantees are capability-gated. Ax documents
 those guarantees only for stores that pass the event-store conformance kit.
+
+## MCP Adapter
+
+`AxMCPEventSource` converts client notifications into generic envelopes. It
+preserves existing client callbacks, supervises Streamable HTTP listening, and
+restores logical subscriptions after safe session recovery. Supply verified
+identity from the application's token mapping; MCP sessions alone are
+anonymous. `axMCPEventRoutes({ client })` provides observe/invalidate/task
+resume defaults, while resource changes require an explicit wake route.

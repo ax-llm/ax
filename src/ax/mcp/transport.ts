@@ -9,6 +9,16 @@ export interface AxMCPRequestOptions {
   signal?: AbortSignal;
 }
 
+export interface AxMCPListeningHandle {
+  /** Resolves when listening stops and rejects when the listener fails. */
+  readonly done: Promise<void>;
+  close(): void | Promise<void>;
+}
+
+export interface AxMCPListeningOptions {
+  signal?: AbortSignal;
+}
+
 export interface AxMCPTransport {
   /** Indicates whether optimizer/evaluation use can cause live side effects. */
   readonly evaluationMode?: 'live' | 'record' | 'replay' | 'sandbox';
@@ -63,6 +73,11 @@ export interface AxMCPTransport {
    * This method is optional and only required for transports that need connection setup
    */
   connect?(): Promise<void>;
+
+  /** Starts a nonblocking server-message listener when the transport needs one. */
+  startListening?(
+    options?: Readonly<AxMCPListeningOptions>
+  ): AxMCPListeningHandle | Promise<AxMCPListeningHandle>;
 
   /** Terminates a negotiated transport session when supported. */
   terminateSession?(): Promise<void>;

@@ -1,4 +1,8 @@
-import type { AxMCPRequestOptions, AxMCPTransport } from '../transport.js';
+import type {
+  AxMCPListeningHandle,
+  AxMCPRequestOptions,
+  AxMCPTransport,
+} from '../transport.js';
 import type {
   AxMCPJSONRPCMessage,
   AxMCPJSONRPCNotification,
@@ -28,6 +32,10 @@ export interface AxMCPWebSocketTransportOptions {
 export class AxMCPWebSocketTransport implements AxMCPTransport {
   private socket?: AxMCPWebSocketLike;
   private connectPromise?: Promise<void>;
+  private listeningDone?: Promise<void>;
+  private resolveListening?: () => void;
+  private rejectListening?: (error: unknown) => void;
+  private closing = false;
   private protocolVersion?: string;
   private handler?: (
     message: Readonly<AxMCPJSONRPCMessage>
@@ -57,6 +65,11 @@ export class AxMCPWebSocketTransport implements AxMCPTransport {
             : new WebSocket(url, protocols));
       const socket = factory(this.url, this.options.protocols);
       this.socket = socket;
+      this.closing = false;
+      this.listeningDone = new Promise<void>((resolveDone, rejectDone) => {
+        this.resolveListening = resolveDone;
+        this.rejectListening = rejectDone;
+      });
       socket.addEventListener('open', () => resolve(), { once: true });
       socket.addEventListener('error', (event) => reject(event), {
         once: true,
@@ -69,6 +82,9 @@ export class AxMCPWebSocketTransport implements AxMCPTransport {
           pending.reject(new Error('MCP WebSocket closed'));
         }
         this.pending.clear();
+        if (this.closing) this.resolveListening?.();
+        else this.rejectListening?.(new Error('MCP WebSocket closed'));
+        this.socket = undefined;
       });
     });
     try {
@@ -76,6 +92,14 @@ export class AxMCPWebSocketTransport implements AxMCPTransport {
     } finally {
       this.connectPromise = undefined;
     }
+  }
+
+  async startListening(): Promise<AxMCPListeningHandle> {
+    await this.connect();
+    return {
+      done: this.listeningDone ?? Promise.resolve(),
+      close: () => this.close(),
+    };
   }
 
   setProtocolVersion(protocolVersion: string): void {
@@ -174,8 +198,9 @@ export class AxMCPWebSocketTransport implements AxMCPTransport {
   }
 
   close(): void {
+    this.closing = true;
     this.socket?.close(1000, 'MCP client closed');
-    this.socket = undefined;
+    if (!this.socket) this.resolveListening?.();
   }
 
   private async handlePayload(payload: string): Promise<void> {

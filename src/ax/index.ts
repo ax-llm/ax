@@ -851,6 +851,13 @@ import type {
   AxUsable,
 } from './dsp/types.js';
 import {
+  type AxMCPDefaultEventRoutesOptions,
+  AxMCPEventSource,
+  type AxMCPEventSourceIdentity,
+  type AxMCPEventSourceOptions,
+  axMCPEventRoutes,
+} from './event/mcpSource.js';
+import {
   AxInMemoryEventStore,
   type AxInMemoryEventStoreOptions,
   AxInMemoryProgramStateStore,
@@ -997,6 +1004,8 @@ import {
 } from './mcp/chat.js';
 import {
   AxMCPClient,
+  type AxMCPClientEvent,
+  type AxMCPClientListeningOptions,
   type AxMCPClientOptions,
   type AxMCPFunctionOverride,
 } from './mcp/client.js';
@@ -1035,7 +1044,12 @@ import type {
   AxMCPOAuthTokenIntrospection,
   AxMCPTokenSet,
 } from './mcp/oauth/types.js';
-import type { AxMCPRequestOptions, AxMCPTransport } from './mcp/transport.js';
+import type {
+  AxMCPListeningHandle,
+  AxMCPListeningOptions,
+  AxMCPRequestOptions,
+  AxMCPTransport,
+} from './mcp/transport.js';
 import {
   AxMCPStreamableHTTPTransport,
   AxMCPStreambleHTTPTransport,
@@ -1278,6 +1292,7 @@ export { AxJSRuntimePermission };
 export { AxMCPAppBridge };
 export { AxMCPClient };
 export { AxMCPDPoPProofFactory };
+export { AxMCPEventSource };
 export { AxMCPExecutionContext };
 export { AxMCPHTTPSSETransport };
 export { AxMCPOAuthJWTVerifier };
@@ -1411,6 +1426,7 @@ export { axMCPBasicAuthentication };
 export { axMCPBearerAuthentication };
 export { axMCPChat };
 export { axMCPChildExecutionOptions };
+export { axMCPEventRoutes };
 export { axMCPHMACAuthentication };
 export { axMCPToolInputSchemaToFunctionSchema };
 export { axMCPToolVisibleTo };
@@ -1959,6 +1975,8 @@ export type { AxMCPBlobResourceContents };
 export type { AxMCPChatOptions };
 export type { AxMCPChatResult };
 export type { AxMCPClientCapabilities };
+export type { AxMCPClientEvent };
+export type { AxMCPClientListeningOptions };
 export type { AxMCPClientOptions };
 export type { AxMCPCompletionArgument };
 export type { AxMCPCompletionReference };
@@ -1970,6 +1988,7 @@ export type { AxMCPContinuationState };
 export type { AxMCPCreateTaskResult };
 export type { AxMCPDPoPOptions };
 export type { AxMCPDPoPProofRequest };
+export type { AxMCPDefaultEventRoutesOptions };
 export type { AxMCPElicitationAction };
 export type { AxMCPElicitationCreateParams };
 export type { AxMCPElicitationCreateResult };
@@ -1977,6 +1996,8 @@ export type { AxMCPEmbeddedResource };
 export type { AxMCPEnterpriseAuthorizationContext };
 export type { AxMCPEnterpriseIdentityAssertionType };
 export type { AxMCPEnterpriseManagedAuthorizationOptions };
+export type { AxMCPEventSourceIdentity };
+export type { AxMCPEventSourceOptions };
 export type { AxMCPExtensionCapability };
 export type { AxMCPFetchOptions };
 export type { AxMCPFunctionDescription };
@@ -1995,6 +2016,8 @@ export type { AxMCPJSONRPCResponse };
 export type { AxMCPJSONRPCSuccessResponse };
 export type { AxMCPJSONSchema };
 export type { AxMCPListRootsResult };
+export type { AxMCPListeningHandle };
+export type { AxMCPListeningOptions };
 export type { AxMCPLoggingLevel };
 export type { AxMCPMTLSOptions };
 export type { AxMCPMeta };

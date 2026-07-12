@@ -1,10 +1,4 @@
-import {
-  type AxFunction,
-  AxJSRuntime,
-  AxMCPClient,
-  agent,
-  ai,
-} from '@ax-llm/ax';
+import { AxJSRuntime, AxMCPClient, agent, ai } from '@ax-llm/ax';
 import { AxMCPHTTPSSETransport } from '@ax-llm/ax/mcp/transports/sseTransport.js';
 
 /*
@@ -69,17 +63,11 @@ async function createNotionAgent() {
   const client = new AxMCPClient(sseTransport, { debug: false });
   await client.init();
 
-  const toAgentFunctions = (functions: AxFunction[]): AxFunction[] =>
-    functions.map((fn) => ({
-      ...fn,
-      parameters: fn.parameters ?? { type: 'object', properties: {} },
-    }));
-
   // Create a Notion-augmented agent that can interact with Notion docs
   const notionAgent = agent(
     'userRequest:string -> assistantResponse:string "You are an assistant that can interact with Notion documents and data via SSE. Execute the user\'s request without question and to the best of your abilities."',
     {
-      functions: toAgentFunctions(client.toFunction()),
+      mcp: client,
       contextFields: [],
       runtime: new AxJSRuntime(),
     }

@@ -1,6 +1,5 @@
 import {
   AxAIOpenAIModel,
-  type AxFunction,
   AxJSRuntime,
   AxMCPClient,
   agent,
@@ -16,17 +15,11 @@ const blenderTransport = new AxMCPStdioTransport({
 const client = new AxMCPClient(blenderTransport, { debug: true });
 await client.init();
 
-const toAgentFunctions = (functions: AxFunction[]): AxFunction[] =>
-  functions.map((fn) => ({
-    ...fn,
-    parameters: fn.parameters ?? { type: 'object', properties: {} },
-  }));
-
 // Create an artistic agent that transforms text prompts into digital art using Blender MCP integration
 const drawingAgent = agent(
   'prompt:string -> imageUrl:string "An AI agent that transforms textual prompts into digital art using Blender MCP integration. Provide a prompt to generate awe-inspiring imagery."',
   {
-    functions: toAgentFunctions(client.toFunction()),
+    mcp: client,
     contextFields: [],
     runtime: new AxJSRuntime(),
   }

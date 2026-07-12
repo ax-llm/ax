@@ -35,6 +35,10 @@ The target is MCP `2025-11-25`, the current official extensions, and UCP
 | Content | Provider-specific multimodal tool-result mapping | Implemented | native Anthropic, Gemini, and OpenAI Responses mappings plus adapter-local OpenAI Chat degradation |
 | Prompts | list/get, pagination, arguments, change notification | Implemented | client discovery and notification tests |
 | Resources | list/read/templates/subscriptions/updates | Implemented | client APIs, runtime modules, and tests |
+| Events | Composable notifications without replacing application callbacks | Implemented | `AxMCPClient.subscribeEvents` and `event/mcpSource.test.ts` |
+| Events | Explicit resource notification to Agent wake | Implemented | `AxMCPEventSource`, authenticated route test, and `mcp-resource-wake-agent.ts` |
+| Events | Task progress observe and terminal continuation resume | Implemented | automatic task correlation, default MCP routes, and `mcp-task-resume-flow.ts` |
+| Events | Listening reconnect and logical resubscription | Implemented | nonblocking listening handle and listener-failure recovery test |
 | Completion | `completion/complete` | Implemented | client and AxAgent runtime module |
 | Logging | logging level and server messages | Implemented | client APIs and callbacks |
 | Roots | capability negotiation and `roots/list` | Implemented | server-request test and AxIR fixture |

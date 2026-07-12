@@ -222,6 +222,7 @@ export function createRuntimeExecutionContext(
   });
 
   s._activeMCPExecutionContext = options?._mcpExecutionContext;
+  s._activeEventContext = options?.eventContext;
 
   const toolGlobals = s.buildRuntimeGlobals(
     effectiveAbortSignal,

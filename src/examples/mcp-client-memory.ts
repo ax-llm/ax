@@ -1,6 +1,5 @@
 import {
   AxAIOpenAIModel,
-  type AxFunction,
   AxJSRuntime,
   AxMCPClient,
   agent,
@@ -16,17 +15,11 @@ const stdioTransport = new AxMCPStdioTransport({
 const client = new AxMCPClient(stdioTransport, { debug: false });
 await client.init();
 
-const toAgentFunctions = (functions: AxFunction[]): AxFunction[] =>
-  functions.map((fn) => ({
-    ...fn,
-    parameters: fn.parameters ?? { type: 'object', properties: {} },
-  }));
-
 // Create a memory-augmented agent that can remember past conversations
 const memoryAgent = agent(
   'userMessage:string, userId:string -> assistantResponse:string "You are an assistant that remembers past conversations with users. You break down the information to be remembered by entity identifiers and the content to remeber. Use the provided database functions to manage memories, search for memories, and add memories. Use multiple searches with different entity identifiers to get a holistic view of the user."',
   {
-    functions: toAgentFunctions(client.toFunction()),
+    mcp: client,
     contextFields: [],
     runtime: new AxJSRuntime(),
   }

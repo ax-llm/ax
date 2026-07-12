@@ -32,6 +32,52 @@ model request. It refreshes model tool definitions after catalog-change
 notifications and keeps raw MCP/UCP results in memory alongside the
 provider-compatible representation.
 
+## Subscriptions, tasks, and autonomous wake
+
+`AxMCPEventSource` adapts the live client event stream to `AxEventRuntime`.
+Protocol callbacks enqueue events; they never invoke a model. Resource updates
+need an explicit `wake` route, while `axMCPEventRoutes({ client })` supplies the
+safe defaults for catalog invalidation, progress/log observation, and terminal
+task continuation:
+
+```ts
+const source = new AxMCPEventSource({
+  client,
+  resources: ['docs://handbook'],
+  // Identity comes from the application's authenticated client/token mapping.
+  identity: { tenantId: account.tenantId },
+  trust: 'authenticated',
+});
+
+const runtime = eventRuntime({
+  sources: [source],
+  routes: [
+    ...axMCPEventRoutes({ client }),
+    eventRoute({
+      id: 'handbook-wake',
+      match: { types: ['mcp.resource.updated'] },
+      action: 'wake',
+      requireAuthenticated: true,
+      target,
+    }),
+  ],
+  // Required only while using the Milestone 1-2 volatile store.
+  allowVolatile: true,
+});
+```
+
+MCP sessions do not prove tenant identity. Without an adapter-supplied verified
+mapping, notifications are anonymous and untrusted and cannot enter routes
+requiring authentication. Logical subscriptions are restored after safe
+session recovery. Task polling remains available because servers are not
+required to send task notifications.
+
+A required task-backed MCP tool called under an event target automatically
+registers `mcp.task:<namespace>:<taskId>` as a continuation. Progress is
+observed without waking a model; `input_required` and terminal task states
+resume the owning target. Closing the event source removes its listener and
+cancels subscriptions it added, without closing the caller-owned client.
+
 ## Native content and runtime modules
 
 MCP results retain text, structured content, images, audio, resource links,
@@ -60,6 +106,41 @@ PKCE, CIMD/DCR, client credentials and client assertions, DPoP, PAR/JAR/RAR,
 mTLS host channels, revocation/introspection, JWT/JWKS validation, and
 enterprise-managed authorization. MCP Apps are negotiated and sandboxed as an
 extension rather than exposed as ordinary model tools.
+
+### Listening and advanced recipes
+
+HTTP, legacy SSE, WebSocket, and transports that listen during `connect()` all
+use the same client lifecycle:
+
+```ts
+const listening = await client.startListening({
+  signal,
+  onError: reportTransportError,
+});
+// Later:
+await listening.close();
+```
+
+Streamable HTTP supervises the background GET, resumes SSE with
+`Last-Event-ID`, reinitializes expired sessions, and restores logical resource
+subscriptions. Legacy SSE and WebSocket transports already receive messages on
+their connected channel and use the same client handle for cancellation.
+
+- Sampling: pass `sampling(params, { client, namespace })` to the client and
+  return a typed `sampling/createMessage` result.
+- Elicitation: pass `elicitation` and validate both form and URL-mode requests
+  before returning an accepted, declined, or cancelled result.
+- MCP Apps: use negotiated App resources and `AxMCPAppBridge`; App content is
+  untrusted and never silently becomes model input.
+- OAuth refresh/step-up: configure the OAuth helper and token stores on the
+  HTTP transport; resource challenges force safe refresh or incremental scope
+  acquisition.
+- Cancellation: call `unsubscribeResource`, `cancelTask`, or close the
+  listening handle. Event runtime cancellation propagates to active MCP tool
+  requests and task cleanup.
+- Recording/replay: wrap a live transport in `AxMCPRecordingTransport`, then
+  use `AxMCPReplayTransport` for deterministic evaluation without repeating
+  side effects.
 
 ## UCP
 

@@ -134,7 +134,8 @@ export function wrapFunction(
   qualifiedName?: string,
   functionCallRecorder?: AxAgentFunctionCallRecorder,
   kind: 'internal' | 'external' = 'external',
-  onFunctionCall?: AxAgentOnFunctionCall
+  onFunctionCall?: AxAgentOnFunctionCall,
+  eventContext?: import('../../event/types.js').AxEventContext
 ): (...args: unknown[]) => Promise<unknown> {
   return async (...args: unknown[]) => {
     let callArgs: Record<string, unknown>;
@@ -171,7 +172,12 @@ export function wrapFunction(
       } catch {}
     }
     try {
-      const result = await fn.func(callArgs, { abortSignal, ai, protocol });
+      const result = await fn.func(callArgs, {
+        abortSignal,
+        ai,
+        protocol,
+        eventContext,
+      });
       functionCallRecorder?.({
         qualifiedName: normalizedQualifiedName,
         name: fn.name,
@@ -275,6 +281,9 @@ export function buildRuntimeGlobals(
           'Extract the exact inputs it will need (ids, paths, records) and forward them in final(request, evidence).'
       );
     };
+  const eventContext = s._activeEventContext as
+    | import('../../event/types.js').AxEventContext
+    | undefined;
 
   // Agent functions under namespace.* (e.g. utils.myFn, custom.otherFn).
   // Agent-derived entries carry `_kind: 'internal'` so that `onFunctionCall`
@@ -295,7 +304,8 @@ export function buildRuntimeGlobals(
           qualifiedName,
           functionCallRecorder,
           agentFn._kind ?? 'external',
-          onFunctionCall
+          onFunctionCall,
+          eventContext
         )
       : buildStageToolStub(qualifiedName);
     if (agentFn._alwaysInclude !== true) {
@@ -335,7 +345,8 @@ export function buildRuntimeGlobals(
               qualifiedName,
               functionCallRecorder,
               'external',
-              onFunctionCall
+              onFunctionCall,
+              eventContext
             )
           : buildStageToolStub(qualifiedName);
         registerCallable(
@@ -421,7 +432,8 @@ export function buildRuntimeGlobals(
               qualifiedName,
               functionCallRecorder,
               'external',
-              onFunctionCall
+              onFunctionCall,
+              eventContext
             )
           : buildStageToolStub(qualifiedName);
         registerCallable(
