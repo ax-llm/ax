@@ -15,6 +15,7 @@ import type {
 } from '../dsp/types.js';
 import type { AxAgentExecutorResultPayload } from './agentInternal/agentInternalTypes.js';
 import { buildResponderContextData } from './agentInternal/synthesizerContextData.js';
+import type { AxResolvedCitations } from './config.js';
 import { axBuildResponderDefinition } from './rlm.js';
 import {
   requiredTemplateVariables,
@@ -39,6 +40,13 @@ export interface AxSynthesizerInit {
   description?: string;
   /** Optional agent identity rendered into the prompt. */
   agentIdentity?: { name: string; description: string; namespace?: string };
+  /**
+   * Resolved chain-of-evidence citations config. When enabled, the caller has
+   * already appended the citations output field to the signature; this class
+   * validates the model's citations against the per-call evidence ids and
+   * surfaces/strips the field per `surface`.
+   */
+  citations?: AxResolvedCitations;
 }
 
 export interface AxSynthesizerOptions {
@@ -63,6 +71,13 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
   private program!: AxGen<any, OUT>;
   private templateOverride: string | undefined;
   private _stopRequested = false;
+  /**
+   * Evidence ids valid for the in-flight call; `undefined` disables the
+   * citations assert (no evidence this call). Per-call mutable state on a
+   * shared stage — same accepted non-reentrancy class as the agent's
+   * discovery/skills prompt state.
+   */
+  private _validCitationKeys: Set<string> | undefined;
 
   constructor(
     init: Readonly<AxSynthesizerInit>,
@@ -71,6 +86,95 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
     this.init = { ...init };
     this.options = { ...options };
     this._buildProgram();
+    if (this.init.citations?.enabled) {
+      this._registerCitationsAssert(this.init.citations);
+    }
+  }
+
+  /**
+   * Registered once — the underlying AxGen instance survives description
+   * rebuilds and signature swaps, so the assert stays attached. Violations
+   * return a dynamic message enumerating the invalid and valid ids, which
+   * drives the standard validation-retry loop.
+   */
+  private _registerCitationsAssert(citations: AxResolvedCitations): void {
+    this.program.addAssert((values: Record<string, unknown>) => {
+      const keys = this._validCitationKeys;
+      if (!keys) {
+        return true;
+      }
+      const raw = values[citations.field];
+      if (raw === undefined || raw === null) {
+        return true;
+      }
+      const cited = (Array.isArray(raw) ? raw : [raw]).map(String);
+      const invalid = cited.filter((id) => !keys.has(id));
+      if (invalid.length === 0) {
+        return true;
+      }
+      return (
+        `Invalid ${citations.field} entries: ${invalid.join(', ')}. ` +
+        `Cite only evidence ids that exist: ${[...keys].join(', ')} — or leave the field empty.`
+      );
+    });
+  }
+
+  /**
+   * Ids the responder may cite this call: the evidence object's top-level
+   * keys plus (when configured) the `id` of record arrays one level deep —
+   * the shape `recall(...)` memories arrive in. Returns `undefined` when the
+   * payload carries no citable evidence.
+   */
+  private _computeCitationKeys(
+    executorResult: AxAgentExecutorResultPayload
+  ): Set<string> | undefined {
+    const evidence: unknown = executorResult?.args?.[1];
+    if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)) {
+      return undefined;
+    }
+    const keys = new Set(Object.keys(evidence as Record<string, unknown>));
+    if (this.init.citations?.includeMemoryIds) {
+      for (const value of Object.values(evidence as Record<string, unknown>)) {
+        if (!Array.isArray(value)) {
+          continue;
+        }
+        for (const item of value) {
+          if (
+            item &&
+            typeof item === 'object' &&
+            typeof (item as { id?: unknown }).id === 'string'
+          ) {
+            keys.add((item as { id: string }).id);
+          }
+        }
+      }
+    }
+    return keys.size > 0 ? keys : undefined;
+  }
+
+  private _normalizeCitations(raw: unknown): string[] {
+    if (raw === undefined || raw === null) {
+      return [];
+    }
+    return (Array.isArray(raw) ? raw : [raw]).map(String);
+  }
+
+  /** Fire the observer and strip the field for `surface: 'hidden'`. */
+  private _finalizeCitations(result: OUT, citations: AxResolvedCitations): OUT {
+    const raw = (result as Record<string, unknown>)[citations.field];
+    if (citations.onCitations) {
+      Promise.resolve(
+        citations.onCitations(this._normalizeCitations(raw))
+      ).catch(() => {});
+    }
+    if (citations.surface === 'hidden' && citations.field in (result as any)) {
+      const { [citations.field]: _stripped, ...rest } = result as Record<
+        string,
+        unknown
+      >;
+      return rest as OUT;
+    }
+    return result;
   }
 
   private _buildProgram(): void {
@@ -232,14 +336,25 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
       ...callOptions,
       maxSteps: 1,
     };
-    return this.program.forward(
-      ai,
-      {
-        ...args.nonContextValues,
-        contextData: buildResponderContextData(args.executorResult),
-      },
-      merged
-    );
+    const citations = this.init.citations;
+    if (citations?.enabled) {
+      this._validCitationKeys = this._computeCitationKeys(args.executorResult);
+    }
+    try {
+      const result = await this.program.forward(
+        ai,
+        {
+          ...args.nonContextValues,
+          contextData: buildResponderContextData(args.executorResult),
+        },
+        merged
+      );
+      return citations?.enabled
+        ? this._finalizeCitations(result, citations)
+        : result;
+    } finally {
+      this._validCitationKeys = undefined;
+    }
   }
 
   /**
@@ -267,13 +382,45 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
       ...callOptions,
       maxSteps: 1,
     };
-    yield* this.program.streamingForward(
-      ai,
-      {
-        ...args.nonContextValues,
-        contextData: buildResponderContextData(args.executorResult),
-      },
-      merged
-    );
+    const values = {
+      ...args.nonContextValues,
+      contextData: buildResponderContextData(args.executorResult),
+    };
+    const citations = this.init.citations;
+    if (!citations?.enabled) {
+      yield* this.program.streamingForward(ai, values, merged);
+      return;
+    }
+    this._validCitationKeys = this._computeCitationKeys(args.executorResult);
+    try {
+      let lastCitations: unknown;
+      for await (const delta of this.program.streamingForward(
+        ai,
+        values,
+        merged
+      )) {
+        const record = delta as { delta?: Record<string, unknown> };
+        if (
+          record?.delta &&
+          typeof record.delta === 'object' &&
+          citations.field in record.delta
+        ) {
+          lastCitations = record.delta[citations.field];
+          if (citations.surface === 'hidden') {
+            const { [citations.field]: _stripped, ...rest } = record.delta;
+            yield { ...(delta as object), delta: rest } as any;
+            continue;
+          }
+        }
+        yield delta;
+      }
+      if (citations.onCitations) {
+        Promise.resolve(
+          citations.onCitations(this._normalizeCitations(lastCitations))
+        ).catch(() => {});
+      }
+    } finally {
+      this._validCitationKeys = undefined;
+    }
   }
 }

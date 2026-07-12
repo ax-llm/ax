@@ -23,7 +23,7 @@ import type {
   AxAgentRecursiveStats,
   AxAgentRecursiveTraceNode,
 } from '../agentRecursiveOptimize.js';
-import type { AxAgentAutoUpgrade } from '../config.js';
+import type { AxAgentAutoUpgrade, AxAgentCitations } from '../config.js';
 import type { AxAgentOnContextEvent } from '../contextEvents.js';
 import type { AxAgentContextMapConfig } from '../contextMap.js';
 import type { AxAgentPlaybookConfig } from '../playbookConfig.js';
@@ -208,6 +208,22 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * TS-first: the 5 non-TS ports do not ship the playbook option yet.
    */
   playbook?: AxAgentPlaybookConfig;
+
+  /**
+   * Chain-of-evidence citations — opt-in (default off). When enabled, the
+   * responder gains an optional string-array output field (default
+   * `evidenceCitations`) that must list the evidence ids the answer actually
+   * relies on: the top-level keys of the `final(task, evidence)` /
+   * `respond(task, evidence)` evidence object, plus the `id` of id-bearing
+   * records inside it (e.g. loaded memories). Citations are validated
+   * subset-only against those ids — a violation re-prompts the responder via
+   * the standard validation-retry loop; runs without evidence skip
+   * validation. Pass an object to rename the field, hide it from the result
+   * (`surface: 'hidden'`), or observe citations via `onCitations`. Counters
+   * the over-optimism failure mode: answers must point at the evidence that
+   * grounds them. TS-first: the 5 non-TS ports do not ship citations yet.
+   */
+  citations?: AxAgentCitations;
 
   /**
    * Tools registered under their configured namespace globals. May contain

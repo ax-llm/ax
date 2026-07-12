@@ -15,7 +15,12 @@ import type {
   AxProgramTrace,
 } from '../../dsp/types.js';
 import { ActorAgentRLM } from '../AxAgent.js';
-import { type AxResolvedAutoUpgrade, resolveAutoUpgrade } from '../config.js';
+import {
+  type AxResolvedAutoUpgrade,
+  type AxResolvedCitations,
+  resolveAutoUpgrade,
+  resolveCitations,
+} from '../config.js';
 import {
   AxAgentContextMap,
   type AxAgentContextMapConfig,
@@ -69,7 +74,10 @@ import {
   streamingForwardPipeline,
 } from './pipelineForward.js';
 import { forwardPipelineForEvaluation } from './pipelineForwardForEvaluation.js';
-import { buildFinalResponderSignature } from './synthesizerSignature.js';
+import {
+  appendCitationsOutputField,
+  buildFinalResponderSignature,
+} from './synthesizerSignature.js';
 import type { AxAgentOptimizationTargetDescriptor } from './types.js';
 
 /**
@@ -226,6 +234,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private contextMap?: AxAgentContextMap;
   private readonly playbookConfigResolved?: AxResolvedAgentPlaybookConfig;
   private playbookHandle?: AxPlaybook<any, any>;
+  private readonly citationsResolved: AxResolvedCitations;
   private func?: AxFunction;
 
   constructor(
@@ -247,6 +256,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.contextMapConfig = options.contextMap;
     this.contextMap = normalizeAgentContextMap(options.contextMap);
     this.playbookConfigResolved = resolveAgentPlaybookConfig(options.playbook);
+    this.citationsResolved = resolveCitations(options.citations);
     this.fullSignature =
       typeof init.signature === 'string'
         ? (AxSignature.create(init.signature) as AxSignature<IN, OUT>)
@@ -293,7 +303,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const responderNonCtxInputFields = nonCtxInputFields.filter(
       (fld) => !this.responderExcludeFields.has(fld.name)
     );
-    const responderOutputFields = allOutputFields;
+    const responderOutputFields = this.citationsResolved.enabled
+      ? appendCitationsOutputField(
+          allOutputFields,
+          this.citationsResolved.field
+        )
+      : allOutputFields;
 
     const {
       description: finalResponderDescription,
@@ -429,6 +444,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         role: 'final',
         description: finalResponderDescription,
         agentIdentity: init.agentIdentity,
+        ...(this.citationsResolved.enabled
+          ? { citations: this.citationsResolved }
+          : {}),
       },
       {
         forwardOptions: finalResponderForwardOptions as Partial<
@@ -734,7 +752,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const allInputFields = nextSig.getInputFields();
     const allOutputFields = nextSig.getOutputFields();
     const ctxNames = this.contextFieldNames;
-    const responderOutputFields = allOutputFields;
+    const responderOutputFields = this.citationsResolved.enabled
+      ? appendCitationsOutputField(
+          allOutputFields,
+          this.citationsResolved.field
+        )
+      : allOutputFields;
 
     const inputFieldNames = new Set(allInputFields.map((fld) => fld.name));
     for (const field of ctxNames) {

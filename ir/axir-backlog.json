@@ -271,6 +271,28 @@
         "Add an is-array guard (wrap single objects, drop malformed entries) around the bulletTags read in optimize.axir's reflection handling.",
         "Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir."
       ]
+    },
+    {
+      "id": "axir-2026-07-12-responder-chain-of-evidence-citations",
+      "status": "open",
+      "title": "Port the responder chain-of-evidence citations option",
+      "createdAt": "2026-07-12",
+      "sourcePR": null,
+      "sourceCommit": null,
+      "tsPaths": [
+        "src/ax/agent/config.ts",
+        "src/ax/agent/synthesizer.ts",
+        "src/ax/agent/agentInternal/synthesizerSignature.ts",
+        "src/ax/agent/agentInternal/coordinator.ts",
+        "src/ax/agent/agentInternal/agentOptimizeTypes.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "TS agents accept an opt-in `citations` option: the responder signature gains an optional evidenceCitations string[] output field (instruction carried in the field description, no template change), citations are validated subset-only against the final/respond evidence object's top-level keys plus nested record ids, violations re-prompt via the validation-retry loop, and the field can be surfaced or hidden with an onCitations observer. The five generated ports build the responder signature without the field and have no citation validation, so ported agents cannot produce grounded, validated citations.",
+      "suggestedAxirWork": [
+        "Mirror the optional citations output field in agent.axir's @build_responder_signature and add the citation policy flag.",
+        "Port the subset validation as a responder validation rule (ports already run validation_retries: 2).",
+        "Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir."
+      ]
     }
   ],
   "nonPortableExemptions": [

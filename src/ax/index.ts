@@ -155,8 +155,11 @@ import {
 } from './agent/completion.js';
 import type {
   AxAgentAutoUpgrade,
+  AxAgentCitations,
+  AxAgentCitationsOutput,
   AxAgentDirectResponse,
   AxResolvedAutoUpgrade,
+  AxResolvedCitations,
 } from './agent/config.js';
 import type {
   AxAgentPlaybookConfig,
@@ -1454,6 +1457,8 @@ export type { AxAgentActorTurnCallbackArgs };
 export type { AxAgentAutoPromotionRecord };
 export type { AxAgentAutoUpgrade };
 export type { AxAgentCatalogSkill };
+export type { AxAgentCitations };
+export type { AxAgentCitationsOutput };
 export type { AxAgentClarification };
 export type { AxAgentClarificationChoice };
 export type { AxAgentClarificationKind };
@@ -1790,6 +1795,7 @@ export type { AxRenderedPrompt };
 export type { AxResolvedAgentPlaybookConfig };
 export type { AxResolvedAgentPlaybookLearn };
 export type { AxResolvedAutoUpgrade };
+export type { AxResolvedCitations };
 export type { AxResolvedContextPolicy };
 export type { AxResolvedExecutorModelPolicy };
 export type { AxResolvedExecutorModelPolicyEntry };

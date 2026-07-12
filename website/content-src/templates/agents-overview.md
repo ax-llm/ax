@@ -20,6 +20,8 @@ One harness scales across every size of job. `agent()` with nothing but a signat
 
 The design bet behind Ax agents is simple: **the model should compute on your data, not read it.** Bulky inputs live in a runtime session; the model writes small code steps against them; only compact evidence and live variable summaries enter the prompt. So the prompt does not grow with your data, grounding does not degrade as inputs get larger, and small, cheap models stay exact — a small Flash-class model reproduces a 250-row ledger audit to the cent, repeatably, in the checked-in [grounded-audit example](https://github.com/ax-llm/ax/blob/main/src/examples/agent-grounded-audit.ts). The [Performance]({{langRoot}}/agents/performance/) page shows the measurements and states exactly what we do and don't claim.
 
+Grounding can also be made explicit: with `citations` enabled (TypeScript), the answer must cite which evidence entries support it, and the citations are validated against the ids that actually exist — an answer cannot point at evidence that was never collected.
+
 ## The Pipeline
 
 Every `forward()` runs up to three stages:

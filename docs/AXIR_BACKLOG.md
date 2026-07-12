@@ -24,6 +24,11 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/optimizers/ace.ts`, `src/ax/dsp/optimizers/ace.test.ts`
   - Impact: TS now normalizes the reflector's model-produced bulletTags (single object or junk instead of an array) before tag application and curator target resolution; live gpt-5.4-mini reflections triggered the unguarded for...of crash mid-update. optimize.axir reads %reflection["bulletTags"] with only a missing-key default (optimize.axir:1725), so ported ACE updates can still crash or mis-iterate on the same malformed reflector output.
   - Suggested AxIR work: Add an is-array guard (wrap single objects, drop malformed entries) around the bulletTags read in optimize.axir's reflection handling.; Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-12-responder-chain-of-evidence-citations` [axagent] Port the responder chain-of-evidence citations option
+  - Status: open
+  - TS paths: `src/ax/agent/config.ts`, `src/ax/agent/synthesizer.ts`, `src/ax/agent/agentInternal/synthesizerSignature.ts`, `src/ax/agent/agentInternal/coordinator.ts`, `src/ax/agent/agentInternal/agentOptimizeTypes.ts`
+  - Impact: TS agents accept an opt-in `citations` option: the responder signature gains an optional evidenceCitations string[] output field (instruction carried in the field description, no template change), citations are validated subset-only against the final/respond evidence object's top-level keys plus nested record ids, violations re-prompt via the validation-retry loop, and the field can be surfaced or hidden with an onCitations observer. The five generated ports build the responder signature without the field and have no citation validation, so ported agents cannot produce grounded, validated citations.
+  - Suggested AxIR work: Mirror the optional citations output field in agent.axir's @build_responder_signature and add the citation policy flag.; Port the subset validation as a responder validation rule (ports already run validation_retries: 2).; Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
