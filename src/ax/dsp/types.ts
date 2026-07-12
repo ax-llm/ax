@@ -6,6 +6,7 @@ import type {
   AxModelConfig,
   AxSpeechConfig,
 } from '../ai/types.js';
+import type { AxEventContext, AxEventInheritance } from '../event/types.js';
 import type { AxMCPClient } from '../mcp/client.js';
 import type {
   AxMCPContextRequest,
@@ -208,6 +209,10 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   mcpContext?: readonly AxMCPContextRequest[];
   /** Controls propagation of MCP clients to nested programs. */
   mcpInheritance?: AxMCPInheritance;
+  /** Immutable provenance and delivery context for event-driven execution. */
+  eventContext?: AxEventContext;
+  /** Controls propagation of event context to nested programs. Defaults to all. */
+  eventInheritance?: AxEventInheritance;
   /** @internal Shared run-scoped MCP context. */
   _mcpExecutionContext?: AxMCPExecutionContext;
   /** @internal Resolved MCP prompt/resource context for this run. */

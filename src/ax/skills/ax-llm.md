@@ -327,6 +327,13 @@ class AxFlow<IN, OUT> {
 }
 ```
 
+## Event-Driven Programs
+
+Use `eventRuntime()` when notifications, webhooks, timers, or remote tasks
+should wake or resume an Ax program. Sources publish into an inbox; explicit
+routes choose `observe`, `invalidate`, `wake`, or `resume`. Event payloads are
+never inserted as user messages automatically. See `ax-event-runtime.md`.
+
 ## Examples
 
 Fetch these for full working code:

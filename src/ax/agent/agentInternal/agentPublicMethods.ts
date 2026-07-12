@@ -149,9 +149,7 @@ export function getFunction(self: any): AxFunction {
     const run = await s.run(
       ai,
       values,
-      options?._mcpExecutionContext
-        ? axMCPChildExecutionOptions(options)
-        : options
+      options ? axMCPChildExecutionOptions(options) : options
     );
     const result = run.executorResult;
     if (result?.type === 'askClarification') {

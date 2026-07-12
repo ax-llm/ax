@@ -14,7 +14,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-07-12-port-axeventruntime-deterministic-single-worker-semantics` [axprogram] Port AxEventRuntime deterministic single-worker semantics
+  - Status: open
+  - Source commit: `9c0520371669a553eed605351fdd5417a734da1f`
+  - TS paths: `src/ax/event`
+  - Impact: Generated Python, Java, C++, Go, and Rust packages do not yet expose the AxEventRuntime envelope, routing, continuation, store, source, sink, and state-transition APIs.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

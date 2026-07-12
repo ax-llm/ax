@@ -264,6 +264,8 @@ export type AxFunctionHandler = (
     step?: import('../dsp/types.js').AxStepContext;
     abortSignal?: AbortSignal;
     protocol?: AxAgentCompletionProtocol;
+    /** Immutable event provenance for autonomous or resumed execution. */
+    eventContext?: import('../event/types.js').AxEventContext;
     /** @internal Shared native MCP state for nested programmable functions. */
     _mcpExecutionContext?: import('../mcp/execution.js').AxMCPExecutionContext;
   }>

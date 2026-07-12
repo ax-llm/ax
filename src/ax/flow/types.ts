@@ -14,7 +14,12 @@ export type AxFlowState = Record<string, unknown>;
 export interface AxFlowOptions
   extends Pick<
     AxProgramForwardOptions<string>,
-    'mcp' | 'ucp' | 'mcpContext' | 'mcpInheritance'
+    | 'mcp'
+    | 'ucp'
+    | 'mcpContext'
+    | 'mcpInheritance'
+    | 'eventContext'
+    | 'eventInheritance'
   > {
   autoParallel?: boolean;
   batchSize?: number;

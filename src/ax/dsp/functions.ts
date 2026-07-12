@@ -173,6 +173,7 @@ export class AxFunctionProcessor {
           ai: options.ai,
           step: options.step,
           abortSignal: options.abortSignal,
+          eventContext: options.eventContext,
           _mcpExecutionContext: options._mcpExecutionContext,
         }
       : undefined;
@@ -325,6 +326,7 @@ type ProcessFunctionsArgs = {
     call: Readonly<AxFunctionCallTrace>
   ) => void | Promise<void>;
   mcpExecutionContext?: import('../mcp/execution.js').AxMCPExecutionContext;
+  eventContext?: import('../event/types.js').AxEventContext;
 };
 
 export const processFunctions = async ({
@@ -347,6 +349,7 @@ export const processFunctions = async ({
   abortSignal,
   onFunctionCall,
   mcpExecutionContext,
+  eventContext,
 }: Readonly<ProcessFunctionsArgs>) => {
   const funcProc = new AxFunctionProcessor(functionList);
   const functionsExecuted = new Set<string>();
@@ -459,6 +462,7 @@ export const processFunctions = async ({
           stopFunctionNames,
           step,
           abortSignal,
+          eventContext,
           _mcpExecutionContext: mcpExecutionContext,
         })
         .then(
@@ -589,6 +593,7 @@ export const processFunctions = async ({
             stopFunctionNames,
             step,
             abortSignal,
+            eventContext,
             _mcpExecutionContext: mcpExecutionContext,
           });
 

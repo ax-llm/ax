@@ -613,6 +613,14 @@ Fetch these for full working code:
 
 RLM examples are listed in `ax-agent-rlm`. Memory/skills examples are listed in `ax-agent-memory-skills`.
 
+## Event-Driven Agents
+
+`AxEventRuntime` can wake or resume an Agent while preserving its logical
+state. Use `createProgram(instance)` for multi-tenant Agents; one mutable Agent
+object must not serve multiple instance keys concurrently. Clarification and
+remote task completion are represented as owned continuations, not synthetic
+user turns.
+
 ## Do Not Generate
 
 - Do not use `new AxAgent(...)` for new code unless explicitly required.

@@ -63,6 +63,9 @@ function hasValidPrefix(name: string): boolean {
       name === 'ai' ||
       name === 'agent' ||
       name === 'flow' ||
+      name === 'eventRuntime' ||
+      name === 'eventRoute' ||
+      name === 'eventTarget' ||
       name === 'optimize' ||
       name === 'bestOfN' ||
       name === 'refine' ||

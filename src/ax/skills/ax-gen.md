@@ -500,6 +500,13 @@ const result = await gen.forward(llm, { question }, {
 
 The model receives native tool definitions. Structured, image, audio, resource-link, embedded-resource, metadata, task, and error results are preserved until the provider adapter maps supported content. Streaming keeps MCP progress/task events separate from Ax output. Never call `toFunction()` for native integration.
 
+## Event Targets
+
+Wrap an AxGen in `eventTarget({ program, ai, mapInput })` to invoke it from an
+explicit `wake` or `resume` route. `mapInput` must return valid signature
+inputs. Streaming targets persist each chunk before optional chunk sinks and
+persist the final result before final sinks.
+
 ## Do Not Generate
 
 - Do not use `new AxGen(...)` for new code unless explicitly required.

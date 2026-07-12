@@ -118,7 +118,12 @@ export class AxFlow<
   private readonly defaultAIOptions?: Readonly<
     Pick<
       AxProgramForwardOptions<string>,
-      'mcp' | 'ucp' | 'mcpContext' | 'mcpInheritance'
+      | 'mcp'
+      | 'ucp'
+      | 'mcpContext'
+      | 'mcpInheritance'
+      | 'eventContext'
+      | 'eventInheritance'
     > & {
       tracer?: Tracer;
       meter?: Meter;
@@ -152,7 +157,9 @@ export class AxFlow<
       options?.mcp ||
       options?.ucp ||
       options?.mcpContext ||
-      options?.mcpInheritance
+      options?.mcpInheritance ||
+      options?.eventContext ||
+      options?.eventInheritance
     ) {
       this.defaultAIOptions = {
         tracer: options.tracer,
@@ -161,6 +168,8 @@ export class AxFlow<
         ucp: options.ucp,
         mcpContext: options.mcpContext,
         mcpInheritance: options.mcpInheritance,
+        eventContext: options.eventContext,
+        eventInheritance: options.eventInheritance,
       };
     }
   }
@@ -678,6 +687,9 @@ export class AxFlow<
       };
       delete mainOptions.mcp;
       delete mainOptions.ucp;
+      if (mainOptions.eventInheritance === 'none') {
+        delete mainOptions.eventContext;
+      }
       if ((options as any)?.model) {
         mainOptions.model = String((options as any).model);
       }

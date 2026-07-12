@@ -417,6 +417,16 @@ Common errors:
 - `"merge() without matching branch()"` -- every `.branch()` needs `.merge()`.
 - `"Label 'x' not found"` -- define `.label()` before `.feedback()` references it.
 
+## Native MCP/UCP
+
+Set `mcp`/`ucp` on the flow or a node. Sequential nodes reuse sessions; parallel nodes multiplex through each client's concurrency policy. Branch cancellation and flow aborts propagate to outstanding requests and newly created remote tasks. Structured protocol values stay structured in flow state.
+
+```typescript
+const wf = flow({ mcp: [inventory], ucp: [merchant] })
+  .node('lookup', lookupProgram)
+  .node('checkout', checkoutProgram, { mcpInheritance: ['merchant'] });
+```
+
 ## Examples
 
 Fetch these for full working code:
@@ -428,6 +438,13 @@ Fetch these for full working code:
 - [Flow as Function](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/ax-flow-to-function.ts) — flow as callable function
 - [Fluent Builder](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/fluent-flow-example.ts) — fluent builder pattern
 - [Load Balancing](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/balancer.ts) — load balancing
+
+## Event-Triggered Flows
+
+An AxFlow is an `AxProgrammable` event target. The runtime maps an event into
+the Flow's typed initial state and propagates `eventContext`, cancellation, and
+idempotency metadata to every node. Abandoned branches still use normal Flow
+cancellation semantics.
 
 ## Do Not Generate
 

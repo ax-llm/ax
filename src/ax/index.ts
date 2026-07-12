@@ -850,6 +850,77 @@ import type {
   AxTunable,
   AxUsable,
 } from './dsp/types.js';
+import {
+  AxInMemoryEventStore,
+  type AxInMemoryEventStoreOptions,
+  AxInMemoryProgramStateStore,
+} from './event/memoryStore.js';
+import {
+  AxEventRuntime,
+  eventRoute,
+  eventRuntime,
+  eventTarget,
+} from './event/runtime.js';
+import {
+  AxPushEventSource,
+  AxTimerEventSource,
+  type AxTimerEventSourceOptions,
+} from './event/sources.js';
+import {
+  AxEventBackpressureError,
+  type AxEventClock,
+  type AxEventCloseOptions,
+  type AxEventContext,
+  type AxEventContinuation,
+  AxEventContinuationNotFoundError,
+  type AxEventContinuationRegistration,
+  type AxEventCorrelationKey,
+  type AxEventDeadLetter,
+  type AxEventDelivery,
+  type AxEventDeliveryStatus,
+  type AxEventEnqueueRequest,
+  type AxEventEnvelope,
+  type AxEventIdentity,
+  type AxEventIngress,
+  type AxEventInheritance,
+  type AxEventInvalidator,
+  type AxEventMatcher,
+  AxEventOutcomeUnknownError,
+  type AxEventProgramStateAdapter,
+  type AxEventPublishReceipt,
+  type AxEventRoute,
+  type AxEventRouteAction,
+  type AxEventRun,
+  type AxEventRunStatus,
+  type AxEventRuntimeOptions,
+  type AxEventScalar,
+  type AxEventSink,
+  type AxEventSinkAttempt,
+  type AxEventSinkContext,
+  type AxEventSource,
+  type AxEventSourceContext,
+  type AxEventSourceHandle,
+  type AxEventStore,
+  type AxEventStoreCapabilities,
+  type AxEventTarget,
+  type AxEventTargetInputContext,
+  type AxEventTrust,
+  type AxEventValue,
+  AxManualEventClock,
+  type AxProgramStateEnvelope,
+  type AxProgramStateStore,
+  AxSystemEventClock,
+} from './event/types.js';
+import {
+  axEventErrorMessage,
+  axEventId,
+  axEventIdentityScope,
+  axEventMatches,
+  axEventScopedCorrelationKey,
+  axEventScopedDedupeKey,
+  axEventSizeBytes,
+  axValidateEventEnvelope,
+} from './event/util.js';
 import type { AxFlowStateDependencyAnalysis } from './flow/dependencyAnalyzer.js';
 import { AxFlow, flow } from './flow/flow.js';
 import {
@@ -1188,6 +1259,10 @@ export { AxDefaultCostTracker };
 export { AxDockerSession };
 export { AxEmbeddingAdapter };
 export { AxEvalUtil };
+export { AxEventBackpressureError };
+export { AxEventContinuationNotFoundError };
+export { AxEventOutcomeUnknownError };
+export { AxEventRuntime };
 export { AxFlow };
 export { AxFluentFieldType };
 export { AxFunctionError };
@@ -1196,6 +1271,8 @@ export { AxGEPA };
 export { AxGEPAComponentSelector };
 export { AxGen };
 export { AxGenerateError };
+export { AxInMemoryEventStore };
+export { AxInMemoryProgramStateStore };
 export { AxJSRuntime };
 export { AxJSRuntimePermission };
 export { AxMCPAppBridge };
@@ -1209,6 +1286,7 @@ export { AxMCPReplayTransport };
 export { AxMCPStreamableHTTPTransport };
 export { AxMCPStreambleHTTPTransport };
 export { AxMCPWebSocketTransport };
+export { AxManualEventClock };
 export { AxMediaNotSupportedError };
 export { AxMemory };
 export { AxMockAIService };
@@ -1218,6 +1296,7 @@ export { AxPlaybook };
 export { AxProgram };
 export { AxPromptTemplate };
 export { AxProviderRouter };
+export { AxPushEventSource };
 export { AxRateLimiterTokenUsage };
 export { AxRefine };
 export { AxRefineError };
@@ -1227,7 +1306,9 @@ export { AxStopFunctionCallException };
 export { AxStreamingAssertionError };
 export { AxStringUtil };
 export { AxSynth };
+export { AxSystemEventClock };
 export { AxTestPrompt };
+export { AxTimerEventSource };
 export { AxTokenLimitError };
 export { AxUCPClient };
 export { AxUCPHTTPMessageSignatureError };
@@ -1301,6 +1382,13 @@ export { axDefaultMetricsConfig };
 export { axDefaultOptimizerLogger };
 export { axDefaultOptimizerMetricsConfig };
 export { axDeserializeOptimizedProgram };
+export { axEventErrorMessage };
+export { axEventId };
+export { axEventIdentityScope };
+export { axEventMatches };
+export { axEventScopedCorrelationKey };
+export { axEventScopedDedupeKey };
+export { axEventSizeBytes };
 export { axFetchJsonSpeech };
 export { axFetchMultipartTranscription };
 export { axGetCompatibilityReport };
@@ -1365,10 +1453,14 @@ export { axUpdateMetricsConfig };
 export { axUpdateOptimizerMetricsConfig };
 export { axValidateChatRequestMessage };
 export { axValidateChatResponseResult };
+export { axValidateEventEnvelope };
 export { axValidateGeminiLiveAudioInput };
 export { axValidateProviderCapabilities };
 export { axWorkerRuntime };
 export { bestOfN };
+export { eventRoute };
+export { eventRuntime };
+export { eventTarget };
 export { f };
 export { flow };
 export { fn };
@@ -1731,6 +1823,42 @@ export type { AxEmbedRequest };
 export type { AxEmbedResponse };
 export type { AxErrorCategory };
 export type { AxEvaluateArgs };
+export type { AxEventClock };
+export type { AxEventCloseOptions };
+export type { AxEventContext };
+export type { AxEventContinuation };
+export type { AxEventContinuationRegistration };
+export type { AxEventCorrelationKey };
+export type { AxEventDeadLetter };
+export type { AxEventDelivery };
+export type { AxEventDeliveryStatus };
+export type { AxEventEnqueueRequest };
+export type { AxEventEnvelope };
+export type { AxEventIdentity };
+export type { AxEventIngress };
+export type { AxEventInheritance };
+export type { AxEventInvalidator };
+export type { AxEventMatcher };
+export type { AxEventProgramStateAdapter };
+export type { AxEventPublishReceipt };
+export type { AxEventRoute };
+export type { AxEventRouteAction };
+export type { AxEventRun };
+export type { AxEventRunStatus };
+export type { AxEventRuntimeOptions };
+export type { AxEventScalar };
+export type { AxEventSink };
+export type { AxEventSinkAttempt };
+export type { AxEventSinkContext };
+export type { AxEventSource };
+export type { AxEventSourceContext };
+export type { AxEventSourceHandle };
+export type { AxEventStore };
+export type { AxEventStoreCapabilities };
+export type { AxEventTarget };
+export type { AxEventTargetInputContext };
+export type { AxEventTrust };
+export type { AxEventValue };
 export type { AxEvidenceDescriptor };
 export type { AxExample };
 export type { AxExamples };
@@ -1798,6 +1926,7 @@ export type { AxGenStreamingOut };
 export type { AxGenerateErrorDetails };
 export type { AxGenerateResult };
 export type { AxIField };
+export type { AxInMemoryEventStoreOptions };
 export type { AxInputFunctionType };
 export type { AxJSRuntimeNodePermissionAllowlist };
 export type { AxJSRuntimeOutputMode };
@@ -1957,6 +2086,8 @@ export type { AxProgramExamples };
 export type { AxProgramForwardOptions };
 export type { AxProgramForwardOptionsWithModels };
 export type { AxProgramOptions };
+export type { AxProgramStateEnvelope };
+export type { AxProgramStateStore };
 export type { AxProgramStreamingForwardOptions };
 export type { AxProgramStreamingForwardOptionsWithModels };
 export type { AxProgramTrace };
@@ -2021,6 +2152,7 @@ export type { AxSynthesizerInit };
 export type { AxSynthesizerOptions };
 export type { AxSynthesizerRole };
 export type { AxThoughtBlockItem };
+export type { AxTimerEventSourceOptions };
 export type { AxTokenUsage };
 export type { AxTranscriptionRequest };
 export type { AxTranscriptionResponse };

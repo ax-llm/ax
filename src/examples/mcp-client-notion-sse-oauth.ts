@@ -28,7 +28,7 @@ async function createNotionAgent() {
       scopes: process.env.MCP_OAUTH_SCOPES?.split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      onAuthCode: async (authorizationUrl: string) => {
+      onAuthCode: async (authorizationUrl: string, context) => {
         console.log('\n=== Authorization Required (SSE) ===');
         console.log('Open this URL in your browser to authorize:');
         console.log(authorizationUrl);
@@ -47,8 +47,14 @@ async function createNotionAgent() {
           const code = url.searchParams.get('code');
           if (!code)
             throw new Error('No "code" parameter found in redirect URL');
+          const state = url.searchParams.get('state');
+          if (state !== context.state) {
+            throw new Error(
+              'OAuth state did not match the authorization request'
+            );
+          }
           const redirectUri = `${url.origin}${url.pathname}`;
-          return { code, redirectUri };
+          return { code, state, redirectUri };
         } catch (err) {
           throw new Error(`Invalid redirect URL: ${String(err)}`);
         }

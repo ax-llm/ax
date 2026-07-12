@@ -462,12 +462,23 @@ export function axMCPChildExecutionOptions<
     ucp?: unknown;
     mcpContext?: unknown;
     _mcpExecutionContext?: AxMCPExecutionContext;
+    eventContext?: unknown;
+    eventInheritance?: 'all' | 'none';
   }>,
 >(options: T): T {
-  const { mcp: _mcp, ucp: _ucp, mcpContext: _context, ...rest } = options;
+  const {
+    mcp: _mcp,
+    ucp: _ucp,
+    mcpContext: _context,
+    eventContext: _eventContext,
+    ...rest
+  } = options;
   const child = options._mcpExecutionContext?.forChild();
   return {
     ...rest,
     ...(child ? { _mcpExecutionContext: child } : {}),
+    ...(options.eventInheritance !== 'none' && options.eventContext
+      ? { eventContext: options.eventContext }
+      : {}),
   } as unknown as T;
 }

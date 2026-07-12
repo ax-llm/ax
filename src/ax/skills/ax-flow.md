@@ -439,6 +439,13 @@ Fetch these for full working code:
 - [Fluent Builder](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/fluent-flow-example.ts) — fluent builder pattern
 - [Load Balancing](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/balancer.ts) — load balancing
 
+## Event-Triggered Flows
+
+An AxFlow is an `AxProgrammable` event target. The runtime maps an event into
+the Flow's typed initial state and propagates `eventContext`, cancellation, and
+idempotency metadata to every node. Abandoned branches still use normal Flow
+cancellation semantics.
+
 ## Do Not Generate
 
 - Do not use `new AxFlow(...)` for new code.

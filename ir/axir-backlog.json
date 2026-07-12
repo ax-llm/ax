@@ -230,6 +230,25 @@
         "Conformance: direct-respond-skip / direct-respond-covenant-with-functions / direct-respond-kill-switch + axagent-real/agent-runtime-real-javascript-respond; ledger capability agent.pipeline.direct_respond"
       ],
       "verification": "go -C tools/axir test -count=1 ./... (all 5 language conformance incl. the 3 new direct-respond fixtures and the G2 anti-facade self-test); packages/go: go run ./conformance ir/conformance/axagent-real (real goja engine executes model-authored respond() and skips the executor); npx vitest run src/ax/agent (663 tests incl. agent.directRespond.test.ts 20 cases + rlmPromptsSync primitives-parity test); node scripts/axir-prompt-sync-check.mjs"
+    },
+    {
+      "id": "axir-2026-07-12-port-axeventruntime-deterministic-single-worker-semantics",
+      "status": "open",
+      "title": "Port AxEventRuntime deterministic single-worker semantics",
+      "createdAt": "2026-07-12",
+      "sourcePR": null,
+      "sourceCommit": "9c0520371669a553eed605351fdd5417a734da1f",
+      "tsPaths": ["src/ax/event"],
+      "portableSurface": "axprogram",
+      "impact": "Generated Python, Java, C++, Go, and Rust packages do not yet expose the AxEventRuntime envelope, routing, continuation, store, source, sink, and state-transition APIs.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
