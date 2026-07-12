@@ -1,13 +1,13 @@
 ---
 title: "Research Map"
-description: "Research papers behind Ax: DSPy, DSPy Assertions, GEPA, ACE, Recursive Language Models, and PEEK."
+description: "Research papers behind Ax: DSPy, DSPy Assertions, GEPA, ACE, Recursive Language Models, PEEK — plus the agent-learning lineage: Reflexion, ExpeL, Self-RAG, Attributed QA, STOP, Darwin Gödel Machine, and Self-Harness."
 standalone: true
 toc: true
 ---
 
 # Research Map
 
-Ax is a practical library, but its shape is not accidental. The core ideas line up with a serious LLM systems lineage: declarative model programs, signatures, constraints, reflective optimization, runtime-backed long-context work, and persistent context maps.
+Ax is a practical library, but its shape is not accidental. The core ideas line up with a serious LLM systems lineage: declarative model programs, signatures, constraints, reflective optimization, runtime-backed long-context work, persistent context maps, learning from failures, attributed answers, and regression-validated self-improvement.
 
 This page is not an endorsement wall. It is a map from public research ideas to the Ax concepts users see in the docs.
 
@@ -87,6 +87,103 @@ This page is not an endorsement wall. It is a map from public research ideas to 
     <div class="paper-item-meta">
       <a class="paper-arxiv-link" href="https://arxiv.org/abs/2605.19932">arXiv 2605.19932</a>
       <div class="paper-logo-row"><span class="paper-logo-mark paper-logo-mit">MIT</span><span class="paper-logo-mark paper-logo-stanford">Stanford</span></div>
+    </div>
+  </article>
+
+  <article class="home-paper-item">
+    <div class="paper-item-main">
+      <div class="paper-title-row"><span class="paper-logo-mark paper-logo-arxiv" aria-label="arXiv"><span>ar</span><strong>X</strong><span>iv</span></span><h2><a href="https://arxiv.org/abs/2303.11366">Reflexion: Language Agents with Verbal Reinforcement Learning</a></h2></div>
+    <p><strong>Authors:</strong> Noah Shinn, Federico Cassano, Edward Berman, Ashwin Gopinath, Karthik Narasimhan, Shunyu Yao.</p>
+    <p><strong>Year:</strong> 2023.</p>
+    <p><strong>Why it matters for Ax:</strong> Reflexion showed agents improve sharply when they verbally reflect on failed attempts and carry the lesson into the next try. Ax's agent <code>playbook</code> option automates that loop in production: each run's error turns, repeated dead-ends, and failing tool calls are reflected into durable avoidance rules that ride the next run's prompt.</p>
+    </div>
+    <div class="paper-item-meta">
+      <a class="paper-arxiv-link" href="https://arxiv.org/abs/2303.11366">arXiv 2303.11366</a>
+    </div>
+  </article>
+
+  <article class="home-paper-item">
+    <div class="paper-item-main">
+      <div class="paper-title-row"><span class="paper-logo-mark paper-logo-arxiv" aria-label="arXiv"><span>ar</span><strong>X</strong><span>iv</span></span><h2><a href="https://arxiv.org/abs/2308.10144">ExpeL: LLM Agents Are Experiential Learners</a></h2></div>
+    <p><strong>Authors:</strong> Andrew Zhao, Daniel Huang, Quentin Xu, Matthieu Lin, Yong-Jin Liu, Gao Huang.</p>
+    <p><strong>Year:</strong> 2023.</p>
+    <p><strong>Why it matters for Ax:</strong> ExpeL distills reusable insights from successes and failures across tasks into a persistent pool injected at inference time. Ax's playbook snapshots are the operational version: lessons persist via <code>onUpdate</code>, seed fresh agents in later sessions, and dedupe deterministically so covered failures never re-spend model calls.</p>
+    </div>
+    <div class="paper-item-meta">
+      <a class="paper-arxiv-link" href="https://arxiv.org/abs/2308.10144">arXiv 2308.10144</a>
+    </div>
+  </article>
+
+  <article class="home-paper-item">
+    <div class="paper-item-main">
+      <div class="paper-title-row"><span class="paper-logo-mark paper-logo-arxiv" aria-label="arXiv"><span>ar</span><strong>X</strong><span>iv</span></span><h2><a href="https://arxiv.org/abs/2310.11511">Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection</a></h2></div>
+    <p><strong>Authors:</strong> Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, Hannaneh Hajishirzi.</p>
+    <p><strong>Year:</strong> 2023.</p>
+    <p><strong>Why it matters for Ax:</strong> Self-RAG interleaves generation with retrieval, self-critique, and citation of supporting passages. Ax's <code>citations</code> option carries the citation contract into agents: answers list the evidence ids they rely on, and the pipeline validates them with retry — the model cannot cite evidence it never collected.</p>
+    </div>
+    <div class="paper-item-meta">
+      <a class="paper-arxiv-link" href="https://arxiv.org/abs/2310.11511">arXiv 2310.11511</a>
+    </div>
+  </article>
+
+  <article class="home-paper-item">
+    <div class="paper-item-main">
+      <div class="paper-title-row"><span class="paper-logo-mark paper-logo-arxiv" aria-label="arXiv"><span>ar</span><strong>X</strong><span>iv</span></span><h2><a href="https://arxiv.org/abs/2212.08037">Attributed Question Answering: Evaluation and Modeling for Attributed Large Language Models</a></h2></div>
+    <p><strong>Authors:</strong> Bernd Bohnet, Vinh Q. Tran, Pat Verga, et al.</p>
+    <p><strong>Year:</strong> 2022.</p>
+    <p><strong>Why it matters for Ax:</strong> This line of work made attribution a first-class, measurable property of answers rather than an afterthought. Ax's validated <code>evidenceCitations</code> field is the practical form: existence-checked citations over the evidence the agent actually curated, with the honest limit stated in the docs (existence, not entailment).</p>
+    </div>
+    <div class="paper-item-meta">
+      <a class="paper-arxiv-link" href="https://arxiv.org/abs/2212.08037">arXiv 2212.08037</a>
+    </div>
+  </article>
+
+  <article class="home-paper-item">
+    <div class="paper-item-main">
+      <div class="paper-title-row"><span class="paper-logo-mark paper-logo-arxiv" aria-label="arXiv"><span>ar</span><strong>X</strong><span>iv</span></span><h2><a href="https://arxiv.org/abs/2310.02304">Self-Taught Optimizer (STOP): Recursively Self-Improving Code Generation</a></h2></div>
+    <p><strong>Authors:</strong> Eric Zelikman, Eliana Lorch, Lester Mackey, Adam Tauman Kalai.</p>
+    <p><strong>Year:</strong> 2023.</p>
+    <p><strong>Why it matters for Ax:</strong> STOP demonstrated recursive self-improvement of scaffolding — and that it only pays off with capable base models. That finding shapes <code>agent.improve()</code>: mining and judging are documented as strong-model work, and a deterministic grounding verifier discards diagnoses whose evidence quotes are not verbatim from the failing runs.</p>
+    </div>
+    <div class="paper-item-meta">
+      <a class="paper-arxiv-link" href="https://arxiv.org/abs/2310.02304">arXiv 2310.02304</a>
+      <div class="paper-logo-row"><span class="paper-logo-mark paper-logo-stanford">Stanford</span></div>
+    </div>
+  </article>
+
+  <article class="home-paper-item">
+    <div class="paper-item-main">
+      <div class="paper-title-row"><span class="paper-logo-mark paper-logo-arxiv" aria-label="arXiv"><span>ar</span><strong>X</strong><span>iv</span></span><h2><a href="https://arxiv.org/abs/2505.22954">Darwin Gödel Machine: Open-Ended Evolution of Self-Improving Agents</a></h2></div>
+    <p><strong>Authors:</strong> Jenny Zhang, Shengran Hu, Cong Lu, Robert Lange, Jeff Clune.</p>
+    <p><strong>Year:</strong> 2025.</p>
+    <p><strong>Why it matters for Ax:</strong> The DGM keeps only self-modifications that empirically improve benchmark scores. <code>agent.improve()</code> applies the same discipline to one agent: an edit lands only when the failing tasks improve and a held-out set does not regress; otherwise it rolls back exactly.</p>
+    </div>
+    <div class="paper-item-meta">
+      <a class="paper-arxiv-link" href="https://arxiv.org/abs/2505.22954">arXiv 2505.22954</a>
+    </div>
+  </article>
+
+  <article class="home-paper-item">
+    <div class="paper-item-main">
+      <div class="paper-title-row"><span class="paper-logo-mark paper-logo-arxiv" aria-label="arXiv"><span>ar</span><strong>X</strong><span>iv</span></span><h2><a href="https://arxiv.org/abs/2606.09498">Self-Harness: Harnesses That Improve Themselves</a></h2></div>
+    <p><strong>Authors:</strong> Hangfan Zhang, Shao Zhang, Kangcong Li, Chen Zhang, Yang Chen, Yiqun Zhang, Lei Bai, Shuyue Hu.</p>
+    <p><strong>Year:</strong> 2026.</p>
+    <p><strong>Why it matters for Ax:</strong> Self-Harness runs weakness mining over execution traces, proposes minimal harness edits, and accepts them only after regression validation. <code>agent.improve()</code> is that loop productized at the single-agent level: deterministic failure clustering, a grounded weakness miner that sees what the agent actually did, bounded playbook/instruction proposals, and a sequential accept gate with exact rollback.</p>
+    </div>
+    <div class="paper-item-meta">
+      <a class="paper-arxiv-link" href="https://arxiv.org/abs/2606.09498">arXiv 2606.09498</a>
+    </div>
+  </article>
+
+  <article class="home-paper-item">
+    <div class="paper-item-main">
+      <div class="paper-title-row"><h2><a href="https://lilianweng.github.io/posts/2026-07-04-harness/">Harness Engineering for Self-Improvement</a></h2></div>
+    <p><strong>Author:</strong> Lilian Weng.</p>
+    <p><strong>Year:</strong> 2026 (Lil'Log).</p>
+    <p><strong>Why it matters for Ax:</strong> A survey of the harness-engineering design space — workflow loops, persistent memory, context engineering, and self-improving harnesses. It maps directly onto Ax's RLM/ACE/GEPA/PEEK lineage above and motivated three shipped agent features: playbook failure learning, validated citations, and <code>agent.improve()</code>.</p>
+    </div>
+    <div class="paper-item-meta">
+      <a class="paper-arxiv-link" href="https://lilianweng.github.io/posts/2026-07-04-harness/">Lil'Log · 2026</a>
     </div>
   </article>
 </div>

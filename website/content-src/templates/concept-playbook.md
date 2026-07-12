@@ -70,4 +70,6 @@ const support = agent('ticket:string -> reply:string', {
 
 After each completed run that produced failure signals — error turns, repeated dead-ends, failing tool calls — one bounded playbook update (a single reflection + curation call; zero on clean runs) curates durable avoidance rules, and the refreshed playbook rides the actor prompt on the next run. Signatures already curated are skipped deterministically, so repeated failures do not re-spend LLM calls. Read the live handle via `agent.getPlaybook()`; tune gating with `learn: { minSignals, dedupe }` or disable with `learn: false`. TS-first: the five generated language ports do not ship the construction-time `playbook` option yet.
 
+Lineage: Reflexion (reflect on failures, retry better) and ExpeL (persist lessons across tasks) — see the [Research Map](/research/).
+
 See [Agents]({{langRoot}}/agents/) and [agent() API]({{langRoot}}/api/agent/).

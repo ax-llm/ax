@@ -45,6 +45,8 @@ Answers can be required to point at the evidence that grounds them. With `citati
 
 Be precise about the guarantee: validation proves every citation points at evidence that exists — the model cannot claim support from a source it never collected. It does not verify that the answer's claims match the cited evidence's content; that judgment stays with you (or a judge you add). Citation granularity follows how the actor curates evidence: one big `notes` blob yields one coarse citation, while separate keys per fact yield precise ones. TS-first: the five generated language ports do not ship citations yet.
 
+Lineage: Self-RAG (citation-aware generation) and Attributed QA (attribution as a measurable property) — see the [Research Map](/research/).
+
 ## The Knobs That Matter Here
 
 | Option | What it does |

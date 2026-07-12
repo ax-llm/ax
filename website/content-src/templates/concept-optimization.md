@@ -55,6 +55,8 @@ Use `agent.optimize(...)` for tool-use, clarification, delegation, and final-res
 
 Mining and judging need strong models; with weak teachers, weaknesses fail the grounding check and little is accepted. On small task sets, set `runsPerTask: 2` or `3` so accept decisions compare averaged scores instead of trusting a single (possibly lucky) run per task. TS-first: the five generated language ports do not ship `improve()` yet.
 
+Lineage: Self-Harness (mine weaknesses, validate edits), STOP (recursive improvement needs strong models), and the Darwin Gödel Machine (keep only what provably improves) — see the [Research Map](/research/).
+
 ### optimize() vs playbook() vs improve()
 
 | Use | When |
