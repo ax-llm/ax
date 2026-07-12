@@ -264,6 +264,41 @@ type AxMCPContinuationState struct {
 	CatalogFingerprint string `json:"catalogFingerprint"`
 }
 
+type AxEventEnvelope struct {
+	SpecVersion string `json:"specversion"`
+	ID string `json:"id"`
+	Source string `json:"source"`
+	Type string `json:"type"`
+	Subject string `json:"subject,omitempty"`
+	Data Value `json:"data,omitempty"`
+}
+
+func (e AxEventEnvelope) value() map[string]Value {
+	out:=map[string]Value{"specversion":e.SpecVersion,"id":e.ID,"source":e.Source,"type":e.Type}
+	if e.Subject!="" { out["subject"]=e.Subject }; if e.Data!=nil { out["data"]=e.Data }; return out
+}
+
+type AxEventRoute struct { ID string; Action string; Match map[string]Value; TargetID string; RequireAuthenticated bool; Ordering string; DebounceMs int64 }
+func (r AxEventRoute) value() map[string]Value { return map[string]Value{"id":r.ID,"action":r.Action,"match":r.Match,"targetId":r.TargetID,"requireAuthenticated":r.RequireAuthenticated,"ordering":r.Ordering,"debounceMs":r.DebounceMs} }
+type AxEventCommand struct { RouteID string; Action string; TargetID string; InstanceKey string; IdempotencyKey string }
+type AxEventSource interface { Start(func(AxEventEnvelope) error) error }
+type AxEventSink interface { Write(Value, map[string]Value) error }
+type AxEventClock interface { Now() int64 }
+type AxEventStore interface { Enqueue(AxEventEnvelope, []AxEventCommand) error }
+
+type AxEventRuntime struct { Routes []AxEventRoute; Options map[string]Value; Descriptor map[string]Value }
+func NewAxEventRuntime(routes []AxEventRoute, options map[string]Value) (*AxEventRuntime,error) {
+	values:=make([]Value,0,len(routes)); for _,route:=range routes{values=append(values,route.value())}
+	descriptor,err:=event_runtime_descriptor(values,options); if err!=nil{return nil,err}
+	return &AxEventRuntime{Routes:append([]AxEventRoute(nil),routes...),Options:options,Descriptor:asMap(descriptor)},nil
+}
+func (r *AxEventRuntime) Publish(event AxEventEnvelope, identityScope, trust string) ([]AxEventCommand,error) {
+	routes:=make([]Value,0,len(r.Routes)); for _,route:=range r.Routes{routes=append(routes,route.value())}
+	value,err:=event_route_commands(event.value(),routes,identityScope,trust); if err!=nil{return nil,err}
+	out:=[]AxEventCommand{}; for _,item:=range asSlice(value){m:=asMap(item);out=append(out,AxEventCommand{RouteID:display(m["routeId"]),Action:display(m["action"]),TargetID:display(m["targetId"]),InstanceKey:display(m["instanceKey"]),IdempotencyKey:display(m["idempotencyKey"])})};return out,nil
+}
+func NormalizeMCPEvent(namespace, method string, params Value) (map[string]Value,error) { value,err:=event_normalize_mcp(namespace,method,params);return asMap(value),err }
+
 type AxExecutionContext struct {
 	MCP []*AxMCPClient
 	UCP []*AxUCPClient

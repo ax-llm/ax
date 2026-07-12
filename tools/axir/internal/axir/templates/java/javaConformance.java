@@ -574,7 +574,20 @@ public final class Conformance {
       case "flow" -> runFlow(fixture);
       case "optimize" -> runOptimize(fixture);
       case "mcp" -> AxMCPClient.runConformanceFixture(fixture);
+      case "event" -> runEvent(fixture);
       default -> throw new FixtureError("unknown fixture kind " + kind);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  static void runEvent(Map<String,Object> fixture) {
+    String operation=String.valueOf(fixture.get("operation"));
+    switch(operation){
+      case "routing" -> assertEqual(Core.event_route_commands(fixture.get("event"),fixture.get("routes"),fixture.get("identity_scope"),fixture.get("trust")),fixture.get("expected"),"event routing");
+      case "retry" -> {for(Object item:(List<Object>)fixture.get("cases")){Map<String,Object> value=(Map<String,Object>)item;assertEqual(Core.event_retry_transition(value.get("invocation_started"),value.get("retry_safety"),value.get("attempt"),value.get("max_attempts")),value.get("expected"),"event retry");}}
+      case "continuation" -> {Map<String,Object> key=(Map<String,Object>)fixture.get("correlation");Object actual=Core.event_continuation_match(fixture.get("continuations"),fixture.get("identity_scope"),key.get("kind"),key.get("value"),fixture.get("now"));assertEqual(((Map<String,Object>)actual).get("id"),fixture.get("expected_id"),"event continuation");}
+      case "mcp_normalization" -> assertEqual(Core.event_normalize_mcp(fixture.get("namespace"),fixture.get("method"),fixture.get("params")),fixture.get("expected"),"event MCP normalization");
+      default -> throw new FixtureError("unsupported event operation "+operation);
     }
   }
 

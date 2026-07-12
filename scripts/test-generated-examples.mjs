@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readPublicExampleCatalog } from './example-catalog.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
@@ -71,6 +72,16 @@ const examples = [
 run(process.execPath, [runner, 'list']);
 for (const [language, file] of examples) {
   run(process.execPath, [runner, language, file]);
+}
+
+const catalog = await readPublicExampleCatalog({ repoRoot });
+for (const example of catalog.all.filter((value) => value.group === 'mcp')) {
+  run(process.execPath, [
+    runner,
+    example.language.runner,
+    example.sourcePath,
+    '--compile-only',
+  ]);
 }
 
 function run(command, args) {

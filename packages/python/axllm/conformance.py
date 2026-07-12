@@ -77,7 +77,7 @@ from .runtime_quickjs import AxQuickJsCodeRuntime
 from .schema import strip_internal, to_json_schema, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
-from .mcp import mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, run_mcp_conformance_fixture
+from .mcp import event_continuation_match, event_normalize_mcp, event_retry_transition, event_route_commands, mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, run_mcp_conformance_fixture
 
 
 class FixtureError(AssertionError):
@@ -529,6 +529,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_optimize(fixture)
         elif kind == "mcp":
             run_mcp_conformance_fixture(fixture)
+        elif kind == "event":
+            _run_event(fixture)
         else:
             raise FixtureError(f"unknown fixture kind {kind!r}")
     except Exception as exc:
@@ -536,6 +538,29 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             raise
         raise FixtureError(f"{name}: {type(exc).__name__}: {exc}") from exc
     return {"name": name, "ok": True}
+
+
+def _run_event(fixture):
+    operation = fixture.get("operation")
+    if operation == "routing":
+        actual = event_route_commands(fixture["event"], fixture["routes"], fixture["identity_scope"], fixture["trust"])
+        _assert_equal(actual, fixture["expected"], "event routing")
+        return
+    if operation == "retry":
+        for case in fixture["cases"]:
+            actual = event_retry_transition(case["invocation_started"], case["retry_safety"], case["attempt"], case["max_attempts"])
+            _assert_equal(actual, case["expected"], "event retry")
+        return
+    if operation == "continuation":
+        key = fixture["correlation"]
+        actual = event_continuation_match(fixture["continuations"], fixture["identity_scope"], key["kind"], key["value"], fixture["now"])
+        _assert_equal(actual.get("id") if actual else None, fixture["expected_id"], "event continuation")
+        return
+    if operation == "mcp_normalization":
+        actual = event_normalize_mcp(fixture["namespace"], fixture["method"], fixture["params"])
+        _assert_equal(actual, fixture["expected"], "event MCP normalization")
+        return
+    raise FixtureError(f"unsupported event operation {operation!r}")
 
 
 def _run_signature_error(fixture):

@@ -1,0 +1,21 @@
+{
+  "name": "event retry classification protects uncertain side effects",
+  "kind": "event",
+  "operation": "retry",
+  "cases": [
+    {
+      "invocation_started": true,
+      "retry_safety": "unknown",
+      "attempt": 1,
+      "max_attempts": 5,
+      "expected": { "retry": false, "status": "outcome_unknown" }
+    },
+    {
+      "invocation_started": true,
+      "retry_safety": "idempotent",
+      "attempt": 1,
+      "max_attempts": 5,
+      "expected": { "retry": true, "status": "failed" }
+    }
+  ]
+}

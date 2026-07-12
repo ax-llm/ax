@@ -10,7 +10,7 @@ candidate selection and feedback rounds, see [`docs/REFINE.md`](./REFINE.md).
 
 ## System Shape
 
-Ax has six main runtime surfaces:
+Ax has seven main runtime surfaces:
 
 1. **AxAI**: provider clients, model catalog metadata, chat, streaming,
    embeddings, transcribe/speak, audio/realtime operations, routing, and
@@ -28,7 +28,9 @@ Ax has six main runtime surfaces:
    caching, merge semantics, and `.returns()` output projection.
 5. **AxOptimize**: optimizable component inventory, evaluator rollouts,
    serialized artifacts, and optimizer engines including GEPA.
-6. **AxIR generated libraries**: Python, Java, C++, Go, and Rust packages emitted from
+6. **AxEventRuntime**: a protocol-neutral durable-inbox and explicit-route layer
+   for observing, invalidating, waking, and resuming Ax programs.
+7. **AxIR generated libraries**: Python, Java, C++, Go, and Rust packages emitted from
    the shared portable semantics.
 
 These surfaces are connected by the shared Ax program contract: `forward`,
@@ -52,6 +54,8 @@ The core TypeScript modules are:
 - `src/ax/agent/`: AxAgent pipeline, runtime/session policy, context budget,
   checkpointing, discovery, memory, delegation, and state
 - `src/ax/flow/`: AxFlow graph API, step model, executor, and planner
+- `src/ax/event/`: event envelopes, stores, sources, routes, continuations,
+  targets, sink delivery, and protocol adapters
 - `src/ax/funcs/`: JavaScript runtime, security policy helpers, sessions, and
   worker integration
 - `src/ax/trace/`: OpenTelemetry integration and portable trace data
@@ -150,6 +154,21 @@ returns, control flow, explicit parallel/merge, unknown reads, and unsafe state
 effects are planning barriers. Branch, while, feedback, node extension helpers,
 streaming cache short-circuit, stop/abort checkpoints, and merge errors are
 part of the portable graph semantics.
+
+## AxEventRuntime
+
+AxEventRuntime connects supervised sources to an inbox, selects an explicit
+route action, invokes an AxGen, AxAgent, or AxFlow target when authorized,
+persists the result, and then dispatches sinks. Protocol callbacks only publish
+events; they never invoke models directly. Event payloads remain untrusted data
+until a target's typed `mapInput` selects them.
+
+The in-memory store is volatile and single-worker. Crash-safe, cooperating
+multi-process execution requires the conforming SQLite store from the Node-only
+tools entry point. AxIR specifies deterministic routing, retry classification,
+continuation matching, and adapter normalization. Generated-language hosts own
+timers, listener supervision, and other asynchronous loops. See
+[`docs/EVENT_RUNTIME.md`](./EVENT_RUNTIME.md).
 
 ## Optimization And GEPA
 

@@ -44,6 +44,23 @@ def _core_is_none(value):
     return value is None
 
 
+def _core_and(left, right): return bool(left and right)
+def _core_or(left, right): return bool(left or right)
+def _core_not(value): return not bool(value)
+def _core_eq(left, right): return left == right
+def _core_lt(left, right): return left < right
+def _core_len(value): return len(value or [])
+def _core_contains(container, item): return False if container is None else item in container
+def _core_none(): return None
+
+
+def _core_string_format(template, *args):
+    rendered = str(template)
+    for value in args:
+        rendered = rendered.replace("{}", str(value), 1)
+    return rendered
+
+
 # AXIR_CORE_MCP_FUNCTIONS
 
 
@@ -88,6 +105,111 @@ class AxMCPContinuationState:
     tasks: list[dict[str, Any]]
     subscriptions: list[dict[str, Any]]
     catalogFingerprint: str
+
+
+@dataclass(frozen=True)
+class AxEventEnvelope:
+    id: str
+    source: str
+    type: str
+    data: Any = None
+    subject: str | None = None
+    specversion: str = "1.0"
+
+    def to_dict(self) -> dict[str, Any]:
+        value = {
+            "specversion": self.specversion,
+            "id": self.id,
+            "source": self.source,
+            "type": self.type,
+        }
+        if self.subject is not None:
+            value["subject"] = self.subject
+        if self.data is not None:
+            value["data"] = self.data
+        return value
+
+
+@dataclass(frozen=True)
+class AxEventRoute:
+    id: str
+    action: str
+    match: dict[str, Any]
+    targetId: str | None = None
+    requireAuthenticated: bool = False
+    ordering: str = "strict"
+    debounceMs: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "match": self.match,
+            "targetId": self.targetId,
+            "requireAuthenticated": self.requireAuthenticated,
+            "ordering": self.ordering,
+            "debounceMs": self.debounceMs,
+        }
+
+
+@dataclass(frozen=True)
+class AxEventCommand:
+    routeId: str
+    action: str
+    instanceKey: str
+    idempotencyKey: str
+    targetId: str | None = None
+
+
+class AxEventSource:
+    def start(self, publish: Callable[[dict[str, Any]], Any]) -> Any:
+        raise NotImplementedError
+
+
+class AxEventSink:
+    def write(self, output: Any, context: dict[str, Any]) -> None:
+        raise NotImplementedError
+
+
+class AxEventClock:
+    def now(self) -> float:
+        raise NotImplementedError
+
+
+class AxEventStore:
+    def enqueue(self, event: dict[str, Any], commands: list[dict[str, Any]]) -> None:
+        raise NotImplementedError
+
+
+class AxEventRuntime:
+    """Deterministic single-worker event state machine; hosts own async loops."""
+
+    def __init__(self, routes: list[AxEventRoute], options: dict[str, Any] | None = None):
+        self.routes = list(routes)
+        self.options = dict(options or {})
+        self.descriptor = event_runtime_descriptor(
+            [route.to_dict() for route in self.routes], self.options
+        )
+
+    def publish(
+        self,
+        event: AxEventEnvelope | dict[str, Any],
+        *,
+        identity_scope: str = "anonymous",
+        trust: str = "untrusted",
+    ) -> list[AxEventCommand]:
+        envelope = event.to_dict() if isinstance(event, AxEventEnvelope) else dict(event)
+        values = event_route_commands(
+            envelope,
+            [route.to_dict() for route in self.routes],
+            identity_scope,
+            trust,
+        )
+        return [AxEventCommand(**value) for value in values]
+
+    @staticmethod
+    def normalize_mcp(namespace: str, method: str, params: Any) -> dict[str, Any]:
+        return event_normalize_mcp(namespace, method, params)
 
 
 class AxMCPTransport:

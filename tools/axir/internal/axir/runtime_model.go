@@ -291,6 +291,8 @@ func BuildRuntimeModel(core Module) (AxRuntimeModel, error) {
 			"axmcp_stdio_transport":                        true,
 			"axmcp_oauth":                                  true,
 			"axmcp_execution_context":                      true,
+			"axevent":                                      true,
+			"axevent_runtime":                              true,
 			"axucp":                                        true,
 			"axucp_client":                                 true,
 			"axai_provider_descriptor_registry":            true,

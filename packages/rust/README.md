@@ -99,7 +99,7 @@ Optional runtime profiles are dependency-bearing and opt-in. Adapter policy owns
 
 - Compiler contract version: 0.1
 - Package: axllm
-- Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow, axmcp
+- Supported conformance suites: signature, schema, validation, prompt, axgen, axai, axagent, axoptimize, axprogram, axflow, axmcp, axevent
 - Provider mode: provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic
 - Scripted transport support: true
 - Real network support: available

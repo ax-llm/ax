@@ -110,6 +110,7 @@ export const requiredPublicExampleGroups = [
   'flows',
   'optimization',
   'audio',
+  'mcp',
 ];
 
 const requiredHeaderFields = new Set([

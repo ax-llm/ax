@@ -6133,6 +6133,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceOptimize(fixture)
 	case "mcp":
 		runMCPConformanceFixture(fixture)
+	case "event":
+		runConformanceEvent(fixture)
 	case "agent_forward":
 		runConformanceAgentForward(fixture)
 	case "agent_runtime_policy":
@@ -6149,6 +6151,22 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAgentRuntimeReal(fixture)
 	default:
 		panic(AxError{Category: "fixture", Message: "unsupported Go conformance fixture kind " + kind})
+	}
+}
+
+func runConformanceEvent(fixture map[string]Value) {
+	operation:=display(coreGet(fixture,"operation",""))
+	switch operation {
+	case "routing":
+		actual:=mustCore(event_route_commands(coreGet(fixture,"event",Object()),coreGet(fixture,"routes",Array()),coreGet(fixture,"identity_scope",""),coreGet(fixture,"trust","untrusted")))
+		assertEqual(actual,coreGet(fixture,"expected",Array()),"event routing")
+	case "retry":
+		for _,item:=range asSlice(coreGet(fixture,"cases",Array())){c:=asMap(item);actual:=mustCore(event_retry_transition(coreGet(c,"invocation_started",false),coreGet(c,"retry_safety","unknown"),coreGet(c,"attempt",float64(0)),coreGet(c,"max_attempts",float64(1))));assertEqual(actual,coreGet(c,"expected",Object()),"event retry")}
+	case "continuation":
+		key:=asMap(coreGet(fixture,"correlation",Object()));actual:=mustCore(event_continuation_match(coreGet(fixture,"continuations",Array()),coreGet(fixture,"identity_scope",""),coreGet(key,"kind",""),coreGet(key,"value",""),coreGet(fixture,"now",float64(0))));assertEqual(coreGet(asMap(actual),"id",nil),coreGet(fixture,"expected_id",nil),"event continuation")
+	case "mcp_normalization":
+		actual:=mustCore(event_normalize_mcp(coreGet(fixture,"namespace",""),coreGet(fixture,"method",""),coreGet(fixture,"params",Object())));assertEqual(actual,coreGet(fixture,"expected",Object()),"event MCP normalization")
+	default: panic(AxError{Category:"fixture",Message:"unsupported event operation "+operation})
 	}
 }
 

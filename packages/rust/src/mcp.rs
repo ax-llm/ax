@@ -549,6 +549,92 @@ pub struct AxMCPContinuationState {
     pub catalog_fingerprint: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AxEventEnvelope {
+    pub specversion: String,
+    pub id: String,
+    pub source: String,
+    #[serde(rename = "type")]
+    pub r#type: String,
+    pub subject: Option<String>,
+    pub data: Value,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AxEventRoute {
+    pub id: String,
+    pub action: String,
+    pub r#match: Value,
+    pub target_id: Option<String>,
+    pub require_authenticated: bool,
+    pub ordering: String,
+    pub debounce_ms: i64,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AxEventCommand {
+    pub route_id: String,
+    pub action: String,
+    pub target_id: Option<String>,
+    pub instance_key: String,
+    pub idempotency_key: String,
+}
+pub trait AxEventSource {
+    fn start(&mut self, publish: &mut dyn FnMut(AxEventEnvelope) -> AxResult<()>) -> AxResult<()>;
+}
+pub trait AxEventSink {
+    fn write(&mut self, output: Value, context: Value) -> AxResult<()>;
+}
+pub trait AxEventClock {
+    fn now(&self) -> i64;
+}
+pub trait AxEventStore {
+    fn enqueue(&mut self, event: AxEventEnvelope, commands: Vec<AxEventCommand>) -> AxResult<()>;
+}
+pub struct AxEventRuntime {
+    pub routes: Vec<AxEventRoute>,
+    pub options: Value,
+    pub descriptor: Value,
+}
+impl AxEventRuntime {
+    pub fn new(routes: Vec<AxEventRoute>, options: Value) -> AxResult<Self> {
+        let routes_json = serde_json::to_value(&routes)?;
+        let descriptor = crate::core_value_to_json(&crate::event_runtime_descriptor(&[
+            crate::core_value_from_json(&routes_json),
+            crate::core_value_from_json(&options),
+        ])?);
+        Ok(Self {
+            routes,
+            options,
+            descriptor,
+        })
+    }
+    pub fn publish(
+        &self,
+        event: AxEventEnvelope,
+        identity_scope: &str,
+        trust: &str,
+    ) -> AxResult<Vec<AxEventCommand>> {
+        let event_json = serde_json::to_value(event)?;
+        let routes_json = serde_json::to_value(&self.routes)?;
+        let value = crate::event_route_commands(&[
+            crate::core_value_from_json(&event_json),
+            crate::core_value_from_json(&routes_json),
+            crate::core_value_from_json(&json!(identity_scope)),
+            crate::core_value_from_json(&json!(trust)),
+        ])?;
+        Ok(serde_json::from_value(crate::core_value_to_json(&value))?)
+    }
+    pub fn normalize_mcp(namespace: &str, method: &str, params: Value) -> AxResult<Value> {
+        let value = crate::event_normalize_mcp(&[
+            crate::core_value_from_json(&json!(namespace)),
+            crate::core_value_from_json(&json!(method)),
+            crate::core_value_from_json(&params),
+        ])?;
+        Ok(crate::core_value_to_json(&value))
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct AxExecutionContext {
     pub mcp: Vec<Arc<Mutex<AxMCPClient>>>,

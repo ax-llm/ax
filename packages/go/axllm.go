@@ -35035,6 +35035,39 @@ func ucp_normalize_outcome(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func event_runtime_descriptor(args ...Value) (Value, error) {
+	axirCoverageMark("event_runtime_descriptor")
+	var v_routes Value
+	var v_options Value
+	var v_empty Value
+	var v_missing Value
+	var v_opts Value
+	var v_out Value
+	if len(args) > 0 { v_routes = args[0] }
+	_ = v_routes
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_empty
+	_ = v_missing
+	_ = v_opts
+	_ = v_out
+	v_empty = Object()
+	v_missing = _core_is_none(v_options)
+	v_opts = v_options
+	if coreTruthy(v_missing) {
+		v_opts = v_empty
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "routes", v_routes); err != nil { return nil, err }
+	if err := coreSet(v_out, "options", v_opts); err != nil { return nil, err }
+	if err := coreSet(v_out, "durability", "volatile"); err != nil { return nil, err }
+	if err := coreSet(v_out, "coordination", "single-worker"); err != nil { return nil, err }
+	if err := coreSet(v_out, "implicitWake", false); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func mcp_execution_context_descriptor(args ...Value) (Value, error) {
 	axirCoverageMark("mcp_execution_context_descriptor")
 	var v_namespaces Value
@@ -35058,6 +35091,132 @@ func mcp_execution_context_descriptor(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "native", true); err != nil { return nil, err }
 	if err := coreSet(v_out, "lossyAdapter", false); err != nil { return nil, err }
 	return v_out, nil
+}
+
+func event_route_commands(args ...Value) (Value, error) {
+	axirCoverageMark("event_route_commands")
+	var v_event Value
+	var v_routes Value
+	var v_identity_scope Value
+	var v_trust Value
+	var v_action Value
+	var v_allowed Value
+	var v_auth_allowed Value
+	var v_authenticated Value
+	var v_command Value
+	var v_commands Value
+	var v_event_id Value
+	var v_event_source Value
+	var v_event_type Value
+	var v_key Value
+	var v_match Value
+	var v_matched Value
+	var v_requires_auth Value
+	var v_route Value
+	var v_route_id Value
+	var v_source_count Value
+	var v_source_listed Value
+	var v_source_match Value
+	var v_source_open Value
+	var v_sources Value
+	var v_sources_empty Value
+	var v_subject Value
+	var v_target_id Value
+	var v_trusted Value
+	var v_type_count Value
+	var v_type_listed Value
+	var v_type_match Value
+	var v_type_open Value
+	var v_types Value
+	var v_types_empty Value
+	var v_verified Value
+	if len(args) > 0 { v_event = args[0] }
+	_ = v_event
+	if len(args) > 1 { v_routes = args[1] }
+	_ = v_routes
+	if len(args) > 2 { v_identity_scope = args[2] }
+	_ = v_identity_scope
+	if len(args) > 3 { v_trust = args[3] }
+	_ = v_trust
+	_ = v_action
+	_ = v_allowed
+	_ = v_auth_allowed
+	_ = v_authenticated
+	_ = v_command
+	_ = v_commands
+	_ = v_event_id
+	_ = v_event_source
+	_ = v_event_type
+	_ = v_key
+	_ = v_match
+	_ = v_matched
+	_ = v_requires_auth
+	_ = v_route
+	_ = v_route_id
+	_ = v_source_count
+	_ = v_source_listed
+	_ = v_source_match
+	_ = v_source_open
+	_ = v_sources
+	_ = v_sources_empty
+	_ = v_subject
+	_ = v_target_id
+	_ = v_trusted
+	_ = v_type_count
+	_ = v_type_listed
+	_ = v_type_match
+	_ = v_type_open
+	_ = v_types
+	_ = v_types_empty
+	_ = v_verified
+	v_commands = MutableArray()
+	v_event_type = coreGet(v_event, "type", "")
+	v_event_source = coreGet(v_event, "source", "")
+	v_subject = coreGet(v_event, "subject", v_identity_scope)
+	for _, v_route = range coreIter(v_routes) {
+		v_match = coreGet(v_route, "match", nil)
+		v_types_empty = MutableArray()
+		v_sources_empty = MutableArray()
+		v_types = coreGet(v_match, "types", v_types_empty)
+		v_sources = coreGet(v_match, "sources", v_sources_empty)
+		v_type_count = _core_len(v_types)
+		v_source_count = _core_len(v_sources)
+		v_type_open = _core_eq(v_type_count, 0)
+		v_source_open = _core_eq(v_source_count, 0)
+		v_type_listed = _core_contains(v_types, v_event_type)
+		v_source_listed = _core_contains(v_sources, v_event_source)
+		v_type_match = _core_or(v_type_open, v_type_listed)
+		v_source_match = _core_or(v_source_open, v_source_listed)
+		v_matched = _core_and(v_type_match, v_source_match)
+		v_requires_auth = coreGet(v_route, "requireAuthenticated", false)
+		v_authenticated = _core_eq(v_trust, "authenticated")
+		v_trusted = _core_eq(v_trust, "trusted")
+		v_verified = _core_or(v_authenticated, v_trusted)
+		v_auth_allowed = true
+		if coreTruthy(v_requires_auth) {
+			v_auth_allowed = v_verified
+		} else {
+		// empty
+		}
+		v_allowed = _core_and(v_matched, v_auth_allowed)
+		if coreTruthy(v_allowed) {
+			v_route_id = coreGet(v_route, "id", "")
+			v_action = coreGet(v_route, "action", "observe")
+			v_target_id = coreGet(v_route, "targetId", nil)
+			v_command = Object()
+			if err := coreSet(v_command, "routeId", v_route_id); err != nil { return nil, err }
+			if err := coreSet(v_command, "action", v_action); err != nil { return nil, err }
+			if err := coreSet(v_command, "targetId", v_target_id); err != nil { return nil, err }
+			if err := coreSet(v_command, "instanceKey", v_subject); err != nil { return nil, err }
+			v_event_id = coreGet(v_event, "id", "")
+			v_key = _core_string_format("{}:{}", v_route_id, v_event_id)
+			if err := coreSet(v_command, "idempotencyKey", v_key); err != nil { return nil, err }
+			v_commands = coreAppend(v_commands, v_command)
+		} else {
+		// empty
+		}
+	}
+	return v_commands, nil
 }
 
 func mcp_protocol_constants(args ...Value) (Value, error) {
@@ -35129,6 +35288,53 @@ func mcp_jsonrpc_notification(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func event_retry_transition(args ...Value) (Value, error) {
+	axirCoverageMark("event_retry_transition")
+	var v_invocation_started Value
+	var v_retry_safety Value
+	var v_attempt Value
+	var v_max_attempts Value
+	var v_can_retry Value
+	var v_idempotent Value
+	var v_out Value
+	var v_pre_invocation Value
+	var v_retry Value
+	var v_safe Value
+	if len(args) > 0 { v_invocation_started = args[0] }
+	_ = v_invocation_started
+	if len(args) > 1 { v_retry_safety = args[1] }
+	_ = v_retry_safety
+	if len(args) > 2 { v_attempt = args[2] }
+	_ = v_attempt
+	if len(args) > 3 { v_max_attempts = args[3] }
+	_ = v_max_attempts
+	_ = v_can_retry
+	_ = v_idempotent
+	_ = v_out
+	_ = v_pre_invocation
+	_ = v_retry
+	_ = v_safe
+	v_out = Object()
+	v_idempotent = _core_eq(v_retry_safety, "idempotent")
+	v_can_retry = _core_lt(v_attempt, v_max_attempts)
+	v_pre_invocation = _core_not(v_invocation_started)
+	v_safe = _core_or(v_pre_invocation, v_idempotent)
+	v_retry = _core_and(v_safe, v_can_retry)
+	if err := coreSet(v_out, "retry", v_retry); err != nil { return nil, err }
+	if err := coreSet(v_out, "status", "failed"); err != nil { return nil, err }
+	if coreTruthy(v_invocation_started) {
+		if coreTruthy(v_idempotent) {
+		// empty
+		} else {
+			if err := coreSet(v_out, "status", "outcome_unknown"); err != nil { return nil, err }
+			if err := coreSet(v_out, "retry", false); err != nil { return nil, err }
+		}
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
 func mcp_normalize_error(args ...Value) (Value, error) {
 	axirCoverageMark("mcp_normalize_error")
 	var v_response Value
@@ -35170,6 +35376,183 @@ func mcp_normalize_error(args ...Value) (Value, error) {
 		if err := coreSet(v_out, "data", v_data); err != nil { return nil, err }
 		return v_out, nil
 	}
+}
+
+func event_continuation_match(args ...Value) (Value, error) {
+	axirCoverageMark("event_continuation_match")
+	var v_continuations Value
+	var v_identity_scope Value
+	var v_kind Value
+	var v_value Value
+	var v_now Value
+	var v_active Value
+	var v_candidate_kind Value
+	var v_candidate_value Value
+	var v_continuation Value
+	var v_correlation Value
+	var v_correlations Value
+	var v_correlations_empty Value
+	var v_expires Value
+	var v_key_match Value
+	var v_kind_match Value
+	var v_match Value
+	var v_no_expiry Value
+	var v_result Value
+	var v_scope Value
+	var v_scope_active Value
+	var v_scope_match Value
+	var v_value_match Value
+	if len(args) > 0 { v_continuations = args[0] }
+	_ = v_continuations
+	if len(args) > 1 { v_identity_scope = args[1] }
+	_ = v_identity_scope
+	if len(args) > 2 { v_kind = args[2] }
+	_ = v_kind
+	if len(args) > 3 { v_value = args[3] }
+	_ = v_value
+	if len(args) > 4 { v_now = args[4] }
+	_ = v_now
+	_ = v_active
+	_ = v_candidate_kind
+	_ = v_candidate_value
+	_ = v_continuation
+	_ = v_correlation
+	_ = v_correlations
+	_ = v_correlations_empty
+	_ = v_expires
+	_ = v_key_match
+	_ = v_kind_match
+	_ = v_match
+	_ = v_no_expiry
+	_ = v_result
+	_ = v_scope
+	_ = v_scope_active
+	_ = v_scope_match
+	_ = v_value_match
+	v_result = _core_none()
+	for _, v_continuation = range coreIter(v_continuations) {
+		v_scope = coreGet(v_continuation, "identityScope", "")
+		v_scope_match = _core_eq(v_scope, v_identity_scope)
+		v_expires = coreGet(v_continuation, "expiresAt", nil)
+		v_no_expiry = _core_is_none(v_expires)
+		v_active = v_no_expiry
+		if coreTruthy(v_no_expiry) {
+		// empty
+		} else {
+			v_active = _core_lt(v_now, v_expires)
+		}
+		v_correlations_empty = MutableArray()
+		v_correlations = coreGet(v_continuation, "correlation", v_correlations_empty)
+		for _, v_correlation = range coreIter(v_correlations) {
+			v_candidate_kind = coreGet(v_correlation, "kind", "")
+			v_candidate_value = coreGet(v_correlation, "value", "")
+			v_kind_match = _core_eq(v_candidate_kind, v_kind)
+			v_value_match = _core_eq(v_candidate_value, v_value)
+			v_key_match = _core_and(v_kind_match, v_value_match)
+			v_scope_active = _core_and(v_scope_match, v_active)
+			v_match = _core_and(v_scope_active, v_key_match)
+			if coreTruthy(v_match) {
+				v_result = v_continuation
+			} else {
+			// empty
+			}
+		}
+	}
+	return v_result, nil
+}
+
+func event_normalize_mcp(args ...Value) (Value, error) {
+	axirCoverageMark("event_normalize_mcp")
+	var v_namespace Value
+	var v_method Value
+	var v_params Value
+	var v_correlation Value
+	var v_logging Value
+	var v_out Value
+	var v_progress Value
+	var v_prompts Value
+	var v_resource Value
+	var v_resources Value
+	var v_source Value
+	var v_task Value
+	var v_task_id Value
+	var v_task_key Value
+	var v_task_value Value
+	var v_tools Value
+	if len(args) > 0 { v_namespace = args[0] }
+	_ = v_namespace
+	if len(args) > 1 { v_method = args[1] }
+	_ = v_method
+	if len(args) > 2 { v_params = args[2] }
+	_ = v_params
+	_ = v_correlation
+	_ = v_logging
+	_ = v_out
+	_ = v_progress
+	_ = v_prompts
+	_ = v_resource
+	_ = v_resources
+	_ = v_source
+	_ = v_task
+	_ = v_task_id
+	_ = v_task_key
+	_ = v_task_value
+	_ = v_tools
+	v_out = Object()
+	v_source = _core_string_format("mcp://{}", v_namespace)
+	if err := coreSet(v_out, "source", v_source); err != nil { return nil, err }
+	if err := coreSet(v_out, "type", "mcp.notification"); err != nil { return nil, err }
+	if err := coreSet(v_out, "data", v_params); err != nil { return nil, err }
+	v_resource = _core_eq(v_method, "notifications/resources/updated")
+	v_tools = _core_eq(v_method, "notifications/tools/list_changed")
+	v_prompts = _core_eq(v_method, "notifications/prompts/list_changed")
+	v_resources = _core_eq(v_method, "notifications/resources/list_changed")
+	v_progress = _core_eq(v_method, "notifications/progress")
+	v_logging = _core_eq(v_method, "notifications/message")
+	v_task = _core_eq(v_method, "notifications/tasks/status")
+	if coreTruthy(v_resource) {
+		if err := coreSet(v_out, "type", "mcp.resource.updated"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_tools) {
+		if err := coreSet(v_out, "type", "mcp.catalog.changed"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_prompts) {
+		if err := coreSet(v_out, "type", "mcp.catalog.changed"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_resources) {
+		if err := coreSet(v_out, "type", "mcp.catalog.changed"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_progress) {
+		if err := coreSet(v_out, "type", "mcp.progress"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_logging) {
+		if err := coreSet(v_out, "type", "mcp.logging"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_task) {
+		if err := coreSet(v_out, "type", "mcp.task.status"); err != nil { return nil, err }
+		v_task_value = coreGet(v_params, "task", v_params)
+		v_task_id = coreGet(v_task_value, "taskId", "")
+		v_task_key = _core_string_format("{}:{}", v_namespace, v_task_id)
+		v_correlation = Object()
+		if err := coreSet(v_correlation, "kind", "mcp.task"); err != nil { return nil, err }
+		if err := coreSet(v_correlation, "value", v_task_key); err != nil { return nil, err }
+		if err := coreSet(v_out, "correlation", v_correlation); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 // END AXIR CORE EMITTED FUNCTIONS
@@ -40042,6 +40425,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceOptimize(fixture)
 	case "mcp":
 		runMCPConformanceFixture(fixture)
+	case "event":
+		runConformanceEvent(fixture)
 	case "agent_forward":
 		runConformanceAgentForward(fixture)
 	case "agent_runtime_policy":
@@ -40058,6 +40443,22 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAgentRuntimeReal(fixture)
 	default:
 		panic(AxError{Category: "fixture", Message: "unsupported Go conformance fixture kind " + kind})
+	}
+}
+
+func runConformanceEvent(fixture map[string]Value) {
+	operation:=display(coreGet(fixture,"operation",""))
+	switch operation {
+	case "routing":
+		actual:=mustCore(event_route_commands(coreGet(fixture,"event",Object()),coreGet(fixture,"routes",Array()),coreGet(fixture,"identity_scope",""),coreGet(fixture,"trust","untrusted")))
+		assertEqual(actual,coreGet(fixture,"expected",Array()),"event routing")
+	case "retry":
+		for _,item:=range asSlice(coreGet(fixture,"cases",Array())){c:=asMap(item);actual:=mustCore(event_retry_transition(coreGet(c,"invocation_started",false),coreGet(c,"retry_safety","unknown"),coreGet(c,"attempt",float64(0)),coreGet(c,"max_attempts",float64(1))));assertEqual(actual,coreGet(c,"expected",Object()),"event retry")}
+	case "continuation":
+		key:=asMap(coreGet(fixture,"correlation",Object()));actual:=mustCore(event_continuation_match(coreGet(fixture,"continuations",Array()),coreGet(fixture,"identity_scope",""),coreGet(key,"kind",""),coreGet(key,"value",""),coreGet(fixture,"now",float64(0))));assertEqual(coreGet(asMap(actual),"id",nil),coreGet(fixture,"expected_id",nil),"event continuation")
+	case "mcp_normalization":
+		actual:=mustCore(event_normalize_mcp(coreGet(fixture,"namespace",""),coreGet(fixture,"method",""),coreGet(fixture,"params",Object())));assertEqual(actual,coreGet(fixture,"expected",Object()),"event MCP normalization")
+	default: panic(AxError{Category:"fixture",Message:"unsupported event operation "+operation})
 	}
 }
 

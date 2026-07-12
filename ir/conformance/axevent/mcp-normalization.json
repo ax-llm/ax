@@ -1,0 +1,27 @@
+{
+  "name": "MCP terminal task notification normalizes to event correlation",
+  "kind": "event",
+  "operation": "mcp_normalization",
+  "namespace": "inventory",
+  "method": "notifications/tasks/status",
+  "params": {
+    "task": {
+      "taskId": "42",
+      "status": "completed"
+    }
+  },
+  "expected": {
+    "source": "mcp://inventory",
+    "type": "mcp.task.status",
+    "data": {
+      "task": {
+        "taskId": "42",
+        "status": "completed"
+      }
+    },
+    "correlation": {
+      "kind": "mcp.task",
+      "value": "inventory:42"
+    }
+  }
+}

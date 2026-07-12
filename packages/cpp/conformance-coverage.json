@@ -148,6 +148,36 @@
         "category": "validation-error"
       }
     ],
+    "axevent": [
+      {
+        "suite": "axevent",
+        "kind": "event",
+        "operation": "routing",
+        "runner": "cpp:axevent.routing",
+        "category": "semantic"
+      },
+      {
+        "suite": "axevent",
+        "kind": "event",
+        "operation": "retry",
+        "runner": "cpp:axevent.retry",
+        "category": "semantic"
+      },
+      {
+        "suite": "axevent",
+        "kind": "event",
+        "operation": "continuation",
+        "runner": "cpp:axevent.continuation",
+        "category": "semantic"
+      },
+      {
+        "suite": "axevent",
+        "kind": "event",
+        "operation": "mcp_normalization",
+        "runner": "cpp:axevent.mcp_normalization",
+        "category": "semantic"
+      }
+    ],
     "axflow": [
       {
         "suite": "axflow",

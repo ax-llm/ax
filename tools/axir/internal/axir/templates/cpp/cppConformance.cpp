@@ -2293,6 +2293,13 @@ static void run(Value fixture) {
     run_optimize(fixture);
   } else if (kind == "mcp") {
     run_mcp_conformance_fixture(fixture);
+  } else if (kind == "event") {
+    auto operation=display(Core::get(fixture,"operation",""));
+    if(operation=="routing")assert_equal(Core::event_route_commands(Core::get(fixture,"event"),Core::get(fixture,"routes"),Core::get(fixture,"identity_scope"),Core::get(fixture,"trust")),Core::get(fixture,"expected"),"event routing");
+    else if(operation=="retry"){for(auto item:Core::iter(Core::get(fixture,"cases"))){assert_equal(Core::event_retry_transition(Core::get(item,"invocation_started"),Core::get(item,"retry_safety"),Core::get(item,"attempt"),Core::get(item,"max_attempts")),Core::get(item,"expected"),"event retry");}}
+    else if(operation=="continuation"){auto key=Core::get(fixture,"correlation");auto actual=Core::event_continuation_match(Core::get(fixture,"continuations"),Core::get(fixture,"identity_scope"),Core::get(key,"kind"),Core::get(key,"value"),Core::get(fixture,"now"));assert_equal(Core::get(actual,"id"),Core::get(fixture,"expected_id"),"event continuation");}
+    else if(operation=="mcp_normalization")assert_equal(Core::event_normalize_mcp(Core::get(fixture,"namespace"),Core::get(fixture,"method"),Core::get(fixture,"params")),Core::get(fixture,"expected"),"event MCP normalization");
+    else throw AxError("fixture","unsupported event operation "+operation);
   } else if (kind == "ai_chat") {
     run_ai_chat(fixture);
   } else if (kind == "ai_embed") {

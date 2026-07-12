@@ -1,0 +1,23 @@
+{
+  "name": "event continuation matching is tenant scoped and expires",
+  "kind": "event",
+  "operation": "continuation",
+  "continuations": [
+    {
+      "id": "other-tenant",
+      "identityScope": "tenant:other",
+      "expiresAt": 2000,
+      "correlation": [{ "kind": "mcp.task", "value": "inventory:42" }]
+    },
+    {
+      "id": "owner",
+      "identityScope": "tenant:acme",
+      "expiresAt": 2000,
+      "correlation": [{ "kind": "mcp.task", "value": "inventory:42" }]
+    }
+  ],
+  "identity_scope": "tenant:acme",
+  "correlation": { "kind": "mcp.task", "value": "inventory:42" },
+  "now": 1000,
+  "expected_id": "owner"
+}

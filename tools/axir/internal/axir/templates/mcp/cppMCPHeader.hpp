@@ -122,6 +122,38 @@ struct AxMCPContinuationState {
   std::string catalog_fingerprint;
 };
 
+struct AxEventEnvelope {
+  std::string specversion = "1.0";
+  std::string id;
+  std::string source;
+  std::string type;
+  std::string subject;
+  Value data;
+  Value value() const {
+    Value out=Value::object(); Core::set(out,"specversion",specversion);Core::set(out,"id",id);Core::set(out,"source",source);Core::set(out,"type",type);
+    if(!subject.empty())Core::set(out,"subject",subject);if(!data.is_null())Core::set(out,"data",data);return out;
+  }
+};
+struct AxEventRoute {
+  std::string id;std::string action;Value match=Value::object();std::string targetId;bool requireAuthenticated=false;std::string ordering="strict";long debounceMs=0;
+  Value value() const {Value out=Value::object();Core::set(out,"id",id);Core::set(out,"action",action);Core::set(out,"match",match);Core::set(out,"targetId",targetId);Core::set(out,"requireAuthenticated",requireAuthenticated);Core::set(out,"ordering",ordering);Core::set(out,"debounceMs",debounceMs);return out;}
+};
+struct AxEventCommand {std::string routeId;std::string action;std::string targetId;std::string instanceKey;std::string idempotencyKey;};
+class AxEventSource {public:virtual ~AxEventSource()=default;virtual void start(std::function<void(AxEventEnvelope)> publish)=0;};
+class AxEventSink {public:virtual ~AxEventSink()=default;virtual void write(Value output,Value context)=0;};
+class AxEventClock {public:virtual ~AxEventClock()=default;virtual long now() const=0;};
+class AxEventStore {public:virtual ~AxEventStore()=default;virtual void enqueue(AxEventEnvelope event,Value commands)=0;};
+class AxEventRuntime {
+ public:
+  explicit AxEventRuntime(std::vector<AxEventRoute> routes,Value options=Value::object()):routes_(std::move(routes)),options_(std::move(options)){
+    Value values=Value::array();for(const auto& route:routes_)Core::append(values,route.value());descriptor_=Core::event_runtime_descriptor(values,options_);
+  }
+  Value publish(const AxEventEnvelope& event,const std::string& identity_scope="anonymous",const std::string& trust="untrusted") const {Value values=Value::array();for(const auto& route:routes_)Core::append(values,route.value());return Core::event_route_commands(event.value(),values,identity_scope,trust);}
+  static Value normalize_mcp(const std::string& namespace_name,const std::string& method,Value params){return Core::event_normalize_mcp(namespace_name,method,std::move(params));}
+  Value descriptor()const{return descriptor_;}
+ private:std::vector<AxEventRoute> routes_;Value options_;Value descriptor_;
+};
+
 class AxExecutionContext {
  public:
   AxExecutionContext(std::vector<std::shared_ptr<AxMCPClient>> mcp = {}, std::vector<std::shared_ptr<AxUCPClient>> ucp = {});

@@ -1,8 +1,9 @@
 pub mod mcp;
 pub use mcp::{
-    AxExecutionContext, AxMCPClient, AxMCPContinuationState, AxMCPOAuthOptions,
-    AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxUCPBinding,
-    AxUCPClient,
+    AxEventClock, AxEventCommand, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink,
+    AxEventSource, AxEventStore, AxExecutionContext, AxMCPClient, AxMCPContinuationState,
+    AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet,
+    AxMCPTransport, AxUCPBinding, AxUCPClient,
 };
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
@@ -6158,9 +6159,81 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "optimize" => run_optimize_fixture(&fixture)?,
         "program_contract" => run_program_contract_fixture(&fixture)?,
         "mcp" => mcp::run_mcp_conformance_fixture(&fixture)?,
+        "event" => run_event_fixture(&fixture)?,
         _ => run_explicit_non_ai_conformance_fixture(kind, &fixture)?,
     }
     Ok(())
+}
+
+fn run_event_fixture(fixture: &Value) -> AxResult<()> {
+    let operation = fixture
+        .get("operation")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let call =
+        |result: Result<CoreValue, AxError>, expected: &Value, label: &str| -> AxResult<()> {
+            let actual = core_value_to_json(&result?);
+            if &actual != expected {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("{label} mismatch: expected {expected}, got {actual}"),
+                ));
+            }
+            Ok(())
+        };
+    match operation {
+        "routing" => call(
+            event_route_commands(&[
+                core_value_from_json(&fixture["event"]),
+                core_value_from_json(&fixture["routes"]),
+                core_value_from_json(&fixture["identity_scope"]),
+                core_value_from_json(&fixture["trust"]),
+            ]),
+            &fixture["expected"],
+            "event routing",
+        ),
+        "retry" => {
+            for case in fixture["cases"].as_array().cloned().unwrap_or_default() {
+                call(
+                    event_retry_transition(&[
+                        core_value_from_json(&case["invocation_started"]),
+                        core_value_from_json(&case["retry_safety"]),
+                        core_value_from_json(&case["attempt"]),
+                        core_value_from_json(&case["max_attempts"]),
+                    ]),
+                    &case["expected"],
+                    "event retry",
+                )?;
+            }
+            Ok(())
+        }
+        "continuation" => {
+            let actual = core_value_to_json(&event_continuation_match(&[
+                core_value_from_json(&fixture["continuations"]),
+                core_value_from_json(&fixture["identity_scope"]),
+                core_value_from_json(&fixture["correlation"]["kind"]),
+                core_value_from_json(&fixture["correlation"]["value"]),
+                core_value_from_json(&fixture["now"]),
+            ])?);
+            if actual.get("id") != fixture.get("expected_id") {
+                return Err(AxError::new("fixture", "event continuation mismatch"));
+            }
+            Ok(())
+        }
+        "mcp_normalization" => call(
+            event_normalize_mcp(&[
+                core_value_from_json(&fixture["namespace"]),
+                core_value_from_json(&fixture["method"]),
+                core_value_from_json(&fixture["params"]),
+            ]),
+            &fixture["expected"],
+            "event MCP normalization",
+        ),
+        _ => Err(AxError::new(
+            "fixture",
+            format!("unsupported event operation {operation}"),
+        )),
+    }
 }
 
 fn run_explicit_non_ai_conformance_fixture(kind: &str, _fixture: &Value) -> AxResult<()> {
@@ -56476,6 +56549,48 @@ fn ucp_normalize_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn event_runtime_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_runtime_descriptor");
+    let mut v_routes = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_empty = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_empty = CoreValue::new_map();
+    v_missing = core_is_none(&[v_options.clone()])?;
+    v_opts = v_options.clone();
+    if core_truthy(&v_missing) {
+        v_opts = v_empty.clone();
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("routes"), v_routes.clone())?;
+    core_set(&v_out, CoreValue::from("options"), v_opts.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("durability"),
+        CoreValue::from("volatile"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("coordination"),
+        CoreValue::from("single-worker"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("implicitWake"),
+        CoreValue::Bool(false),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn mcp_execution_context_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_execution_context_descriptor");
     let mut v_namespaces = core_arg(args, 0);
@@ -56505,6 +56620,121 @@ fn mcp_execution_context_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxE
         CoreValue::Bool(false),
     )?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_route_commands(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_route_commands");
+    let mut v_event = core_arg(args, 0);
+    let mut v_routes = core_arg(args, 1);
+    let mut v_identity_scope = core_arg(args, 2);
+    let mut v_trust = core_arg(args, 3);
+    let mut v_action = CoreValue::Null;
+    let mut v_allowed = CoreValue::Null;
+    let mut v_auth_allowed = CoreValue::Null;
+    let mut v_authenticated = CoreValue::Null;
+    let mut v_command = CoreValue::Null;
+    let mut v_commands = CoreValue::Null;
+    let mut v_event_id = CoreValue::Null;
+    let mut v_event_source = CoreValue::Null;
+    let mut v_event_type = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_match = CoreValue::Null;
+    let mut v_matched = CoreValue::Null;
+    let mut v_requires_auth = CoreValue::Null;
+    let mut v_route = CoreValue::Null;
+    let mut v_route_id = CoreValue::Null;
+    let mut v_source_count = CoreValue::Null;
+    let mut v_source_listed = CoreValue::Null;
+    let mut v_source_match = CoreValue::Null;
+    let mut v_source_open = CoreValue::Null;
+    let mut v_sources = CoreValue::Null;
+    let mut v_sources_empty = CoreValue::Null;
+    let mut v_subject = CoreValue::Null;
+    let mut v_target_id = CoreValue::Null;
+    let mut v_trusted = CoreValue::Null;
+    let mut v_type_count = CoreValue::Null;
+    let mut v_type_listed = CoreValue::Null;
+    let mut v_type_match = CoreValue::Null;
+    let mut v_type_open = CoreValue::Null;
+    let mut v_types = CoreValue::Null;
+    let mut v_types_empty = CoreValue::Null;
+    let mut v_verified = CoreValue::Null;
+    v_commands = CoreValue::new_list();
+    v_event_type = core_get(&v_event, &CoreValue::from("type"), CoreValue::from(""));
+    v_event_source = core_get(&v_event, &CoreValue::from("source"), CoreValue::from(""));
+    v_subject = core_get(
+        &v_event,
+        &CoreValue::from("subject"),
+        v_identity_scope.clone(),
+    );
+    for v_route in core_iter(&v_routes)? {
+        let mut v_route = v_route;
+        v_match = core_get(&v_route, &CoreValue::from("match"), CoreValue::Null);
+        v_types_empty = CoreValue::new_list();
+        v_sources_empty = CoreValue::new_list();
+        v_types = core_get(&v_match, &CoreValue::from("types"), v_types_empty.clone());
+        v_sources = core_get(
+            &v_match,
+            &CoreValue::from("sources"),
+            v_sources_empty.clone(),
+        );
+        v_type_count = core_len(&[v_types.clone()])?;
+        v_source_count = core_len(&[v_sources.clone()])?;
+        v_type_open = core_eq(&[v_type_count.clone(), CoreValue::Num(0f64)])?;
+        v_source_open = core_eq(&[v_source_count.clone(), CoreValue::Num(0f64)])?;
+        v_type_listed = core_contains(&[v_types.clone(), v_event_type.clone()])?;
+        v_source_listed = core_contains(&[v_sources.clone(), v_event_source.clone()])?;
+        v_type_match = core_or(&[v_type_open.clone(), v_type_listed.clone()])?;
+        v_source_match = core_or(&[v_source_open.clone(), v_source_listed.clone()])?;
+        v_matched = core_and(&[v_type_match.clone(), v_source_match.clone()])?;
+        v_requires_auth = core_get(
+            &v_route,
+            &CoreValue::from("requireAuthenticated"),
+            CoreValue::Bool(false),
+        );
+        v_authenticated = core_eq(&[v_trust.clone(), CoreValue::from("authenticated")])?;
+        v_trusted = core_eq(&[v_trust.clone(), CoreValue::from("trusted")])?;
+        v_verified = core_or(&[v_authenticated.clone(), v_trusted.clone()])?;
+        v_auth_allowed = CoreValue::Bool(true);
+        if core_truthy(&v_requires_auth) {
+            v_auth_allowed = v_verified.clone();
+        }
+        v_allowed = core_and(&[v_matched.clone(), v_auth_allowed.clone()])?;
+        if core_truthy(&v_allowed) {
+            v_route_id = core_get(&v_route, &CoreValue::from("id"), CoreValue::from(""));
+            v_action = core_get(
+                &v_route,
+                &CoreValue::from("action"),
+                CoreValue::from("observe"),
+            );
+            v_target_id = core_get(&v_route, &CoreValue::from("targetId"), CoreValue::Null);
+            v_command = CoreValue::new_map();
+            core_set(&v_command, CoreValue::from("routeId"), v_route_id.clone())?;
+            core_set(&v_command, CoreValue::from("action"), v_action.clone())?;
+            core_set(&v_command, CoreValue::from("targetId"), v_target_id.clone())?;
+            core_set(
+                &v_command,
+                CoreValue::from("instanceKey"),
+                v_subject.clone(),
+            )?;
+            v_event_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::from(""));
+            v_key = core_string_format(&[
+                CoreValue::from("{}:{}"),
+                v_route_id.clone(),
+                v_event_id.clone(),
+            ])?;
+            core_set(&v_command, CoreValue::from("idempotencyKey"), v_key.clone())?;
+            core_append(&v_commands, v_command.clone())?;
+        }
+    }
+    return Ok(v_commands.clone());
 }
 
 #[allow(
@@ -56594,6 +56824,47 @@ fn mcp_jsonrpc_notification(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn event_retry_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_retry_transition");
+    let mut v_invocation_started = core_arg(args, 0);
+    let mut v_retry_safety = core_arg(args, 1);
+    let mut v_attempt = core_arg(args, 2);
+    let mut v_max_attempts = core_arg(args, 3);
+    let mut v_can_retry = CoreValue::Null;
+    let mut v_idempotent = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_pre_invocation = CoreValue::Null;
+    let mut v_retry = CoreValue::Null;
+    let mut v_safe = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_idempotent = core_eq(&[v_retry_safety.clone(), CoreValue::from("idempotent")])?;
+    v_can_retry = core_lt(&[v_attempt.clone(), v_max_attempts.clone()])?;
+    v_pre_invocation = core_not(&[v_invocation_started.clone()])?;
+    v_safe = core_or(&[v_pre_invocation.clone(), v_idempotent.clone()])?;
+    v_retry = core_and(&[v_safe.clone(), v_can_retry.clone()])?;
+    core_set(&v_out, CoreValue::from("retry"), v_retry.clone())?;
+    core_set(&v_out, CoreValue::from("status"), CoreValue::from("failed"))?;
+    if core_truthy(&v_invocation_started) {
+        if core_truthy(&v_idempotent) {
+        } else {
+            core_set(
+                &v_out,
+                CoreValue::from("status"),
+                CoreValue::from("outcome_unknown"),
+            )?;
+            core_set(&v_out, CoreValue::from("retry"), CoreValue::Bool(false))?;
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_normalize_error");
     let mut v_response = core_arg(args, 0);
@@ -56632,4 +56903,217 @@ fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_response.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (439 of 439 core functions)
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_continuation_match(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_continuation_match");
+    let mut v_continuations = core_arg(args, 0);
+    let mut v_identity_scope = core_arg(args, 1);
+    let mut v_kind = core_arg(args, 2);
+    let mut v_value = core_arg(args, 3);
+    let mut v_now = core_arg(args, 4);
+    let mut v_active = CoreValue::Null;
+    let mut v_candidate_kind = CoreValue::Null;
+    let mut v_candidate_value = CoreValue::Null;
+    let mut v_continuation = CoreValue::Null;
+    let mut v_correlation = CoreValue::Null;
+    let mut v_correlations = CoreValue::Null;
+    let mut v_correlations_empty = CoreValue::Null;
+    let mut v_expires = CoreValue::Null;
+    let mut v_key_match = CoreValue::Null;
+    let mut v_kind_match = CoreValue::Null;
+    let mut v_match = CoreValue::Null;
+    let mut v_no_expiry = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_scope = CoreValue::Null;
+    let mut v_scope_active = CoreValue::Null;
+    let mut v_scope_match = CoreValue::Null;
+    let mut v_value_match = CoreValue::Null;
+    v_result = core_none(&[])?;
+    for v_continuation in core_iter(&v_continuations)? {
+        let mut v_continuation = v_continuation;
+        v_scope = core_get(
+            &v_continuation,
+            &CoreValue::from("identityScope"),
+            CoreValue::from(""),
+        );
+        v_scope_match = core_eq(&[v_scope.clone(), v_identity_scope.clone()])?;
+        v_expires = core_get(
+            &v_continuation,
+            &CoreValue::from("expiresAt"),
+            CoreValue::Null,
+        );
+        v_no_expiry = core_is_none(&[v_expires.clone()])?;
+        v_active = v_no_expiry.clone();
+        if core_truthy(&v_no_expiry) {
+        } else {
+            v_active = core_lt(&[v_now.clone(), v_expires.clone()])?;
+        }
+        v_correlations_empty = CoreValue::new_list();
+        v_correlations = core_get(
+            &v_continuation,
+            &CoreValue::from("correlation"),
+            v_correlations_empty.clone(),
+        );
+        for v_correlation in core_iter(&v_correlations)? {
+            let mut v_correlation = v_correlation;
+            v_candidate_kind = core_get(
+                &v_correlation,
+                &CoreValue::from("kind"),
+                CoreValue::from(""),
+            );
+            v_candidate_value = core_get(
+                &v_correlation,
+                &CoreValue::from("value"),
+                CoreValue::from(""),
+            );
+            v_kind_match = core_eq(&[v_candidate_kind.clone(), v_kind.clone()])?;
+            v_value_match = core_eq(&[v_candidate_value.clone(), v_value.clone()])?;
+            v_key_match = core_and(&[v_kind_match.clone(), v_value_match.clone()])?;
+            v_scope_active = core_and(&[v_scope_match.clone(), v_active.clone()])?;
+            v_match = core_and(&[v_scope_active.clone(), v_key_match.clone()])?;
+            if core_truthy(&v_match) {
+                v_result = v_continuation.clone();
+            }
+        }
+    }
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_normalize_mcp");
+    let mut v_namespace = core_arg(args, 0);
+    let mut v_method = core_arg(args, 1);
+    let mut v_params = core_arg(args, 2);
+    let mut v_correlation = CoreValue::Null;
+    let mut v_logging = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_progress = CoreValue::Null;
+    let mut v_prompts = CoreValue::Null;
+    let mut v_resource = CoreValue::Null;
+    let mut v_resources = CoreValue::Null;
+    let mut v_source = CoreValue::Null;
+    let mut v_task = CoreValue::Null;
+    let mut v_task_id = CoreValue::Null;
+    let mut v_task_key = CoreValue::Null;
+    let mut v_task_value = CoreValue::Null;
+    let mut v_tools = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_source = core_string_format(&[CoreValue::from("mcp://{}"), v_namespace.clone()])?;
+    core_set(&v_out, CoreValue::from("source"), v_source.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("type"),
+        CoreValue::from("mcp.notification"),
+    )?;
+    core_set(&v_out, CoreValue::from("data"), v_params.clone())?;
+    v_resource = core_eq(&[
+        v_method.clone(),
+        CoreValue::from("notifications/resources/updated"),
+    ])?;
+    v_tools = core_eq(&[
+        v_method.clone(),
+        CoreValue::from("notifications/tools/list_changed"),
+    ])?;
+    v_prompts = core_eq(&[
+        v_method.clone(),
+        CoreValue::from("notifications/prompts/list_changed"),
+    ])?;
+    v_resources = core_eq(&[
+        v_method.clone(),
+        CoreValue::from("notifications/resources/list_changed"),
+    ])?;
+    v_progress = core_eq(&[v_method.clone(), CoreValue::from("notifications/progress")])?;
+    v_logging = core_eq(&[v_method.clone(), CoreValue::from("notifications/message")])?;
+    v_task = core_eq(&[
+        v_method.clone(),
+        CoreValue::from("notifications/tasks/status"),
+    ])?;
+    if core_truthy(&v_resource) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.resource.updated"),
+        )?;
+    }
+    if core_truthy(&v_tools) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.catalog.changed"),
+        )?;
+    }
+    if core_truthy(&v_prompts) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.catalog.changed"),
+        )?;
+    }
+    if core_truthy(&v_resources) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.catalog.changed"),
+        )?;
+    }
+    if core_truthy(&v_progress) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.progress"),
+        )?;
+    }
+    if core_truthy(&v_logging) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.logging"),
+        )?;
+    }
+    if core_truthy(&v_task) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.task.status"),
+        )?;
+        v_task_value = core_get(&v_params, &CoreValue::from("task"), v_params.clone());
+        v_task_id = core_get(
+            &v_task_value,
+            &CoreValue::from("taskId"),
+            CoreValue::from(""),
+        );
+        v_task_key = core_string_format(&[
+            CoreValue::from("{}:{}"),
+            v_namespace.clone(),
+            v_task_id.clone(),
+        ])?;
+        v_correlation = CoreValue::new_map();
+        core_set(
+            &v_correlation,
+            CoreValue::from("kind"),
+            CoreValue::from("mcp.task"),
+        )?;
+        core_set(&v_correlation, CoreValue::from("value"), v_task_key.clone())?;
+        core_set(
+            &v_out,
+            CoreValue::from("correlation"),
+            v_correlation.clone(),
+        )?;
+    }
+    return Ok(v_out.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (444 of 444 core functions)

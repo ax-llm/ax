@@ -17144,6 +17144,23 @@ final class Core {
     return out;
   }
 
+  static Object event_runtime_descriptor(Object routes, Object options) {
+    axirCoverageMark("event_runtime_descriptor");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object missing = Core.isNone(options);
+    Object opts = options;
+    if (Core.truthy(missing)) {
+      opts = empty;
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "routes", routes);
+    Core.set(out, "options", opts);
+    Core.set(out, "durability", "volatile");
+    Core.set(out, "coordination", "single-worker");
+    Core.set(out, "implicitWake", Boolean.FALSE);
+    return out;
+  }
+
   static Object mcp_execution_context_descriptor(Object namespaces, Object inheritance) {
     axirCoverageMark("mcp_execution_context_descriptor");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -17158,6 +17175,54 @@ final class Core {
     Core.set(out, "native", Boolean.TRUE);
     Core.set(out, "lossyAdapter", Boolean.FALSE);
     return out;
+  }
+
+  static Object event_route_commands(Object event, Object routes, Object identity_scope, Object trust) {
+    axirCoverageMark("event_route_commands");
+    Object commands = new java.util.ArrayList<Object>();
+    Object event_type = Core.get(event, "type", "");
+    Object event_source = Core.get(event, "source", "");
+    Object subject = Core.get(event, "subject", identity_scope);
+    for (Object route : Core.iter(routes)) {
+      Object match = Core.get(route, "match", null);
+      Object types_empty = new java.util.ArrayList<Object>();
+      Object sources_empty = new java.util.ArrayList<Object>();
+      Object types = Core.get(match, "types", types_empty);
+      Object sources = Core.get(match, "sources", sources_empty);
+      Object type_count = Core.len(types);
+      Object source_count = Core.len(sources);
+      Object type_open = Core.eq(type_count, 0);
+      Object source_open = Core.eq(source_count, 0);
+      Object type_listed = Core.contains(types, event_type);
+      Object source_listed = Core.contains(sources, event_source);
+      Object type_match = Core.or(type_open, type_listed);
+      Object source_match = Core.or(source_open, source_listed);
+      Object matched = Core.and(type_match, source_match);
+      Object requires_auth = Core.get(route, "requireAuthenticated", Boolean.FALSE);
+      Object authenticated = Core.eq(trust, "authenticated");
+      Object trusted = Core.eq(trust, "trusted");
+      Object verified = Core.or(authenticated, trusted);
+      Object auth_allowed = Boolean.TRUE;
+      if (Core.truthy(requires_auth)) {
+        auth_allowed = verified;
+      }
+      Object allowed = Core.and(matched, auth_allowed);
+      if (Core.truthy(allowed)) {
+        Object route_id = Core.get(route, "id", "");
+        Object action = Core.get(route, "action", "observe");
+        Object target_id = Core.get(route, "targetId", null);
+        Object command = new java.util.LinkedHashMap<String, Object>();
+        Core.set(command, "routeId", route_id);
+        Core.set(command, "action", action);
+        Core.set(command, "targetId", target_id);
+        Core.set(command, "instanceKey", subject);
+        Object event_id = Core.get(event, "id", "");
+        Object key = Core.stringFormat("{}:{}", route_id, event_id);
+        Core.set(command, "idempotencyKey", key);
+        Core.append(commands, command);
+      }
+    }
+    return commands;
   }
 
   static Object mcp_protocol_constants() {
@@ -17204,6 +17269,28 @@ final class Core {
     return out;
   }
 
+  static Object event_retry_transition(Object invocation_started, Object retry_safety, Object attempt, Object max_attempts) {
+    axirCoverageMark("event_retry_transition");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object idempotent = Core.eq(retry_safety, "idempotent");
+    Object can_retry = Core.lt(attempt, max_attempts);
+    Object pre_invocation = Core.not(invocation_started);
+    Object safe = Core.or(pre_invocation, idempotent);
+    Object retry = Core.and(safe, can_retry);
+    Core.set(out, "retry", retry);
+    Core.set(out, "status", "failed");
+    if (Core.truthy(invocation_started)) {
+      if (Core.truthy(idempotent)) {
+        // empty
+      }
+      if (!Core.truthy(idempotent)) {
+        Core.set(out, "status", "outcome_unknown");
+        Core.set(out, "retry", Boolean.FALSE);
+      }
+    }
+    return out;
+  }
+
   static Object mcp_normalize_error(Object response) {
     axirCoverageMark("mcp_normalize_error");
     Object err = Core.get(response, "error", null);
@@ -17228,6 +17315,84 @@ final class Core {
       return out;
     }
     return response;
+  }
+
+  static Object event_continuation_match(Object continuations, Object identity_scope, Object kind, Object value, Object now) {
+    axirCoverageMark("event_continuation_match");
+    Object result = Core.none();
+    for (Object continuation : Core.iter(continuations)) {
+      Object scope = Core.get(continuation, "identityScope", "");
+      Object scope_match = Core.eq(scope, identity_scope);
+      Object expires = Core.get(continuation, "expiresAt", null);
+      Object no_expiry = Core.isNone(expires);
+      Object active = no_expiry;
+      if (Core.truthy(no_expiry)) {
+        // empty
+      }
+      if (!Core.truthy(no_expiry)) {
+        active = Core.lt(now, expires);
+      }
+      Object correlations_empty = new java.util.ArrayList<Object>();
+      Object correlations = Core.get(continuation, "correlation", correlations_empty);
+      for (Object correlation : Core.iter(correlations)) {
+        Object candidate_kind = Core.get(correlation, "kind", "");
+        Object candidate_value = Core.get(correlation, "value", "");
+        Object kind_match = Core.eq(candidate_kind, kind);
+        Object value_match = Core.eq(candidate_value, value);
+        Object key_match = Core.and(kind_match, value_match);
+        Object scope_active = Core.and(scope_match, active);
+        Object match = Core.and(scope_active, key_match);
+        if (Core.truthy(match)) {
+          result = continuation;
+        }
+      }
+    }
+    return result;
+  }
+
+  static Object event_normalize_mcp(Object namespace, Object method, Object params) {
+    axirCoverageMark("event_normalize_mcp");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object source = Core.stringFormat("mcp://{}", namespace);
+    Core.set(out, "source", source);
+    Core.set(out, "type", "mcp.notification");
+    Core.set(out, "data", params);
+    Object resource = Core.eq(method, "notifications/resources/updated");
+    Object tools = Core.eq(method, "notifications/tools/list_changed");
+    Object prompts = Core.eq(method, "notifications/prompts/list_changed");
+    Object resources = Core.eq(method, "notifications/resources/list_changed");
+    Object progress = Core.eq(method, "notifications/progress");
+    Object logging = Core.eq(method, "notifications/message");
+    Object task = Core.eq(method, "notifications/tasks/status");
+    if (Core.truthy(resource)) {
+      Core.set(out, "type", "mcp.resource.updated");
+    }
+    if (Core.truthy(tools)) {
+      Core.set(out, "type", "mcp.catalog.changed");
+    }
+    if (Core.truthy(prompts)) {
+      Core.set(out, "type", "mcp.catalog.changed");
+    }
+    if (Core.truthy(resources)) {
+      Core.set(out, "type", "mcp.catalog.changed");
+    }
+    if (Core.truthy(progress)) {
+      Core.set(out, "type", "mcp.progress");
+    }
+    if (Core.truthy(logging)) {
+      Core.set(out, "type", "mcp.logging");
+    }
+    if (Core.truthy(task)) {
+      Core.set(out, "type", "mcp.task.status");
+      Object task_value = Core.get(params, "task", params);
+      Object task_id = Core.get(task_value, "taskId", "");
+      Object task_key = Core.stringFormat("{}:{}", namespace, task_id);
+      Object correlation = new java.util.LinkedHashMap<String, Object>();
+      Core.set(correlation, "kind", "mcp.task");
+      Core.set(correlation, "value", task_key);
+      Core.set(out, "correlation", correlation);
+    }
+    return out;
   }
 
   // END AXIR CORE EMITTED FUNCTIONS

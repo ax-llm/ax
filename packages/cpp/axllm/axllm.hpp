@@ -653,11 +653,16 @@ struct Core {
   static Value _flow_optimize_with(Value flow, Value dataset, Value options, Value evaluator_available);
   static Value ucp_negotiate_profile(Value profile, Value supportedVersions, Value requestedServices);
   static Value ucp_normalize_outcome(Value operation, Value response);
+  static Value event_runtime_descriptor(Value routes, Value options);
   static Value mcp_execution_context_descriptor(Value namespaces, Value inheritance);
+  static Value event_route_commands(Value event, Value routes, Value identity_scope, Value trust);
   static Value mcp_protocol_constants();
   static Value mcp_jsonrpc_request(Value id, Value method, Value params);
   static Value mcp_jsonrpc_notification(Value method, Value params);
+  static Value event_retry_transition(Value invocation_started, Value retry_safety, Value attempt, Value max_attempts);
   static Value mcp_normalize_error(Value response);
+  static Value event_continuation_match(Value continuations, Value identity_scope, Value kind, Value value, Value now);
+  static Value event_normalize_mcp(Value namespace_, Value method, Value params);
   // END AXIR CORE EMITTED DECLARATIONS
 
 };

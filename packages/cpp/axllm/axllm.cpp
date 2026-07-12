@@ -18112,6 +18112,23 @@ Value Core::ucp_normalize_outcome(Value operation, Value response) {
   return out;
 }
 
+Value Core::event_runtime_descriptor(Value routes, Value options) {
+  axir_coverage_mark("event_runtime_descriptor");
+  Value empty = Value::object();
+  Value missing = Core::is_none(options);
+  Value opts = options;
+  if (Core::truthy(missing)) {
+    opts = empty;
+  }
+  Value out = Value::object();
+  Core::set(out, Value("routes"), routes);
+  Core::set(out, Value("options"), opts);
+  Core::set(out, Value("durability"), Value("volatile"));
+  Core::set(out, Value("coordination"), Value("single-worker"));
+  Core::set(out, Value("implicitWake"), Value(false));
+  return out;
+}
+
 Value Core::mcp_execution_context_descriptor(Value namespaces, Value inheritance) {
   axir_coverage_mark("mcp_execution_context_descriptor");
   Value out = Value::object();
@@ -18126,6 +18143,54 @@ Value Core::mcp_execution_context_descriptor(Value namespaces, Value inheritance
   Core::set(out, Value("native"), Value(true));
   Core::set(out, Value("lossyAdapter"), Value(false));
   return out;
+}
+
+Value Core::event_route_commands(Value event, Value routes, Value identity_scope, Value trust) {
+  axir_coverage_mark("event_route_commands");
+  Value commands = Value::array();
+  Value event_type = Core::get(event, Value("type"), Value(""));
+  Value event_source = Core::get(event, Value("source"), Value(""));
+  Value subject = Core::get(event, Value("subject"), identity_scope);
+  for (auto route : Core::iter(routes)) {
+    Value match = Core::get(route, Value("match"), Value());
+    Value types_empty = Value::array();
+    Value sources_empty = Value::array();
+    Value types = Core::get(match, Value("types"), types_empty);
+    Value sources = Core::get(match, Value("sources"), sources_empty);
+    Value type_count = Core::len(types);
+    Value source_count = Core::len(sources);
+    Value type_open = Core::eq(type_count, Value(0));
+    Value source_open = Core::eq(source_count, Value(0));
+    Value type_listed = Core::contains(types, event_type);
+    Value source_listed = Core::contains(sources, event_source);
+    Value type_match = Core::or_(type_open, type_listed);
+    Value source_match = Core::or_(source_open, source_listed);
+    Value matched = Core::and_(type_match, source_match);
+    Value requires_auth = Core::get(route, Value("requireAuthenticated"), Value(false));
+    Value authenticated = Core::eq(trust, Value("authenticated"));
+    Value trusted = Core::eq(trust, Value("trusted"));
+    Value verified = Core::or_(authenticated, trusted);
+    Value auth_allowed = Value(true);
+    if (Core::truthy(requires_auth)) {
+      auth_allowed = verified;
+    }
+    Value allowed = Core::and_(matched, auth_allowed);
+    if (Core::truthy(allowed)) {
+      Value route_id = Core::get(route, Value("id"), Value(""));
+      Value action = Core::get(route, Value("action"), Value("observe"));
+      Value target_id = Core::get(route, Value("targetId"), Value());
+      Value command = Value::object();
+      Core::set(command, Value("routeId"), route_id);
+      Core::set(command, Value("action"), action);
+      Core::set(command, Value("targetId"), target_id);
+      Core::set(command, Value("instanceKey"), subject);
+      Value event_id = Core::get(event, Value("id"), Value(""));
+      Value key = Core::string_format(Value("{}:{}"), route_id, event_id);
+      Core::set(command, Value("idempotencyKey"), key);
+      Core::append(commands, command);
+    }
+  }
+  return commands;
 }
 
 Value Core::mcp_protocol_constants() {
@@ -18172,6 +18237,28 @@ Value Core::mcp_jsonrpc_notification(Value method, Value params) {
   return out;
 }
 
+Value Core::event_retry_transition(Value invocation_started, Value retry_safety, Value attempt, Value max_attempts) {
+  axir_coverage_mark("event_retry_transition");
+  Value out = Value::object();
+  Value idempotent = Core::eq(retry_safety, Value("idempotent"));
+  Value can_retry = Core::lt(attempt, max_attempts);
+  Value pre_invocation = Core::not_(invocation_started);
+  Value safe = Core::or_(pre_invocation, idempotent);
+  Value retry = Core::and_(safe, can_retry);
+  Core::set(out, Value("retry"), retry);
+  Core::set(out, Value("status"), Value("failed"));
+  if (Core::truthy(invocation_started)) {
+    if (Core::truthy(idempotent)) {
+      // empty
+    }
+    if (!Core::truthy(idempotent)) {
+      Core::set(out, Value("status"), Value("outcome_unknown"));
+      Core::set(out, Value("retry"), Value(false));
+    }
+  }
+  return out;
+}
+
 Value Core::mcp_normalize_error(Value response) {
   axir_coverage_mark("mcp_normalize_error");
   Value err = Core::get(response, Value("error"), Value());
@@ -18196,6 +18283,84 @@ Value Core::mcp_normalize_error(Value response) {
     return out;
   }
   return response;
+}
+
+Value Core::event_continuation_match(Value continuations, Value identity_scope, Value kind, Value value, Value now) {
+  axir_coverage_mark("event_continuation_match");
+  Value result = Core::none();
+  for (auto continuation : Core::iter(continuations)) {
+    Value scope = Core::get(continuation, Value("identityScope"), Value(""));
+    Value scope_match = Core::eq(scope, identity_scope);
+    Value expires = Core::get(continuation, Value("expiresAt"), Value());
+    Value no_expiry = Core::is_none(expires);
+    Value active = no_expiry;
+    if (Core::truthy(no_expiry)) {
+      // empty
+    }
+    if (!Core::truthy(no_expiry)) {
+      active = Core::lt(now, expires);
+    }
+    Value correlations_empty = Value::array();
+    Value correlations = Core::get(continuation, Value("correlation"), correlations_empty);
+    for (auto correlation : Core::iter(correlations)) {
+      Value candidate_kind = Core::get(correlation, Value("kind"), Value(""));
+      Value candidate_value = Core::get(correlation, Value("value"), Value(""));
+      Value kind_match = Core::eq(candidate_kind, kind);
+      Value value_match = Core::eq(candidate_value, value);
+      Value key_match = Core::and_(kind_match, value_match);
+      Value scope_active = Core::and_(scope_match, active);
+      Value match = Core::and_(scope_active, key_match);
+      if (Core::truthy(match)) {
+        result = continuation;
+      }
+    }
+  }
+  return result;
+}
+
+Value Core::event_normalize_mcp(Value namespace_, Value method, Value params) {
+  axir_coverage_mark("event_normalize_mcp");
+  Value out = Value::object();
+  Value source = Core::string_format(Value("mcp://{}"), namespace_);
+  Core::set(out, Value("source"), source);
+  Core::set(out, Value("type"), Value("mcp.notification"));
+  Core::set(out, Value("data"), params);
+  Value resource = Core::eq(method, Value("notifications/resources/updated"));
+  Value tools = Core::eq(method, Value("notifications/tools/list_changed"));
+  Value prompts = Core::eq(method, Value("notifications/prompts/list_changed"));
+  Value resources = Core::eq(method, Value("notifications/resources/list_changed"));
+  Value progress = Core::eq(method, Value("notifications/progress"));
+  Value logging = Core::eq(method, Value("notifications/message"));
+  Value task = Core::eq(method, Value("notifications/tasks/status"));
+  if (Core::truthy(resource)) {
+    Core::set(out, Value("type"), Value("mcp.resource.updated"));
+  }
+  if (Core::truthy(tools)) {
+    Core::set(out, Value("type"), Value("mcp.catalog.changed"));
+  }
+  if (Core::truthy(prompts)) {
+    Core::set(out, Value("type"), Value("mcp.catalog.changed"));
+  }
+  if (Core::truthy(resources)) {
+    Core::set(out, Value("type"), Value("mcp.catalog.changed"));
+  }
+  if (Core::truthy(progress)) {
+    Core::set(out, Value("type"), Value("mcp.progress"));
+  }
+  if (Core::truthy(logging)) {
+    Core::set(out, Value("type"), Value("mcp.logging"));
+  }
+  if (Core::truthy(task)) {
+    Core::set(out, Value("type"), Value("mcp.task.status"));
+    Value task_value = Core::get(params, Value("task"), params);
+    Value task_id = Core::get(task_value, Value("taskId"), Value(""));
+    Value task_key = Core::string_format(Value("{}:{}"), namespace_, task_id);
+    Value correlation = Value::object();
+    Core::set(correlation, Value("kind"), Value("mcp.task"));
+    Core::set(correlation, Value("value"), task_key);
+    Core::set(out, Value("correlation"), correlation);
+  }
+  return out;
 }
 
 // END AXIR CORE EMITTED FUNCTIONS

@@ -1,5 +1,5 @@
 pub mod mcp;
-pub use mcp::{AxExecutionContext, AxMCPClient, AxMCPContinuationState, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxUCPBinding, AxUCPClient};
+pub use mcp::{AxEventClock, AxEventCommand, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxExecutionContext, AxMCPClient, AxMCPContinuationState, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxUCPBinding, AxUCPClient};
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -5496,9 +5496,22 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "optimize" => run_optimize_fixture(&fixture)?,
         "program_contract" => run_program_contract_fixture(&fixture)?,
         "mcp" => mcp::run_mcp_conformance_fixture(&fixture)?,
+        "event" => run_event_fixture(&fixture)?,
         _ => run_explicit_non_ai_conformance_fixture(kind, &fixture)?,
     }
     Ok(())
+}
+
+fn run_event_fixture(fixture:&Value)->AxResult<()>{
+    let operation=fixture.get("operation").and_then(Value::as_str).unwrap_or_default();
+    let call=|result:Result<CoreValue,AxError>,expected:&Value,label:&str|->AxResult<()>{let actual=core_value_to_json(&result?);if &actual!=expected{return Err(AxError::new("fixture",format!("{label} mismatch: expected {expected}, got {actual}")));}Ok(())};
+    match operation {
+        "routing"=>call(event_route_commands(&[core_value_from_json(&fixture["event"]),core_value_from_json(&fixture["routes"]),core_value_from_json(&fixture["identity_scope"]),core_value_from_json(&fixture["trust"])]),&fixture["expected"],"event routing"),
+        "retry"=>{for case in fixture["cases"].as_array().cloned().unwrap_or_default(){call(event_retry_transition(&[core_value_from_json(&case["invocation_started"]),core_value_from_json(&case["retry_safety"]),core_value_from_json(&case["attempt"]),core_value_from_json(&case["max_attempts"])]),&case["expected"],"event retry")?;}Ok(())},
+        "continuation"=>{let actual=core_value_to_json(&event_continuation_match(&[core_value_from_json(&fixture["continuations"]),core_value_from_json(&fixture["identity_scope"]),core_value_from_json(&fixture["correlation"]["kind"]),core_value_from_json(&fixture["correlation"]["value"]),core_value_from_json(&fixture["now"])])?);if actual.get("id")!=fixture.get("expected_id"){return Err(AxError::new("fixture","event continuation mismatch"));}Ok(())},
+        "mcp_normalization"=>call(event_normalize_mcp(&[core_value_from_json(&fixture["namespace"]),core_value_from_json(&fixture["method"]),core_value_from_json(&fixture["params"])]),&fixture["expected"],"event MCP normalization"),
+        _=>Err(AxError::new("fixture",format!("unsupported event operation {operation}"))),
+    }
 }
 
 fn run_explicit_non_ai_conformance_fixture(kind: &str, _fixture: &Value) -> AxResult<()> {

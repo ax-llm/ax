@@ -1419,6 +1419,7 @@ func conformanceSuitePaths(root string) []string {
 		filepath.Join(root, "axprogram"),
 		filepath.Join(root, "axflow"),
 		filepath.Join(root, "axmcp"),
+		filepath.Join(root, "axevent"),
 	}
 }
 

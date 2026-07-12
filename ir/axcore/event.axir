@@ -1,0 +1,243 @@
+module @ax.event version "0.1" {
+  dialect @ax.event version "0.1"
+
+  op ax.event.record @AxEventEnvelope {
+    attr core_kind = "record"
+    attr public = true
+    tag "axevent"
+    type fields = "specversion:string,id:string,source:string,type:string,subject?:string,time?:string,data?:json"
+  }
+
+  op ax.event.record @AxEventRoute {
+    attr core_kind = "record"
+    attr public = true
+    tag "axevent"
+    type fields = "id:string,action:string,match:json,targetId?:string,requireAuthenticated?:bool,ordering?:string,debounceMs?:number"
+  }
+
+  op ax.event.record @AxEventCommand {
+    attr core_kind = "record"
+    attr public = true
+    tag "axevent"
+    type fields = "routeId:string,action:string,targetId?:string,instanceKey:string,idempotencyKey:string"
+  }
+
+  op ax.event.interface @AxEventSource {
+    attr core_kind = "interface"
+    attr public = true
+    attr contract = "event-source"
+    tag "axevent"
+  }
+
+  op ax.event.interface @AxEventSink {
+    attr core_kind = "interface"
+    attr public = true
+    attr contract = "event-sink"
+    tag "axevent"
+  }
+
+  op ax.event.interface @AxEventClock {
+    attr core_kind = "interface"
+    attr public = true
+    attr contract = "event-clock"
+    tag "axevent"
+  }
+
+  op ax.event.interface @AxEventStore {
+    attr core_kind = "interface"
+    attr public = true
+    attr contract = "event-store"
+    tag "axevent"
+  }
+
+  op ax.event.record @AxEventRuntime {
+    attr core_kind = "record"
+    attr public = true
+    tag "axevent"
+    type signature = "(routes:list<AxEventRoute>, options?:json) -> AxEventRuntime"
+  }
+
+  op ax.event.semantic @event_runtime_descriptor {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axevent"
+    type signature = "(routes:list<json>, options?:json) -> json"
+    body @entry(%routes: list<json>, %options: json) {
+      %empty = core.map
+      %missing = core.call intrinsic.is_none(%options)
+      %opts = core.let %options
+      core.if %missing {
+        %opts = core.let %empty
+      }
+      %out = core.map
+      core.set %out["routes"] = %routes
+      core.set %out["options"] = %opts
+      core.set %out["durability"] = "volatile"
+      core.set %out["coordination"] = "single-worker"
+      core.set %out["implicitWake"] = false
+      core.return %out
+    }
+  }
+
+  op ax.event.semantic @event_route_commands {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axevent"
+    type signature = "(event:json, routes:list<json>, identity_scope:string, trust:string) -> list<json>"
+    body @entry(%event: json, %routes: list<json>, %identity_scope: string, %trust: string) {
+      %commands = core.list
+      %event_type = core.get %event["type"] default ""
+      %event_source = core.get %event["source"] default ""
+      %subject = core.get %event["subject"] default %identity_scope
+      core.for %route in %routes {
+        %match = core.get %route["match"] default null
+        %types_empty = core.list
+        %sources_empty = core.list
+        %types = core.get %match["types"] default %types_empty
+        %sources = core.get %match["sources"] default %sources_empty
+        %type_count = core.call intrinsic.len(%types)
+        %source_count = core.call intrinsic.len(%sources)
+        %type_open = core.call intrinsic.eq(%type_count, 0)
+        %source_open = core.call intrinsic.eq(%source_count, 0)
+        %type_listed = core.call intrinsic.contains(%types, %event_type)
+        %source_listed = core.call intrinsic.contains(%sources, %event_source)
+        %type_match = core.call intrinsic.or(%type_open, %type_listed)
+        %source_match = core.call intrinsic.or(%source_open, %source_listed)
+        %matched = core.call intrinsic.and(%type_match, %source_match)
+        %requires_auth = core.get %route["requireAuthenticated"] default false
+        %authenticated = core.call intrinsic.eq(%trust, "authenticated")
+        %trusted = core.call intrinsic.eq(%trust, "trusted")
+        %verified = core.call intrinsic.or(%authenticated, %trusted)
+        %auth_allowed = core.let true
+        core.if %requires_auth {
+          %auth_allowed = core.let %verified
+        }
+        %allowed = core.call intrinsic.and(%matched, %auth_allowed)
+        core.if %allowed {
+          %route_id = core.get %route["id"] default ""
+          %action = core.get %route["action"] default "observe"
+          %target_id = core.get %route["targetId"] default null
+          %command = core.map
+          core.set %command["routeId"] = %route_id
+          core.set %command["action"] = %action
+          core.set %command["targetId"] = %target_id
+          core.set %command["instanceKey"] = %subject
+          %event_id = core.get %event["id"] default ""
+          %key = core.call intrinsic.string.format("{}:{}", %route_id, %event_id)
+          core.set %command["idempotencyKey"] = %key
+          core.append %commands, %command
+        }
+      }
+      core.return %commands
+    }
+  }
+
+  op ax.event.semantic @event_retry_transition {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axevent"
+    type signature = "(invocation_started:bool, retry_safety:string, attempt:i64, max_attempts:i64) -> json"
+    body @entry(%invocation_started: bool, %retry_safety: string, %attempt: i64, %max_attempts: i64) {
+      %out = core.map
+      %idempotent = core.call intrinsic.eq(%retry_safety, "idempotent")
+      %can_retry = core.call intrinsic.lt(%attempt, %max_attempts)
+      %pre_invocation = core.call intrinsic.not(%invocation_started)
+      %safe = core.call intrinsic.or(%pre_invocation, %idempotent)
+      %retry = core.call intrinsic.and(%safe, %can_retry)
+      core.set %out["retry"] = %retry
+      core.set %out["status"] = "failed"
+      core.if %invocation_started {
+        core.if %idempotent {
+        } else {
+          core.set %out["status"] = "outcome_unknown"
+          core.set %out["retry"] = false
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.event.semantic @event_continuation_match {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axevent"
+    type signature = "(continuations:list<json>, identity_scope:string, kind:string, value:string, now:number) -> json"
+    body @entry(%continuations: list<json>, %identity_scope: string, %kind: string, %value: string, %now: f64) {
+      %result = core.call intrinsic.none()
+      core.for %continuation in %continuations {
+        %scope = core.get %continuation["identityScope"] default ""
+        %scope_match = core.call intrinsic.eq(%scope, %identity_scope)
+        %expires = core.get %continuation["expiresAt"] default null
+        %no_expiry = core.call intrinsic.is_none(%expires)
+        %active = core.let %no_expiry
+        core.if %no_expiry {
+        } else {
+          %active = core.call intrinsic.lt(%now, %expires)
+        }
+        %correlations_empty = core.list
+        %correlations = core.get %continuation["correlation"] default %correlations_empty
+        core.for %correlation in %correlations {
+          %candidate_kind = core.get %correlation["kind"] default ""
+          %candidate_value = core.get %correlation["value"] default ""
+          %kind_match = core.call intrinsic.eq(%candidate_kind, %kind)
+          %value_match = core.call intrinsic.eq(%candidate_value, %value)
+          %key_match = core.call intrinsic.and(%kind_match, %value_match)
+          %scope_active = core.call intrinsic.and(%scope_match, %active)
+          %match = core.call intrinsic.and(%scope_active, %key_match)
+          core.if %match {
+            %result = core.let %continuation
+          }
+        }
+      }
+      core.return %result
+    }
+  }
+
+  op ax.event.semantic @event_normalize_mcp {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axevent"
+    type signature = "(namespace:string, method:string, params:json) -> json"
+    body @entry(%namespace: string, %method: string, %params: json) {
+      %out = core.map
+      %source = core.call intrinsic.string.format("mcp://{}", %namespace)
+      core.set %out["source"] = %source
+      core.set %out["type"] = "mcp.notification"
+      core.set %out["data"] = %params
+      %resource = core.call intrinsic.eq(%method, "notifications/resources/updated")
+      %tools = core.call intrinsic.eq(%method, "notifications/tools/list_changed")
+      %prompts = core.call intrinsic.eq(%method, "notifications/prompts/list_changed")
+      %resources = core.call intrinsic.eq(%method, "notifications/resources/list_changed")
+      %progress = core.call intrinsic.eq(%method, "notifications/progress")
+      %logging = core.call intrinsic.eq(%method, "notifications/message")
+      %task = core.call intrinsic.eq(%method, "notifications/tasks/status")
+      core.if %resource { core.set %out["type"] = "mcp.resource.updated" }
+      core.if %tools { core.set %out["type"] = "mcp.catalog.changed" }
+      core.if %prompts { core.set %out["type"] = "mcp.catalog.changed" }
+      core.if %resources { core.set %out["type"] = "mcp.catalog.changed" }
+      core.if %progress { core.set %out["type"] = "mcp.progress" }
+      core.if %logging { core.set %out["type"] = "mcp.logging" }
+      core.if %task {
+        core.set %out["type"] = "mcp.task.status"
+        %task_value = core.get %params["task"] default %params
+        %task_id = core.get %task_value["taskId"] default ""
+        %task_key = core.call intrinsic.string.format("{}:{}", %namespace, %task_id)
+        %correlation = core.map
+        core.set %correlation["kind"] = "mcp.task"
+        core.set %correlation["value"] = %task_key
+        core.set %out["correlation"] = %correlation
+      }
+      core.return %out
+    }
+  }
+}

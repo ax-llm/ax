@@ -33,7 +33,7 @@ from .ai import (
 from .gen import AxGen, AxMemory, ax
 from .agent import AxAgent, AxAgentClarificationError, AxBootstrapFewShot, AxCodeRuntime, AxCodeSession, AxGEPA, AxPlaybook, OptimizerEngine, OptimizerEvaluator, agent, optimize, playbook
 from .flow import AxFlow, AxProgram, flow
-from .mcp import AxExecutionContext, AxMCPClient, AxMCPContinuationState, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxUCPBinding, AxUCPClient
+from .mcp import AxEventClock, AxEventCommand, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxExecutionContext, AxMCPClient, AxMCPContinuationState, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxUCPBinding, AxUCPClient
 from .prompt import AxPromptTemplate, TemplateError, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, ProcessCodeSession, RuntimeCapabilities, RuntimeEnvelope
 from .runtime_quickjs import AxQuickJsCodeRuntime, AxQuickJsCodeSession
@@ -64,6 +64,14 @@ __all__ = [
     "AxPlaybook",
     "AxMemory",
     "AxExecutionContext",
+    "AxEventClock",
+    "AxEventCommand",
+    "AxEventEnvelope",
+    "AxEventRoute",
+    "AxEventRuntime",
+    "AxEventSink",
+    "AxEventSource",
+    "AxEventStore",
     "AxMCPClient",
     "AxMCPContinuationState",
     "AxMCPOAuthOptions",

@@ -43,6 +43,23 @@ def _core_is_none(value):
     return value is None
 
 
+def _core_and(left, right): return bool(left and right)
+def _core_or(left, right): return bool(left or right)
+def _core_not(value): return not bool(value)
+def _core_eq(left, right): return left == right
+def _core_lt(left, right): return left < right
+def _core_len(value): return len(value or [])
+def _core_contains(container, item): return False if container is None else item in container
+def _core_none(): return None
+
+
+def _core_string_format(template, *args):
+    rendered = str(template)
+    for value in args:
+        rendered = rendered.replace("{}", str(value), 1)
+    return rendered
+
+
 # BEGIN AXIR CORE EMITTED FUNCTIONS
 def ucp_negotiate_profile(profile: Any, supportedVersions: list[Any], requestedServices: list[Any]) -> Any:
     _core_coverage_mark("ucp_negotiate_profile")
@@ -72,6 +89,24 @@ def ucp_normalize_outcome(operation: str, response: Any) -> Any:
     return out
 
 
+def event_runtime_descriptor(routes: list[Any], options: Any) -> Any:
+    _core_coverage_mark("event_runtime_descriptor")
+    empty = {}
+    missing = _core_is_none(options)
+    opts = options
+    if missing:
+        opts = empty
+    else:
+        pass
+    out = {}
+    out["routes"] = routes
+    out["options"] = opts
+    out["durability"] = "volatile"
+    out["coordination"] = "single-worker"
+    out["implicitWake"] = False
+    return out
+
+
 def mcp_execution_context_descriptor(namespaces: list[Any], inheritance: Any) -> Any:
     _core_coverage_mark("mcp_execution_context_descriptor")
     out = {}
@@ -84,6 +119,55 @@ def mcp_execution_context_descriptor(namespaces: list[Any], inheritance: Any) ->
     out["native"] = True
     out["lossyAdapter"] = False
     return out
+
+
+def event_route_commands(event: Any, routes: list[Any], identity_scope: str, trust: str) -> list[Any]:
+    _core_coverage_mark("event_route_commands")
+    commands = []
+    event_type = _core_get(event, "type", "")
+    event_source = _core_get(event, "source", "")
+    subject = _core_get(event, "subject", identity_scope)
+    for route in routes:
+        match = _core_get(route, "match", None)
+        types_empty = []
+        sources_empty = []
+        types = _core_get(match, "types", types_empty)
+        sources = _core_get(match, "sources", sources_empty)
+        type_count = _core_len(types)
+        source_count = _core_len(sources)
+        type_open = _core_eq(type_count, 0)
+        source_open = _core_eq(source_count, 0)
+        type_listed = _core_contains(types, event_type)
+        source_listed = _core_contains(sources, event_source)
+        type_match = _core_or(type_open, type_listed)
+        source_match = _core_or(source_open, source_listed)
+        matched = _core_and(type_match, source_match)
+        requires_auth = _core_get(route, "requireAuthenticated", False)
+        authenticated = _core_eq(trust, "authenticated")
+        trusted = _core_eq(trust, "trusted")
+        verified = _core_or(authenticated, trusted)
+        auth_allowed = True
+        if requires_auth:
+            auth_allowed = verified
+        else:
+            pass
+        allowed = _core_and(matched, auth_allowed)
+        if allowed:
+            route_id = _core_get(route, "id", "")
+            action = _core_get(route, "action", "observe")
+            target_id = _core_get(route, "targetId", None)
+            command = {}
+            command["routeId"] = route_id
+            command["action"] = action
+            command["targetId"] = target_id
+            command["instanceKey"] = subject
+            event_id = _core_get(event, "id", "")
+            key = _core_string_format("{}:{}", route_id, event_id)
+            command["idempotencyKey"] = key
+            commands.append(command)
+        else:
+            pass
+    return commands
 
 
 def mcp_protocol_constants() -> Any:
@@ -126,6 +210,27 @@ def mcp_jsonrpc_notification(method: str, params: Any) -> Any:
     return out
 
 
+def event_retry_transition(invocation_started: bool, retry_safety: str, attempt: int, max_attempts: int) -> Any:
+    _core_coverage_mark("event_retry_transition")
+    out = {}
+    idempotent = _core_eq(retry_safety, "idempotent")
+    can_retry = _core_lt(attempt, max_attempts)
+    pre_invocation = _core_not(invocation_started)
+    safe = _core_or(pre_invocation, idempotent)
+    retry = _core_and(safe, can_retry)
+    out["retry"] = retry
+    out["status"] = "failed"
+    if invocation_started:
+        if idempotent:
+            pass
+        else:
+            out["status"] = "outcome_unknown"
+            out["retry"] = False
+    else:
+        pass
+    return out
+
+
 def mcp_normalize_error(response: Any) -> Any:
     _core_coverage_mark("mcp_normalize_error")
     err = _core_get(response, "error", None)
@@ -148,6 +253,88 @@ def mcp_normalize_error(response: Any) -> Any:
         out["data"] = data
         return out
     return response
+
+
+def event_continuation_match(continuations: list[Any], identity_scope: str, kind: str, value: str, now: float) -> Any:
+    _core_coverage_mark("event_continuation_match")
+    result = _core_none()
+    for continuation in continuations:
+        scope = _core_get(continuation, "identityScope", "")
+        scope_match = _core_eq(scope, identity_scope)
+        expires = _core_get(continuation, "expiresAt", None)
+        no_expiry = _core_is_none(expires)
+        active = no_expiry
+        if no_expiry:
+            pass
+        else:
+            active = _core_lt(now, expires)
+        correlations_empty = []
+        correlations = _core_get(continuation, "correlation", correlations_empty)
+        for correlation in correlations:
+            candidate_kind = _core_get(correlation, "kind", "")
+            candidate_value = _core_get(correlation, "value", "")
+            kind_match = _core_eq(candidate_kind, kind)
+            value_match = _core_eq(candidate_value, value)
+            key_match = _core_and(kind_match, value_match)
+            scope_active = _core_and(scope_match, active)
+            match = _core_and(scope_active, key_match)
+            if match:
+                result = continuation
+            else:
+                pass
+    return result
+
+
+def event_normalize_mcp(namespace: str, method: str, params: Any) -> Any:
+    _core_coverage_mark("event_normalize_mcp")
+    out = {}
+    source = _core_string_format("mcp://{}", namespace)
+    out["source"] = source
+    out["type"] = "mcp.notification"
+    out["data"] = params
+    resource = _core_eq(method, "notifications/resources/updated")
+    tools = _core_eq(method, "notifications/tools/list_changed")
+    prompts = _core_eq(method, "notifications/prompts/list_changed")
+    resources = _core_eq(method, "notifications/resources/list_changed")
+    progress = _core_eq(method, "notifications/progress")
+    logging = _core_eq(method, "notifications/message")
+    task = _core_eq(method, "notifications/tasks/status")
+    if resource:
+        out["type"] = "mcp.resource.updated"
+    else:
+        pass
+    if tools:
+        out["type"] = "mcp.catalog.changed"
+    else:
+        pass
+    if prompts:
+        out["type"] = "mcp.catalog.changed"
+    else:
+        pass
+    if resources:
+        out["type"] = "mcp.catalog.changed"
+    else:
+        pass
+    if progress:
+        out["type"] = "mcp.progress"
+    else:
+        pass
+    if logging:
+        out["type"] = "mcp.logging"
+    else:
+        pass
+    if task:
+        out["type"] = "mcp.task.status"
+        task_value = _core_get(params, "task", params)
+        task_id = _core_get(task_value, "taskId", "")
+        task_key = _core_string_format("{}:{}", namespace, task_id)
+        correlation = {}
+        correlation["kind"] = "mcp.task"
+        correlation["value"] = task_key
+        out["correlation"] = correlation
+    else:
+        pass
+    return out
 
 # END AXIR CORE EMITTED FUNCTIONS
 
@@ -193,6 +380,111 @@ class AxMCPContinuationState:
     tasks: list[dict[str, Any]]
     subscriptions: list[dict[str, Any]]
     catalogFingerprint: str
+
+
+@dataclass(frozen=True)
+class AxEventEnvelope:
+    id: str
+    source: str
+    type: str
+    data: Any = None
+    subject: str | None = None
+    specversion: str = "1.0"
+
+    def to_dict(self) -> dict[str, Any]:
+        value = {
+            "specversion": self.specversion,
+            "id": self.id,
+            "source": self.source,
+            "type": self.type,
+        }
+        if self.subject is not None:
+            value["subject"] = self.subject
+        if self.data is not None:
+            value["data"] = self.data
+        return value
+
+
+@dataclass(frozen=True)
+class AxEventRoute:
+    id: str
+    action: str
+    match: dict[str, Any]
+    targetId: str | None = None
+    requireAuthenticated: bool = False
+    ordering: str = "strict"
+    debounceMs: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "match": self.match,
+            "targetId": self.targetId,
+            "requireAuthenticated": self.requireAuthenticated,
+            "ordering": self.ordering,
+            "debounceMs": self.debounceMs,
+        }
+
+
+@dataclass(frozen=True)
+class AxEventCommand:
+    routeId: str
+    action: str
+    instanceKey: str
+    idempotencyKey: str
+    targetId: str | None = None
+
+
+class AxEventSource:
+    def start(self, publish: Callable[[dict[str, Any]], Any]) -> Any:
+        raise NotImplementedError
+
+
+class AxEventSink:
+    def write(self, output: Any, context: dict[str, Any]) -> None:
+        raise NotImplementedError
+
+
+class AxEventClock:
+    def now(self) -> float:
+        raise NotImplementedError
+
+
+class AxEventStore:
+    def enqueue(self, event: dict[str, Any], commands: list[dict[str, Any]]) -> None:
+        raise NotImplementedError
+
+
+class AxEventRuntime:
+    """Deterministic single-worker event state machine; hosts own async loops."""
+
+    def __init__(self, routes: list[AxEventRoute], options: dict[str, Any] | None = None):
+        self.routes = list(routes)
+        self.options = dict(options or {})
+        self.descriptor = event_runtime_descriptor(
+            [route.to_dict() for route in self.routes], self.options
+        )
+
+    def publish(
+        self,
+        event: AxEventEnvelope | dict[str, Any],
+        *,
+        identity_scope: str = "anonymous",
+        trust: str = "untrusted",
+    ) -> list[AxEventCommand]:
+        envelope = event.to_dict() if isinstance(event, AxEventEnvelope) else dict(event)
+        values = event_route_commands(
+            envelope,
+            [route.to_dict() for route in self.routes],
+            identity_scope,
+            trust,
+        )
+        return [AxEventCommand(**value) for value in values]
+
+    @staticmethod
+    def normalize_mcp(namespace: str, method: str, params: Any) -> dict[str, Any]:
+        return event_normalize_mcp(namespace, method, params)
 
 
 class AxMCPTransport:
