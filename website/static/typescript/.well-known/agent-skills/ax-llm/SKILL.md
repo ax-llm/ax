@@ -238,6 +238,9 @@ axGlobals.meter = openTelemetryMeter;
 
 ## MCP Integration
 
+Use the `ax-mcp` skill for the complete native client, transport,
+authentication, catalog, task, subscription, event, and replay workflow.
+
 ```typescript
 import { AxMCPClient, agent } from '@ax-llm/ax';
 import { AxMCPStdioTransport } from '@ax-llm/ax-tools';

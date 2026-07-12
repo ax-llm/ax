@@ -78,6 +78,10 @@ cancelled task events to `resume` when the owning program must run again.
 
 ## MCP Adapter
 
+Use `ax-mcp` for client construction, transports, authentication, catalogs,
+subscriptions, tasks, and MCP-specific security policy. This skill owns the
+generic inbox, routing, continuation, store, and sink behavior.
+
 Use `AxMCPEventSource({ client, resources, identity, trust })`. Identity must
 come from the application's authenticated client or token mapping; a bare MCP
 session is anonymous. Add `...axMCPEventRoutes({ client })` for catalog

@@ -40,6 +40,7 @@ const typeScriptSkillNames = [
   'ax-agent-optimize',
   'ax-agent-context',
   'ax-flow',
+  'ax-mcp',
   'ax-event-runtime',
   'ax-gepa',
   'ax-playbook',

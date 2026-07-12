@@ -1,12 +1,15 @@
 ---
 name: ax-gen
-description: This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs.
+description: This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.
 version: "__VERSION__"
 ---
 
 # AxGen Codegen Rules (@ax-llm/ax)
 
 Use this skill to generate `AxGen` code. Prefer short, modern, copyable patterns. Do not write tutorial prose unless the user explicitly asks for explanation.
+
+Use the `ax-mcp` skill when AxGen attaches native MCP clients or consumes MCP
+prompts, resources, tools, tasks, subscriptions, authentication, or events.
 
 ## Use These Defaults
 
@@ -486,6 +489,10 @@ Fetch these for full working code:
 - [Multi-Sampling](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/sample-count.ts) — sample count usage
 
 ## Native MCP/UCP
+
+Use `ax-mcp` for client construction, transports, authentication, catalog and
+task APIs, subscriptions, event routing, and recording/replay. This section
+only covers the AxGen attachment boundary.
 
 Pass live clients directly to constructor or forward options:
 

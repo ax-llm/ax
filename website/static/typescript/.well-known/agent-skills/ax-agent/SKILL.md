@@ -1,6 +1,6 @@
 ---
 name: ax-agent
-description: This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.
+description: This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.
 version: "23.0.0"
 ---
 
@@ -15,6 +15,8 @@ Your job is to choose the smallest correct `AxAgent` shape for the user's needs:
 - If the user wants callbacks, logs, tracing, or usage data, use the `ax-agent-observability` skill.
 - If the user wants dynamic memory retrieval or skill-guide loading, use the `ax-agent-memory-skills` skill.
 - If the user wants tuning or eval with `agent.optimize(...)`, use the `ax-agent-optimize` skill.
+- If the user wants MCP transports, authentication, catalogs, subscriptions,
+  tasks, Apps, or event-driven wake/resume, use the `ax-mcp` skill.
 
 ## Use These Defaults
 
@@ -238,6 +240,10 @@ const parent = agent('query:string -> answer:string', {
 ```
 
 Attach MCP/UCP clients through the native execution context. Ax initializes them once, exposes `mcp.<namespace>` / `ucp.<namespace>` runtime modules, and propagates them through actor stages, `llmQuery`, RLM, and child agents:
+
+Use `ax-mcp` for constructing those clients, transport/authentication policy,
+server-initiated handlers, resource subscriptions, task continuations, and
+recording/replay. Keep this section focused on Agent attachment and discovery.
 
 ```typescript
 const parent = agent('query:string -> answer:string', {

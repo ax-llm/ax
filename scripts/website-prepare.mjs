@@ -164,6 +164,7 @@ const skillNavLabels = new Map([
   ['audio', 'Audio'],
   ['signature', 'Signatures'],
   ['gen', 'Generation'],
+  ['mcp', 'MCP'],
   ['flow', 'Flow'],
   ['agent', 'Agent'],
   ['agent-rlm', 'Agent RLM'],
@@ -171,6 +172,7 @@ const skillNavLabels = new Map([
   ['agent-observability', 'Observability'],
   ['agent-optimize', 'Agent Optimize'],
   ['agent-context', 'Agent Context'],
+  ['event-runtime', 'Event Runtime'],
   ['gepa', 'GEPA'],
   ['refine', 'Refinement'],
 ]);
@@ -181,6 +183,7 @@ const skillNavOrder = [
   'audio',
   'signature',
   'gen',
+  'mcp',
   'flow',
   'agent',
   'agent-rlm',
@@ -188,6 +191,7 @@ const skillNavOrder = [
   'agent-observability',
   'agent-optimize',
   'agent-context',
+  'event-runtime',
   'gepa',
   'refine',
 ];

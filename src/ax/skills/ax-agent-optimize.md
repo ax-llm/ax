@@ -321,6 +321,7 @@ Decision rules:
 ## Eval Semantics
 
 - MCP/UCP evaluation defaults to replay or sandbox mode. A live client is rejected unless `mcpEvaluation: 'live'` is explicit.
+- Use `ax-mcp` for recording/replay transport setup and MCP side-effect policy.
 - Use `AxMCPRecordingTransport` to capture a real session once and `AxMCPReplayTransport` for deterministic optimization/evaluation.
 - Replay normalized MCP notifications and task transitions through
   `AxEventRuntime`; do not leave a live subscription active in a default

@@ -419,6 +419,10 @@ Common errors:
 
 ## Native MCP/UCP
 
+Use `ax-mcp` for MCP client construction, transport/authentication policy,
+subscriptions, tasks, event routing, and replay. This section covers how Flow
+inherits and coordinates the resulting live execution context.
+
 Set `mcp`/`ucp` on the flow or a node. Sequential nodes reuse sessions; parallel nodes multiplex through each client's concurrency policy. Branch cancellation and flow aborts propagate to outstanding requests and newly created remote tasks. Structured protocol values stay structured in flow state.
 
 ```typescript
