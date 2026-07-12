@@ -18084,6 +18084,50 @@ Value Core::_flow_optimize_with(Value flow, Value dataset, Value options, Value 
   return request;
 }
 
+Value Core::ucp_negotiate_profile(Value profile, Value supportedVersions, Value requestedServices) {
+  axir_coverage_mark("ucp_negotiate_profile");
+  Value version = Core::get(profile, Value("version"), Value());
+  Value services = Core::get(profile, Value("services"), Value());
+  Value capabilities = Core::get(profile, Value("capabilities"), Value());
+  Value out = Value::object();
+  Core::set(out, Value("version"), version);
+  Core::set(out, Value("services"), services);
+  Core::set(out, Value("capabilities"), capabilities);
+  Core::set(out, Value("supportedVersions"), supportedVersions);
+  Core::set(out, Value("requestedServices"), requestedServices);
+  return out;
+}
+
+Value Core::ucp_normalize_outcome(Value operation, Value response) {
+  axir_coverage_mark("ucp_normalize_outcome");
+  Value out = Value::object();
+  Core::set(out, Value("operation"), operation);
+  Core::set(out, Value("value"), response);
+  Value warnings = Core::get(response, Value("warnings"), Value());
+  Value continuation = Core::get(response, Value("continuation_url"), Value());
+  Value partial = Core::get(response, Value("partial_success"), Value(false));
+  Core::set(out, Value("warnings"), warnings);
+  Core::set(out, Value("continuationUrl"), continuation);
+  Core::set(out, Value("partialSuccess"), partial);
+  return out;
+}
+
+Value Core::mcp_execution_context_descriptor(Value namespaces, Value inheritance) {
+  axir_coverage_mark("mcp_execution_context_descriptor");
+  Value out = Value::object();
+  Core::set(out, Value("namespaces"), namespaces);
+  Value missing = Core::is_none(inheritance);
+  if (Core::truthy(missing)) {
+    Core::set(out, Value("inheritance"), Value("all"));
+  }
+  if (!Core::truthy(missing)) {
+    Core::set(out, Value("inheritance"), inheritance);
+  }
+  Core::set(out, Value("native"), Value(true));
+  Core::set(out, Value("lossyAdapter"), Value(false));
+  return out;
+}
+
 Value Core::mcp_protocol_constants() {
   axir_coverage_mark("mcp_protocol_constants");
   Value versions = Value::array();
@@ -20631,6 +20675,24 @@ Value AxAgent::forward(AIClient& client, Value values, Value options) {
       Core::client_ref(client),
       std::move(values),
       std::move(options));
+}
+
+AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& tools) {
+  Array functions;
+  for (const auto& tool : tools) {
+    functions.push_back(tool.value());
+    distiller_->add_tool(tool);
+    executor_->add_tool(tool);
+    responder_->add_tool(tool);
+    llm_query_->add_tool(tool);
+  }
+  Value modules = Core::get(state_, "functions", Value::array());
+  Core::append(modules, object({{"name", std::move(name)}, {"functions", Value(functions)}}));
+  Core::set(state_, "functions", modules);
+  Value options = Core::get(state_, "options", Value::object());
+  Core::set(options, "functions", modules);
+  Core::set(state_, "options", options);
+  return *this;
 }
 
 Value AxAgent::test(AxCodeRuntime& runtime, Value code, Value context_values, Value options) {

@@ -44,6 +44,48 @@ def _core_is_none(value):
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
+def ucp_negotiate_profile(profile: Any, supportedVersions: list[Any], requestedServices: list[Any]) -> Any:
+    _core_coverage_mark("ucp_negotiate_profile")
+    version = _core_get(profile, "version", None)
+    services = _core_get(profile, "services", None)
+    capabilities = _core_get(profile, "capabilities", None)
+    out = {}
+    out["version"] = version
+    out["services"] = services
+    out["capabilities"] = capabilities
+    out["supportedVersions"] = supportedVersions
+    out["requestedServices"] = requestedServices
+    return out
+
+
+def ucp_normalize_outcome(operation: str, response: Any) -> Any:
+    _core_coverage_mark("ucp_normalize_outcome")
+    out = {}
+    out["operation"] = operation
+    out["value"] = response
+    warnings = _core_get(response, "warnings", None)
+    continuation = _core_get(response, "continuation_url", None)
+    partial = _core_get(response, "partial_success", False)
+    out["warnings"] = warnings
+    out["continuationUrl"] = continuation
+    out["partialSuccess"] = partial
+    return out
+
+
+def mcp_execution_context_descriptor(namespaces: list[Any], inheritance: Any) -> Any:
+    _core_coverage_mark("mcp_execution_context_descriptor")
+    out = {}
+    out["namespaces"] = namespaces
+    missing = _core_is_none(inheritance)
+    if missing:
+        out["inheritance"] = "all"
+    else:
+        out["inheritance"] = inheritance
+    out["native"] = True
+    out["lossyAdapter"] = False
+    return out
+
+
 def mcp_protocol_constants() -> Any:
     _core_coverage_mark("mcp_protocol_constants")
     versions = []
@@ -143,6 +185,14 @@ class AxMCPOAuthOptions:
     onAuthCode: Callable[[str], dict[str, str]] | None = None
     tokenStore: Any = None
     ssrfProtection: dict[str, Any] | None = None
+
+
+@dataclass
+class AxMCPContinuationState:
+    namespaces: list[str]
+    tasks: list[dict[str, Any]]
+    subscriptions: list[dict[str, Any]]
+    catalogFingerprint: str
 
 
 class AxMCPTransport:
@@ -308,6 +358,26 @@ class AxMCPClient:
             out.append(self._resource_template_to_function(template))
         return out
 
+    def native_tools(self) -> list[Tool]:
+        out: list[Tool] = []
+        for tool in self.tools:
+            original = tool.get("name", "")
+            name = _override_name(original, self.options)
+            out.append(Tool(
+                name,
+                _override_description(tool, self.options),
+                tool.get("inputSchema") or {"type": "object", "properties": {}},
+                lambda args, original=original: self.call_tool(original, args),
+            ))
+        return out
+
+    def request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Send any negotiated MCP method without converting it into a function."""
+        return self._request(method, params)
+
+    def namespace(self) -> str:
+        return str(self.options.get("namespace") or (self.server_info or {}).get("name") or "mcp")
+
     def _request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         request_id = str(self._next_id)
         self._next_id += 1
@@ -374,6 +444,149 @@ class AxMCPClient:
         name = _override_name("resource_template_" + _safe_name(template.get("name", "template")), self.options)
         description = _override_description(template, self.options)
         return Tool(name, description, {"type": "object", "properties": {"uri": {"type": "string"}}}, lambda args: self.read_resource(args["uri"]))
+
+
+class AxUCPBinding:
+    """Host binding used by generated UCP clients for REST or MCP operations."""
+
+    def call(self, operation: str, payload: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
+        raise NotImplementedError
+
+
+class AxUCPClient:
+    OPERATIONS = (
+        "catalog.search", "catalog.lookup", "catalog.product",
+        "cart.create", "cart.get", "cart.update", "cart.cancel",
+        "checkout.create", "checkout.get", "checkout.update", "checkout.complete", "checkout.cancel",
+        "fulfillment.quote", "discounts.apply", "payments.create", "payments.confirm",
+        "orders.get", "identity.link", "attribution.record", "handoff.create",
+    )
+
+    def __init__(self, profile: dict[str, Any], binding: AxUCPBinding | Callable[..., Any], options: dict[str, Any] | None = None):
+        self.profile = dict(profile or {})
+        self.binding = binding
+        self.options = dict(options or {})
+        self.version = str(self.profile.get("version") or self.options.get("version") or "2026-04-08")
+        supported = list(self.options.get("supportedVersions") or ["2026-04-08"])
+        if self.version not in supported:
+            raise ValueError(f"Unsupported UCP version {self.version}")
+        self.services = dict(self.profile.get("services") or {})
+        self.capabilities = dict(self.profile.get("capabilities") or {})
+
+    def namespace(self) -> str:
+        return str(self.options.get("namespace") or self.profile.get("name") or "ucp")
+
+    def call(self, operation: str, payload: dict[str, Any] | None = None, *, idempotency_key: str | None = None) -> dict[str, Any]:
+        if operation not in self.OPERATIONS:
+            raise ValueError(f"Unsupported UCP operation {operation}")
+        call_options = {"version": self.version, "idempotencyKey": idempotency_key or str(uuid.uuid4())}
+        if hasattr(self.binding, "call"):
+            value = self.binding.call(operation, dict(payload or {}), call_options)
+        else:
+            value = self.binding(operation, dict(payload or {}), call_options)
+        if not isinstance(value, dict):
+            raise TypeError("UCP binding must return an object")
+        return {
+            "operation": operation,
+            "value": value,
+            "warnings": value.get("warnings"),
+            "partialSuccess": bool(value.get("partial_success") or value.get("partialSuccess")),
+            "continuationUrl": value.get("continuation_url") or value.get("continuationUrl"),
+            "idempotencyKey": call_options["idempotencyKey"],
+        }
+
+    def native_tools(self) -> list[Tool]:
+        return [
+            Tool(
+                f"{self.namespace()}_{operation.replace('.', '_')}",
+                f"UCP {operation} operation",
+                {"type": "object", "properties": {}},
+                lambda args, operation=operation: self.call(operation, args),
+                namespace=f"ucp.{self.namespace()}",
+            )
+            for operation in self.OPERATIONS
+        ]
+
+    def catalog_search(self, payload=None): return self.call("catalog.search", payload)
+    def catalog_lookup(self, payload=None): return self.call("catalog.lookup", payload)
+    def catalog_product(self, payload=None): return self.call("catalog.product", payload)
+    def cart_create(self, payload=None): return self.call("cart.create", payload)
+    def cart_get(self, payload=None): return self.call("cart.get", payload)
+    def cart_update(self, payload=None): return self.call("cart.update", payload)
+    def cart_cancel(self, payload=None): return self.call("cart.cancel", payload)
+    def checkout_create(self, payload=None): return self.call("checkout.create", payload)
+    def checkout_get(self, payload=None): return self.call("checkout.get", payload)
+    def checkout_update(self, payload=None): return self.call("checkout.update", payload)
+    def checkout_complete(self, payload=None): return self.call("checkout.complete", payload)
+    def checkout_cancel(self, payload=None): return self.call("checkout.cancel", payload)
+    def order_get(self, payload=None): return self.call("orders.get", payload)
+    def identity_link(self, payload=None): return self.call("identity.link", payload)
+
+
+class AxExecutionContext:
+    """Live, inheritable MCP/UCP clients shared by every generated Ax program."""
+
+    def __init__(self, mcp=None, ucp=None, options: dict[str, Any] | None = None):
+        self.mcp = list(mcp or [])
+        self.ucp = list(ucp or [])
+        self.options = dict(options or {})
+        self._initialized: set[int] = set()
+        namespaces = [client.namespace() for client in [*self.mcp, *self.ucp]]
+        if len(namespaces) != len(set(namespaces)):
+            raise ValueError("MCP/UCP namespace collision")
+
+    def initialize(self):
+        for client in self.mcp:
+            if id(client) not in self._initialized:
+                client.init()
+                self._initialized.add(id(client))
+        return self
+
+    def native_tools(self) -> list[Tool]:
+        self.initialize()
+        tools = [tool for client in self.mcp for tool in client.native_tools()]
+        tools.extend(tool for client in self.ucp for tool in client.native_tools())
+        names = [tool.name for tool in tools]
+        if len(names) != len(set(names)):
+            raise ValueError("MCP/UCP tool collision")
+        return tools
+
+    def runtime_modules(self) -> list[dict[str, Any]]:
+        modules = []
+        for client in self.mcp:
+            modules.append({"name": f"mcp.{client.namespace()}", "functions": client.native_tools(), "client": client})
+        for client in self.ucp:
+            modules.append({"name": f"ucp.{client.namespace()}", "functions": client.native_tools(), "client": client})
+        return modules
+
+    def derive(self, inheritance: Any = "all"):
+        if inheritance == "none":
+            return AxExecutionContext()
+        if isinstance(inheritance, (list, tuple, set)):
+            allowed = set(map(str, inheritance))
+            return AxExecutionContext(
+                [client for client in self.mcp if client.namespace() in allowed],
+                [client for client in self.ucp if client.namespace() in allowed],
+                self.options,
+            )
+        return self
+
+    def continuation_state(self) -> dict[str, Any]:
+        namespaces = [client.namespace() for client in [*self.mcp, *self.ucp]]
+        fingerprint = hashlib.sha256(json.dumps(namespaces, sort_keys=True).encode()).hexdigest()
+        return {"namespaces": namespaces, "tasks": [], "subscriptions": [], "catalogFingerprint": fingerprint}
+
+
+def resolve_execution_context(options: dict[str, Any] | None, parent: AxExecutionContext | None = None) -> AxExecutionContext | None:
+    opts = options or {}
+    explicit = opts.get("executionContext") or opts.get("mcpExecutionContext")
+    if isinstance(explicit, AxExecutionContext):
+        return explicit.derive(opts.get("mcpInheritance", "all"))
+    mcp = opts.get("mcp")
+    ucp = opts.get("ucp")
+    if mcp is not None or ucp is not None:
+        return AxExecutionContext(mcp if isinstance(mcp, (list, tuple)) else [mcp] if mcp else [], ucp if isinstance(ucp, (list, tuple)) else [ucp] if ucp else [], opts)
+    return parent.derive(opts.get("mcpInheritance", "all")) if parent else None
 
 
 class AxMCPStreamableHTTPTransport(AxMCPTransport):
@@ -693,6 +906,30 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             _assert_subset(headers, fixture.get("expected_headers") or {}, "headers")
             return
 
+        if operation == "execution_context_ucp":
+            transport = AxMCPScriptedTransport(fixture.get("responses") or [])
+            mcp = AxMCPClient(transport, fixture.get("client_options") or {})
+            ucp = AxUCPClient(
+                fixture.get("ucp_profile") or {},
+                lambda _operation, _payload, _options: dict(fixture.get("ucp_response") or {}),
+                fixture.get("ucp_options") or {},
+            )
+            context = AxExecutionContext([mcp], [ucp]).initialize()
+            names = [client.namespace() for client in [*context.mcp, *context.ucp]]
+            if names != list(fixture.get("expected_namespaces") or []):
+                raise AssertionError(f"context namespaces mismatch: {names!r}")
+            tool_names = [tool.name for tool in context.native_tools()]
+            for expected in fixture.get("expected_native_tools") or []:
+                if expected not in tool_names:
+                    raise AssertionError(f"missing native context tool {expected}")
+            call = fixture.get("call_ucp") or {}
+            outcome = ucp.call(call.get("operation", "catalog.search"), call.get("payload") or {}, idempotency_key="fixture-key")
+            _assert_subset(outcome, fixture.get("expected_ucp_outcome") or {}, "UCP outcome")
+            state = context.continuation_state()
+            if state.get("namespaces") != names or not state.get("catalogFingerprint"):
+                raise AssertionError("invalid execution context continuation state")
+            return
+
         transport = AxMCPScriptedTransport(fixture.get("responses") or fixture.get("transport_responses") or [])
         client = AxMCPClient(transport, fixture.get("client_options") or {})
         if operation == "protocol_negotiation":
@@ -711,7 +948,7 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             _assert_requests(transport.requests, fixture)
             return
         if operation == "tools":
-            functions = client.to_function()
+            functions = client.native_tools()
             names = [fn.name for fn in functions]
             if fixture.get("expected_function_names") and names != fixture["expected_function_names"]:
                 raise AssertionError(f"function names mismatch: {names!r}")

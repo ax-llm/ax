@@ -10,6 +10,7 @@ import type {
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
+  AxFunctionResultContent,
   AxInternalChatRequest,
   AxInternalEmbedRequest,
   AxModelConfig,
@@ -157,6 +158,46 @@ export class AxAIOpenAIResponsesImpl<
     return mappedParts as ReadonlyArray<AxAIOpenAIResponsesInputContentPart>;
   }
 
+  private mapFunctionResultContent(
+    content: AxFunctionResultContent | undefined,
+    fallback: string
+  ): string | ReadonlyArray<AxAIOpenAIResponsesInputContentPart> {
+    if (!content?.length) return fallback;
+    return content.map((part) => {
+      if (part.type === 'text') {
+        return { type: 'input_text' as const, text: part.text };
+      }
+      if (part.type === 'image') {
+        return {
+          type: 'input_image' as const,
+          image_url: {
+            url: `data:${part.mimeType};base64,${part.image}`,
+            details: 'auto' as const,
+          },
+        };
+      }
+      if (part.type === 'audio') {
+        return {
+          type: 'input_audio' as const,
+          input_audio: { data: part.data },
+        };
+      }
+      if (part.type === 'file') {
+        return {
+          type: 'input_file' as const,
+          file_data: `data:${part.mimeType};base64,${part.data}`,
+          filename: part.filename,
+        };
+      }
+      return {
+        type: 'input_text' as const,
+        text:
+          part.cachedContent ??
+          [part.title, part.description, part.url].filter(Boolean).join('\n'),
+      };
+    });
+  }
+
   private createResponsesReqInternalInput(
     chatPrompt: ReadonlyArray<AxChatRequest<TModel>['chatPrompt'][number]>,
     excludeSystemMessages = false // New parameter
@@ -276,7 +317,7 @@ export class AxAIOpenAIResponsesImpl<
           items.push({
             type: 'function_call_output',
             call_id: msg.functionId!,
-            output: msg.result!,
+            output: this.mapFunctionResultContent(msg.content, msg.result),
           });
           break;
         default: {

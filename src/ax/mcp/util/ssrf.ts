@@ -32,6 +32,8 @@ export interface AxMCPSSRFProtectionOptions {
 }
 
 export type AxMCPFetchOptions = RequestInit & {
+  /** Host fetch implementation, including an mTLS-capable TLS stack if needed. */
+  fetch?: typeof globalThis.fetch;
   ssrfProtection?: AxMCPSSRFProtectionOptions;
   ssrfContext?: AxMCPSSRFProtectionContext;
   maxRedirects?: number;
@@ -95,6 +97,7 @@ export async function fetchWithSSRFProtection(
     ssrfProtection,
     ssrfContext = 'mcp-endpoint',
     maxRedirects = DEFAULT_MAX_REDIRECTS,
+    fetch: fetcher = globalThis.fetch,
     ...fetchOptions
   } = options;
   let current = await assertSSRFProtectedURL(input, {
@@ -103,7 +106,7 @@ export async function fetchWithSSRFProtection(
   });
 
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount++) {
-    const response = await fetch(current, {
+    const response = await fetcher(current, {
       ...fetchOptions,
       redirect: 'manual',
     });

@@ -217,4 +217,114 @@ describe('AxMCPStreamableHTTPTransport', () => {
     ).resolves.toMatchObject({ id: 'init' });
     expect(fetchMock).toHaveBeenCalledOnce();
   });
+
+  it('retries safe requests using HTTP-date Retry-After', async () => {
+    let attempts = 0;
+    const fetchMock = vi.fn(async () => {
+      attempts++;
+      if (attempts === 1) {
+        return new Response('', {
+          status: 503,
+          headers: { 'Retry-After': new Date(Date.now()).toUTCString() },
+        });
+      }
+      return jsonResponse({ jsonrpc: '2.0', id: 'list-1', result: {} });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const transport = new AxMCPStreamableHTTPTransport(
+      'https://mcp.example/mcp',
+      { retry: { maxAttempts: 2, baseDelayMs: 0 } }
+    );
+
+    await expect(
+      transport.send({
+        jsonrpc: '2.0',
+        id: 'list-1',
+        method: 'tools/list',
+      })
+    ).resolves.toMatchObject({ id: 'list-1' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry ambiguous tools/call requests', async () => {
+    const fetchMock = vi.fn(async () => new Response('', { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const transport = new AxMCPStreamableHTTPTransport(
+      'https://mcp.example/mcp',
+      { retry: { maxAttempts: 3, baseDelayMs: 0 } }
+    );
+
+    await expect(
+      transport.send({
+        jsonrpc: '2.0',
+        id: 'call-1',
+        method: 'tools/call',
+        params: { name: 'mutate' },
+      })
+    ).rejects.toThrow('HTTP error 503');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('enforces configured response-size limits', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          jsonrpc: '2.0',
+          id: 'large-1',
+          result: { value: 'x'.repeat(200) },
+        })
+      )
+    );
+    const transport = new AxMCPStreamableHTTPTransport(
+      'https://mcp.example/mcp',
+      { maxResponseBytes: 64 }
+    );
+    await expect(
+      transport.send({
+        jsonrpc: '2.0',
+        id: 'large-1',
+        method: 'tools/list',
+      })
+    ).rejects.toThrow('exceeded 64 bytes');
+  });
+
+  it('sends and correlates legacy 2025-03-26 JSON-RPC batches', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        const requests = JSON.parse(String(init?.body)) as Array<{
+          id: string;
+          method: string;
+        }>;
+        return jsonResponse(
+          requests.toReversed().map((request) => ({
+            jsonrpc: '2.0',
+            id: request.id,
+            result: { method: request.method },
+          }))
+        );
+      })
+    );
+    const transport = new AxMCPStreamableHTTPTransport(
+      'https://mcp.example/mcp'
+    );
+    transport.setProtocolVersion('2025-03-26');
+
+    await expect(
+      transport.sendBatch([
+        { jsonrpc: '2.0', id: 'one', method: 'tools/list' },
+        { jsonrpc: '2.0', id: 'two', method: 'prompts/list' },
+      ])
+    ).resolves.toEqual([
+      { jsonrpc: '2.0', id: 'one', result: { method: 'tools/list' } },
+      { jsonrpc: '2.0', id: 'two', result: { method: 'prompts/list' } },
+    ]);
+    transport.setProtocolVersion('2025-06-18');
+    await expect(
+      transport.sendBatch([
+        { jsonrpc: '2.0', id: 'three', method: 'tools/list' },
+      ])
+    ).rejects.toThrow('batching is not allowed');
+  });
 });

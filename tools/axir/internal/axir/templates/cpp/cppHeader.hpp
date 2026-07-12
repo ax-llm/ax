@@ -885,6 +885,7 @@ class AxAgent : public AxProgram {
   Value recall(Value request);
   Value used(Value id, Value reason = Value(""), Value stage = Value("executor"));
   Value invoke_callable(Value qualified_name, Value args = Value::object(), Value options = Value::object());
+  AxAgent& add_tool_module(std::string name, const std::vector<Tool>& tools);
   Value export_runtime_state() const;
   Value restore_runtime_state(Value snapshot);
   Value get_optimizer_metadata() const;

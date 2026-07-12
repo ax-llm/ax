@@ -1,5 +1,5 @@
 {
-  "name": "mcp tools list and toFunction call",
+  "name": "mcp tools list and native raw-result call",
   "kind": "mcp",
   "operation": "tools",
   "responses": [
@@ -59,7 +59,15 @@
     }
   },
   "expected_call_result": {
-    "echo": "hello"
+    "structuredContent": {
+      "echo": "hello"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "hello"
+      }
+    ]
   },
   "expected_requests": [
     {

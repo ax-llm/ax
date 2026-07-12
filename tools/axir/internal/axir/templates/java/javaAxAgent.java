@@ -7,6 +7,7 @@ import java.util.Map;
 
 public final class AxAgent implements AxProgram {
   final Map<String, Object> options;
+  final AxExecutionContext executionContext;
   Map<String, Object> state;
   Object signature;
   AxGen distiller;
@@ -21,6 +22,13 @@ public final class AxAgent implements AxProgram {
   @SuppressWarnings("unchecked")
   public AxAgent(Object signature, Map<String, Object> options) {
     this.options = options == null ? new LinkedHashMap<>() : new LinkedHashMap<>(options);
+    this.executionContext = AxExecutionContext.resolve(this.options, null);
+    if (executionContext != null) {
+      List<Object> functions = new ArrayList<>(Core.asList(this.options.getOrDefault("functions", List.of())));
+      functions.addAll(executionContext.runtimeModules());
+      this.options.put("functions", functions);
+      this.options.put("executionContext", executionContext);
+    }
     rebuildFromSignature(signature);
   }
 
@@ -28,10 +36,19 @@ public final class AxAgent implements AxProgram {
   private void rebuildFromSignature(Object signature) {
     this.state = Core.asMap(Core._agent_factory(signature, this.options));
     this.signature = Core.get(state, "signature", signature);
-    this.distiller = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "distiller_signature", "input:json -> completion:json"))), Map.of("validation_retries", 0, "id", "ctx.root.actor", "instruction", Core.get(state, "distiller_description", "")));
-    this.executor = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "executor_signature", "input:json -> completion:json"))), Map.of("validation_retries", 0, "id", "task.root.actor", "instruction", Core.get(state, "executor_description", "")));
-    this.responder = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "responder_signature", "input:json -> completion:json"))), Map.of("validation_retries", this.options.getOrDefault("validation_retries", 2), "id", "task.root.responder", "instruction", Core.get(state, "responder_description", "")));
-    this.llmQuery = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "llm_query_signature", "task:string, context:json -> answer:string"))), Map.of("validation_retries", 1, "id", "rlm.llmquery", "instruction", Core.get(state, "llm_query_description", "")));
+    this.distiller = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "distiller_signature", "input:json -> completion:json"))), childOptions(0, "ctx.root.actor", Core.get(state, "distiller_description", "")));
+    this.executor = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "executor_signature", "input:json -> completion:json"))), childOptions(0, "task.root.actor", Core.get(state, "executor_description", "")));
+    this.responder = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "responder_signature", "input:json -> completion:json"))), childOptions(this.options.getOrDefault("validation_retries", 2), "task.root.responder", Core.get(state, "responder_description", "")));
+    this.llmQuery = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "llm_query_signature", "task:string, context:json -> answer:string"))), childOptions(1, "rlm.llmquery", Core.get(state, "llm_query_description", "")));
+  }
+
+  private Map<String, Object> childOptions(Object retries, String id, Object instruction) {
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("validation_retries", retries);
+    out.put("id", id);
+    out.put("instruction", instruction);
+    if (executionContext != null) out.put("executionContext", executionContext);
+    return out;
   }
 
   public AxAgent setSignature(String signature) {
@@ -48,11 +65,19 @@ public final class AxAgent implements AxProgram {
   }
 
   public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions) {
+    Map<String, Object> callOptions = new LinkedHashMap<>(forwardOptions == null ? Map.of() : forwardOptions);
+    AxExecutionContext callContext = AxExecutionContext.resolve(callOptions, executionContext);
+    if (callContext != null) {
+      callOptions.put("executionContext", callContext);
+      List<Object> functions = new ArrayList<>(Core.asList(callOptions.getOrDefault("functions", List.of())));
+      functions.addAll(callContext.runtimeModules());
+      callOptions.put("functions", functions);
+    }
     // Wire the built-in llmQuery primitive onto the runtime carried in agent
     // options (the same runtime the actor loop will create sessions on),
     // mirroring the Go/Python/Rust wrappers. The logic lives in the
     // AxIR-generated helper; this only registers the host callable.
-    Object runtimeObj = forwardOptions == null ? null : forwardOptions.get("runtime");
+    Object runtimeObj = callOptions.get("runtime");
     if (runtimeObj == null) runtimeObj = options.get("runtime");
     if (runtimeObj instanceof AxCodeRuntime runtime) {
       runtime.registerHostCallable("llmQuery", params -> Core._agent_run_llm_query(llmQuery, client, params));
@@ -64,7 +89,7 @@ public final class AxAgent implements AxProgram {
       responder,
       client,
       values == null ? Map.of() : values,
-      forwardOptions == null ? Map.of() : forwardOptions
+      callOptions
     ));
   }
 

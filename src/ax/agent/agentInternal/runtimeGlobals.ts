@@ -313,6 +313,136 @@ export function buildRuntimeGlobals(
     }
   }
 
+  const mcpExecutionContext = s._activeMCPExecutionContext as
+    | import('../../mcp/execution.js').AxMCPExecutionContext
+    | undefined;
+  if (mcpExecutionContext) {
+    const mcpRoot: Record<string, unknown> = {};
+    globals.mcp = mcpRoot;
+    for (const client of mcpExecutionContext.clients) {
+      const namespace = client.getNamespace();
+      const tools: Record<string, unknown> = {};
+      for (const binding of mcpExecutionContext
+        .getToolBindings()
+        .filter((candidate) => candidate.namespace === namespace)) {
+        const qualifiedName = `mcp.${namespace}.tools.${binding.name}`;
+        tools[binding.name] = executesTools
+          ? wrapFunction(
+              binding,
+              abortSignal,
+              ai,
+              protocolForTrigger,
+              qualifiedName,
+              functionCallRecorder,
+              'external',
+              onFunctionCall
+            )
+          : buildStageToolStub(qualifiedName);
+        registerCallable(
+          {
+            module: `mcp.${namespace}`,
+            name: binding.name,
+            description: binding.description,
+            parameters: binding.parameters,
+            returns: binding.returns,
+          },
+          qualifiedName
+        );
+      }
+      const executeOrStub = <T extends (...args: any[]) => Promise<unknown>>(
+        qualifiedName: string,
+        fn: T
+      ): T | ReturnType<typeof buildStageToolStub> =>
+        executesTools ? fn : buildStageToolStub(qualifiedName);
+      mcpRoot[namespace] = {
+        tools,
+        prompts: {
+          list: () => client.getPrompts(),
+          get: executeOrStub(
+            `mcp.${namespace}.prompts.get`,
+            (name: string, args?: Record<string, string>) =>
+              client.getPrompt(name, args)
+          ),
+        },
+        resources: {
+          list: () => client.getResources(),
+          templates: () => client.getResourceTemplates(),
+          read: executeOrStub(
+            `mcp.${namespace}.resources.read`,
+            (uri: string) => client.readResource(uri)
+          ),
+          subscribe: executeOrStub(
+            `mcp.${namespace}.resources.subscribe`,
+            (uri: string) => client.subscribeResource(uri)
+          ),
+          unsubscribe: executeOrStub(
+            `mcp.${namespace}.resources.unsubscribe`,
+            (uri: string) => client.unsubscribeResource(uri)
+          ),
+        },
+        tasks: {
+          list: executeOrStub(
+            `mcp.${namespace}.tasks.list`,
+            (cursor?: string) => client.listTasks(cursor)
+          ),
+          get: executeOrStub(`mcp.${namespace}.tasks.get`, (taskId: string) =>
+            client.getTask(taskId)
+          ),
+          result: executeOrStub(
+            `mcp.${namespace}.tasks.result`,
+            (taskId: string) => client.getTaskResult(taskId)
+          ),
+          cancel: executeOrStub(
+            `mcp.${namespace}.tasks.cancel`,
+            (taskId: string) => client.cancelTask(taskId)
+          ),
+        },
+        complete: executeOrStub(
+          `mcp.${namespace}.complete`,
+          (...args: Parameters<typeof client.complete>) =>
+            client.complete(...args)
+        ),
+      };
+    }
+
+    const ucpRoot: Record<string, unknown> = {};
+    globals.ucp = ucpRoot;
+    for (const client of mcpExecutionContext.ucpClients) {
+      const namespace = client.getNamespace();
+      const operations: Record<string, unknown> = {};
+      for (const binding of client.getOperationBindings()) {
+        const qualifiedName = `ucp.${namespace}.${binding.name}`;
+        operations[binding.name] = executesTools
+          ? wrapFunction(
+              binding,
+              abortSignal,
+              ai,
+              protocolForTrigger,
+              qualifiedName,
+              functionCallRecorder,
+              'external',
+              onFunctionCall
+            )
+          : buildStageToolStub(qualifiedName);
+        registerCallable(
+          {
+            module: `ucp.${namespace}`,
+            name: binding.name,
+            description: binding.description,
+            parameters: binding.parameters,
+            returns: binding.returns,
+          },
+          qualifiedName
+        );
+      }
+      ucpRoot[namespace] = {
+        ...operations,
+        profile: () => client.getProfile(),
+        operations: () => client.getOperationNames(),
+      };
+    }
+  }
+
   if (s.functionDiscoveryEnabled || typeof s.onSkillsSearch === 'function') {
     globals[DISCOVERY_DISCOVER_NAME] = async (
       input: unknown

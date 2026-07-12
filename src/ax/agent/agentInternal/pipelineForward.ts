@@ -13,6 +13,7 @@ import type {
   AxProgramUsage,
 } from '../../dsp/types.js';
 import { flow } from '../../flow/flow.js';
+import { axResolveMCPExecutionContext } from '../../mcp/execution.js';
 import { DEFAULT_RLM_MAX_LLM_CALLS } from '../config.js';
 import {
   buildContextFieldPromptInlineValue,
@@ -764,11 +765,19 @@ export async function forwardPipeline<
   options?: Readonly<AxProgramForwardOptionsWithModels<T>>
 ): Promise<OUT> {
   const p = pipeline as any;
+  const mcpExecutionContext = await axResolveMCPExecutionContext(
+    options ?? {},
+    p.options ?? {}
+  );
+  const runOptions = mcpExecutionContext
+    ? { ...options, _mcpExecutionContext: mcpExecutionContext }
+    : options;
+  await mcpExecutionContext?.restoreContinuationState(p.executor.state?.mcp);
   const agentValues = await transcribeAgentAudioInputs(
     p.distillerAi ?? ai,
     p.fullSignature ?? pipeline.getSignature(),
     values,
-    options as any
+    runOptions as any
   );
   if (typeof p._syncContextMapPrompt === 'function') {
     p._syncContextMapPrompt();
@@ -780,10 +789,10 @@ export async function forwardPipeline<
       {
         agentValues,
         ai,
-        forwardOptions: options,
+        forwardOptions: runOptions,
         _sharedSession: sharedSession,
       },
-      options
+      runOptions
     )) as OUT;
   } finally {
     endPipelineSharedSession(p, sharedSession);
@@ -805,11 +814,19 @@ export async function* streamingForwardPipeline<
   options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
 ): AxGenStreamingOut<OUT> {
   const p = pipeline as any;
+  const mcpExecutionContext = await axResolveMCPExecutionContext(
+    options ?? {},
+    p.options ?? {}
+  );
+  const runOptions = mcpExecutionContext
+    ? { ...options, _mcpExecutionContext: mcpExecutionContext }
+    : options;
+  await mcpExecutionContext?.restoreContinuationState(p.executor.state?.mcp);
   const valuesForStages = await transcribeAgentAudioInputs(
     p.distillerAi ?? ai,
     p.fullSignature ?? pipeline.getSignature(),
     values,
-    options as any
+    runOptions as any
   );
   const contextFieldNames: Set<string> = p.contextFieldNames;
   // The distiller receives the full input so it can normalize the request
@@ -832,7 +849,7 @@ export async function* streamingForwardPipeline<
     const distillerRun = await p.distiller.run(
       distillerAi,
       valuesForStages,
-      options
+      runOptions
     );
     throwOnClarification(distillerRun.executorResult, p.distiller);
 
@@ -857,7 +874,11 @@ export async function* streamingForwardPipeline<
         nonCtxValues,
         distillerRun
       );
-      executorRun = await p.executor.run(executorAi, executorInputs, options);
+      executorRun = await p.executor.run(
+        executorAi,
+        executorInputs,
+        runOptions
+      );
       throwOnClarification(executorRun.executorResult, p.executor);
     }
     const usedMemories = mergeUsedMemoryResults(
@@ -868,8 +889,8 @@ export async function* streamingForwardPipeline<
       distillerRun.usedSkills,
       executorRun.usedSkills ?? []
     );
-    notifyUsedMemories(p, options, usedMemories);
-    notifyUsedSkills(p, options, usedSkills);
+    notifyUsedMemories(p, runOptions, usedMemories);
+    notifyUsedSkills(p, runOptions, usedSkills);
     const {
       executorRequest: _ignoreT,
       distilledContextSummary: _ignoreC,
@@ -885,7 +906,7 @@ export async function* streamingForwardPipeline<
     yield* p.responder.streamingForward(responderAi, {
       nonContextValues: nonCtxForResponder,
       executorResult: executorRun.executorResult,
-      options,
+      options: runOptions,
     });
     if (typeof p._updateContextMapFromPipelineState === 'function') {
       await p._updateContextMapFromPipelineState(ai, {

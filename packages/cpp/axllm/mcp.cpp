@@ -1,5 +1,6 @@
 #include "mcp.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 
@@ -157,6 +158,130 @@ std::vector<Tool> AxMCPClient::to_function() {
   for (auto item : resource_templates_) out.push_back(resource_template_to_function(item));
   return out;
 }
+
+std::vector<Tool> AxMCPClient::native_tools() {
+  std::vector<Tool> out;
+  for (auto spec : tools_) {
+    std::string original = display(Core::get(spec, "name", ""));
+    auto self = this;
+    out.emplace_back(original, display(Core::get(spec, "description", original)), Core::get(spec, "inputSchema", Value::object()), [self, original](Value args) {
+      return self->call_tool(original, args);
+    });
+  }
+  return out;
+}
+
+std::string AxMCPClient::namespace_name() const {
+  std::string configured = display(Core::get(options_, "namespace", ""));
+  return configured.empty() ? "mcp" : configured;
+}
+
+static const std::vector<std::string>& ax_ucp_operations() {
+  static const std::vector<std::string> operations = {
+      "catalog.search", "catalog.lookup", "catalog.product", "cart.create", "cart.get", "cart.update", "cart.cancel",
+      "checkout.create", "checkout.get", "checkout.update", "checkout.complete", "checkout.cancel", "fulfillment.quote",
+      "discounts.apply", "payments.create", "payments.confirm", "orders.get", "identity.link", "attribution.record", "handoff.create"};
+  return operations;
+}
+
+AxUCPClient::AxUCPClient(Value profile, std::shared_ptr<AxUCPBinding> binding, Value options)
+    : profile_(std::move(profile)), binding_(std::move(binding)), options_(std::move(options)) {
+  version_ = display(Core::get(profile_, "version", Core::get(options_, "version", "2026-04-08")));
+  Value supported = Core::get(options_, "supportedVersions", array({"2026-04-08"}));
+  bool found = false;
+  for (auto item : as_array_local(supported)) found = found || display(item) == version_;
+  if (!found) throw std::runtime_error("Unsupported UCP version " + version_);
+}
+
+std::string AxUCPClient::namespace_name() const {
+  std::string configured = display(Core::get(options_, "namespace", ""));
+  if (!configured.empty()) return configured;
+  configured = display(Core::get(profile_, "name", ""));
+  return configured.empty() ? "ucp" : configured;
+}
+std::string AxUCPClient::version() const { return version_; }
+Value AxUCPClient::profile() const { return profile_; }
+
+Value AxUCPClient::call(const std::string& operation, Value payload, const std::string& idempotency_key) {
+  if (std::find(ax_ucp_operations().begin(), ax_ucp_operations().end(), operation) == ax_ucp_operations().end())
+    throw std::runtime_error("Unsupported UCP operation " + operation);
+  std::string key = idempotency_key.empty() ? "ax-ucp-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) : idempotency_key;
+  Value value = binding_->call(operation, std::move(payload), object({{"version", version_}, {"idempotencyKey", key}}));
+  return object({{"operation", operation}, {"value", value}, {"warnings", Core::get(value, "warnings", Value())},
+                 {"partialSuccess", Core::get(value, "partial_success", Core::get(value, "partialSuccess", false))},
+                 {"continuationUrl", Core::get(value, "continuation_url", Core::get(value, "continuationUrl", Value()))}, {"idempotencyKey", key}});
+}
+
+std::vector<Tool> AxUCPClient::native_tools() {
+  std::vector<Tool> out;
+  for (const auto& operation : ax_ucp_operations()) {
+    std::string name = namespace_name() + "_" + operation;
+    std::replace(name.begin(), name.end(), '.', '_');
+    out.emplace_back(name, "UCP " + operation + " operation", Value::object(), [this, operation](Value args) { return call(operation, args); });
+  }
+  return out;
+}
+
+Value AxUCPClient::catalog_search(Value payload) { return call("catalog.search", payload); }
+Value AxUCPClient::catalog_lookup(Value payload) { return call("catalog.lookup", payload); }
+Value AxUCPClient::catalog_product(Value payload) { return call("catalog.product", payload); }
+Value AxUCPClient::cart_create(Value payload) { return call("cart.create", payload); }
+Value AxUCPClient::cart_get(Value payload) { return call("cart.get", payload); }
+Value AxUCPClient::cart_update(Value payload) { return call("cart.update", payload); }
+Value AxUCPClient::cart_cancel(Value payload) { return call("cart.cancel", payload); }
+Value AxUCPClient::checkout_create(Value payload) { return call("checkout.create", payload); }
+Value AxUCPClient::checkout_get(Value payload) { return call("checkout.get", payload); }
+Value AxUCPClient::checkout_update(Value payload) { return call("checkout.update", payload); }
+Value AxUCPClient::checkout_complete(Value payload) { return call("checkout.complete", payload); }
+Value AxUCPClient::checkout_cancel(Value payload) { return call("checkout.cancel", payload); }
+Value AxUCPClient::order_get(Value payload) { return call("orders.get", payload); }
+Value AxUCPClient::identity_link(Value payload) { return call("identity.link", payload); }
+
+AxExecutionContext::AxExecutionContext(std::vector<std::shared_ptr<AxMCPClient>> mcp, std::vector<std::shared_ptr<AxUCPClient>> ucp)
+    : mcp_(std::move(mcp)), ucp_(std::move(ucp)) {
+  auto names = namespaces();
+  std::set<std::string> unique(names.begin(), names.end());
+  if (unique.size() != names.size()) throw std::runtime_error("MCP/UCP namespace collision");
+}
+
+void AxExecutionContext::initialize() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (auto& client : mcp_) if (initialized_.insert(client.get()).second) client->init();
+}
+
+std::vector<Tool> AxExecutionContext::native_tools() {
+  initialize();
+  std::vector<Tool> out;
+  for (auto& client : mcp_) { auto tools = client->native_tools(); out.insert(out.end(), tools.begin(), tools.end()); }
+  for (auto& client : ucp_) { auto tools = client->native_tools(); out.insert(out.end(), tools.begin(), tools.end()); }
+  std::set<std::string> names;
+  for (const auto& tool : out) if (!names.insert(tool.name).second) throw std::runtime_error("MCP/UCP tool collision " + tool.name);
+  return out;
+}
+
+Value AxExecutionContext::runtime_modules() {
+  Array out;
+  for (auto& client : mcp_) { Array functions; for (auto& tool : client->native_tools()) functions.push_back(tool.name); out.push_back(object({{"name", "mcp." + client->namespace_name()}, {"functions", Value(functions)}})); }
+  for (auto& client : ucp_) { Array functions; for (auto& tool : client->native_tools()) functions.push_back(tool.name); out.push_back(object({{"name", "ucp." + client->namespace_name()}, {"functions", Value(functions)}})); }
+  return Value(out);
+}
+
+std::vector<std::string> AxExecutionContext::namespaces() const { std::vector<std::string> out; for (auto& client : mcp_) out.push_back(client->namespace_name()); for (auto& client : ucp_) out.push_back(client->namespace_name()); return out; }
+
+AxExecutionContext AxExecutionContext::derive(Value inheritance) const {
+  if (display(inheritance) == "none") return AxExecutionContext();
+  auto allowed_values = as_array_local(inheritance);
+  if (allowed_values.empty()) return AxExecutionContext(mcp_, ucp_);
+  std::set<std::string> allowed; for (auto value : allowed_values) allowed.insert(display(value));
+  std::vector<std::shared_ptr<AxMCPClient>> mcp; std::vector<std::shared_ptr<AxUCPClient>> ucp;
+  for (auto& client : mcp_) if (allowed.count(client->namespace_name())) mcp.push_back(client);
+  for (auto& client : ucp_) if (allowed.count(client->namespace_name())) ucp.push_back(client);
+  return AxExecutionContext(std::move(mcp), std::move(ucp));
+}
+
+AxMCPContinuationState AxExecutionContext::continuation_state() const { auto names = namespaces(); std::string joined; for (auto& name : names) joined += name + "\n"; return {names, Value::array(), Value::array(), ax_mcp_pkce_challenge(joined)}; }
+void AxExecutionContext::attach(AxGen& gen) { for (const auto& tool : native_tools()) gen.add_tool(tool); }
+void AxExecutionContext::attach(AxAgent& agent) { initialize(); for (auto& client : mcp_) agent.add_tool_module("mcp." + client->namespace_name(), client->native_tools()); for (auto& client : ucp_) agent.add_tool_module("ucp." + client->namespace_name(), client->native_tools()); }
 
 Tool AxMCPClient::tool_to_function(Value spec) {
   std::string original = display(Core::get(spec, "name", ""));
@@ -337,6 +462,14 @@ std::string ax_mcp_validate_endpoint(const std::string& endpoint, Value options)
   return endpoint;
 }
 
+class FixtureUCPBinding final : public AxUCPBinding {
+ public:
+  explicit FixtureUCPBinding(Value response) : response_(std::move(response)) {}
+  Value call(const std::string&, Value, Value) override { return response_; }
+ private:
+  Value response_;
+};
+
 void run_mcp_conformance_fixture(Value fixture) {
   std::string op = display(Core::get(fixture, "operation", "initialize"));
   std::string expected_error = display(Core::get(fixture, "expected_error_contains", ""));
@@ -368,6 +501,24 @@ void run_mcp_conformance_fixture(Value fixture) {
       expect_subset_local(transport.build_headers(object({{"Accept", "application/json"}})), Core::get(fixture, "expected_headers", Value::object()), "headers");
       return;
     }
+    if (op == "execution_context_ucp") {
+      auto transport = std::make_shared<AxMCPScriptedTransport>(Core::get(fixture, "responses", Value::array()));
+      auto mcp = std::make_shared<AxMCPClient>(transport, Core::get(fixture, "client_options", Value::object()));
+      auto ucp = std::make_shared<AxUCPClient>(Core::get(fixture, "ucp_profile", Value::object()), std::make_shared<FixtureUCPBinding>(Core::get(fixture, "ucp_response", Value::object())), Core::get(fixture, "ucp_options", Value::object()));
+      AxExecutionContext context({mcp}, {ucp}); context.initialize();
+      Array actual_names; for (auto& name : context.namespaces()) actual_names.push_back(name);
+      expect_subset_local(Value(actual_names), Core::get(fixture, "expected_namespaces", Value::array()), "context namespaces");
+      auto tools = context.native_tools();
+      for (auto expected : as_array_local(Core::get(fixture, "expected_native_tools", Value::array()))) {
+        bool found = false; for (auto& tool : tools) found = found || tool.name == display(expected);
+        if (!found) throw AxError("fixture", "missing native context tool " + display(expected));
+      }
+      Value call = Core::get(fixture, "call_ucp", Value::object());
+      Value outcome = ucp->call(display(Core::get(call, "operation", "catalog.search")), Core::get(call, "payload", Value::object()), "fixture-key");
+      expect_subset_local(outcome, Core::get(fixture, "expected_ucp_outcome", Value::object()), "UCP outcome");
+      if (context.continuation_state().catalog_fingerprint.empty()) throw AxError("fixture", "invalid execution context continuation state");
+      return;
+    }
     auto transport = std::make_shared<AxMCPScriptedTransport>(Core::get(fixture, "responses", Core::get(fixture, "transport_responses", Value::array())));
     AxMCPClient client(transport, Core::get(fixture, "client_options", Value::object()));
     client.init();
@@ -378,7 +529,7 @@ void run_mcp_conformance_fixture(Value fixture) {
     if (op == "ping") {
       client.ping();
     } else if (op == "tools") {
-      auto functions = client.to_function();
+      auto functions = client.native_tools();
       if (!Core::get(fixture, "call_function", Value()).is_null()) {
         Value call = Core::get(fixture, "call_function");
         for (auto& fn : functions) {

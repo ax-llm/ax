@@ -31,6 +31,7 @@ from .gen import (
     _validate_optimization_component_map,
     _validate_optimized_artifact,
 )
+from .mcp import resolve_execution_context
 from .signature import AxSignature, parse_signature
 # AXIR_CORE_IMPORTS
 
@@ -1241,22 +1242,32 @@ def _score_optimization_prediction(task, prediction, options):
 class AxAgent:
     def __init__(self, signature, options: dict[str, Any] | None = None):
         self.options = dict(options or {})
+        self.execution_context = resolve_execution_context(self.options)
+        if self.execution_context:
+            existing = list(self.options.get("functions") or [])
+            self.options["functions"] = existing + self.execution_context.runtime_modules()
+            self.options["executionContext"] = self.execution_context
         self._rebuild_from_signature(signature)
 
     def _rebuild_from_signature(self, signature):
         self.state = _agent_factory(signature, self.options)
         self.signature = _core_get(self.state, "signature")
-        self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": 0, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", "")})
-        self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": 0, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
-        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
-        self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
+        child_context = {"executionContext": self.execution_context} if self.execution_context else {}
+        self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": 0, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", ""), **child_context})
+        self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": 0, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", ""), **child_context})
+        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", ""), **child_context})
+        self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", ""), **child_context})
 
     def set_signature(self, signature):
         self._rebuild_from_signature(signature)
         return self
 
     def forward(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
-        options = options or {}
+        options = dict(options or {})
+        call_context = resolve_execution_context(options, self.execution_context)
+        if call_context:
+            options["executionContext"] = call_context
+            options["functions"] = list(options.get("functions") or []) + call_context.runtime_modules()
         runtime = options.get("runtime")
         if runtime is None:
             runtime = self.options.get("runtime")

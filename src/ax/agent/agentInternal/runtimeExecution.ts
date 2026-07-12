@@ -221,6 +221,8 @@ export function createRuntimeExecutionContext(
     onUsedSkills,
   });
 
+  s._activeMCPExecutionContext = options?._mcpExecutionContext;
+
   const toolGlobals = s.buildRuntimeGlobals(
     effectiveAbortSignal,
     ai,

@@ -17116,6 +17116,50 @@ final class Core {
     return request;
   }
 
+  static Object ucp_negotiate_profile(Object profile, Object supportedVersions, Object requestedServices) {
+    axirCoverageMark("ucp_negotiate_profile");
+    Object version = Core.get(profile, "version", null);
+    Object services = Core.get(profile, "services", null);
+    Object capabilities = Core.get(profile, "capabilities", null);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "version", version);
+    Core.set(out, "services", services);
+    Core.set(out, "capabilities", capabilities);
+    Core.set(out, "supportedVersions", supportedVersions);
+    Core.set(out, "requestedServices", requestedServices);
+    return out;
+  }
+
+  static Object ucp_normalize_outcome(Object operation, Object response) {
+    axirCoverageMark("ucp_normalize_outcome");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "operation", operation);
+    Core.set(out, "value", response);
+    Object warnings = Core.get(response, "warnings", null);
+    Object continuation = Core.get(response, "continuation_url", null);
+    Object partial = Core.get(response, "partial_success", Boolean.FALSE);
+    Core.set(out, "warnings", warnings);
+    Core.set(out, "continuationUrl", continuation);
+    Core.set(out, "partialSuccess", partial);
+    return out;
+  }
+
+  static Object mcp_execution_context_descriptor(Object namespaces, Object inheritance) {
+    axirCoverageMark("mcp_execution_context_descriptor");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "namespaces", namespaces);
+    Object missing = Core.isNone(inheritance);
+    if (Core.truthy(missing)) {
+      Core.set(out, "inheritance", "all");
+    }
+    if (!Core.truthy(missing)) {
+      Core.set(out, "inheritance", inheritance);
+    }
+    Core.set(out, "native", Boolean.TRUE);
+    Core.set(out, "lossyAdapter", Boolean.FALSE);
+    return out;
+  }
+
   static Object mcp_protocol_constants() {
     axirCoverageMark("mcp_protocol_constants");
     Object versions = new java.util.ArrayList<Object>();

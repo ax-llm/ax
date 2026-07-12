@@ -22,6 +22,7 @@ import type {
   AxChatResponseResult,
   AxFunction,
 } from '../ai/types.js';
+import { axResolveMCPExecutionContext } from '../mcp/execution.js';
 import { AxMemory } from '../mem/memory.js';
 import type { AxAIMemory } from '../mem/types.js';
 import { mergeAbortSignals } from '../util/abort.js';
@@ -1267,6 +1268,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         logger,
         debugPromptMetrics,
         onFunctionCall: options.onFunctionCall,
+        mcpExecutionContext: options._mcpExecutionContext,
         debug,
         functionResultFormatter,
         signatureToolCallingManager,
@@ -1326,6 +1328,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         logger,
         debugPromptMetrics,
         onFunctionCall: options.onFunctionCall,
+        mcpExecutionContext: options._mcpExecutionContext,
         debug,
         functionResultFormatter,
         signatureToolCallingManager,
@@ -1364,6 +1367,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const mutableFunctions = options.functions
       ? parseFunctions(options.functions)
       : [...this.functions];
+    let mcpCatalogRevision = options._mcpExecutionContext?.getCatalogRevision();
 
     // Create step context for programmatic loop control
     const stepContext = new AxStepContextImpl(maxSteps);
@@ -1520,7 +1524,19 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             }),
           };
 
-    const prompt = renderedInitialPrompt.chatPrompt;
+    const basePrompt = renderedInitialPrompt.chatPrompt;
+    const firstNonSystem = basePrompt.findIndex(
+      (message) => message.role !== 'system'
+    );
+    const contextInsertionIndex =
+      firstNonSystem === -1 ? basePrompt.length : firstNonSystem;
+    const prompt = options._mcpContextPrompt?.length
+      ? [
+          ...basePrompt.slice(0, contextInsertionIndex),
+          ...options._mcpContextPrompt,
+          ...basePrompt.slice(contextInsertionIndex),
+        ]
+      : basePrompt;
     const promptMetrics =
       'promptMetrics' in renderedInitialPrompt
         ? renderedInitialPrompt.promptMetrics
@@ -1610,6 +1626,23 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
       // Apply pending mutations from previous step (or from selfTuning/hooks)
       applyStepContextMutations();
+
+      const nextMcpCatalogRevision =
+        options._mcpExecutionContext?.getCatalogRevision();
+      if (
+        nextMcpCatalogRevision !== undefined &&
+        nextMcpCatalogRevision !== mcpCatalogRevision
+      ) {
+        for (let i = mutableFunctions.length - 1; i >= 0; i--) {
+          if (mutableFunctions[i]?.componentId?.startsWith('mcp:')) {
+            mutableFunctions.splice(i, 1);
+          }
+        }
+        mutableFunctions.push(
+          ...options._mcpExecutionContext!.getToolBindings()
+        );
+        mcpCatalogRevision = nextMcpCatalogRevision;
+      }
 
       // Update self-tuning function schema if model changed
       if (selfTuningConfig && selfTuningConfig.model !== false) {
@@ -2451,9 +2484,34 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         functions = parseFunctions(options.functions, this.functions);
       }
 
+      const mcpExecutionContext = await axResolveMCPExecutionContext(
+        options,
+        this.options
+      );
+      if (mcpExecutionContext) {
+        functions = [
+          ...(functions ?? []),
+          ...mcpExecutionContext.getToolBindings(),
+        ];
+      }
+      const mcpContextPrompt = mcpExecutionContext
+        ? await mcpExecutionContext.resolveContextPrompt(
+            options.mcpContext ?? this.options?.mcpContext
+          )
+        : undefined;
+      const executionOptions = mcpExecutionContext
+        ? {
+            ...effectiveOptions,
+            _mcpExecutionContext: mcpExecutionContext,
+            ...(mcpContextPrompt?.length
+              ? { _mcpContextPrompt: mcpContextPrompt }
+              : {}),
+          }
+        : effectiveOptions;
+
       if (!tracer) {
         yield* this._forward2(ai, values, states, {
-          ...effectiveOptions,
+          ...executionOptions,
           functions,
         });
         return;
@@ -2502,7 +2560,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           values,
           states,
           {
-            ...effectiveOptions,
+            ...executionOptions,
             functions,
           },
           span,

@@ -248,47 +248,45 @@ const transport = new AxMCPStdioTransport({
   args: ['-y', '@modelcontextprotocol/server-memory'],
 });
 
-const mcpClient = new AxMCPClient(transport, { debug: false });
-await mcpClient.init();
+const mcpClient = new AxMCPClient(transport, { namespace: 'memory' });
 
-// Use with agent under a namespace
+// Native MCP context is initialized once and inherited by all agent stages.
 const myAgent = agent('userMessage:string -> response:string', {
-  functions: [
-    {
-      namespace: 'memory',
-      title: 'Memory MCP',
-      description: 'Memory server tools',
-      selectionCriteria: 'Use for persistent memory lookup and updates.',
-      functions: [mcpClient],
-    },
-  ],
+  mcp: mcpClient,
   functionDiscovery: true,
   contextFields: [],
 });
+
+const result = await myAgent.forward(llm, { userMessage: 'Remember this.' });
+await mcpClient.close(); // caller-owned clients remain caller-owned
 ```
 
 ### HTTP Transport (Remote MCP)
 
 ```typescript
-import { AxMCPStreambleHTTPTransport } from '@ax-llm/ax/mcp/transports/httpStreamTransport.js';
+import { AxMCPStreamableHTTPTransport } from '@ax-llm/ax';
 
-const transport = new AxMCPStreambleHTTPTransport('https://remote.mcp.pipedream.net', {
+const transport = new AxMCPStreamableHTTPTransport('https://remote.example/mcp', {
   headers: { 'x-pd-project-id': projectId },
   authorization: `Bearer ${accessToken}`,
 });
 ```
 
-### MCP Capabilities
+### Native MCP and UCP behavior
 
-| Capability | Prefix | Description |
-|---|---|---|
-| Tools | *(none)* | Function calls |
-| Prompts | `prompt_` | Prompt templates |
-| Resources | `resource_` | File/data access |
+- Pass `mcp` and `ucp` to AxGen, streaming AxGen, chat, AxAgent, AxFlow, optimization, or evaluation options.
+- Use `mcpContext` to inject attributed prompts/resources before the first model call.
+- Use `mcpInheritance: 'all' | 'none' | string[]` to restrict child programs.
+- Tool calls retain raw MCP content, metadata, errors, tasks, and protocol provenance in memory.
+- AxAgent exposes native modules as `mcp.<namespace>` and `ucp.<namespace>`.
+- `toFunction()` remains a compatibility adapter only; native Ax execution never uses it.
+- Live optimization is rejected by default. Use recording/replay or explicitly opt into live MCP evaluation.
 
 ```typescript
-const caps = mcpClient.getCapabilities();
-const functions = mcpClient.toFunction();
+const tools = mcpClient.getTools();
+const prompts = await mcpClient.listPrompts();
+const resource = await mcpClient.readResource('docs://guide');
+const tasks = await mcpClient.listTasks();
 ```
 
 ### Function Overrides

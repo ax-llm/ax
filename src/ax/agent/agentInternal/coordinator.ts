@@ -11,6 +11,7 @@ import type {
   AxGenStreamingOut,
   AxNamedProgramInstance,
   AxProgramDemos,
+  AxProgramForwardOptions,
   AxProgramForwardOptionsWithModels,
   AxProgramTrace,
 } from '../../dsp/types.js';
@@ -946,9 +947,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
   private _createOptimizationProgram(
     targetIds: readonly string[],
-    descriptors: readonly AxAgentOptimizationTargetDescriptor[]
+    descriptors: readonly AxAgentOptimizationTargetDescriptor[],
+    evaluationForwardOptions: Readonly<AxProgramForwardOptions<string>> = {}
   ) {
-    return createOptimizationProgram<IN, OUT>(this, targetIds, descriptors);
+    return createOptimizationProgram<IN, OUT>(
+      this,
+      targetIds,
+      descriptors,
+      evaluationForwardOptions
+    );
   }
 
   private _createAgentOptimizeMetric(

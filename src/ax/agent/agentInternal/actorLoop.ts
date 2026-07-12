@@ -531,6 +531,7 @@ export async function runActorLoop<IN extends AxGenIn>(
               : {}),
           }
         : undefined;
+      nextState.mcp = options?._mcpExecutionContext?.getContinuationState();
       s.state = nextState;
       s.stateError = undefined;
     } catch (err) {

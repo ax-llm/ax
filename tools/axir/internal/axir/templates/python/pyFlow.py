@@ -48,6 +48,7 @@ from .agent import (
     _core_agent_stage_usage,
     _optimization_component,
 )
+from .mcp import resolve_execution_context
 # AXIR_CORE_IMPORTS
 
 
@@ -152,7 +153,9 @@ class AxProgram(ABC):
 
 class AxFlow(AxProgram):
     def __init__(self, options: dict[str, Any] | None = None):
-        self.state = _flow_factory(options or {})
+        self.options = dict(options or {})
+        self.execution_context = resolve_execution_context(self.options)
+        self.state = _flow_factory(self.options)
 
     def execute(self, name: str, program, options: dict[str, Any] | None = None):
         return self._add_step("execute", name, program, options)
@@ -295,7 +298,13 @@ class AxFlow(AxProgram):
         return self.optimize_with(engine, dataset or [], opts)
 
     def forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
-        return _flow_forward(self.state, client, values or {}, options or {})
+        call_options = dict(options or {})
+        call_context = resolve_execution_context(call_options, self.execution_context)
+        if call_context:
+            call_options["executionContext"] = call_context
+            call_options["mcp"] = call_context.mcp
+            call_options["ucp"] = call_context.ucp
+        return _flow_forward(self.state, client, values or {}, call_options)
 
     def streaming_forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         yield {"version": 1, "index": 0, "delta": self.forward(client, values or {}, options or {})}

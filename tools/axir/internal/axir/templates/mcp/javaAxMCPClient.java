@@ -110,7 +110,23 @@ public final class AxMCPClient {
     return out;
   }
 
-  Map<String, Object> request(String method, Map<String, Object> params) {
+  public List<Tool> nativeTools() {
+    List<Tool> out = new ArrayList<>();
+    for (Map<String, Object> tool : tools) {
+      String original = String.valueOf(tool.getOrDefault("name", ""));
+      out.add(new Tool(overrideName(original), overrideDescription(tool), List.of(), List.of(), args -> callTool(original, args)));
+    }
+    return out;
+  }
+
+  public String namespace() {
+    Object configured = options.get("namespace");
+    if (configured != null) return String.valueOf(configured);
+    Object serverName = serverInfo.get("name");
+    return serverName == null ? "mcp" : String.valueOf(serverName);
+  }
+
+  public Map<String, Object> request(String method, Map<String, Object> params) {
     Map<String, Object> message = new LinkedHashMap<>();
     message.put("jsonrpc", "2.0");
     message.put("id", String.valueOf(nextId++));
@@ -287,6 +303,22 @@ public final class AxMCPClient {
         assertSubset(transport.buildHeaders(Map.of("Accept", "application/json"), true), fixture.getOrDefault("expected_headers", Map.of()), "headers");
         return;
       }
+      if ("execution_context_ucp".equals(operation)) {
+        AxMCPScriptedTransport transport = new AxMCPScriptedTransport(Core.asList(fixture.getOrDefault("responses", List.of())));
+        AxMCPClient mcp = new AxMCPClient(transport, Core.asMap(fixture.get("client_options")));
+        AxUCPClient ucp = new AxUCPClient(Core.asMap(fixture.get("ucp_profile")), (_operation, _payload, _options) -> Core.asMap(fixture.get("ucp_response")), Core.asMap(fixture.get("ucp_options")));
+        AxExecutionContext context = new AxExecutionContext(List.of(mcp), List.of(ucp)).initialize();
+        List<String> expectedNamespaces = Core.asList(fixture.get("expected_namespaces")).stream().map(String::valueOf).toList();
+        if (!context.namespaces().equals(expectedNamespaces)) throw new AssertionError("context namespaces mismatch: " + context.namespaces());
+        List<String> names = context.nativeTools().stream().map(tool -> tool.name).toList();
+        for (Object expected : Core.asList(fixture.get("expected_native_tools"))) if (!names.contains(String.valueOf(expected))) throw new AssertionError("missing native context tool " + expected);
+        Map<String, Object> call = Core.asMap(fixture.get("call_ucp"));
+        Map<String, Object> outcome = ucp.call(String.valueOf(call.getOrDefault("operation", "catalog.search")), Core.asMap(call.get("payload")), "fixture-key");
+        assertSubset(outcome, fixture.getOrDefault("expected_ucp_outcome", Map.of()), "UCP outcome");
+        AxMCPContinuationState state = context.continuationState();
+        if (!state.namespaces().equals(expectedNamespaces) || state.catalogFingerprint().isBlank()) throw new AssertionError("invalid execution context continuation state");
+        return;
+      }
       AxMCPScriptedTransport transport = new AxMCPScriptedTransport(Core.asList(fixture.getOrDefault("responses", fixture.getOrDefault("transport_responses", List.of()))));
       AxMCPClient client = new AxMCPClient(transport, Core.asMap(fixture.get("client_options")));
       client.init();
@@ -299,7 +331,7 @@ public final class AxMCPClient {
         client.ping();
         assertRequests(transport.requests, fixture);
       } else if ("tools".equals(operation)) {
-        List<Tool> functions = client.toFunction();
+        List<Tool> functions = client.nativeTools();
         List<String> names = functions.stream().map(tool -> tool.name).toList();
         if (fixture.get("expected_function_names") != null && !names.equals(Core.asList(fixture.get("expected_function_names")).stream().map(String::valueOf).toList())) throw new AssertionError("function names mismatch: " + names);
         if (fixture.get("call_function") != null) {

@@ -237,24 +237,18 @@ const parent = agent('query:string -> answer:string', {
 });
 ```
 
-MCP clients and other `toFunction()` providers can be placed directly inside a group after initialization:
+Attach MCP/UCP clients through the native execution context. Ax initializes them once, exposes `mcp.<namespace>` / `ucp.<namespace>` runtime modules, and propagates them through actor stages, `llmQuery`, RLM, and child agents:
 
 ```typescript
-await mcpClient.init();
-
 const parent = agent('query:string -> answer:string', {
-  functions: [
-    {
-      namespace: 'memory',
-      title: 'Memory MCP',
-      description: 'Memory server tools',
-      selectionCriteria: 'Use for persistent memory lookup and updates.',
-      functions: [mcpClient],
-    },
-  ],
+  mcp: [memoryClient, searchClient],
+  mcpInheritance: 'all',
   functionDiscovery: true,
   contextFields: [],
 });
+
+// A child can restrict inheritance to selected namespaces or `none`.
+await parent.forward(llm, { query }, { mcpInheritance: ['memory'] });
 ```
 
 Rules:
@@ -265,8 +259,9 @@ Rules:
 - `relevanceRanking` (default ON — set `false` to opt out): a deterministic local ranker that injects an advisory `### Likely Relevant` shortlist into the executor turn (dynamic, non-cached field — the cached prompt stays byte-stable). Enabled by default after its A/B gate passed on both small and frontier models and implemented in the generated language ports through AxIR Core. Details in `ax-agent-memory-skills`; outcomes observable via the `relevance_ranking` context event (`ax-agent-observability`).
 - Add `alwaysInclude: true` to a group when discovery mode is on but the actor should always see that group's full callable definitions inline in the prompt.
 - Keep `functions: [...]` either flat or grouped. Runtime validation rejects mixed plain function entries and group objects.
-- In flat mode, pass `fn(...)` tools, child agents, and `toFunction()` providers directly.
-- In grouped mode, put callable entries and `toFunction()` providers inside groups. To expose a child agent inside a group, use `childAgent.getFunction()`.
+- In flat mode, pass `fn(...)` tools and child agents directly.
+- In grouped mode, put callable entries inside groups. To expose a child agent inside a group, use `childAgent.getFunction()`.
+- Do not place MCP clients in `functions`; use `mcp` so tasks, resources, subscriptions, elicitation, sampling, authorization, cancellation, and protocol metadata remain available.
 
 ## Host-Side Completion From Functions
 

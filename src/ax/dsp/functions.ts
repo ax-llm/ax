@@ -7,6 +7,7 @@ import type {
   AxChatResponseResult,
   AxFunction,
   AxFunctionResult,
+  AxFunctionResultContent,
   AxLoggerFunction,
 } from '../ai/types.js';
 import type { AxMemory } from '../mem/memory.js';
@@ -172,6 +173,7 @@ export class AxFunctionProcessor {
           ai: options.ai,
           step: options.step,
           abortSignal: options.abortSignal,
+          _mcpExecutionContext: options._mcpExecutionContext,
         }
       : undefined;
 
@@ -322,6 +324,7 @@ type ProcessFunctionsArgs = {
   onFunctionCall?: (
     call: Readonly<AxFunctionCallTrace>
   ) => void | Promise<void>;
+  mcpExecutionContext?: import('../mcp/execution.js').AxMCPExecutionContext;
 };
 
 export const processFunctions = async ({
@@ -343,6 +346,7 @@ export const processFunctions = async ({
   step,
   abortSignal,
   onFunctionCall,
+  mcpExecutionContext,
 }: Readonly<ProcessFunctionsArgs>) => {
   const funcProc = new AxFunctionProcessor(functionList);
   const functionsExecuted = new Set<string>();
@@ -387,6 +391,55 @@ export const processFunctions = async ({
     return spec;
   };
 
+  const getProtocolResult = (name: string, value: unknown) => {
+    const protocol = findFunctionSpec(name)?.protocol;
+    return protocol ? { protocol, value } : undefined;
+  };
+
+  const getProtocolContent = (
+    name: string,
+    value: unknown
+  ): AxFunctionResultContent | undefined => {
+    if (findFunctionSpec(name)?.protocol?.kind !== 'mcp') return;
+    const result = value as {
+      content?: readonly import('../mcp/types.js').AxMCPContent[];
+    };
+    if (!Array.isArray(result?.content)) return;
+    return result.content.map((content) => {
+      if (content.type === 'text') return { type: 'text', text: content.text };
+      if (content.type === 'image') {
+        return {
+          type: 'image',
+          image: content.data,
+          mimeType: content.mimeType,
+        };
+      }
+      if (content.type === 'audio') {
+        return {
+          type: 'audio',
+          data: content.data,
+          mimeType: content.mimeType,
+        };
+      }
+      if (content.type === 'resource_link') {
+        return {
+          type: 'url',
+          url: content.uri,
+          title: content.title ?? content.name,
+          description: content.description,
+        };
+      }
+      return 'text' in content.resource
+        ? { type: 'text', text: content.resource.text }
+        : {
+            type: 'file',
+            data: content.resource.blob,
+            filename: content.resource.uri,
+            mimeType: content.resource.mimeType ?? 'application/octet-stream',
+          };
+    });
+  };
+
   // Map each function call to a promise that resolves to the function result or null
   const promises = functionCalls.map((func) => {
     if (!func.id) {
@@ -406,6 +459,7 @@ export const processFunctions = async ({
           stopFunctionNames,
           step,
           abortSignal,
+          _mcpExecutionContext: mcpExecutionContext,
         })
         .then(
           ({
@@ -448,11 +502,15 @@ export const processFunctions = async ({
               }
               span.addEvent('function.call', eventData);
             }
+            const protocolResult = getProtocolResult(func.name, rawResult);
+            const protocolContent = getProtocolContent(func.name, rawResult);
             return {
               result: formatted ?? '',
               role: 'function' as const,
               functionId: func.id,
               index,
+              ...(protocolResult ? { protocolResult } : {}),
+              ...(protocolContent ? { content: protocolContent } : {}),
             };
           }
         )
@@ -531,6 +589,7 @@ export const processFunctions = async ({
             stopFunctionNames,
             step,
             abortSignal,
+            _mcpExecutionContext: mcpExecutionContext,
           });
 
         functionsExecuted.add(func.name.toLowerCase());
@@ -572,11 +631,15 @@ export const processFunctions = async ({
           span.addEvent('function.call', eventData);
         }
 
+        const protocolResult = getProtocolResult(func.name, rawResult);
+        const protocolContent = getProtocolContent(func.name, rawResult);
         return {
           result: formatted ?? '',
           role: 'function' as const,
           functionId: func.id,
           index,
+          ...(protocolResult ? { protocolResult } : {}),
+          ...(protocolContent ? { content: protocolContent } : {}),
         };
       } catch (e) {
         toolSpan?.recordException?.(e as Error);

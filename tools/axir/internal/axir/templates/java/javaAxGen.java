@@ -12,7 +12,9 @@ public final class AxGen implements AxProgram {
 
   final AxSignature signature;
   final Map<String, Object> options;
+  final List<Tool> baseFunctions;
   final List<Tool> functions;
+  final AxExecutionContext executionContext;
   final PromptTemplate promptTemplate;
   final List<Map<String, Object>> examples;
   final List<Map<String, Object>> demos;
@@ -36,7 +38,10 @@ public final class AxGen implements AxProgram {
     this.signature = signature;
     this.options = options == null ? new LinkedHashMap<>() : new LinkedHashMap<>(options);
     Object funcs = this.options.get("functions");
-    this.functions = funcs instanceof List<?> list ? new ArrayList<>((List<Tool>) list) : new ArrayList<>();
+    this.baseFunctions = funcs instanceof List<?> list ? new ArrayList<>((List<Tool>) list) : new ArrayList<>();
+    this.executionContext = AxExecutionContext.resolve(this.options, null);
+    this.functions = new ArrayList<>(baseFunctions);
+    if (executionContext != null) this.functions.addAll(executionContext.nativeTools());
     this.examples = new ArrayList<>();
     for (Object item : Core.asList(this.options.getOrDefault("examples", List.of()))) this.examples.add(Core.asMap(item));
     this.demos = new ArrayList<>();
@@ -316,6 +321,22 @@ public final class AxGen implements AxProgram {
   }
 
   public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions) {
+    AxExecutionContext callContext = AxExecutionContext.resolve(forwardOptions, executionContext);
+    if (callContext != executionContext) {
+      Map<String, Object> callOptions = new LinkedHashMap<>(options);
+      callOptions.put("functions", baseFunctions);
+      if (callContext == null) {
+        callOptions.remove("mcp");
+        callOptions.remove("ucp");
+        callOptions.remove("executionContext");
+      } else callOptions.put("executionContext", callContext);
+      AxGen call = new AxGen(signature, callOptions);
+      Map<String, Object> result = call.forward(client, values, Map.of());
+      chatLog.addAll(call.chatLog);
+      functionCallTraces.addAll(call.functionCallTraces);
+      traces.addAll(call.traces);
+      return result;
+    }
     return Core.asMap(Core._forward_impl(this, client, values, forwardOptions == null ? java.util.Map.of() : forwardOptions));
   }
 

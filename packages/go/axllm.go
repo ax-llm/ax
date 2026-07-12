@@ -34976,6 +34976,90 @@ func _flow_optimize_with(args ...Value) (Value, error) {
 	return v_request, nil
 }
 
+func ucp_negotiate_profile(args ...Value) (Value, error) {
+	axirCoverageMark("ucp_negotiate_profile")
+	var v_profile Value
+	var v_supportedVersions Value
+	var v_requestedServices Value
+	var v_capabilities Value
+	var v_out Value
+	var v_services Value
+	var v_version Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	if len(args) > 1 { v_supportedVersions = args[1] }
+	_ = v_supportedVersions
+	if len(args) > 2 { v_requestedServices = args[2] }
+	_ = v_requestedServices
+	_ = v_capabilities
+	_ = v_out
+	_ = v_services
+	_ = v_version
+	v_version = coreGet(v_profile, "version", nil)
+	v_services = coreGet(v_profile, "services", nil)
+	v_capabilities = coreGet(v_profile, "capabilities", nil)
+	v_out = Object()
+	if err := coreSet(v_out, "version", v_version); err != nil { return nil, err }
+	if err := coreSet(v_out, "services", v_services); err != nil { return nil, err }
+	if err := coreSet(v_out, "capabilities", v_capabilities); err != nil { return nil, err }
+	if err := coreSet(v_out, "supportedVersions", v_supportedVersions); err != nil { return nil, err }
+	if err := coreSet(v_out, "requestedServices", v_requestedServices); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func ucp_normalize_outcome(args ...Value) (Value, error) {
+	axirCoverageMark("ucp_normalize_outcome")
+	var v_operation Value
+	var v_response Value
+	var v_continuation Value
+	var v_out Value
+	var v_partial Value
+	var v_warnings Value
+	if len(args) > 0 { v_operation = args[0] }
+	_ = v_operation
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	_ = v_continuation
+	_ = v_out
+	_ = v_partial
+	_ = v_warnings
+	v_out = Object()
+	if err := coreSet(v_out, "operation", v_operation); err != nil { return nil, err }
+	if err := coreSet(v_out, "value", v_response); err != nil { return nil, err }
+	v_warnings = coreGet(v_response, "warnings", nil)
+	v_continuation = coreGet(v_response, "continuation_url", nil)
+	v_partial = coreGet(v_response, "partial_success", false)
+	if err := coreSet(v_out, "warnings", v_warnings); err != nil { return nil, err }
+	if err := coreSet(v_out, "continuationUrl", v_continuation); err != nil { return nil, err }
+	if err := coreSet(v_out, "partialSuccess", v_partial); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func mcp_execution_context_descriptor(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_execution_context_descriptor")
+	var v_namespaces Value
+	var v_inheritance Value
+	var v_missing Value
+	var v_out Value
+	if len(args) > 0 { v_namespaces = args[0] }
+	_ = v_namespaces
+	if len(args) > 1 { v_inheritance = args[1] }
+	_ = v_inheritance
+	_ = v_missing
+	_ = v_out
+	v_out = Object()
+	if err := coreSet(v_out, "namespaces", v_namespaces); err != nil { return nil, err }
+	v_missing = _core_is_none(v_inheritance)
+	if coreTruthy(v_missing) {
+		if err := coreSet(v_out, "inheritance", "all"); err != nil { return nil, err }
+	} else {
+		if err := coreSet(v_out, "inheritance", v_inheritance); err != nil { return nil, err }
+	}
+	if err := coreSet(v_out, "native", true); err != nil { return nil, err }
+	if err := coreSet(v_out, "lossyAdapter", false); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func mcp_protocol_constants(args ...Value) (Value, error) {
 	axirCoverageMark("mcp_protocol_constants")
 	var v_out Value
@@ -37009,6 +37093,9 @@ type AxGen struct {
 	Signature           AxSignature
 	Options             map[string]Value
 	Functions           []Tool
+	BaseFunctions       []Tool
+	ExecutionContext    *AxExecutionContext
+	ExecutionContextError error
 	Examples            Value
 	Demos               Value
 	Assertions          Value
@@ -37028,10 +37115,18 @@ func NewAx(signature string, options map[string]Value) *AxGen {
 	if options == nil {
 		options = Object()
 	}
-	return &AxGen{Signature: NewSignature(signature), Options: options, Examples: Array(), Demos: Array(), Assertions: coreGet(options, "assertions", Array()), StreamingAssertions: coreGet(options, "streaming_assertions", coreGet(options, "streamingAssertions", Array())), FieldProcessors: Object(), StopFunctions: Array(), Memory: Array(), ChatLog: Array(), FunctionCallTraces: Array(), Traces: Array(), ProgramID: display(coreGet(options, "id", coreGet(options, "program_id", coreGet(options, "programId", "root")))), Instruction: display(coreGet(options, "instruction", ""))}
+	g := &AxGen{Signature: NewSignature(signature), Options: options, Examples: Array(), Demos: Array(), Assertions: coreGet(options, "assertions", Array()), StreamingAssertions: coreGet(options, "streaming_assertions", coreGet(options, "streamingAssertions", Array())), FieldProcessors: Object(), StopFunctions: Array(), Memory: Array(), ChatLog: Array(), FunctionCallTraces: Array(), Traces: Array(), ProgramID: display(coreGet(options, "id", coreGet(options, "program_id", coreGet(options, "programId", "root")))), Instruction: display(coreGet(options, "instruction", ""))}
+	for _, raw := range asSlice(coreGet(options, "functions", Array())) { if tool, ok := raw.(Tool); ok { g.BaseFunctions=append(g.BaseFunctions,tool) } }
+	g.Functions=append([]Tool(nil),g.BaseFunctions...)
+	g.ExecutionContext,g.ExecutionContextError=ResolveAxExecutionContext(options,nil)
+	if g.ExecutionContextError==nil && g.ExecutionContext!=nil { tools,err:=g.ExecutionContext.NativeTools();g.ExecutionContextError=err;g.Functions=append(g.Functions,tools...) }
+	return g
 }
 func NewGen(signature string, options map[string]Value) *AxGen { return NewAx(signature, options) }
 func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	if g.ExecutionContextError!=nil{return nil,g.ExecutionContextError}
+	callContext,err:=ResolveAxExecutionContext(options,g.ExecutionContext);if err!=nil{return nil,err}
+	if callContext!=g.ExecutionContext { clone:=*g;clone.ExecutionContext=callContext;clone.Functions=append([]Tool(nil),g.BaseFunctions...);if callContext!=nil{tools,toolErr:=callContext.NativeTools();if toolErr!=nil{return nil,toolErr};clone.Functions=append(clone.Functions,tools...)};return clone.Forward(ctx,client,values,map[string]Value{"executionContext":callContext}) }
 	return safeValue(func() Value { return mustCore(_forward_impl(g, bindAIClientContext(ctx, client), values, options)) })
 }
 func (g *AxGen) AddAssert(assertion Value) *AxGen {
@@ -37137,6 +37232,8 @@ type AxAgent struct {
 	Responder *AxGen
 	Distiller *AxGen
 	LlmQuery  *AxGen
+	ExecutionContext *AxExecutionContext
+	ExecutionContextError error
 }
 
 // AxMemoriesSearchFn / AxSkillsSearchFn are native host callbacks the agent invokes (from the agent
@@ -37157,6 +37254,8 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	if options == nil {
 		options = Object()
 	}
+	executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
+	if executionContext!=nil { functions:=asSlice(coreGet(options,"functions",Array()));functions=append(functions,executionContext.RuntimeModules()...);options["functions"]=functions;options["executionContext"]=executionContext }
 	state := asMap(mustCore(_agent_factory(signature, options)))
 	sig := NewSignature(signature)
 	distillerOptions := Object("validation_retries", 0, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
@@ -37166,8 +37265,9 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
 	responderSignature := display(coreGet(state, "responder_signature", signature))
 	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
+	if executionContext!=nil { distillerOptions["executionContext"]=executionContext;executorOptions["executionContext"]=executionContext;responderOptions["executionContext"]=executionContext;llmQueryOptions["executionContext"]=executionContext }
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
-	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions)}
+	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions),ExecutionContext:executionContext,ExecutionContextError:contextErr}
 }
 func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	state := asMap(mustCore(_agent_factory(signature, a.Options)))
@@ -37188,18 +37288,19 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	return a
 }
 func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	if a.ExecutionContextError!=nil{return nil,a.ExecutionContextError};callOptions:=map[string]Value{};for key,value:=range options{callOptions[key]=value};executionContext,err:=ResolveAxExecutionContext(callOptions,a.ExecutionContext);if err!=nil{return nil,err};if executionContext!=nil{callOptions["executionContext"]=executionContext;functions:=asSlice(coreGet(callOptions,"functions",Array()));functions=append(functions,executionContext.RuntimeModules()...);callOptions["functions"]=functions}
 	boundClient := bindAIClientContext(ctx, client)
 	// Wire the built-in llmQuery primitive: a focused sub-query the model can
 	// await inside the runtime. The logic lives in the AxIR-generated helper;
 	// this wrapper only registers the host callable that closes over this client.
-	runtime := coreGet(options, "runtime", coreGet(a.Options, "runtime", nil))
+	runtime := coreGet(callOptions, "runtime", coreGet(a.Options, "runtime", nil))
 	if reg, ok := runtime.(runtimeCallableRegistrar); ok {
 		reg.RegisterHostCallable("llmQuery", func(params Value) (Value, error) {
 			return _agent_run_llm_query(a.LlmQuery, boundClient, params)
 		})
 	}
 	return safeValue(func() Value {
-		return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, options))
+		return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, callOptions))
 	})
 }
 func (a *AxAgent) get(k string, fallback Value) Value {
@@ -37544,6 +37645,8 @@ type AxFlow struct {
 	State   map[string]Value
 	Steps   Value
 	Options map[string]Value
+	ExecutionContext *AxExecutionContext
+	ExecutionContextError error
 }
 
 func NewFlow(options map[string]Value) *AxFlow {
@@ -37551,7 +37654,8 @@ func NewFlow(options map[string]Value) *AxFlow {
 		options = Object()
 	}
 	state := asMap(mustCore(_flow_factory(options)))
-	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options}
+	executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
+	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options,ExecutionContext:executionContext,ExecutionContextError:contextErr}
 }
 func (f *AxFlow) Execute(name string, program AxProgram, options map[string]Value) *AxFlow {
 	if options == nil {
@@ -37568,8 +37672,9 @@ func (f *AxFlow) Returns(mapping map[string]Value) *AxFlow {
 }
 func (f *AxFlow) GetPlan() Value { return mustCore(_flow_plan(f.State)) }
 func (f *AxFlow) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	if f.ExecutionContextError!=nil{return nil,f.ExecutionContextError};callOptions:=map[string]Value{};for key,value:=range options{callOptions[key]=value};executionContext,err:=ResolveAxExecutionContext(callOptions,f.ExecutionContext);if err!=nil{return nil,err};if executionContext!=nil{callOptions["executionContext"]=executionContext;callOptions["mcp"]=executionContext.MCP;callOptions["ucp"]=executionContext.UCP}
 	return safeValue(func() Value {
-		return mustCore(_flow_forward(f.State, bindAIClientContext(ctx, client), values, options))
+		return mustCore(_flow_forward(f.State, bindAIClientContext(ctx, client), values, callOptions))
 	})
 }
 func (f *AxFlow) GetOptimizableComponents() Value {

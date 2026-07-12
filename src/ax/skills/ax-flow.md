@@ -417,6 +417,16 @@ Common errors:
 - `"merge() without matching branch()"` -- every `.branch()` needs `.merge()`.
 - `"Label 'x' not found"` -- define `.label()` before `.feedback()` references it.
 
+## Native MCP/UCP
+
+Set `mcp`/`ucp` on the flow or a node. Sequential nodes reuse sessions; parallel nodes multiplex through each client's concurrency policy. Branch cancellation and flow aborts propagate to outstanding requests and newly created remote tasks. Structured protocol values stay structured in flow state.
+
+```typescript
+const wf = flow({ mcp: [inventory], ucp: [merchant] })
+  .node('lookup', lookupProgram)
+  .node('checkout', checkoutProgram, { mcpInheritance: ['merchant'] });
+```
+
 ## Examples
 
 Fetch these for full working code:

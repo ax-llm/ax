@@ -12,6 +12,8 @@ export function reservedAgentFunctionNamespaces(self: any): Set<string> {
     'reportSuccess',
     'reportFailure',
     'inspectRuntime',
+    'mcp',
+    'ucp',
     MEMORIES_LOAD_NAME,
     ...(s.functionDiscoveryEnabled || typeof s.onSkillsSearch === 'function'
       ? [DISCOVERY_DISCOVER_NAME]

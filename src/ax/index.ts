@@ -451,6 +451,7 @@ import {
   type AxAIOpenAIResponsesImageGenerationToolCall,
   type AxAIOpenAIResponsesInputAudioContentPart,
   type AxAIOpenAIResponsesInputContentPart,
+  type AxAIOpenAIResponsesInputFileContentPart,
   type AxAIOpenAIResponsesInputFunctionCallItem,
   type AxAIOpenAIResponsesInputFunctionCallOutputItem,
   type AxAIOpenAIResponsesInputImageUrlContentPart,
@@ -562,6 +563,7 @@ import type {
   AxFunctionHandler,
   AxFunctionJSONSchema,
   AxFunctionResult,
+  AxFunctionResultContent,
   AxLoggerData,
   AxLoggerFunction,
   AxModelConfig,
@@ -893,22 +895,98 @@ import {
   axWorkerRuntime,
 } from './funcs/worker.runtime.js';
 import {
+  AxMCPAppBridge,
+  type AxMCPAppBridgeOptions,
+  type AxMCPAppContextUpdate,
+  type AxMCPAppDisplayMode,
+  type AxMCPAppPermissions,
+  type AxMCPAppResource,
+  type AxMCPAppResourceCSP,
+  type AxMCPAppResourceMeta,
+  type AxMCPAppToolMeta,
+  type AxMCPAppVisibility,
+  axMCPAppToolMeta,
+  axMCPToolVisibleTo,
+} from './mcp/apps.js';
+import {
+  type AxMCPAuthentication,
+  type AxMCPAuthenticationRequest,
+  type AxMCPAuthenticationResult,
+  type AxMCPAuthenticationStrategy,
+  axApplyMCPAuthentication,
+  axMCPAPIKeyAuthentication,
+  axMCPBasicAuthentication,
+  axMCPBearerAuthentication,
+  axMCPHMACAuthentication,
+} from './mcp/authentication.js';
+import {
+  type AxMCPChatOptions,
+  type AxMCPChatResult,
+  axMCPChat,
+} from './mcp/chat.js';
+import {
   AxMCPClient,
   type AxMCPClientOptions,
   type AxMCPFunctionOverride,
 } from './mcp/client.js';
-import type { AxMCPOAuthOptions, AxMCPTokenSet } from './mcp/oauth/types.js';
-import type { AxMCPTransport } from './mcp/transport.js';
+import {
+  type AxMCPContextRequest,
+  type AxMCPContinuationState,
+  AxMCPExecutionContext,
+  type AxMCPInheritance,
+  type AxMCPResolvedContext,
+  type AxMCPTaskSnapshot,
+  axMCPChildExecutionOptions,
+  axResolveMCPExecutionContext,
+} from './mcp/execution.js';
+import type {
+  AxMCPExtensionCapability,
+  AxMCPOfficialExtension,
+} from './mcp/extensions.js';
+import {
+  type AxMCPDPoPOptions,
+  AxMCPDPoPProofFactory,
+  type AxMCPDPoPProofRequest,
+} from './mcp/oauth/dpop.js';
+import {
+  AxMCPOAuthJWTVerifier,
+  type AxMCPVerifiedJWT,
+} from './mcp/oauth/jwt.js';
+import type {
+  AxMCPEnterpriseAuthorizationContext,
+  AxMCPEnterpriseIdentityAssertionType,
+  AxMCPEnterpriseManagedAuthorizationOptions,
+  AxMCPMTLSOptions,
+  AxMCPOAuthClientRegistration,
+  AxMCPOAuthJWTValidationOptions,
+  AxMCPOAuthOptions,
+  AxMCPOAuthTokenEndpointAuthMethod,
+  AxMCPOAuthTokenIntrospection,
+  AxMCPTokenSet,
+} from './mcp/oauth/types.js';
+import type { AxMCPRequestOptions, AxMCPTransport } from './mcp/transport.js';
 import {
   AxMCPStreamableHTTPTransport,
   AxMCPStreambleHTTPTransport,
 } from './mcp/transports/httpStreamTransport.js';
 import type { AxMCPStreamableHTTPTransportOptions } from './mcp/transports/options.js';
+import {
+  AxMCPRecordingTransport,
+  AxMCPReplayTransport,
+  type AxMCPTransportRecordingEntry,
+} from './mcp/transports/recordingTransport.js';
 import { AxMCPHTTPSSETransport } from './mcp/transports/sseTransport.js';
+import {
+  type AxMCPWebSocketLike,
+  AxMCPWebSocketTransport,
+  type AxMCPWebSocketTransportOptions,
+} from './mcp/transports/webSocketTransport.js';
 import {
   type AxMCPAnnotations,
   type AxMCPAudioContent,
   type AxMCPBaseAnnotated,
+  type AxMCPBatchRequest,
+  type AxMCPBatchResponse,
   type AxMCPBlobResourceContents,
   type AxMCPClientCapabilities,
   type AxMCPCompletionArgument,
@@ -916,6 +994,10 @@ import {
   type AxMCPCompletionRequest,
   type AxMCPCompletionResult,
   type AxMCPContent,
+  type AxMCPCreateTaskResult,
+  type AxMCPElicitationAction,
+  type AxMCPElicitationCreateParams,
+  type AxMCPElicitationCreateResult,
   type AxMCPEmbeddedResource,
   type AxMCPFunctionDescription,
   type AxMCPIcon,
@@ -934,6 +1016,7 @@ import {
   type AxMCPLoggingLevel,
   type AxMCPMeta,
   type AxMCPPaginatedRequest,
+  type AxMCPProgressNotificationParams,
   type AxMCPPrompt,
   type AxMCPPromptArgument,
   type AxMCPPromptGetResult,
@@ -947,10 +1030,20 @@ import {
   type AxMCPResourceTemplate,
   type AxMCPResourceTemplatesListResult,
   type AxMCPRoot,
+  type AxMCPSamplingCreateMessageParams,
+  type AxMCPSamplingCreateMessageResult,
+  type AxMCPSamplingMessage,
+  type AxMCPSamplingToolChoice,
   type AxMCPServerCapabilities,
+  type AxMCPTask,
+  type AxMCPTaskMetadata,
+  type AxMCPTaskResult,
+  type AxMCPTaskStatus,
+  type AxMCPTasksListResult,
   type AxMCPTextContent,
   type AxMCPTextResourceContents,
   type AxMCPTool,
+  type AxMCPToolAnnotations,
   type AxMCPToolCallParams,
   type AxMCPToolCallResult,
   type AxMCPToolsListResult,
@@ -968,6 +1061,49 @@ import type {
   AxMemoryMessageValue,
 } from './mem/types.js';
 import { axSpanAttributes, axSpanEvents } from './trace/trace.js';
+import { AxUCPClient } from './ucp/client.js';
+import {
+  AxUCPSchemaValidationError,
+  type AxUCPSchemaValidationOptions,
+  AxUCPSchemaValidator,
+} from './ucp/schema.js';
+import {
+  AxUCPHTTPMessageSignatureError,
+  type AxUCPHTTPMessageSignatureErrorCode,
+  type AxUCPHTTPMessageSignatureOptions,
+  type AxUCPHTTPMessageVerificationOptions,
+  AxUCPHTTPMessageVerifier,
+  axSignUCPRequest,
+} from './ucp/signing.js';
+import type {
+  AxUCPAttribution,
+  AxUCPBuyerContext,
+  AxUCPCallOptions,
+  AxUCPCartInput,
+  AxUCPCatalogLookupRequest,
+  AxUCPCatalogSearchRequest,
+  AxUCPCheckoutCompletion,
+  AxUCPCheckoutInput,
+  AxUCPClientOptions,
+  AxUCPDiscounts,
+  AxUCPFulfillment,
+  AxUCPIdentityLinkingConfig,
+  AxUCPMessage,
+  AxUCPNegotiatedProfile,
+  AxUCPOperation,
+  AxUCPOrderEvent,
+  AxUCPOutcome,
+  AxUCPPayment,
+  AxUCPPaymentHandler,
+  AxUCPProductRequest,
+  AxUCPProfile,
+  AxUCPProfileBody,
+  AxUCPResponseMetadata,
+  AxUCPService,
+  AxUCPTransportKind,
+  AxUCPValue,
+  AxUCPVersionedDeclaration,
+} from './ucp/types.js';
 import {
   AxAIRefusalError,
   AxAIServiceAbortedError,
@@ -1062,10 +1198,17 @@ export { AxGen };
 export { AxGenerateError };
 export { AxJSRuntime };
 export { AxJSRuntimePermission };
+export { AxMCPAppBridge };
 export { AxMCPClient };
+export { AxMCPDPoPProofFactory };
+export { AxMCPExecutionContext };
 export { AxMCPHTTPSSETransport };
+export { AxMCPOAuthJWTVerifier };
+export { AxMCPRecordingTransport };
+export { AxMCPReplayTransport };
 export { AxMCPStreamableHTTPTransport };
 export { AxMCPStreambleHTTPTransport };
+export { AxMCPWebSocketTransport };
 export { AxMediaNotSupportedError };
 export { AxMemory };
 export { AxMockAIService };
@@ -1086,6 +1229,11 @@ export { AxStringUtil };
 export { AxSynth };
 export { AxTestPrompt };
 export { AxTokenLimitError };
+export { AxUCPClient };
+export { AxUCPHTTPMessageSignatureError };
+export { AxUCPHTTPMessageVerifier };
+export { AxUCPSchemaValidationError };
+export { AxUCPSchemaValidator };
 export { agent };
 export { ai };
 export { ax };
@@ -1125,6 +1273,7 @@ export { axAIWebLLMCreativeConfig };
 export { axAIWebLLMDefaultConfig };
 export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
+export { axApplyMCPAuthentication };
 export { axApplyOpenAIChatAudioRequest };
 export { axAudioFormatFromMimeType };
 export { axAudioInputFilename };
@@ -1168,7 +1317,15 @@ export { axIsGrokVoiceModel };
 export { axIsOpenAIChatAudioModel };
 export { axIsOpenAIRealtimeModel };
 export { axIsOpenAIRealtimeTranscriptionModel };
+export { axMCPAPIKeyAuthentication };
+export { axMCPAppToolMeta };
+export { axMCPBasicAuthentication };
+export { axMCPBearerAuthentication };
+export { axMCPChat };
+export { axMCPChildExecutionOptions };
+export { axMCPHMACAuthentication };
 export { axMCPToolInputSchemaToFunctionSchema };
+export { axMCPToolVisibleTo };
 export { axMapGeminiLiveAudioPart };
 export { axMapOpenAIChatAudioDelta };
 export { axMapOpenAIChatAudioResponse };
@@ -1191,6 +1348,7 @@ export { axOptimizableValidators };
 export { axProcessContentForProvider };
 export { axResolveGeminiLiveAudioConfig };
 export { axResolveGrokRealtimeAudioConfig };
+export { axResolveMCPExecutionContext };
 export { axResolveOpenAIChatAudioConfig };
 export { axResolveOpenAIRealtimeAudioConfig };
 export { axRuntimePrimitives };
@@ -1200,6 +1358,7 @@ export { axSerializeOptimizedProgram };
 export { axShouldUseGeminiLiveAudio };
 export { axShouldUseGrokRealtime };
 export { axShouldUseOpenAIRealtime };
+export { axSignUCPRequest };
 export { axSpanAttributes };
 export { axSpanEvents };
 export { axUpdateMetricsConfig };
@@ -1351,6 +1510,7 @@ export type { AxAIOpenAIResponsesImageGenerationCallPartialImageEvent };
 export type { AxAIOpenAIResponsesImageGenerationToolCall };
 export type { AxAIOpenAIResponsesInputAudioContentPart };
 export type { AxAIOpenAIResponsesInputContentPart };
+export type { AxAIOpenAIResponsesInputFileContentPart };
 export type { AxAIOpenAIResponsesInputFunctionCallItem };
 export type { AxAIOpenAIResponsesInputFunctionCallOutputItem };
 export type { AxAIOpenAIResponsesInputImageUrlContentPart };
@@ -1614,6 +1774,7 @@ export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
 export type { AxFunctionProvider };
 export type { AxFunctionResult };
+export type { AxFunctionResultContent };
 export type { AxFunctionResultFormatter };
 export type { AxGEPAAdapter };
 export type { AxGEPABatchEvaluation };
@@ -1648,9 +1809,26 @@ export type { AxLlmQueryPromptMode };
 export type { AxLoggerData };
 export type { AxLoggerFunction };
 export type { AxMCPAnnotations };
+export type { AxMCPAppBridgeOptions };
+export type { AxMCPAppContextUpdate };
+export type { AxMCPAppDisplayMode };
+export type { AxMCPAppPermissions };
+export type { AxMCPAppResource };
+export type { AxMCPAppResourceCSP };
+export type { AxMCPAppResourceMeta };
+export type { AxMCPAppToolMeta };
+export type { AxMCPAppVisibility };
 export type { AxMCPAudioContent };
+export type { AxMCPAuthentication };
+export type { AxMCPAuthenticationRequest };
+export type { AxMCPAuthenticationResult };
+export type { AxMCPAuthenticationStrategy };
 export type { AxMCPBaseAnnotated };
+export type { AxMCPBatchRequest };
+export type { AxMCPBatchResponse };
 export type { AxMCPBlobResourceContents };
+export type { AxMCPChatOptions };
+export type { AxMCPChatResult };
 export type { AxMCPClientCapabilities };
 export type { AxMCPClientOptions };
 export type { AxMCPCompletionArgument };
@@ -1658,13 +1836,26 @@ export type { AxMCPCompletionReference };
 export type { AxMCPCompletionRequest };
 export type { AxMCPCompletionResult };
 export type { AxMCPContent };
+export type { AxMCPContextRequest };
+export type { AxMCPContinuationState };
+export type { AxMCPCreateTaskResult };
+export type { AxMCPDPoPOptions };
+export type { AxMCPDPoPProofRequest };
+export type { AxMCPElicitationAction };
+export type { AxMCPElicitationCreateParams };
+export type { AxMCPElicitationCreateResult };
 export type { AxMCPEmbeddedResource };
+export type { AxMCPEnterpriseAuthorizationContext };
+export type { AxMCPEnterpriseIdentityAssertionType };
+export type { AxMCPEnterpriseManagedAuthorizationOptions };
+export type { AxMCPExtensionCapability };
 export type { AxMCPFetchOptions };
 export type { AxMCPFunctionDescription };
 export type { AxMCPFunctionOverride };
 export type { AxMCPIcon };
 export type { AxMCPImageContent };
 export type { AxMCPImplementationInfo };
+export type { AxMCPInheritance };
 export type { AxMCPInitializeParams };
 export type { AxMCPInitializeResult };
 export type { AxMCPJSONRPCErrorResponse };
@@ -1676,15 +1867,24 @@ export type { AxMCPJSONRPCSuccessResponse };
 export type { AxMCPJSONSchema };
 export type { AxMCPListRootsResult };
 export type { AxMCPLoggingLevel };
+export type { AxMCPMTLSOptions };
 export type { AxMCPMeta };
+export type { AxMCPOAuthClientRegistration };
+export type { AxMCPOAuthJWTValidationOptions };
 export type { AxMCPOAuthOptions };
+export type { AxMCPOAuthTokenEndpointAuthMethod };
+export type { AxMCPOAuthTokenIntrospection };
+export type { AxMCPOfficialExtension };
 export type { AxMCPPaginatedRequest };
+export type { AxMCPProgressNotificationParams };
 export type { AxMCPPrompt };
 export type { AxMCPPromptArgument };
 export type { AxMCPPromptGetResult };
 export type { AxMCPPromptMessage };
 export type { AxMCPPromptsListResult };
 export type { AxMCPProtocolVersion };
+export type { AxMCPRequestOptions };
+export type { AxMCPResolvedContext };
 export type { AxMCPResource };
 export type { AxMCPResourceLink };
 export type { AxMCPResourceReadResult };
@@ -1694,16 +1894,31 @@ export type { AxMCPResourcesListResult };
 export type { AxMCPRoot };
 export type { AxMCPSSRFProtectionContext };
 export type { AxMCPSSRFProtectionOptions };
+export type { AxMCPSamplingCreateMessageParams };
+export type { AxMCPSamplingCreateMessageResult };
+export type { AxMCPSamplingMessage };
+export type { AxMCPSamplingToolChoice };
 export type { AxMCPServerCapabilities };
 export type { AxMCPStreamableHTTPTransportOptions };
+export type { AxMCPTask };
+export type { AxMCPTaskMetadata };
+export type { AxMCPTaskResult };
+export type { AxMCPTaskSnapshot };
+export type { AxMCPTaskStatus };
+export type { AxMCPTasksListResult };
 export type { AxMCPTextContent };
 export type { AxMCPTextResourceContents };
 export type { AxMCPTokenSet };
 export type { AxMCPTool };
+export type { AxMCPToolAnnotations };
 export type { AxMCPToolCallParams };
 export type { AxMCPToolCallResult };
 export type { AxMCPToolsListResult };
 export type { AxMCPTransport };
+export type { AxMCPTransportRecordingEntry };
+export type { AxMCPVerifiedJWT };
+export type { AxMCPWebSocketLike };
+export type { AxMCPWebSocketTransportOptions };
 export type { AxMemoryData };
 export type { AxMemoryMessageValue };
 export type { AxMetricFn };
@@ -1812,5 +2027,36 @@ export type { AxTranscriptionResponse };
 export type { AxTranscriptionSegment };
 export type { AxTunable };
 export type { AxTypedExample };
+export type { AxUCPAttribution };
+export type { AxUCPBuyerContext };
+export type { AxUCPCallOptions };
+export type { AxUCPCartInput };
+export type { AxUCPCatalogLookupRequest };
+export type { AxUCPCatalogSearchRequest };
+export type { AxUCPCheckoutCompletion };
+export type { AxUCPCheckoutInput };
+export type { AxUCPClientOptions };
+export type { AxUCPDiscounts };
+export type { AxUCPFulfillment };
+export type { AxUCPHTTPMessageSignatureErrorCode };
+export type { AxUCPHTTPMessageSignatureOptions };
+export type { AxUCPHTTPMessageVerificationOptions };
+export type { AxUCPIdentityLinkingConfig };
+export type { AxUCPMessage };
+export type { AxUCPNegotiatedProfile };
+export type { AxUCPOperation };
+export type { AxUCPOrderEvent };
+export type { AxUCPOutcome };
+export type { AxUCPPayment };
+export type { AxUCPPaymentHandler };
+export type { AxUCPProductRequest };
+export type { AxUCPProfile };
+export type { AxUCPProfileBody };
+export type { AxUCPResponseMetadata };
+export type { AxUCPSchemaValidationOptions };
+export type { AxUCPService };
+export type { AxUCPTransportKind };
+export type { AxUCPValue };
+export type { AxUCPVersionedDeclaration };
 export type { AxUsable };
 export type { AxWorkerRuntimeConfig };

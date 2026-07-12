@@ -4390,6 +4390,24 @@ Value AxAgent::forward(AIClient& client, Value values, Value options) {
       std::move(options));
 }
 
+AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& tools) {
+  Array functions;
+  for (const auto& tool : tools) {
+    functions.push_back(tool.value());
+    distiller_->add_tool(tool);
+    executor_->add_tool(tool);
+    responder_->add_tool(tool);
+    llm_query_->add_tool(tool);
+  }
+  Value modules = Core::get(state_, "functions", Value::array());
+  Core::append(modules, object({{"name", std::move(name)}, {"functions", Value(functions)}}));
+  Core::set(state_, "functions", modules);
+  Value options = Core::get(state_, "options", Value::object());
+  Core::set(options, "functions", modules);
+  Core::set(state_, "options", options);
+  return *this;
+}
+
 Value AxAgent::test(AxCodeRuntime& runtime, Value code, Value context_values, Value options) {
   return Core::_agent_runtime_test(state_, Core::code_runtime_ref(runtime), std::move(code), std::move(context_values), std::move(options));
 }

@@ -19,6 +19,8 @@ import type {
   AxProgramStreamingForwardOptionsWithModels,
   AxProgramUsage,
 } from '../../dsp/types.js';
+import type { AxMCPClient } from '../../mcp/client.js';
+import type { AxUCPClient } from '../../ucp/client.js';
 import type {
   AxAgentRecursiveStats,
   AxAgentRecursiveTraceNode,
@@ -135,6 +137,21 @@ export type AxAgentOptimizeOptions<
   optimizerLogger?: AxOptimizerLoggerFunction;
   onProgress?: (progress: Readonly<AxOptimizationProgress>) => void;
   onEarlyStop?: (reason: string, stats: Readonly<AxOptimizationStats>) => void;
+  /**
+   * Evaluation defaults to replay/sandbox clients. Live mode must be explicit
+   * because optimizers evaluate the same task repeatedly.
+   */
+  mcpEvaluation?:
+    | Readonly<{
+        mode: 'replay';
+        mcp?: AxMCPClient | readonly AxMCPClient[];
+        ucp?: AxUCPClient | readonly AxUCPClient[];
+      }>
+    | Readonly<{
+        mode: 'live';
+        mcp?: AxMCPClient | readonly AxMCPClient[];
+        ucp?: AxUCPClient | readonly AxUCPClient[];
+      }>;
 } & Pick<
   AxOptimizerArgs,
   | 'numTrials'

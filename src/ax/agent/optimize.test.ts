@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { assertSafeMCPEvaluation } from './agentInternal/optimizer.js';
 import { normalizeActorJavascriptCode } from './optimize.js';
 
 describe('normalizeActorJavascriptCode', () => {
@@ -76,5 +77,27 @@ console.log(b);
   it('returns the input as-is when there are no fences and no think tags', () => {
     const code = `const result = await data.query('{ orders { count_id } }');\nconsole.log(result);`;
     expect(normalizeActorJavascriptCode(code)).toBe(code);
+  });
+
+  it('requires replay or sandbox clients for repeated evaluation by default', () => {
+    expect(() =>
+      assertSafeMCPEvaluation({
+        mode: 'replay',
+        mcp: { getEvaluationMode: () => 'live' },
+      })
+    ).toThrow('live MCP/UCP clients are disabled');
+    expect(() =>
+      assertSafeMCPEvaluation({
+        mode: 'replay',
+        mcp: { getEvaluationMode: () => 'replay' },
+        ucp: { getEvaluationMode: () => 'sandbox' },
+      })
+    ).not.toThrow();
+    expect(() =>
+      assertSafeMCPEvaluation({
+        mode: 'live',
+        mcp: { getEvaluationMode: () => 'live' },
+      })
+    ).not.toThrow();
   });
 });

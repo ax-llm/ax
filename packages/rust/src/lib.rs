@@ -1,7 +1,8 @@
 pub mod mcp;
 pub use mcp::{
-    AxMCPClient, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport,
-    AxMCPTokenSet, AxMCPTransport,
+    AxExecutionContext, AxMCPClient, AxMCPContinuationState, AxMCPOAuthOptions,
+    AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxUCPBinding,
+    AxUCPClient,
 };
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
@@ -2173,11 +2174,14 @@ impl ToolBuilder {
     }
 }
 
+#[derive(Clone)]
 pub struct AxGen {
     pub signature: AxSignature,
     pub options: Value,
     pub function_call_traces: Vec<Value>,
     pub tools: Vec<Tool>,
+    pub base_tools: Vec<Tool>,
+    pub execution_context: Option<AxExecutionContext>,
     pub assertions: Vec<Value>,
     pub examples: Vec<Value>,
     pub demos: Vec<Value>,
@@ -2199,6 +2203,8 @@ impl AxGen {
             options: json!({}),
             function_call_traces: Vec::new(),
             tools: Vec::new(),
+            base_tools: Vec::new(),
+            execution_context: None,
             assertions: Vec::new(),
             examples: Vec::new(),
             demos: Vec::new(),
@@ -2211,8 +2217,16 @@ impl AxGen {
     }
 
     pub fn with_tool(mut self, tool: Tool) -> Self {
+        self.base_tools.push(tool.clone());
         self.tools.push(tool);
         self
+    }
+
+    pub fn with_execution_context(mut self, context: AxExecutionContext) -> AxResult<Self> {
+        self.tools = self.base_tools.clone();
+        self.tools.extend(context.native_tools()?);
+        self.execution_context = Some(context);
+        Ok(self)
     }
 
     pub fn with_assertion(mut self, assertion: Value) -> Self {
@@ -2251,6 +2265,22 @@ impl AxGen {
         input: Value,
         options: Value,
     ) -> AxResult<Value> {
+        if options.get("mcpInheritance").and_then(Value::as_str) == Some("none")
+            && self.execution_context.is_some()
+        {
+            let mut detached = self.clone();
+            detached.execution_context = None;
+            detached.tools = detached.base_tools.clone();
+            detached.chat_log.clear();
+            detached.function_call_traces.clear();
+            detached.traces.clear();
+            let result = detached.forward_with_options(client, input, json!({}))?;
+            self.chat_log.extend(detached.chat_log);
+            self.function_call_traces
+                .extend(detached.function_call_traces);
+            self.traces.extend(detached.traces);
+            return Ok(result);
+        }
         let state = core_gen_state(self)?;
         let mut chat = |method: &str, request: Value| -> AxResult<Value> {
             if method == "transcribe" {
@@ -2292,6 +2322,7 @@ impl AxGen {
         } else {
             json!({})
         };
+        gen.base_tools = tools.clone();
         gen.tools = tools;
         Ok(gen)
     }
@@ -2808,6 +2839,7 @@ pub struct AxAgent {
     // sub-gen per call without capturing a non-Send CoreValue.
     llm_query_signature: String,
     llm_query_instruction: Value,
+    execution_context: Option<AxExecutionContext>,
 }
 
 pub fn agent(spec: &str) -> AxResult<AxAgent> {
@@ -2816,6 +2848,50 @@ pub fn agent(spec: &str) -> AxResult<AxAgent> {
 
 pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
     agent_with_core_options(spec, core_value_from_json(&options))
+}
+
+pub fn agent_with_execution_context(
+    spec: &str,
+    options: Value,
+    context: AxExecutionContext,
+) -> AxResult<AxAgent> {
+    let options = core_value_from_json(&options);
+    let modules = CoreValue::new_list();
+    for client in &context.mcp {
+        let locked = client.lock().unwrap();
+        let module = CoreValue::new_map();
+        let module_name = format!("mcp.{}", locked.namespace());
+        core_set(
+            &module,
+            CoreValue::from("name"),
+            CoreValue::from(module_name.as_str()),
+        )?;
+        let functions = CoreValue::new_list();
+        for tool in locked.native_tools() {
+            core_append(&functions, core_tool_host(tool))?;
+        }
+        core_set(&module, CoreValue::from("functions"), functions)?;
+        core_append(&modules, module)?;
+    }
+    for client in &context.ucp {
+        let module = CoreValue::new_map();
+        let module_name = format!("ucp.{}", client.namespace());
+        core_set(
+            &module,
+            CoreValue::from("name"),
+            CoreValue::from(module_name.as_str()),
+        )?;
+        let functions = CoreValue::new_list();
+        for tool in client.native_tools() {
+            core_append(&functions, core_tool_host(tool))?;
+        }
+        core_set(&module, CoreValue::from("functions"), functions)?;
+        core_append(&modules, module)?;
+    }
+    core_set(&options, CoreValue::from("functions"), modules)?;
+    let mut agent = agent_with_core_options(spec, options)?;
+    agent.execution_context = Some(context);
+    Ok(agent)
 }
 
 /// Construct an agent with native host search callbacks for memories and skills.
@@ -2927,6 +3003,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         ),
         llm_query_signature,
         llm_query_instruction,
+        execution_context: None,
     })
 }
 
@@ -3617,17 +3694,34 @@ impl AxProgram for AxAgent {
 
 pub struct AxFlow {
     state: CoreValue,
+    execution_context: Option<AxExecutionContext>,
 }
 
 pub fn flow(id: &str) -> AxFlow {
     let options = CoreValue::new_map();
     let _ = core_set(&options, CoreValue::from("id"), CoreValue::from(id));
     let state = _flow_factory(&[options]).unwrap_or_else(|_| CoreValue::new_map());
-    AxFlow { state }
+    AxFlow {
+        state,
+        execution_context: None,
+    }
+}
+
+pub fn flow_with_execution_context(id: &str, context: AxExecutionContext) -> AxFlow {
+    let mut out = flow(id);
+    out.execution_context = Some(context);
+    out
 }
 
 impl AxFlow {
-    pub fn execute(self, name: &str, program: AxGen) -> Self {
+    pub fn execute(self, name: &str, mut program: AxGen) -> Self {
+        if program.execution_context.is_none() {
+            if let Some(context) = &self.execution_context {
+                if let Ok(with_context) = program.clone().with_execution_context(context.clone()) {
+                    program = with_context;
+                }
+            }
+        }
         let step = _flow_step(&[
             CoreValue::from("execute"),
             CoreValue::from(name),
@@ -9805,6 +9899,7 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
                     let nested_state = conformance_build_flow_state_from_spec(step, &nested_id)?;
                     FlowHost::new(AxFlow {
                         state: nested_state,
+                        execution_context: None,
                     })
                 }
                 "agent" => {
@@ -11655,7 +11750,9 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         signature,
         options: fixture.get("options").cloned().unwrap_or_else(|| json!({})),
         function_call_traces: Vec::new(),
+        base_tools: fixture_tools.clone(),
         tools: fixture_tools,
+        execution_context: None,
         assertions: fixture
             .get("assertions")
             .and_then(Value::as_array)
@@ -17523,6 +17620,8 @@ fn agent_stage_gen(signature: AxSignature, options: Value) -> CoreValue {
         options,
         function_call_traces: Vec::new(),
         tools: Vec::new(),
+        base_tools: Vec::new(),
+        execution_context: None,
         assertions: Vec::new(),
         examples: Vec::new(),
         demos: Vec::new(),
@@ -56294,6 +56393,127 @@ fn _flow_optimize_with(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn ucp_negotiate_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ucp_negotiate_profile");
+    let mut v_profile = core_arg(args, 0);
+    let mut v_supportedVersions = core_arg(args, 1);
+    let mut v_requestedServices = core_arg(args, 2);
+    let mut v_capabilities = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_services = CoreValue::Null;
+    let mut v_version = CoreValue::Null;
+    v_version = core_get(&v_profile, &CoreValue::from("version"), CoreValue::Null);
+    v_services = core_get(&v_profile, &CoreValue::from("services"), CoreValue::Null);
+    v_capabilities = core_get(
+        &v_profile,
+        &CoreValue::from("capabilities"),
+        CoreValue::Null,
+    );
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("version"), v_version.clone())?;
+    core_set(&v_out, CoreValue::from("services"), v_services.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("capabilities"),
+        v_capabilities.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("supportedVersions"),
+        v_supportedVersions.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("requestedServices"),
+        v_requestedServices.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn ucp_normalize_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ucp_normalize_outcome");
+    let mut v_operation = core_arg(args, 0);
+    let mut v_response = core_arg(args, 1);
+    let mut v_continuation = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_partial = CoreValue::Null;
+    let mut v_warnings = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("operation"), v_operation.clone())?;
+    core_set(&v_out, CoreValue::from("value"), v_response.clone())?;
+    v_warnings = core_get(&v_response, &CoreValue::from("warnings"), CoreValue::Null);
+    v_continuation = core_get(
+        &v_response,
+        &CoreValue::from("continuation_url"),
+        CoreValue::Null,
+    );
+    v_partial = core_get(
+        &v_response,
+        &CoreValue::from("partial_success"),
+        CoreValue::Bool(false),
+    );
+    core_set(&v_out, CoreValue::from("warnings"), v_warnings.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("continuationUrl"),
+        v_continuation.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("partialSuccess"), v_partial.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_execution_context_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_execution_context_descriptor");
+    let mut v_namespaces = core_arg(args, 0);
+    let mut v_inheritance = core_arg(args, 1);
+    let mut v_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("namespaces"), v_namespaces.clone())?;
+    v_missing = core_is_none(&[v_inheritance.clone()])?;
+    if core_truthy(&v_missing) {
+        core_set(
+            &v_out,
+            CoreValue::from("inheritance"),
+            CoreValue::from("all"),
+        )?;
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("inheritance"),
+            v_inheritance.clone(),
+        )?;
+    }
+    core_set(&v_out, CoreValue::from("native"), CoreValue::Bool(true))?;
+    core_set(
+        &v_out,
+        CoreValue::from("lossyAdapter"),
+        CoreValue::Bool(false),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn mcp_protocol_constants(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_protocol_constants");
     let mut v_out = CoreValue::Null;
@@ -56412,4 +56632,4 @@ fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_response.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (436 of 436 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (439 of 439 core functions)

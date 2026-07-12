@@ -46,6 +46,41 @@ module @ax.mcp version "0.1" {
     type signature = "(command:string, args?:list<string>, options?:json) -> AxMCPStdioTransport"
   }
 
+  op ax.mcp.record @AxExecutionContext {
+    attr core_kind = "record"
+    attr public = true
+    tag "axmcp"
+    type signature = "(mcp?:list<AxMCPClient>, ucp?:list<AxUCPClient>, options?:json) -> AxExecutionContext"
+  }
+
+  op ax.mcp.record @AxMCPContinuationState {
+    attr core_kind = "record"
+    attr public = true
+    tag "axmcp"
+    type fields = "namespaces:list<string>,tasks:list<json>,subscriptions:list<json>,catalogFingerprint:string"
+  }
+
+  op ax.mcp.semantic @mcp_execution_context_descriptor {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp"
+    type signature = "(namespaces:list<string>, inheritance?:json) -> json"
+    body @entry(%namespaces: list<json>, %inheritance: json) {
+      %out = core.map
+      core.set %out["namespaces"] = %namespaces
+      %missing = core.call intrinsic.is_none(%inheritance)
+      core.if %missing {
+        core.set %out["inheritance"] = "all"
+      } else {
+        core.set %out["inheritance"] = %inheritance
+      }
+      core.set %out["native"] = true
+      core.set %out["lossyAdapter"] = false
+      core.return %out
+    }
+  }
+
   op ax.mcp.semantic @mcp_protocol_constants {
     attr body_source = "core"
     attr core_kind = "func"

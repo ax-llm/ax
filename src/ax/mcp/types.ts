@@ -54,6 +54,16 @@ export type AxMCPJSONRPCMessage =
   | AxMCPJSONRPCNotification
   | AxMCPJSONRPCResponse;
 
+export interface AxMCPBatchRequest<T = unknown> {
+  method: string;
+  params?: T;
+}
+
+export interface AxMCPBatchResponse<T = unknown> {
+  request: AxMCPBatchRequest;
+  response: AxMCPJSONRPCResponse<T>;
+}
+
 export interface AxMCPIcon {
   src: string;
   mimeType?: string;
@@ -76,6 +86,10 @@ export interface AxMCPClientCapabilities {
   sampling?: Record<string, unknown>;
   elicitation?: Record<string, unknown>;
   tasks?: Record<string, unknown>;
+  extensions?: Record<
+    string,
+    import('./extensions.js').AxMCPExtensionCapability
+  >;
   experimental?: Record<string, unknown>;
 }
 
@@ -96,6 +110,10 @@ export interface AxMCPServerCapabilities {
   };
   completions?: Record<string, unknown>;
   tasks?: Record<string, unknown>;
+  extensions?: Record<
+    string,
+    import('./extensions.js').AxMCPExtensionCapability
+  >;
   experimental?: Record<string, unknown>;
   [key: string]: unknown;
 }
@@ -119,6 +137,15 @@ export interface AxMCPAnnotations {
   audience?: ('user' | 'assistant')[];
   priority?: number;
   lastModified?: string;
+  [key: string]: unknown;
+}
+
+export interface AxMCPToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
   [key: string]: unknown;
 }
 
@@ -196,7 +223,7 @@ export interface AxMCPResourceTemplate extends AxMCPBaseAnnotated {
   icons?: AxMCPIcon[];
 }
 
-export interface AxMCPTool extends AxMCPBaseAnnotated {
+export interface AxMCPTool {
   name: string;
   title?: string;
   description?: string;
@@ -207,6 +234,8 @@ export interface AxMCPTool extends AxMCPBaseAnnotated {
     taskSupport?: 'forbidden' | 'optional' | 'required';
     [key: string]: unknown;
   };
+  annotations?: AxMCPToolAnnotations;
+  _meta?: AxMCPMeta;
 }
 
 export type AxMCPFunctionDescription = AxMCPTool;
@@ -231,6 +260,7 @@ export interface AxMCPToolsListResult {
 export interface AxMCPToolCallParams {
   name: string;
   arguments?: unknown;
+  task?: AxMCPTaskMetadata;
   _meta?: AxMCPMeta;
 }
 
@@ -342,6 +372,110 @@ export interface AxMCPRoot {
 
 export interface AxMCPListRootsResult {
   roots: AxMCPRoot[];
+}
+
+export type AxMCPTaskStatus =
+  | 'working'
+  | 'input_required'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface AxMCPTaskMetadata {
+  ttl?: number;
+}
+
+export interface AxMCPTask {
+  taskId: string;
+  status: AxMCPTaskStatus;
+  statusMessage?: string;
+  createdAt: string;
+  lastUpdatedAt: string;
+  ttl: number | null;
+  pollInterval?: number;
+}
+
+export interface AxMCPCreateTaskResult {
+  task: AxMCPTask;
+  _meta?: AxMCPMeta;
+  [key: string]: unknown;
+}
+
+export interface AxMCPTasksListResult {
+  tasks: AxMCPTask[];
+  nextCursor?: string;
+  _meta?: AxMCPMeta;
+}
+
+export interface AxMCPTaskResult<T = unknown> {
+  result: T;
+  _meta?: AxMCPMeta;
+}
+
+export interface AxMCPSamplingMessage {
+  role: 'user' | 'assistant';
+  content: AxMCPContent;
+}
+
+export interface AxMCPSamplingToolChoice {
+  mode?: 'auto' | 'required' | 'none';
+  [key: string]: unknown;
+}
+
+export interface AxMCPSamplingCreateMessageParams {
+  messages: AxMCPSamplingMessage[];
+  modelPreferences?: Record<string, unknown>;
+  systemPrompt?: string;
+  includeContext?: 'none' | 'thisServer' | 'allServers';
+  temperature?: number;
+  maxTokens: number;
+  stopSequences?: string[];
+  metadata?: Record<string, unknown>;
+  tools?: AxMCPTool[];
+  toolChoice?: AxMCPSamplingToolChoice;
+  task?: AxMCPTaskMetadata;
+  _meta?: AxMCPMeta;
+}
+
+export interface AxMCPSamplingCreateMessageResult {
+  role: 'assistant';
+  content: AxMCPContent;
+  model: string;
+  stopReason?: string;
+  _meta?: AxMCPMeta;
+}
+
+export type AxMCPElicitationAction = 'accept' | 'decline' | 'cancel';
+
+export type AxMCPElicitationCreateParams =
+  | {
+      mode?: 'form';
+      message: string;
+      requestedSchema: AxMCPJSONSchema;
+      task?: AxMCPTaskMetadata;
+      _meta?: AxMCPMeta;
+    }
+  | {
+      mode: 'url';
+      message: string;
+      url: string;
+      elicitationId: string;
+      task?: AxMCPTaskMetadata;
+      _meta?: AxMCPMeta;
+    };
+
+export interface AxMCPElicitationCreateResult {
+  action: AxMCPElicitationAction;
+  content?: Record<string, unknown>;
+  _meta?: AxMCPMeta;
+}
+
+export interface AxMCPProgressNotificationParams {
+  progressToken: string | number;
+  progress: number;
+  total?: number;
+  message?: string;
+  _meta?: AxMCPMeta;
 }
 
 export function axMCPToolInputSchemaToFunctionSchema(

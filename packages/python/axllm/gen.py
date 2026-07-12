@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 
+import copy
 import json
 import re
 import time
@@ -10,6 +11,7 @@ from .ai import AIClient, chat_response_to_completion
 from .prompt import AxPromptTemplate
 from .schema import AxValidationError, strip_internal, validate_fields, validate_output
 from .signature import AxSignature
+from .mcp import resolve_execution_context
 from .schema import (
     _schema_to_json_schema_impl,
 )
@@ -163,7 +165,9 @@ class AxGen:
     def __init__(self, signature, options: dict[str, Any] | None = None):
         self.signature = signature if isinstance(signature, AxSignature) else AxSignature(signature)
         self.options = options or {}
-        self.functions = list(self.options.get("functions") or [])
+        self._base_functions = list(self.options.get("functions") or [])
+        self.execution_context = resolve_execution_context(self.options)
+        self.functions = self._base_functions + (self.execution_context.native_tools() if self.execution_context else [])
         self.examples = list(self.options.get("examples") or [])
         self.demos = list(self.options.get("demos") or [])
         self.assertions = list(self.options.get("assertions") or [])
@@ -393,9 +397,31 @@ class AxGen:
         return list(self.function_call_traces)
 
     def forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
-        return _forward_impl(self, client, values, options)
+        call_context = resolve_execution_context(options, self.execution_context)
+        if call_context is self.execution_context:
+            return _forward_impl(self, client, values, options)
+        call_gen = copy.copy(self)
+        call_gen.execution_context = call_context
+        call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
+        call_gen.prompt_template = AxPromptTemplate(
+            self.signature,
+            functions=call_gen.functions,
+            structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
+            custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+        )
+        if self.instruction:
+            call_gen.prompt_template.set_instruction(self.instruction)
+        return _forward_impl(call_gen, client, values, options)
 
     def streaming_forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
+        call_context = resolve_execution_context(options, self.execution_context)
+        if call_context is not self.execution_context:
+            call_gen = copy.copy(self)
+            call_gen.execution_context = call_context
+            call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
+            call_gen.prompt_template = AxPromptTemplate(self.signature, functions=call_gen.functions)
+            yield from call_gen.streaming_forward(client, values, {**(options or {}), "executionContext": call_context})
+            return
         validate_fields(self.signature.get_input_fields(), values, "input")
         stream_options = {**self.options, **(options or {}), "stream": True}
         req = self._request(self.prompt_template.render(values), stream_options)

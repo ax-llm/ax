@@ -3,6 +3,8 @@
 #include "axllm.hpp"
 
 #include <memory>
+#include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -55,6 +57,9 @@ class AxMCPClient {
   void notify(const std::string& method, Value params = Value());
   void cancel_request(Value request_id, const std::string& reason = "");
   std::vector<Tool> to_function();
+  std::vector<Tool> native_tools();
+  std::string namespace_name() const;
+  Value request(const std::string& method, Value params = Value::object());
 
  private:
   std::shared_ptr<AxMCPTransport> transport_;
@@ -67,12 +72,73 @@ class AxMCPClient {
   std::vector<Value> resource_templates_;
   int next_id_ = 1;
 
-  Value request(const std::string& method, Value params = Value::object());
   bool capability(const std::string& name) const;
   Tool tool_to_function(Value spec);
   Tool prompt_to_function(Value spec);
   Tool resource_to_function(Value spec);
   Tool resource_template_to_function(Value spec);
+};
+
+class AxUCPBinding {
+ public:
+  virtual ~AxUCPBinding() = default;
+  virtual Value call(const std::string& operation, Value payload, Value options) = 0;
+};
+
+class AxUCPClient {
+ public:
+  AxUCPClient(Value profile, std::shared_ptr<AxUCPBinding> binding, Value options = Value::object());
+  std::string namespace_name() const;
+  std::string version() const;
+  Value profile() const;
+  Value call(const std::string& operation, Value payload = Value::object(), const std::string& idempotency_key = "");
+  std::vector<Tool> native_tools();
+  Value catalog_search(Value payload = Value::object());
+  Value catalog_lookup(Value payload = Value::object());
+  Value catalog_product(Value payload = Value::object());
+  Value cart_create(Value payload = Value::object());
+  Value cart_get(Value payload = Value::object());
+  Value cart_update(Value payload = Value::object());
+  Value cart_cancel(Value payload = Value::object());
+  Value checkout_create(Value payload = Value::object());
+  Value checkout_get(Value payload = Value::object());
+  Value checkout_update(Value payload = Value::object());
+  Value checkout_complete(Value payload = Value::object());
+  Value checkout_cancel(Value payload = Value::object());
+  Value order_get(Value payload = Value::object());
+  Value identity_link(Value payload = Value::object());
+
+ private:
+  Value profile_;
+  std::shared_ptr<AxUCPBinding> binding_;
+  Value options_;
+  std::string version_;
+};
+
+struct AxMCPContinuationState {
+  std::vector<std::string> namespaces;
+  Value tasks = Value::array();
+  Value subscriptions = Value::array();
+  std::string catalog_fingerprint;
+};
+
+class AxExecutionContext {
+ public:
+  AxExecutionContext(std::vector<std::shared_ptr<AxMCPClient>> mcp = {}, std::vector<std::shared_ptr<AxUCPClient>> ucp = {});
+  void initialize();
+  std::vector<Tool> native_tools();
+  Value runtime_modules();
+  std::vector<std::string> namespaces() const;
+  AxExecutionContext derive(Value inheritance) const;
+  AxMCPContinuationState continuation_state() const;
+  void attach(AxGen& gen);
+  void attach(AxAgent& agent);
+
+ private:
+  std::vector<std::shared_ptr<AxMCPClient>> mcp_;
+  std::vector<std::shared_ptr<AxUCPClient>> ucp_;
+  std::set<AxMCPClient*> initialized_;
+  mutable std::mutex mutex_;
 };
 
 class AxMCPStreamableHTTPTransport : public AxMCPTransport {

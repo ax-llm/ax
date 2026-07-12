@@ -1,3 +1,4 @@
+import { axApplyMCPAuthentication } from '../authentication.js';
 import { OAuthHelper } from '../oauth/oauthHelper.js';
 import type { AxMCPTransport } from '../transport.js';
 import type {
@@ -36,7 +37,15 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
     this.customHeaders = { ...(options.headers ?? {}) };
     if (options.authorization)
       this.customHeaders.Authorization = options.authorization;
-    this.oauthHelper = new OAuthHelper(options.oauth);
+    this.oauthHelper = new OAuthHelper(
+      options.oauth
+        ? {
+            ...options.oauth,
+            mtls: options.oauth.mtls ?? options.mtls,
+            fetch: options.oauth.fetch ?? options.mtls?.fetch ?? options.fetch,
+          }
+        : undefined
+    );
   }
 
   private buildHeaders(base: Record<string, string>): Record<string, string> {
@@ -47,10 +56,16 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
     url: string,
     init: RequestInit
   ): Promise<Response> {
-    return fetchWithSSRFProtection(url, {
-      ...init,
+    const authenticated = await axApplyMCPAuthentication(
+      url,
+      init,
+      this.options.authentication
+    );
+    return fetchWithSSRFProtection(authenticated.url, {
+      ...authenticated.init,
       ssrfProtection: this.options.ssrfProtection,
       ssrfContext: 'mcp-endpoint',
+      fetch: this.options.mtls?.fetch ?? this.options.fetch,
     });
   }
 
@@ -79,7 +94,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
         currentToken: null,
       });
       if (!ensured) throw new Error(`HTTP 401: Unauthorized`);
-      this.customHeaders.Authorization = `Bearer ${ensured.token.accessToken}`;
+      this.customHeaders.Authorization = `${ensured.token.tokenType ?? 'Bearer'} ${ensured.token.accessToken}`;
       return this.openSSEWithFetch(
         this.buildHeaders({ Accept: 'text/event-stream' })
       );
@@ -208,7 +223,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
         currentToken: null,
       });
       if (!ensured) throw new Error(`HTTP 401: Unauthorized`);
-      this.customHeaders.Authorization = `Bearer ${ensured.token.accessToken}`;
+      this.customHeaders.Authorization = `${ensured.token.tokenType ?? 'Bearer'} ${ensured.token.accessToken}`;
       res = await this.fetchEndpoint(this.endpoint, {
         method: 'POST',
         headers: this.buildHeaders({ 'Content-Type': 'application/json' }),
@@ -258,7 +273,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
         currentToken: null,
       });
       if (!ensured) throw new Error(`HTTP 401: Unauthorized`);
-      this.customHeaders.Authorization = `Bearer ${ensured.token.accessToken}`;
+      this.customHeaders.Authorization = `${ensured.token.tokenType ?? 'Bearer'} ${ensured.token.accessToken}`;
       res = await this.fetchEndpoint(this.endpoint, {
         method: 'POST',
         headers: this.buildHeaders({ 'Content-Type': 'application/json' }),
@@ -291,7 +306,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
         currentToken: null,
       });
       if (!ensured) throw new Error(`HTTP 401: Unauthorized`);
-      this.customHeaders.Authorization = `Bearer ${ensured.token.accessToken}`;
+      this.customHeaders.Authorization = `${ensured.token.tokenType ?? 'Bearer'} ${ensured.token.accessToken}`;
       res = await this.fetchEndpoint(this.endpoint, {
         method: 'POST',
         headers: this.buildHeaders({ 'Content-Type': 'application/json' }),

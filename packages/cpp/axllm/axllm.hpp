@@ -651,6 +651,9 @@ struct Core {
   static Value _flow_restore_components(Value flow, Value snapshot);
   static Value _flow_evaluate_optimization(Value flow, Value client, Value dataset, Value candidate_map, Value options);
   static Value _flow_optimize_with(Value flow, Value dataset, Value options, Value evaluator_available);
+  static Value ucp_negotiate_profile(Value profile, Value supportedVersions, Value requestedServices);
+  static Value ucp_normalize_outcome(Value operation, Value response);
+  static Value mcp_execution_context_descriptor(Value namespaces, Value inheritance);
   static Value mcp_protocol_constants();
   static Value mcp_jsonrpc_request(Value id, Value method, Value params);
   static Value mcp_jsonrpc_notification(Value method, Value params);
@@ -1322,6 +1325,7 @@ class AxAgent : public AxProgram {
   Value recall(Value request);
   Value used(Value id, Value reason = Value(""), Value stage = Value("executor"));
   Value invoke_callable(Value qualified_name, Value args = Value::object(), Value options = Value::object());
+  AxAgent& add_tool_module(std::string name, const std::vector<Tool>& tools);
   Value export_runtime_state() const;
   Value restore_runtime_state(Value snapshot);
   Value get_optimizer_metadata() const;

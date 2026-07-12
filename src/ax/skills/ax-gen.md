@@ -485,6 +485,21 @@ Fetch these for full working code:
 - [Extraction](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/extract.ts) — information extraction
 - [Multi-Sampling](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/sample-count.ts) — sample count usage
 
+## Native MCP/UCP
+
+Pass live clients directly to constructor or forward options:
+
+```typescript
+const gen = ax('question:string -> answer:string', { mcp: [docs, search] });
+const result = await gen.forward(llm, { question }, {
+  mcpContext: [
+    { client: 'docs', resource: { uri: 'docs://guide' } },
+  ],
+});
+```
+
+The model receives native tool definitions. Structured, image, audio, resource-link, embedded-resource, metadata, task, and error results are preserved until the provider adapter maps supported content. Streaming keeps MCP progress/task events separate from Ax output. Never call `toFunction()` for native integration.
+
 ## Do Not Generate
 
 - Do not use `new AxGen(...)` for new code unless explicitly required.

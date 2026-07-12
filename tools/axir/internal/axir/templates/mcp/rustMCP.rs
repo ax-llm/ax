@@ -149,7 +149,26 @@ impl AxMCPClient {
         out
     }
 
-    fn request(&self, method: &str, params: Value) -> AxResult<Value> {
+    pub fn native_tools(&self) -> Vec<Tool> {
+        let mut out = Vec::new();
+        for spec in &self.tools {
+            let original = spec.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
+            let name = override_name(&self.options, &original);
+            let description = override_description(&self.options, spec);
+            let transport = self.transport.clone();
+            let next_id = self.next_id.clone();
+            out.push(tool(&name).description(description).handler(move |args| {
+                mcp_transport_request(&transport, &next_id, "tools/call", json!({"name": original, "arguments": args}))
+            }));
+        }
+        out
+    }
+
+    pub fn namespace(&self) -> String {
+        self.options.get("namespace").and_then(Value::as_str).unwrap_or("mcp").to_string()
+    }
+
+    pub fn request(&self, method: &str, params: Value) -> AxResult<Value> {
         mcp_transport_request(&self.transport, &self.next_id, method, params)
     }
 
@@ -203,6 +222,83 @@ impl AxMCPClient {
         let next_id = self.next_id.clone();
         tool(&name).description(description).handler(move |args| mcp_transport_request(&transport, &next_id, "resources/read", json!({"uri": args.get("uri").cloned().unwrap_or(Value::Null)})))
     }
+}
+
+pub trait AxUCPBinding: Send + Sync {
+    fn call(&self, operation: &str, payload: Value, options: Value) -> AxResult<Value>;
+}
+
+impl<F> AxUCPBinding for F where F: Fn(&str, Value, Value) -> AxResult<Value> + Send + Sync {
+    fn call(&self, operation: &str, payload: Value, options: Value) -> AxResult<Value> { self(operation, payload, options) }
+}
+
+pub const AX_UCP_OPERATIONS: &[&str] = &[
+    "catalog.search", "catalog.lookup", "catalog.product",
+    "cart.create", "cart.get", "cart.update", "cart.cancel",
+    "checkout.create", "checkout.get", "checkout.update", "checkout.complete", "checkout.cancel",
+    "fulfillment.quote", "discounts.apply", "payments.create", "payments.confirm",
+    "orders.get", "identity.link", "attribution.record", "handoff.create",
+];
+
+#[derive(Clone)]
+pub struct AxUCPClient {
+    pub profile: Value,
+    binding: Arc<dyn AxUCPBinding>,
+    pub options: Value,
+    pub version: String,
+}
+
+impl AxUCPClient {
+    pub fn new(profile: Value, binding: Arc<dyn AxUCPBinding>, options: Value) -> AxResult<Self> {
+        let version = profile.get("version").or_else(|| options.get("version")).and_then(Value::as_str).unwrap_or("2026-04-08").to_string();
+        let supported = options.get("supportedVersions").and_then(Value::as_array).map(|v|v.iter().filter_map(Value::as_str).collect::<Vec<_>>()).unwrap_or_else(||vec!["2026-04-08"]);
+        if !supported.iter().any(|candidate| *candidate == version) { return Err(AxError::new("ucp",format!("Unsupported UCP version {version}"))); }
+        Ok(Self{profile,binding,options,version})
+    }
+
+    pub fn namespace(&self) -> String { self.options.get("namespace").or_else(||self.profile.get("name")).and_then(Value::as_str).unwrap_or("ucp").to_string() }
+
+    pub fn call(&self, operation:&str, payload:Value, idempotency_key:Option<&str>) -> AxResult<Value> {
+        if !AX_UCP_OPERATIONS.contains(&operation) { return Err(AxError::new("ucp",format!("Unsupported UCP operation {operation}"))); }
+        let key=idempotency_key.map(str::to_string).unwrap_or_else(||format!("ax-ucp-{}",SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()));
+        let value=self.binding.call(operation,if payload.is_null(){json!({})}else{payload},json!({"version":self.version,"idempotencyKey":key}))?;
+        Ok(json!({"operation":operation,"warnings":value.get("warnings"),"partialSuccess":value.get("partial_success").or_else(||value.get("partialSuccess")).cloned().unwrap_or(json!(false)),"continuationUrl":value.get("continuation_url").or_else(||value.get("continuationUrl")),"idempotencyKey":key,"value":value}))
+    }
+
+    pub fn native_tools(&self) -> Vec<Tool> {
+        AX_UCP_OPERATIONS.iter().map(|operation|{let op=operation.to_string();let client=self.clone();tool(&format!("{}_{}",self.namespace(),op.replace('.',"_"))).description(format!("UCP {op} operation")).handler(move|args|client.call(&op,args,None))}).collect()
+    }
+
+    pub fn catalog_search(&self,payload:Value)->AxResult<Value>{self.call("catalog.search",payload,None)}
+    pub fn catalog_lookup(&self,payload:Value)->AxResult<Value>{self.call("catalog.lookup",payload,None)}
+    pub fn catalog_product(&self,payload:Value)->AxResult<Value>{self.call("catalog.product",payload,None)}
+    pub fn cart_create(&self,payload:Value)->AxResult<Value>{self.call("cart.create",payload,None)}
+    pub fn cart_get(&self,payload:Value)->AxResult<Value>{self.call("cart.get",payload,None)}
+    pub fn cart_update(&self,payload:Value)->AxResult<Value>{self.call("cart.update",payload,None)}
+    pub fn cart_cancel(&self,payload:Value)->AxResult<Value>{self.call("cart.cancel",payload,None)}
+    pub fn checkout_create(&self,payload:Value)->AxResult<Value>{self.call("checkout.create",payload,None)}
+    pub fn checkout_get(&self,payload:Value)->AxResult<Value>{self.call("checkout.get",payload,None)}
+    pub fn checkout_update(&self,payload:Value)->AxResult<Value>{self.call("checkout.update",payload,None)}
+    pub fn checkout_complete(&self,payload:Value)->AxResult<Value>{self.call("checkout.complete",payload,None)}
+    pub fn checkout_cancel(&self,payload:Value)->AxResult<Value>{self.call("checkout.cancel",payload,None)}
+    pub fn order_get(&self,payload:Value)->AxResult<Value>{self.call("orders.get",payload,None)}
+    pub fn identity_link(&self,payload:Value)->AxResult<Value>{self.call("identity.link",payload,None)}
+}
+
+#[derive(Debug,Clone,serde::Serialize,serde::Deserialize)]
+pub struct AxMCPContinuationState { pub namespaces:Vec<String>,pub tasks:Vec<Value>,pub subscriptions:Vec<Value>,pub catalog_fingerprint:String }
+
+#[derive(Clone,Default)]
+pub struct AxExecutionContext { pub mcp:Vec<Arc<Mutex<AxMCPClient>>>,pub ucp:Vec<AxUCPClient>,initialized:Arc<Mutex<Vec<usize>>> }
+
+impl AxExecutionContext {
+    pub fn new(mcp:Vec<Arc<Mutex<AxMCPClient>>>,ucp:Vec<AxUCPClient>)->AxResult<Self>{let out=Self{mcp,ucp,initialized:Arc::new(Mutex::new(Vec::new()))};let names=out.namespaces();let mut unique=names.clone();unique.sort();unique.dedup();if unique.len()!=names.len(){return Err(AxError::new("mcp","MCP/UCP namespace collision"));}Ok(out)}
+    pub fn initialize(&self)->AxResult<()>{let mut initialized=self.initialized.lock().unwrap();for(index,client)in self.mcp.iter().enumerate(){if !initialized.contains(&index){client.lock().unwrap().init()?;initialized.push(index)}}Ok(())}
+    pub fn native_tools(&self)->AxResult<Vec<Tool>>{self.initialize()?;let mut out=Vec::new();for client in &self.mcp{out.extend(client.lock().unwrap().native_tools())}for client in &self.ucp{out.extend(client.native_tools())}let mut names=out.iter().map(|tool|tool.name.clone()).collect::<Vec<_>>();let count=names.len();names.sort();names.dedup();if names.len()!=count{return Err(AxError::new("mcp","MCP/UCP tool collision"));}Ok(out)}
+    pub fn runtime_modules(&self)->Value{Value::Array(self.mcp.iter().map(|client|{let locked=client.lock().unwrap();json!({"name":format!("mcp.{}",locked.namespace()),"functions":locked.native_tools().iter().map(|tool|tool.name.clone()).collect::<Vec<_>>()})}).chain(self.ucp.iter().map(|client|json!({"name":format!("ucp.{}",client.namespace()),"functions":client.native_tools().iter().map(|tool|tool.name.clone()).collect::<Vec<_>>() }))).collect())}
+    pub fn namespaces(&self)->Vec<String>{self.mcp.iter().map(|client|client.lock().unwrap().namespace()).chain(self.ucp.iter().map(AxUCPClient::namespace)).collect()}
+    pub fn derive(&self,inheritance:&Value)->Self{if inheritance.as_str()==Some("none"){return Self::default()}let Some(allowed)=inheritance.as_array()else{return self.clone()};let allowed=allowed.iter().filter_map(Value::as_str).collect::<Vec<_>>();Self{mcp:self.mcp.iter().filter(|c|allowed.contains(&c.lock().unwrap().namespace().as_str())).cloned().collect(),ucp:self.ucp.iter().filter(|c|allowed.contains(&c.namespace().as_str())).cloned().collect(),initialized:self.initialized.clone()}}
+    pub fn continuation_state(&self)->AxMCPContinuationState{let namespaces=self.namespaces();let digest=ax_mcp_sha256(namespaces.join("\n").as_bytes());AxMCPContinuationState{namespaces,tasks:vec![],subscriptions:vec![],catalog_fingerprint:digest.iter().map(|b|format!("{b:02x}")).collect()}}
 }
 
 fn mcp_transport_request(transport: &Arc<Mutex<Box<dyn AxMCPTransport>>>, next_id: &Arc<Mutex<u64>>, method: &str, params: Value) -> AxResult<Value> {
@@ -564,6 +660,18 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
             base.insert("Accept".to_string(), json!("application/json"));
             expect_subset("headers", &Value::Object(transport.build_headers(base, true)), fixture.get("expected_headers").unwrap_or(&Value::Null))
         }
+        "execution_context_ucp" => {
+            let responses=fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default();
+            let mcp=Arc::new(Mutex::new(AxMCPClient::new(Box::new(AxMCPScriptedTransport::new(responses)),fixture.get("client_options").cloned().unwrap_or_else(||json!({})))));
+            let scripted=fixture.get("ucp_response").cloned().unwrap_or_else(||json!({}));
+            let binding:Arc<dyn AxUCPBinding>=Arc::new(move|_:&str,_:Value,_:Value|Ok(scripted.clone()));
+            let ucp=AxUCPClient::new(fixture.get("ucp_profile").cloned().unwrap_or_else(||json!({})),binding,fixture.get("ucp_options").cloned().unwrap_or_else(||json!({})))?;
+            let context=AxExecutionContext::new(vec![mcp],vec![ucp.clone()])?;context.initialize()?;
+            let namespaces=Value::Array(context.namespaces().iter().map(|name|json!(name)).collect());expect_subset("context namespaces",&namespaces,fixture.get("expected_namespaces").unwrap_or(&Value::Null))?;
+            let tools=context.native_tools()?;for expected in fixture.get("expected_native_tools").and_then(Value::as_array).cloned().unwrap_or_default(){let name=expected.as_str().unwrap_or_default();if !tools.iter().any(|tool|tool.name==name){return Err(AxError::new("fixture",format!("missing native context tool {name}")));}}
+            let call=fixture.get("call_ucp").cloned().unwrap_or_else(||json!({}));let outcome=ucp.call(call.get("operation").and_then(Value::as_str).unwrap_or("catalog.search"),call.get("payload").cloned().unwrap_or_else(||json!({})),Some("fixture-key"))?;expect_subset("UCP outcome",&outcome,fixture.get("expected_ucp_outcome").unwrap_or(&Value::Null))?;
+            let state=context.continuation_state();if state.catalog_fingerprint.is_empty(){return Err(AxError::new("fixture","invalid execution context continuation state"));}Ok(())
+        }
         _ => {
             let responses = fixture.get("responses").or_else(|| fixture.get("transport_responses")).and_then(Value::as_array).cloned().unwrap_or_default();
             let mut client = AxMCPClient::new(Box::new(AxMCPScriptedTransport::new(responses)), fixture.get("client_options").cloned().unwrap_or(Value::Null));
@@ -575,7 +683,7 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                 "initialize" | "protocol_negotiation" => Ok(()),
                 "ping" => client.ping().map(|_| ()),
                 "tools" => {
-                    let functions = client.to_function();
+                    let functions = client.native_tools();
                     if let Some(expected) = fixture.get("expected_function_names") {
                         let names = Value::Array(functions.iter().map(|tool| json!(tool.name)).collect());
                         expect_subset("function names", &names, expected)?;

@@ -11,7 +11,11 @@ import type {
 // Type for state object that flows through the pipeline
 export type AxFlowState = Record<string, unknown>;
 
-export interface AxFlowOptions {
+export interface AxFlowOptions
+  extends Pick<
+    AxProgramForwardOptions<string>,
+    'mcp' | 'ucp' | 'mcpContext' | 'mcpInheritance'
+  > {
   autoParallel?: boolean;
   batchSize?: number;
   logger?: import('./logger.js').AxFlowLoggerFunction;

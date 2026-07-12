@@ -56,8 +56,8 @@ func TestCoreFuncRegistryFromAxCore(t *testing.T) {
 	for _, spec := range specs {
 		byModule[spec.Module]++
 	}
-	if byModule["mcp"] != 4 {
-		t.Fatalf("expected the 4 MCP core functions in the registry, got %d", byModule["mcp"])
+	if byModule["mcp"] != 7 {
+		t.Fatalf("expected the 7 MCP/UCP core functions in the registry, got %d", byModule["mcp"])
 	}
 	if byModule[""] != 0 {
 		t.Fatal("registry contains specs without emit_module")

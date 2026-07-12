@@ -234,6 +234,18 @@ var goMCPSseRoundtripExample string
 //go:embed templates/mcp/javaAxMCPClient.java
 var javaAxMCPClient string
 
+//go:embed templates/mcp/javaAxExecutionContext.java
+var javaAxExecutionContext string
+
+//go:embed templates/mcp/javaAxMCPContinuationState.java
+var javaAxMCPContinuationState string
+
+//go:embed templates/mcp/javaAxUCPBinding.java
+var javaAxUCPBinding string
+
+//go:embed templates/mcp/javaAxUCPClient.java
+var javaAxUCPClient string
+
 //go:embed templates/mcp/javaAxMCPOAuthOptions.java
 var javaAxMCPOAuthOptions string
 

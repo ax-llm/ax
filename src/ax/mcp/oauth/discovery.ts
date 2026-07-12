@@ -11,10 +11,19 @@ export function parseWWWAuthenticateForResourceMetadata(
   return match ? match[1] : null;
 }
 
+export function parseWWWAuthenticateScope(www: string | null): string[] {
+  if (!www) return [];
+  const match =
+    www.match(/(?:^|,)\s*scope\s*=\s*"([^"]*)"/i) ??
+    www.match(/(?:^|,)\s*scope\s*=\s*([^,\s]+)/i);
+  return match?.[1]?.split(/\s+/).filter(Boolean) ?? [];
+}
+
 export async function discoverResourceAndAS(
   requestedUrl: string,
   wwwAuthenticate: string | null,
-  ssrfProtection?: AxMCPSSRFProtectionOptions
+  ssrfProtection?: AxMCPSSRFProtectionOptions,
+  fetcher?: typeof globalThis.fetch
 ): Promise<{ resource: string; issuers: string[] }> {
   const headerUrl = parseWWWAuthenticateForResourceMetadata(wwwAuthenticate);
 
@@ -22,6 +31,7 @@ export async function discoverResourceAndAS(
     const rsMeta = await fetchJSON<any>(headerUrl, undefined, {
       protection: ssrfProtection,
       context: 'oauth-resource-metadata',
+      fetch: fetcher,
     });
     const rsResource = stripTrailingSlash(rsMeta.resource ?? '');
     if (
@@ -64,6 +74,7 @@ export async function discoverResourceAndAS(
       const meta = await fetchJSON<any>(c.url, undefined, {
         protection: ssrfProtection,
         context: 'oauth-resource-metadata',
+        fetch: fetcher,
       });
       const rsResource = stripTrailingSlash(meta.resource ?? '');
       const exp = stripTrailingSlash(c.expected);
@@ -115,7 +126,9 @@ function isProtectedResourceForRequest(
 
 export async function discoverASMetadata(
   issuer: string,
-  ssrfProtection?: AxMCPSSRFProtectionOptions
+  ssrfProtection?: AxMCPSSRFProtectionOptions,
+  options: Readonly<{ requireAuthorizationEndpoint?: boolean }> = {},
+  fetcher?: typeof globalThis.fetch
 ): Promise<any> {
   const u = new URL(issuer);
   const path = u.pathname.replace(/^\/+/, '');
@@ -139,13 +152,21 @@ export async function discoverASMetadata(
       const meta = await fetchJSON<any>(e, undefined, {
         protection: ssrfProtection,
         context: 'oauth-authorization-server-metadata',
+        fetch: fetcher,
       });
-      if (!meta.authorization_endpoint || !meta.token_endpoint) {
+      if (
+        !meta.token_endpoint ||
+        (options.requireAuthorizationEndpoint !== false &&
+          !meta.authorization_endpoint)
+      ) {
         throw new Error('AS metadata missing endpoints');
       }
       const methods: string[] | undefined =
         meta.code_challenge_methods_supported;
-      if (!methods || !methods.includes('S256')) {
+      if (
+        options.requireAuthorizationEndpoint !== false &&
+        (!methods || !methods.includes('S256'))
+      ) {
         throw new Error(
           'Authorization server does not advertise PKCE S256 support'
         );

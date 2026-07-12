@@ -40,6 +40,33 @@ import type {
   AxAgentOptimizeResult,
 } from './types.js';
 
+function asClientArray<T>(value: T | readonly T[] | undefined): readonly T[] {
+  if (value === undefined) return [];
+  return Array.isArray(value) ? value : [value as T];
+}
+
+export function assertSafeMCPEvaluation(
+  options: Readonly<{
+    mode: 'replay' | 'live';
+    mcp?: unknown | readonly unknown[];
+    ucp?: unknown | readonly unknown[];
+  }>
+): void {
+  if (options.mode === 'live') return;
+  const unsafeMCP = asClientArray(options.mcp).filter(
+    (client: any) => client.getEvaluationMode?.() !== 'replay'
+  );
+  const unsafeUCP = asClientArray(options.ucp).filter(
+    (client: any) =>
+      !['replay', 'sandbox'].includes(client.getEvaluationMode?.())
+  );
+  if (unsafeMCP.length > 0 || unsafeUCP.length > 0) {
+    throw new Error(
+      'AxAgent.optimize(): live MCP/UCP clients are disabled during evaluation. Supply replay/sandbox clients or set mcpEvaluation.mode to live explicitly.'
+    );
+  }
+}
+
 export async function optimizeAgent<IN extends AxGenIn, OUT extends AxGenOut>(
   self: any,
   dataset: Readonly<AxAgentEvalDataset<IN>>,
@@ -74,9 +101,21 @@ export async function optimizeAgent<IN extends AxGenIn, OUT extends AxGenOut>(
   const metric =
     options?.metric ??
     s._createAgentOptimizeMetric(resolvedJudgeAI, mergedJudgeOptions);
+  const evaluationMode = options?.mcpEvaluation?.mode ?? 'replay';
+  const evaluationMCP = options?.mcpEvaluation?.mcp ?? s.options?.mcp;
+  const evaluationUCP = options?.mcpEvaluation?.ucp ?? s.options?.ucp;
+  assertSafeMCPEvaluation({
+    mode: evaluationMode,
+    mcp: evaluationMCP,
+    ucp: evaluationUCP,
+  });
   const optimizationProgram = s._createOptimizationProgram(
     targetIds,
-    optimizationTargets
+    optimizationTargets,
+    {
+      ...(evaluationMCP !== undefined ? { mcp: evaluationMCP } : {}),
+      ...(evaluationUCP !== undefined ? { ucp: evaluationUCP } : {}),
+    }
   );
   const maxMetricCalls = Math.max(
     1,
@@ -140,7 +179,8 @@ export function createOptimizationProgram<
 >(
   self: any,
   targetIds: readonly string[],
-  descriptors: readonly AxAgentOptimizationTargetDescriptor[]
+  descriptors: readonly AxAgentOptimizationTargetDescriptor[],
+  evaluationForwardOptions: Readonly<AxProgramForwardOptions<string>> = {}
 ): AxProgrammable<AxAgentEvalTask<IN>, AxAgentEvalPrediction<OUT>> {
   const s = self as any;
   const selectedDescriptors = descriptors.filter((entry) =>
@@ -159,7 +199,11 @@ export function createOptimizationProgram<
       ai: Readonly<AxAIService>,
       task: AxAgentEvalTask<IN>,
       options?: Readonly<AxProgramForwardOptions<string>>
-    ) => s._forwardForEvaluation(ai, task, options),
+    ) =>
+      s._forwardForEvaluation(ai, task, {
+        ...options,
+        ...evaluationForwardOptions,
+      }),
     streamingForward: async function* (
       ai: Readonly<AxAIService>,
       task: AxAgentEvalTask<IN>,

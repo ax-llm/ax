@@ -1,0 +1,58 @@
+module @ax.ucp version "0.1" {
+  dialect @ax.mcp version "0.1"
+
+  op ax.mcp.interface @AxUCPBinding {
+    attr contract = "ucp-binding"
+    attr core_kind = "interface"
+    attr public = true
+    tag "axucp"
+  }
+
+  op ax.mcp.record @AxUCPClient {
+    attr core_kind = "record"
+    attr public = true
+    ref binding = @AxUCPBinding
+    tag "axucp"
+    type signature = "(profile:json, binding:AxUCPBinding, options?:json) -> AxUCPClient"
+  }
+
+  op ax.mcp.semantic @ucp_negotiate_profile {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axucp"
+    type signature = "(profile:json, supportedVersions:list<string>, requestedServices?:list<string>) -> json"
+    body @entry(%profile: json, %supportedVersions: list<json>, %requestedServices: list<json>) {
+      %version = core.get %profile["version"] default null
+      %services = core.get %profile["services"] default null
+      %capabilities = core.get %profile["capabilities"] default null
+      %out = core.map
+      core.set %out["version"] = %version
+      core.set %out["services"] = %services
+      core.set %out["capabilities"] = %capabilities
+      core.set %out["supportedVersions"] = %supportedVersions
+      core.set %out["requestedServices"] = %requestedServices
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @ucp_normalize_outcome {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axucp"
+    type signature = "(operation:string, response:json) -> json"
+    body @entry(%operation: string, %response: json) {
+      %out = core.map
+      core.set %out["operation"] = %operation
+      core.set %out["value"] = %response
+      %warnings = core.get %response["warnings"] default null
+      %continuation = core.get %response["continuation_url"] default null
+      %partial = core.get %response["partial_success"] default false
+      core.set %out["warnings"] = %warnings
+      core.set %out["continuationUrl"] = %continuation
+      core.set %out["partialSuccess"] = %partial
+      core.return %out
+    }
+  }
+}

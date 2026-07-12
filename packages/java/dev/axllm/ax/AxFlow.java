@@ -11,13 +11,17 @@ public final class AxFlow implements AxProgram {
   }
 
   final Map<String, Object> state;
+  final Map<String, Object> options;
+  final AxExecutionContext executionContext;
 
   public AxFlow() {
     this(Map.of());
   }
 
   public AxFlow(Map<String, Object> options) {
-    this.state = Core.asMap(Core._flow_factory(options == null ? Map.of() : options));
+    this.options = new LinkedHashMap<>(options == null ? Map.of() : options);
+    this.executionContext = AxExecutionContext.resolve(this.options, null);
+    this.state = Core.asMap(Core._flow_factory(this.options));
   }
 
   public AxFlow execute(String name, AxProgram program) {
@@ -204,7 +208,14 @@ public final class AxFlow implements AxProgram {
   }
 
   public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options) {
-    return Core.asMap(Core._flow_forward(state, client, values == null ? Map.of() : values, options == null ? Map.of() : options));
+    Map<String, Object> callOptions = new LinkedHashMap<>(options == null ? Map.of() : options);
+    AxExecutionContext context = AxExecutionContext.resolve(callOptions, executionContext);
+    if (context != null) {
+      callOptions.put("executionContext", context);
+      callOptions.put("mcp", context.mcp());
+      callOptions.put("ucp", context.ucp());
+    }
+    return Core.asMap(Core._flow_forward(state, client, values == null ? Map.of() : values, callOptions));
   }
 
   public List<Map<String, Object>> streamingForward(AiClient client, Map<String, Object> values, Map<String, Object> options) {

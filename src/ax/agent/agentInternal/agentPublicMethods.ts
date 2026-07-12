@@ -3,6 +3,7 @@ import type {
   AxFunction,
   AxFunctionHandler,
 } from '../../ai/types.js';
+import { axMCPChildExecutionOptions } from '../../mcp/execution.js';
 import { createCompletionBindings } from '../completion.js';
 import { cloneAgentState } from '../state.js';
 import type {
@@ -145,7 +146,13 @@ export function getFunction(self: any): AxFunction {
     if (!ai) {
       throw new Error('AI service is required to run the agent');
     }
-    const run = await s.run(ai, values, options);
+    const run = await s.run(
+      ai,
+      values,
+      options?._mcpExecutionContext
+        ? axMCPChildExecutionOptions(options)
+        : options
+    );
     const result = run.executorResult;
     if (result?.type === 'askClarification') {
       const q = result.args?.[0];

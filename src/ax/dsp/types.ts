@@ -6,7 +6,14 @@ import type {
   AxModelConfig,
   AxSpeechConfig,
 } from '../ai/types.js';
+import type { AxMCPClient } from '../mcp/client.js';
+import type {
+  AxMCPContextRequest,
+  AxMCPExecutionContext,
+  AxMCPInheritance,
+} from '../mcp/execution.js';
 import type { AxAIMemory } from '../mem/types.js';
+import type { AxUCPClient } from '../ucp/client.js';
 import type { AxAssertion, AxStreamingAssertion } from './asserts.js';
 import type { AxInputFunctionType } from './functions.js';
 import type { AxGen } from './generate.js';
@@ -193,6 +200,18 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
 
   // Functions and calls
   functions?: AxInputFunctionType;
+  /** MCP clients attached natively to this execution. */
+  mcp?: AxMCPClient | readonly AxMCPClient[];
+  /** UCP clients attached through their negotiated MCP services. */
+  ucp?: AxUCPClient | readonly AxUCPClient[];
+  /** MCP prompts/resources to resolve into attributed run context. */
+  mcpContext?: readonly AxMCPContextRequest[];
+  /** Controls propagation of MCP clients to nested programs. */
+  mcpInheritance?: AxMCPInheritance;
+  /** @internal Shared run-scoped MCP context. */
+  _mcpExecutionContext?: AxMCPExecutionContext;
+  /** @internal Resolved MCP prompt/resource context for this run. */
+  _mcpContextPrompt?: AxChatRequest['chatPrompt'];
   functionCall?: AxChatRequest['functionCall'];
   stopFunction?: string | string[];
   functionResultFormatter?: (result: unknown) => string;

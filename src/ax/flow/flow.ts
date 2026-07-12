@@ -34,6 +34,10 @@ import type {
   AxProgramUsage,
 } from '../dsp/types.js';
 import { mergeProgramUsage } from '../dsp/util.js';
+import {
+  type AxMCPExecutionContext,
+  axResolveMCPExecutionContext,
+} from '../mcp/execution.js';
 import { mergeAbortSignals } from '../util/abort.js';
 import { createHash } from '../util/crypto.js';
 import { processBatches } from './batchUtil.js';
@@ -111,10 +115,15 @@ export class AxFlow<
   private readonly autoParallelConfig: { enabled: boolean; batchSize: number };
   private readonly flowLogger?: AxFlowLoggerFunction;
   private readonly timingLogger?: ReturnType<typeof createTimingLogger>;
-  private readonly defaultAIOptions?: Readonly<{
-    tracer?: Tracer;
-    meter?: Meter;
-  }>;
+  private readonly defaultAIOptions?: Readonly<
+    Pick<
+      AxProgramForwardOptions<string>,
+      'mcp' | 'ucp' | 'mcpContext' | 'mcpInheritance'
+    > & {
+      tracer?: Tracer;
+      meter?: Meter;
+    }
+  >;
   private nodeUsage: Map<string, AxProgramUsage[]> = new Map();
   private nodeTraces: Map<string, AxProgramTrace<any, any>[]> = new Map();
   private nodeChatLog: AxChatLogEntry[] = [];
@@ -137,10 +146,21 @@ export class AxFlow<
       ? createTimingLogger(this.flowLogger)
       : undefined;
 
-    if (options?.tracer || options?.meter) {
+    if (
+      options?.tracer ||
+      options?.meter ||
+      options?.mcp ||
+      options?.ucp ||
+      options?.mcpContext ||
+      options?.mcpInheritance
+    ) {
       this.defaultAIOptions = {
         tracer: options.tracer,
         meter: options.meter,
+        mcp: options.mcp,
+        ucp: options.ucp,
+        mcpContext: options.mcpContext,
+        mcpInheritance: options.mcpInheritance,
       };
     }
   }
@@ -643,10 +663,21 @@ export class AxFlow<
         return result.finalState;
       };
 
+      const mcpExecutionContext = await axResolveMCPExecutionContext(
+        options ?? {},
+        this.defaultAIOptions ?? {}
+      );
+      const childMCPExecutionContext: AxMCPExecutionContext | undefined =
+        mcpExecutionContext?.forChild();
       const mainOptions: AxProgramForwardOptions<string> = {
         ...(this.defaultAIOptions ?? {}),
         ...(options as any),
+        ...(childMCPExecutionContext
+          ? { _mcpExecutionContext: childMCPExecutionContext }
+          : {}),
       };
+      delete mainOptions.mcp;
+      delete mainOptions.ucp;
       if ((options as any)?.model) {
         mainOptions.model = String((options as any).model);
       }
@@ -664,6 +695,14 @@ export class AxFlow<
         executeSteps: executeNestedSteps,
         checkAbort: (location) =>
           checkAbortSignal(effectiveAbortSignal, location),
+        captureRemoteTasks: () => mcpExecutionContext?.getTaskSnapshot(),
+        cancelRemoteTasksSince: async (snapshot) => {
+          if (mcpExecutionContext && snapshot) {
+            await mcpExecutionContext.cancelTasksCreatedSince(
+              snapshot as import('../mcp/execution.js').AxMCPTaskSnapshot
+            );
+          }
+        },
       };
 
       const result = await executeFlowSteps(this.steps, state, execContext, {
@@ -1137,22 +1176,43 @@ export class AxFlow<
         isBarrier: true,
         writes: ['_parallelResults'],
         run: async (state, context) => {
-          const results = await processBatches(
-            branches,
-            async (branchFn) => {
-              const subContext = new AxFlowSubContextImpl<TNodes, TState>(
-                this.createExecuteStep.bind(this) as any
-              );
-              const populatedSubContext = branchFn(
-                subContext as AxFlowTypedSubContext<TNodes, TState>
-              );
-              return await populatedSubContext.executeSteps(state as TState, {
-                ...context,
-                executeSteps: context.executeSteps as any,
-              });
+          const branchAbort = new AbortController();
+          const taskSnapshot = context.captureRemoteTasks?.();
+          const branchContext: AxFlowExecutionContext = {
+            ...context,
+            mainOptions: {
+              ...context.mainOptions,
+              abortSignal: mergeAbortSignals(
+                context.mainOptions?.abortSignal,
+                branchAbort.signal
+              ),
             },
-            this.autoParallelConfig.batchSize
-          );
+          };
+          let results: AxFlowState[];
+          try {
+            results = await processBatches(
+              branches,
+              async (branchFn) => {
+                const subContext = new AxFlowSubContextImpl<TNodes, TState>(
+                  this.createExecuteStep.bind(this) as any
+                );
+                const populatedSubContext = branchFn(
+                  subContext as AxFlowTypedSubContext<TNodes, TState>
+                );
+                return await populatedSubContext.executeSteps(state as TState, {
+                  ...branchContext,
+                  executeSteps: branchContext.executeSteps as any,
+                });
+              },
+              this.autoParallelConfig.batchSize
+            );
+          } catch (error) {
+            branchAbort.abort(error);
+            if (taskSnapshot !== undefined) {
+              await context.cancelRemoteTasksSince?.(taskSnapshot);
+            }
+            throw error;
+          }
           return {
             ...state,
             _parallelResults: results,

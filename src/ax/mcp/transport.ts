@@ -5,15 +5,32 @@ import type {
   AxMCPJSONRPCResponse,
 } from './types.js';
 
+export interface AxMCPRequestOptions {
+  signal?: AbortSignal;
+}
+
 export interface AxMCPTransport {
+  /** Indicates whether optimizer/evaluation use can cause live side effects. */
+  readonly evaluationMode?: 'live' | 'record' | 'replay' | 'sandbox';
+  /** One-shot metadata for the most recently completed request ID. */
+  takeRequestMetadata?(
+    id: string | number
+  ): Readonly<{ retryCount?: number }> | undefined;
   /**
    * Sends a JSON-RPC request or notification and returns the response
    * @param message The JSON-RPC request or notification to send
    * @returns A Promise that resolves to the JSON-RPC response
    */
   send(
-    message: Readonly<AxMCPJSONRPCRequest<unknown>>
+    message: Readonly<AxMCPJSONRPCRequest<unknown>>,
+    options?: Readonly<AxMCPRequestOptions>
   ): Promise<AxMCPJSONRPCResponse<unknown>>;
+
+  /** Sends one version-gated JSON-RPC batch on transports that support it. */
+  sendBatch?(
+    messages: readonly Readonly<AxMCPJSONRPCRequest<unknown>>[],
+    options?: Readonly<AxMCPRequestOptions>
+  ): Promise<readonly AxMCPJSONRPCResponse<unknown>[]>;
 
   /**
    * Sends a JSON-RPC notification
@@ -46,4 +63,10 @@ export interface AxMCPTransport {
    * This method is optional and only required for transports that need connection setup
    */
   connect?(): Promise<void>;
+
+  /** Terminates a negotiated transport session when supported. */
+  terminateSession?(): Promise<void>;
+
+  /** Releases transport resources. Implementations should be idempotent. */
+  close?(): void | Promise<void>;
 }
