@@ -1104,6 +1104,29 @@ a:hover {
   display: none;
 }
 
+/* Pages chained in by the docs infinite scroll (site.js). */
+.content > article + article {
+  border-top: 1px solid var(--line);
+  margin-top: 3.4rem;
+  padding-top: 2.6rem;
+}
+
+.docs-infinite-status {
+  border-top: 1px solid var(--line);
+  margin-top: 3.4rem;
+  padding-top: 1.1rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* Idle sentinel: invisible, but never display:none — the infinite-scroll
+   observer has to keep seeing it. */
+.docs-infinite-status:empty {
+  border-top: 0;
+  margin: 0;
+  padding: 0;
+}
+
 .toc-nav {
   grid-column: 3;
   grid-row: 1;

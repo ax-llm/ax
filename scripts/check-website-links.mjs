@@ -244,6 +244,15 @@ try {
   if (!js.includes('data-site-menu')) {
     qualityFailures.push('mobile site menu hook missing');
   }
+  if (!js.includes('ax-md-sidenav-scroll')) {
+    qualityFailures.push('docs side-nav scroll persistence missing');
+  }
+  if (!js.includes('initDocsInfiniteScroll')) {
+    qualityFailures.push('docs infinite reading hook missing');
+  }
+  if (!css.includes('.docs-infinite-status')) {
+    qualityFailures.push('docs infinite reading styles missing');
+  }
   if (!css.includes('.search-result-anchor')) {
     qualityFailures.push('grouped search anchor styles missing');
   }
