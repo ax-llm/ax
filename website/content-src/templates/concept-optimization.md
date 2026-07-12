@@ -53,7 +53,7 @@ Use `agent.optimize(...)` for tool-use, clarification, delegation, and final-res
 
 `agent.improve(dataset, options)` is the failure-driven counterpart to `agent.optimize(...)`: instead of maximizing a metric across the whole dataset, it repairs what is broken without eroding what works. It runs the train tasks as a failure corpus, clusters the failures deterministically by error signature, mines each cluster for a grounded weakness (evidence quotes must literally appear in the failing runs' excerpts — fabricated diagnoses are discarded), and proposes one bounded edit per weakness: a playbook lesson or a standing instruction addendum; configuration suggestions are report-only. A proposal is accepted only when the train score improves by `minHeldInGain` AND the validation score does not drop by more than `epsilon` — rejected proposals roll back exactly. The repair engine is an implementation detail hidden behind the method, exactly as `optimize(...)` hides its optimizer.
 
-Mining and judging need strong models; with weak teachers, weaknesses fail the grounding check and little is accepted. TS-first: the five generated language ports do not ship `improve()` yet.
+Mining and judging need strong models; with weak teachers, weaknesses fail the grounding check and little is accepted. On small task sets, set `runsPerTask: 2` or `3` so accept decisions compare averaged scores instead of trusting a single (possibly lucky) run per task. TS-first: the five generated language ports do not ship `improve()` yet.
 
 ### optimize() vs playbook() vs improve()
 

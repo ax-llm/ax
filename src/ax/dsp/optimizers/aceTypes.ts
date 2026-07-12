@@ -133,5 +133,11 @@ export interface AxACEOptimizationArtifact {
     epoch: number;
     exampleIndex: number;
     operations: AxACECuratorOperation[];
+    /**
+     * Ids of the bullets this delta created or updated. ADD operations get
+     * their ids assigned at apply time, so the operations alone cannot be
+     * mapped back to surviving bullets — this field can.
+     */
+    updatedBulletIds?: string[];
   }[];
 }

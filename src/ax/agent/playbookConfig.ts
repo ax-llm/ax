@@ -21,10 +21,12 @@ export type AxAgentPlaybookLearnOptions = {
    */
   minSignals?: number;
   /**
-   * Skip signals whose signature was already curated into this playbook
-   * (recorded on the snapshot artifact's update events, so the check is
-   * deterministic and survives save/restore), and skip the update entirely
-   * when nothing new remains. Default true.
+   * Skip signals whose signature was already curated into this playbook —
+   * recorded on the snapshot artifact's update events, so the check is
+   * deterministic and survives save/restore. Coverage lapses when every
+   * bullet that update produced has since been pruned from the playbook, so
+   * a lost lesson can be re-learned; an update the curator explicitly
+   * answered with no operations stays covered. Default true.
    */
   dedupe?: boolean;
 };
@@ -128,6 +130,53 @@ export function isPlaybookSnapshotSeed(
     'playbook' in value &&
     'artifact' in value
   );
+}
+
+/**
+ * Failure signatures the playbook still covers, for the run-end dedupe gate.
+ *
+ * A signature is covered while the update event that curated it is still
+ * "alive": either the curator explicitly produced no operations (declined —
+ * don't re-spend on the same signature), the event predates
+ * `updatedBulletIds` tracking (legacy snapshots keep the old always-covered
+ * behavior), or at least one bullet that update created/updated still exists
+ * in the playbook. Once every such bullet has been pruned, coverage lapses
+ * and the signature can be re-learned.
+ */
+export function collectCoveredFailureSignatures(
+  snapshot: Readonly<AxPlaybookSnapshot>
+): Set<string> {
+  const covered = new Set<string>();
+  const liveBulletIds = new Set<string>();
+  for (const bullets of Object.values(snapshot.playbook?.sections ?? {})) {
+    for (const bullet of bullets ?? []) {
+      liveBulletIds.add(bullet.id);
+    }
+  }
+  const history = snapshot.artifact?.history ?? [];
+  (snapshot.artifact?.feedback ?? []).forEach((event, index) => {
+    const sigs = (event.example as { failureSignatures?: unknown })
+      ?.failureSignatures;
+    if (!Array.isArray(sigs) || sigs.length === 0) {
+      return;
+    }
+    const deltas = history.filter(
+      (entry) => entry.source === 'online' && entry.exampleIndex === index
+    );
+    const alive =
+      deltas.length === 0 ||
+      deltas.some(
+        (entry) =>
+          entry.updatedBulletIds === undefined ||
+          entry.updatedBulletIds.some((id) => liveBulletIds.has(id))
+      );
+    if (alive) {
+      for (const sig of sigs) {
+        covered.add(String(sig));
+      }
+    }
+  });
+  return covered;
 }
 
 export function resolveAgentPlaybookConfig(

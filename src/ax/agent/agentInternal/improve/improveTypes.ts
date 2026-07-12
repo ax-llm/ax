@@ -102,9 +102,17 @@ export type AxAgentImproveOptions = {
   maxProposals?: number;
   /**
    * Budget counting (agent run + judge) pairs across baseline and
-   * re-evaluations. Default `max(100, (maxProposals + 1) * datasetSize)`.
+   * re-evaluations. Default `max(100, (maxProposals + 1) * datasetSize *
+   * runsPerTask)`.
    */
   maxMetricCalls?: number;
+  /**
+   * Times each task runs per evaluation, with scores averaged. Default 1.
+   * Use 2-3 when the dataset is small: accept/reject compares mean scores,
+   * and on a handful of tasks a single lucky or unlucky run can otherwise
+   * decide the gate. Each repeat spends budget.
+   */
+  runsPerTask?: number;
   /** Tolerated held-out drop when accepting a proposal. Default 0.01. */
   epsilon?: number;
   /** Required held-in improvement to accept a proposal. Default 0.05. */

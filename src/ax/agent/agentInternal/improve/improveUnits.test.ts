@@ -263,3 +263,60 @@ describe('proposals', () => {
     }
   });
 });
+
+describe('evalHarness runsPerTask', () => {
+  const task = (id: string) => ({
+    input: { q: id },
+    criteria: 'answers',
+    id,
+  });
+
+  it('averages repeated runs into one record and spends budget per run', async () => {
+    let call = 0;
+    const agent = {
+      _forwardForEvaluation: vi.fn(async () => {
+        call++;
+        return prediction({ output: { answer: `run${call}` } });
+      }),
+    };
+    const budget = { remaining: 10 };
+    const result = await runAgentEvalBatch({
+      agent,
+      ai: {} as any,
+      tasks: [task('a')],
+      // Alternate 1 / 0 across repeats: mean must be 0.5.
+      metric: async ({ prediction: p }: any) =>
+        Number(
+          String(p?.output?.answer).endsWith('1') ||
+            String(p?.output?.answer).endsWith('3')
+        ),
+      scoreThreshold: 0.7,
+      budget,
+      runsPerTask: 2,
+    });
+    expect(agent._forwardForEvaluation).toHaveBeenCalledTimes(2);
+    expect(budget.remaining).toBe(8);
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]?.score).toBeCloseTo(0.5);
+    expect(result.records[0]?.passed).toBe(false);
+  });
+
+  it('stops mid-task when the budget runs out and keeps the partial mean', async () => {
+    const agent = {
+      _forwardForEvaluation: vi.fn(async () => prediction()),
+    };
+    const result = await runAgentEvalBatch({
+      agent,
+      ai: {} as any,
+      tasks: [task('a'), task('b')],
+      metric: async () => 1,
+      scoreThreshold: 0.7,
+      budget: { remaining: 3 },
+      runsPerTask: 2,
+    });
+    // Task a: 2 runs. Task b: 1 run before exhaustion.
+    expect(result.records).toHaveLength(2);
+    expect(result.records[1]?.score).toBe(1);
+    expect(result.exhausted).toBe(true);
+  });
+});

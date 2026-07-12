@@ -4,6 +4,7 @@ import type { AxACEPlaybook } from '../dsp/optimizers/aceTypes.js';
 import { axPlaybookFailureSection } from './agentInternal/failureReport.js';
 import { agent } from './index.js';
 import {
+  collectCoveredFailureSignatures,
   DEFAULT_PLAYBOOK_MAX_REFLECTOR_ROUNDS,
   resolveAgentPlaybookConfig,
 } from './playbookConfig.js';
@@ -378,5 +379,127 @@ describe('end-to-end failure learning through forward()', () => {
 
     const out = await ag.forward(ai, { question: 'q' });
     expect(out.answer).toBe('survived');
+  });
+});
+
+describe('collectCoveredFailureSignatures', () => {
+  const pbWith = (ids: string[]) => ({
+    version: 1,
+    sections: {
+      failures_to_avoid: ids.map((id) => ({
+        id,
+        section: 'failures_to_avoid',
+        content: `[${id}] rule`,
+        helpfulCount: 0,
+        harmfulCount: 0,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      })),
+    },
+    stats: {
+      bulletCount: ids.length,
+      helpfulCount: 0,
+      harmfulCount: 0,
+      tokenEstimate: 0,
+    },
+    updatedAt: new Date(0).toISOString(),
+  });
+  const event = (sigs: string[]) => ({
+    example: { task: 't', failureSignatures: sigs },
+    prediction: {},
+    score: 0,
+    generatorOutput: {},
+    timestamp: new Date(0).toISOString(),
+  });
+
+  it('covers while the curated bullet survives; re-learns once it is pruned', () => {
+    const snapshotAlive = {
+      playbook: pbWith(['f-1']),
+      artifact: {
+        playbook: pbWith(['f-1']),
+        feedback: [event([BOOM])],
+        history: [
+          {
+            source: 'online' as const,
+            epoch: -1,
+            exampleIndex: 0,
+            operations: [],
+            updatedBulletIds: ['f-1'],
+          },
+        ],
+      },
+    };
+    expect(
+      collectCoveredFailureSignatures(snapshotAlive as any).has(BOOM)
+    ).toBe(true);
+
+    const snapshotPruned = {
+      ...snapshotAlive,
+      playbook: pbWith([]),
+      artifact: { ...snapshotAlive.artifact, playbook: pbWith([]) },
+    };
+    expect(
+      collectCoveredFailureSignatures(snapshotPruned as any).has(BOOM)
+    ).toBe(false);
+  });
+
+  it('keeps curator no-ops and legacy events covered', () => {
+    const noOp = {
+      playbook: pbWith([]),
+      artifact: {
+        playbook: pbWith([]),
+        feedback: [event([BOOM])],
+        history: [],
+      },
+    };
+    expect(collectCoveredFailureSignatures(noOp as any).has(BOOM)).toBe(true);
+
+    const legacy = {
+      playbook: pbWith([]),
+      artifact: {
+        playbook: pbWith([]),
+        feedback: [event([BOOM])],
+        history: [
+          {
+            source: 'online' as const,
+            epoch: -1,
+            exampleIndex: 0,
+            operations: [],
+          },
+        ],
+      },
+    };
+    expect(collectCoveredFailureSignatures(legacy as any).has(BOOM)).toBe(true);
+  });
+
+  it('re-learns through the run-end gate when the lesson was pruned', async () => {
+    const pruned = {
+      playbook: pbWith([]),
+      artifact: {
+        playbook: pbWith([]),
+        feedback: [event([BOOM])],
+        history: [
+          {
+            source: 'online' as const,
+            epoch: -1,
+            exampleIndex: 0,
+            operations: [],
+            updatedBulletIds: ['gone-1'],
+          },
+        ],
+      },
+    };
+    const ag = agent('question:string -> answer:string', {
+      ai: mockAI(),
+      playbook: { playbook: pruned as any },
+    }) as any;
+    const update = vi
+      .spyOn(ag.getPlaybook(), 'update')
+      .mockResolvedValue(undefined as any);
+    const result = await ag._updatePlaybookFromPipelineState(
+      failureState(BOOM)
+    );
+    expect(result?.status).not.toBe('skipped');
+    expect(update).toHaveBeenCalledTimes(1);
   });
 });

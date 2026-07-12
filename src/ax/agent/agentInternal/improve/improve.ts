@@ -76,8 +76,10 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
     1,
     Math.floor(options?.maxProposals ?? DEFAULT_MAX_PROPOSALS)
   );
+  const runsPerTask = Math.max(1, Math.floor(options?.runsPerTask ?? 1));
   const datasetSize =
-    normalized.train.length + (normalized.validation?.length ?? 0);
+    (normalized.train.length + (normalized.validation?.length ?? 0)) *
+    runsPerTask;
   const maxMetricCalls = Math.max(
     1,
     Math.floor(
@@ -109,6 +111,7 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
     metric,
     scoreThreshold,
     budget,
+    runsPerTask,
     ...(options?.abortSignal ? { abortSignal: options.abortSignal } : {}),
   };
 
@@ -213,7 +216,8 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
     }
     const proposal = buildProposal(weakness);
     const requiredCalls =
-      normalized.train.length + (normalized.validation?.length ?? 0);
+      (normalized.train.length + (normalized.validation?.length ?? 0)) *
+      runsPerTask;
     if (budget.remaining < requiredCalls) {
       outcomes.push({
         proposal,

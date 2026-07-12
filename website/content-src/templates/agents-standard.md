@@ -41,7 +41,9 @@ Agents ask instead of guessing. When required information is genuinely missing, 
 
 ## Chain-Of-Evidence Citations (TypeScript)
 
-Answers can be required to point at the evidence that grounds them. With `citations: true`, the responder gains an optional `evidenceCitations` output listing the evidence ids the answer relies on — the keys of the evidence object the actor curated, plus the ids of loaded memories. Citations are validated against the ids that actually exist; an invalid citation re-prompts the responder through the standard validation-retry loop, and runs without evidence skip validation entirely. Use `citations: { surface: 'hidden', onCitations }` to keep the result shape pristine and read citations from the callback. This counters the classic over-optimism failure mode: the model cannot claim support from evidence it never collected. TS-first: the five generated language ports do not ship citations yet.
+Answers can be required to point at the evidence that grounds them. With `citations: true`, the responder gains an optional `evidenceCitations` output listing the evidence ids the answer relies on — the keys of the evidence object the actor curated, plus the ids of loaded memories. Citations are validated against the ids that actually exist; an invalid citation re-prompts the responder through the standard validation-retry loop, and runs without evidence skip validation entirely. Use `citations: { surface: 'hidden', onCitations }` to keep the result shape pristine and read citations from the callback.
+
+Be precise about the guarantee: validation proves every citation points at evidence that exists — the model cannot claim support from a source it never collected. It does not verify that the answer's claims match the cited evidence's content; that judgment stays with you (or a judge you add). Citation granularity follows how the actor curates evidence: one big `notes` blob yields one coarse citation, while separate keys per fact yield precise ones. TS-first: the five generated language ports do not ship citations yet.
 
 ## The Knobs That Matter Here
 

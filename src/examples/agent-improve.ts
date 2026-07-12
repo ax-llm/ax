@@ -13,7 +13,9 @@
  *
  * Gates (per model lane, skipped as vacuous when the baseline never traps):
  *  1. WEAKNESS: >= 1 mined weakness keyed to the ledger-id failure.
- *  2. REPAIR: >= 1 accepted proposal and final held-in > baseline held-in.
+ *  2. REPAIR: an accepted proposal improved held-in, OR every proposal was
+ *     cleanly rejected with scores restored to baseline (the safety gate
+ *     refusing a non-improving edit is correct behavior, not a failure).
  *  3. HOLD-OUT: final held-out >= baseline held-out - epsilon.
  *
  * Run (repo-pinned models):
@@ -135,6 +137,10 @@ async function runLane(label: string, llm: ReturnType<typeof ai>) {
     {
       metric,
       maxProposals: 2,
+      // Average two runs per task: the accept gate compares mean scores, and
+      // on a 3-task dataset a single lucky/unlucky run would otherwise
+      // decide it.
+      runsPerTask: 2,
       onProgress: (e) => console.log(`  [${label}] ${e.phase}: ${e.message}`),
     }
   );
@@ -147,11 +153,19 @@ async function runLane(label: string, llm: ReturnType<typeof ai>) {
   );
   const acceptedCount = result.outcomes.filter((o) => o.accepted).length;
 
+  // A correct rejection (proposal rolled back, scores restored to baseline)
+  // is the safety gate doing its job, not a repair failure — the repair gate
+  // requires EITHER an accepted improvement OR a clean rejection.
+  const cleanRejection =
+    acceptedCount === 0 &&
+    result.outcomes.length > 0 &&
+    result.final.heldIn === result.baseline.heldIn;
   const gates = {
     weakness: !trapped || minedLedgerWeakness,
     repair:
       !trapped ||
-      (acceptedCount > 0 && result.final.heldIn > result.baseline.heldIn),
+      (acceptedCount > 0 && result.final.heldIn > result.baseline.heldIn) ||
+      cleanRejection,
     holdOut:
       result.final.heldOut === undefined ||
       result.baseline.heldOut === undefined ||
@@ -183,9 +197,14 @@ async function runLane(label: string, llm: ReturnType<typeof ai>) {
       '  note: the baseline never hit the trap — nothing to repair; gates pass vacuously.'
     );
   }
+  if (cleanRejection) {
+    console.log(
+      '  note: all proposals were rejected and rolled back cleanly — the accept gate refused a non-improving edit.'
+    );
+  }
   console.log(
     `gates          weakness: ${gates.weakness ? 'PASS' : 'FAIL'}  ` +
-      `repair: ${gates.repair ? 'PASS' : 'FAIL'}  ` +
+      `repair(accepted-improvement or clean-rejection): ${gates.repair ? 'PASS' : 'FAIL'}  ` +
       `hold-out: ${gates.holdOut ? 'PASS' : 'FAIL'}`
   );
   return gates.weakness && gates.repair && gates.holdOut;

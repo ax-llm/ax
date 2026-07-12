@@ -32,6 +32,7 @@ import {
   type AxAgentPlaybookSkipReason,
   type AxAgentPlaybookUpdateResult,
   type AxResolvedAgentPlaybookConfig,
+  collectCoveredFailureSignatures,
   isPlaybookSnapshotSeed,
   resolveAgentPlaybookConfig,
 } from '../playbookConfig.js';
@@ -1141,17 +1142,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         // update events we feed the engine (`example.failureSignatures`), so
         // the skip decision is deterministic regardless of how the curator
         // phrased or filed the resulting bullets — and it survives snapshot
-        // save/restore because the events ride the artifact.
-        const curated = new Set<string>();
-        for (const event of handle.getState().artifact?.feedback ?? []) {
-          const sigs = (event.example as { failureSignatures?: unknown })
-            ?.failureSignatures;
-          if (Array.isArray(sigs)) {
-            for (const sig of sigs) {
-              curated.add(String(sig));
-            }
-          }
-        }
+        // save/restore because the events ride the artifact. Coverage lapses
+        // when the curated bullets have since been pruned, so lost lessons
+        // re-learn (see `collectCoveredFailureSignatures`).
+        const curated = collectCoveredFailureSignatures(handle.getState());
         fresh = signals.filter((signal) => !curated.has(signal.signature));
         if (fresh.length === 0) {
           return skip('all_duplicates', signals);

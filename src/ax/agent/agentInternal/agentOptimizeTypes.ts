@@ -225,9 +225,11 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * subset-only against those ids — a violation re-prompts the responder via
    * the standard validation-retry loop; runs without evidence skip
    * validation. Pass an object to rename the field, hide it from the result
-   * (`surface: 'hidden'`), or observe citations via `onCitations`. Counters
-   * the over-optimism failure mode: answers must point at the evidence that
-   * grounds them. TS-first: the 5 non-TS ports do not ship citations yet.
+   * (`surface: 'hidden'`), or observe citations via `onCitations`. The
+   * guarantee is existence, not entailment: the model cannot cite evidence
+   * it never collected, but validation does not check that the answer's
+   * claims match the cited evidence's content. TS-first: the 5 non-TS ports
+   * do not ship citations yet.
    */
   citations?: AxAgentCitations;
 

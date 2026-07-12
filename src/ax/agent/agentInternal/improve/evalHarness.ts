@@ -10,7 +10,10 @@
 import type { AxAIService } from '../../../ai/types.js';
 import type { AxMetricFn } from '../../../dsp/common_types.js';
 import type { AxGenIn, AxGenOut } from '../../../dsp/types.js';
-import type { AxAgentEvalTask } from '../agentOptimizeTypes.js';
+import type {
+  AxAgentEvalPrediction,
+  AxAgentEvalTask,
+} from '../agentOptimizeTypes.js';
 import type { AxAgentImproveRunRecord } from './improveTypes.js';
 
 /** Mutable (run + judge) pair budget shared across all improve() batches. */
@@ -37,49 +40,70 @@ export async function runAgentEvalBatch<
   metric: AxMetricFn;
   scoreThreshold: number;
   budget: AxAgentEvalBudget;
+  /** Runs per task; scores average into one record. Default 1. */
+  runsPerTask?: number;
   abortSignal?: AbortSignal;
 }): Promise<AxAgentEvalBatchResult<IN, OUT>> {
   const records: AxAgentImproveRunRecord<IN, OUT>[] = [];
+  const runsPerTask = Math.max(1, Math.floor(args.runsPerTask ?? 1));
   let exhausted = false;
 
   for (const task of args.tasks) {
-    if (args.abortSignal?.aborted) {
-      throw new Error('AxAgent.improve(): aborted');
+    const scores: number[] = [];
+    let lastPrediction: AxAgentEvalPrediction<OUT> | undefined;
+    let lastError: string | undefined;
+
+    for (let run = 0; run < runsPerTask; run++) {
+      if (args.abortSignal?.aborted) {
+        throw new Error('AxAgent.improve(): aborted');
+      }
+      if (args.budget.remaining <= 0) {
+        exhausted = true;
+        break;
+      }
+      args.budget.remaining--;
+
+      try {
+        const prediction = await args.agent._forwardForEvaluation(
+          args.ai,
+          task,
+          {
+            ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
+          }
+        );
+        const score = await args.metric({
+          prediction: prediction as Record<string, unknown>,
+          example: task as unknown as Parameters<AxMetricFn>[0]['example'],
+        });
+        scores.push(
+          typeof score === 'number' && Number.isFinite(score) ? score : 0
+        );
+        lastPrediction = prediction;
+      } catch (err) {
+        if (args.abortSignal?.aborted) {
+          throw err;
+        }
+        scores.push(0);
+        lastError = err instanceof Error ? err.message : String(err);
+      }
     }
-    if (args.budget.remaining <= 0) {
-      exhausted = true;
+
+    if (scores.length === 0) {
+      // Budget ran out before this task's first run.
       break;
     }
-    args.budget.remaining--;
-
-    try {
-      const prediction = await args.agent._forwardForEvaluation(args.ai, task, {
-        ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
-      });
-      const score = await args.metric({
-        prediction: prediction as Record<string, unknown>,
-        example: task as unknown as Parameters<AxMetricFn>[0]['example'],
-      });
-      const numeric =
-        typeof score === 'number' && Number.isFinite(score) ? score : 0;
-      records.push({
-        task,
-        prediction,
-        score: numeric,
-        passed:
-          numeric >= args.scoreThreshold &&
-          prediction.completionType === 'final',
-      });
-    } catch (err) {
-      if (args.abortSignal?.aborted) {
-        throw err;
-      }
-      records.push({
-        task,
-        score: 0,
-        passed: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
+    const mean = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+    records.push({
+      task,
+      ...(lastPrediction ? { prediction: lastPrediction } : {}),
+      score: mean,
+      passed:
+        mean >= args.scoreThreshold &&
+        lastPrediction?.completionType === 'final',
+      ...(lastError && !lastPrediction ? { error: lastError } : {}),
+    });
+    if (exhausted) {
+      break;
     }
   }
 

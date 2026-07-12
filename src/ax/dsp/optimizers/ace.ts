@@ -621,6 +621,7 @@ export class AxACE extends AxBaseOptimizer {
               epoch,
               exampleIndex: index,
               operations: curatorResult.operations,
+              updatedBulletIds: appliedDeltaIds,
             });
           }
 
@@ -797,6 +798,7 @@ export class AxACE extends AxBaseOptimizer {
         epoch: -1,
         exampleIndex: this.generatorHistory.length - 1,
         operations: curatorResult.operations,
+        updatedBulletIds: appliedDeltaIds,
       });
     }
 
