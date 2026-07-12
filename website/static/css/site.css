@@ -4159,3 +4159,155 @@ pre.mermaid {
 .home-final-cta .home-inline-note {
   margin-top: 0.95rem;
 }
+
+/* --- Hero rework: reactive lede token, tabs, language bar, proof strip --- */
+
+/* The lede language name swaps in place; inactive names must not hold inline
+   space, so display toggling wins over the generic opacity/visibility swap. */
+.home-lede-lang [data-home-lang-text] {
+  display: none;
+}
+
+.home-lede-lang [data-home-lang-text][data-home-active='true'] {
+  display: inline;
+}
+
+.home-lede-lang {
+  color: var(--heading);
+}
+
+.home-skills-note {
+  margin: 1rem 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.home-skills-note a {
+  color: var(--heading);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.home-actions .home-hero-stats {
+  margin: 0 0 0 0.4rem;
+  align-self: center;
+}
+
+/* Stats render inside the actions row but must read as quiet proof chips,
+   not as more call-to-action buttons. */
+.home-actions .home-hero-stats a,
+.home-actions .home-hero-stats a:hover {
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  box-shadow: none;
+  transform: none;
+}
+
+.home-example-tabs {
+  display: flex;
+  gap: 0.45rem;
+  margin: 0 0 0.75rem;
+}
+
+.home-example-tabs button {
+  appearance: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 650;
+  padding: 0.34rem 0.9rem;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.home-example-tabs button:hover,
+.home-example-tabs button.active {
+  color: var(--heading);
+  border-color: var(--accent-2);
+}
+
+.home-example-tabs button.active {
+  box-shadow: inset 0 0 0 1px var(--accent-2);
+}
+
+.home-language-bar {
+  position: sticky;
+  top: 4.15rem;
+  z-index: 15;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.1rem;
+  margin: 0 0 1.5rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.home-language-bar .home-language-pills {
+  margin: 0;
+  view-transition-name: home-language-bar-picker;
+}
+
+.home-language-bar.is-stuck {
+  border-color: var(--line-strong);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14);
+}
+
+.home-language-bar-label {
+  color: var(--faint);
+  font-size: 0.74rem;
+  font-weight: 680;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.home-proof-strip {
+  margin: 0 0 2.6rem;
+  padding: 0.85rem 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.home-proof-strip p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.home-proof-strip strong {
+  color: var(--heading);
+}
+
+@media (max-width: 860px) {
+  .home-language-bar {
+    top: 3.8rem;
+    gap: 0.5rem;
+  }
+
+  .home-language-bar .home-language-pills {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0.15rem;
+  }
+
+  .home-actions .home-hero-stats {
+    margin: 0.4rem 0 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.3rem;
+  }
+}

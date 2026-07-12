@@ -596,8 +596,10 @@ function collectQualityFailures(rel, html, failures) {
     if (html.includes('home-section-heading-center')) {
       failures.push(`${rel}: homepage section headings must stay left-aligned`);
     }
-    if (!html.includes('Stop writing prompt glue.')) {
-      failures.push(`${rel}: homepage missing prompt-glue hero hook`);
+    if (!html.includes('Stop prompting. Start programming.')) {
+      failures.push(
+        `${rel}: homepage missing programming-not-prompting hero hook`
+      );
     }
     if (html.includes('The universal way to build with LLMs')) {
       failures.push(`${rel}: homepage still has abstract universal hero`);
@@ -609,14 +611,26 @@ function collectQualityFailures(rel, html, failures) {
       failures.push(`${rel}: homepage missing proof points`);
     }
     for (const proof of [
-      'Structured outputs',
-      'Tools and agents',
-      'Audio + realtime',
-      'Evaluate and optimize',
+      'Typed, validated outputs',
+      'Agents on any model',
+      'RLM research inside',
+      'Native in your language',
     ]) {
       if (!firstFold.includes(proof)) {
         failures.push(`${rel}: homepage first fold missing ${proof}`);
       }
+    }
+    if (!hasClass(html, 'div', 'home-language-bar')) {
+      failures.push(`${rel}: homepage missing sticky language bar`);
+    }
+    if (!hasClass(html, 'div', 'home-proof-strip')) {
+      failures.push(`${rel}: homepage missing six-wide proof strip`);
+    }
+    if (!hasClass(html, 'div', 'home-example-tabs')) {
+      failures.push(`${rel}: homepage missing hero example tabs`);
+    }
+    if (!/data-home-example="?agent"?[\s>]/.test(firstFold)) {
+      failures.push(`${rel}: homepage hero missing agent example rotation`);
     }
     for (const forbidden of [
       '15+ LLM providers',

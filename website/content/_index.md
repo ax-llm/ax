@@ -1,6 +1,6 @@
 ---
 title: "Ax"
-description: "Stop writing prompt glue. Ax compiles typed signatures into reliable LLM calls — validation, streaming, tools, agents, audio, and optimization. TypeScript on npm today; Python, Java, C++, Go, and Rust generated and verified from the same core."
+description: "Stop prompting. Start programming. Typed signatures become reliable LLM calls and RLM-grade agents — validated, streamed, optimized — native in TypeScript, Python, Java, C++, Go, and Rust."
 ---
 
 <!-- Shortcode calls must start at column 0: Hugo re-indents shortcode output
@@ -11,28 +11,41 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
 <section class="home-hero">
 <div class="home-hero-copy">
   <p class="home-kicker">Ax</p>
-  <h1>Stop writing prompt glue.</h1>
-  <p class="home-lede">A one-line signature declares what goes in and what comes out. Ax turns it into the prompt, the parser, the validators, and the retry loop — and hands back typed data your code can trust. The same programming model in TypeScript, Python, Java, C++, Go, and Rust.</p>
+  <h1>Stop prompting. Start programming.</h1>
+  <p class="home-lede">A one-line signature declares what goes in and what comes out — Ax turns it into the prompt, the parser, the validators, and the retry loop, and hands back typed data your code can trust. The same contract scales from one typed call to RLM-grade agents on any model — native in <strong class="home-lede-lang"><span data-home-lang-text="typescript" data-home-active="true">TypeScript</span><span data-home-lang-text="python" data-home-active="false" aria-hidden="true">Python</span><span data-home-lang-text="java" data-home-active="false" aria-hidden="true">Java</span><span data-home-lang-text="cpp" data-home-active="false" aria-hidden="true">C++</span><span data-home-lang-text="go" data-home-active="false" aria-hidden="true">Go</span><span data-home-lang-text="rust" data-home-active="false" aria-hidden="true">Rust</span></strong>, and five more languages.</p>
   <div class="home-proof-row" aria-label="Ax highlights">
-    <span><i class="home-proof-dot proof-blue" aria-hidden="true"></i>Structured outputs</span>
-    <span><i class="home-proof-dot proof-violet" aria-hidden="true"></i>Tools and agents</span>
-    <span><i class="home-proof-dot proof-teal" aria-hidden="true"></i>Audio + realtime</span>
-    <span><i class="home-proof-dot proof-green" aria-hidden="true"></i>Evaluate and optimize</span>
+    <span><i class="home-proof-dot proof-blue" aria-hidden="true"></i>Typed, validated outputs</span>
+    <span><i class="home-proof-dot proof-violet" aria-hidden="true"></i>Agents on any model — even small local ones</span>
+    <span><i class="home-proof-dot proof-teal" aria-hidden="true"></i>DSPy · GEPA · ACE · RLM research inside</span>
+    <span><i class="home-proof-dot proof-green" aria-hidden="true"></i>Native in your language — six supported</span>
   </div>
   <div class="home-actions">
-    <a href="/typescript/quick-start/">Get started</a>
+    <a href="/typescript/quick-start/" data-home-lang-href="quick-start/">Get started</a>
     <a class="home-button-secondary" href="https://github.com/ax-llm/ax">GitHub</a>
+    <div class="home-hero-stats" data-home-stats data-repo="ax-llm/ax" data-npm-package="@ax-llm/ax" aria-label="Project stats">
+      <a href="https://github.com/ax-llm/ax" hidden><strong data-stat="stars"></strong><span>GitHub stars</span></a>
+      <a href="https://www.npmjs.com/package/@ax-llm/ax" hidden><strong data-stat="downloads"></strong><span>npm downloads/week</span></a>
+    </div>
   </div>
+  <p class="home-skills-note">Building with Claude Code or Cursor? <a href="/typescript/skills/" data-home-lang-href="skills/">Install the Ax skills</a> — your coding agent writes correct Ax in all six languages.</p>
 </div>
 <div class="home-hero-panel" aria-label="Ax signature runtime preview">
-{{< home-code topic="classifier" group="hero" >}}
-{{< home-output topic="classifier" title="Typed output" >}}
+  <div class="home-example-tabs" role="tablist" aria-label="Hero example">
+    <button type="button" role="tab" data-home-example-tab="classifier" aria-selected="true">Typed call</button>
+    <button type="button" role="tab" data-home-example-tab="agent" aria-selected="false">Agent</button>
+  </div>
+{{< home-code topics="classifier,agent" group="hero" >}}
+{{< home-output topics="classifier,agent" title="Typed output" >}}
 </div>
 </section>
 
-<div class="home-maintainer-cta">
-  <p>Built by <strong>@dosco</strong> — follow on X for new releases and to chat about Ax.</p>
-  <a href="https://x.com/intent/follow?screen_name=dosco">Follow @dosco on X</a>
+<div class="home-language-bar" data-home-language-bar aria-label="Choose your language">
+  <span class="home-language-bar-label">Ax in your language</span>
+{{< home-language-controls variant="hero" >}}
+</div>
+
+<div class="home-proof-strip" aria-label="Ax ships six-wide">
+  <p><strong>One core ships everything six-wide:</strong> 220+ runnable examples · 60+ docs pages per language, kept in lockstep · 15 agent skills per language · 1,000+ tests · 15+ providers · Apache-2.0</p>
 </div>
 
 <section class="home-section home-quick-install" aria-labelledby="quick-install">
@@ -43,17 +56,13 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
 </div>
 <div class="home-quick-install-bar">
 {{< home-language-controls >}}
-  <div class="home-hero-stats" data-home-stats data-repo="ax-llm/ax" data-npm-package="@ax-llm/ax" aria-label="Project stats">
-    <a href="https://github.com/ax-llm/ax" hidden><strong data-stat="stars"></strong><span>GitHub stars</span></a>
-    <a href="https://www.npmjs.com/package/@ax-llm/ax" hidden><strong data-stat="downloads"></strong><span>npm downloads/week</span></a>
-  </div>
 </div>
 {{< home-install >}}
 <div class="home-agent-strip">
-  <h3>Agent skills — for Claude Code &amp; Cursor</h3>
-  <p>New to this? Ax ships installable, versioned <strong>skills</strong>: small instruction files that teach your coding agent (Claude Code, Cursor, and others) exactly how Ax's API works, so it writes correct Ax code instead of guessing. Point your agent at them with one command.</p>
+  <h3>Your coding agent already knows Ax</h3>
+  <p>Ax ships installable, versioned <strong>skills</strong> for every language: instruction files that teach Claude Code, Cursor, and other coding agents exactly how the Ax API works — so your agent writes correct Ax instead of guessing at it. One command points it at them.</p>
 {{< home-install field="skillsCommand" class="home-install-skills" label="Install Ax agent skills" >}}
-  <a class="home-agent-strip-link" href="/typescript/skills/">Browse agent skills</a>
+  <a class="home-agent-strip-link" href="/typescript/skills/" data-home-lang-href="skills/">Browse agent skills</a>
 </div>
 </section>
 
@@ -133,6 +142,11 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
 </div>
 {{< backend-badges >}}
 </section>
+
+<div class="home-maintainer-cta">
+  <p>Built by <strong>@dosco</strong> — follow on X for new releases and to chat about Ax.</p>
+  <a href="https://x.com/intent/follow?screen_name=dosco">Follow @dosco on X</a>
+</div>
 
 <section class="home-section home-research-section" aria-labelledby="research">
 <div class="home-section-heading home-section-heading-wide">
@@ -447,7 +461,7 @@ description: "Stop writing prompt glue. Ax compiles typed signatures into reliab
 <div class="home-section-heading">
   <p class="home-section-label">Start now</p>
   <h2 id="get-started">Write your first signature today.</h2>
-  <p>One line in, typed data out — on npm now, and in five more languages straight from this repo.</p>
+  <p>One line in, typed data out — on npm, PyPI, Maven Central, crates.io, Go modules, and CMake FetchContent.</p>
 </div>
 <div class="home-actions">
   <a href="/typescript/quick-start/">Get started</a>

@@ -1,9 +1,11 @@
+{{ $variant := .Get "variant" }}
+{{ $hero := eq $variant "hero" }}
 {{ $languages := hugo.Data.homepage_languages.languages }}
-<div class="home-language-pills" data-home-language-controls aria-label="Homepage code language">
+<div class="home-language-pills{{ if $hero }} home-language-pills-hero{{ end }}" data-home-language-controls aria-label="Homepage code language">
   {{ range $index, $language := $languages }}
     <button type="button" data-home-language="{{ $language.id }}" aria-pressed="{{ if eq $index 0 }}true{{ else }}false{{ end }}">
       {{ partial "language-mark.html" $language }}
-      <span class="home-language-label">{{ $language.label }}</span>
+      <span class="home-language-label">{{ if $hero }}{{ $language.shortLabel }}{{ else }}{{ $language.label }}{{ end }}</span>
     </button>
   {{ end }}
 </div>

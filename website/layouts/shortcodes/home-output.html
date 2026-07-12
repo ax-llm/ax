@@ -1,12 +1,20 @@
 {{ $topic := .Get "topic" }}
+{{ $topicsParam := .Get "topics" }}
 {{ $languages := hugo.Data.homepage_languages.languages }}
+{{ $topics := slice $topic }}
+{{ if $topicsParam }}
+  {{ $topics = split $topicsParam "," }}
+{{ end }}
 <div class="home-output-panel" aria-label="{{ .Get "label" | default "Typed output" }}">
   <div class="home-panel-title">{{ .Get "title" | default "Typed output" }}</div>
-  {{ range $index, $language := $languages }}
-    {{ $panel := index $language $topic }}
-    <div data-home-output-variant="{{ $language.id }}" data-home-active="{{ if eq $index 0 }}true{{ else }}false{{ end }}"{{ if ne $index 0 }} aria-hidden="true" inert{{ end }}>
+  {{ range $topicIndex, $topicName := $topics }}
+    {{ range $index, $language := $languages }}
+      {{ $panel := index $language $topicName }}
+      {{ $active := and (eq $index 0) (eq $topicIndex 0) }}
+      <div data-home-output-variant="{{ $language.id }}"{{ if $topicsParam }} data-home-example="{{ $topicName }}"{{ end }} data-home-active="{{ if $active }}true{{ else }}false{{ end }}"{{ if not $active }} aria-hidden="true" inert{{ end }}>
       <pre><code>{{ $panel.output }}</code></pre>
       <div class="home-status"><span aria-hidden="true"></span>{{ $panel.status }}</div>
-    </div>
+      </div>
+    {{ end }}
   {{ end }}
 </div>

@@ -63,28 +63,33 @@ languages:
           }))
           .build();
     agent:
-      filename: researcher.ts
+      filename: audit.ts
       runtimeLabel: JS runtime session
+      status: Gemini Flash matches plain-code ground truth — to the cent
+      output: |
+        {
+          "total": 9161.10,
+          "flagged": [
+            "txn-2020", "txn-2054", "txn-2088",
+            "txn-2105", "txn-2122", "txn-2156",
+            "txn-2207", "txn-2224", "txn-2241"
+          ]
+        }
       code: |
-        import { agent, ai, fn } from "@ax-llm/ax";
+        import { agent, ai } from "@ax-llm/ax";
 
-        const llm = ai({ name: "openai" });
-        const research = agent({
-          name: "researcher",
-          signature: "question:string -> answer:string, sources:string[]",
-          functions: [
-            fn({
-              name: "search",
-              description: "Search internal docs",
-              parameters: "query:string -> results:string[]",
-              handler: searchDocs,
-            }),
-          ],
-          contextFields: ["largeDocument"],
-        });
+        const llm = ai({ name: "google-gemini" });
+        const auditor = agent(
+          "ledger:json[], question:string -> total:number, flagged:string[]",
+          {
+            contextFields: ["ledger"], // 250 rows stay in the runtime
+            functions: [getVendor, getPolicy],
+          }
+        );
 
-        const result = await research.forward(llm, {
-          question: "What changed in the release?",
+        const result = await auditor.forward(llm, {
+          ledger, // never enters the prompt
+          question: "Total PROJECT-X spend; flag txns over threshold",
         });
     provider:
       filename: providers.ts
@@ -181,24 +186,33 @@ languages:
         )
         schema = sig.to_json_schema("outputs")
     agent:
-      filename: researcher.py
+      filename: audit.py
       runtimeLabel: Python host session
+      status: The ledger stays in the host session — the answer comes back exact
+      output: |
+        {
+          "total": 9161.10,
+          "flagged": [
+            "txn-2020", "txn-2054", "txn-2088",
+            "txn-2105", "txn-2122", "txn-2156",
+            "txn-2207", "txn-2224", "txn-2241"
+          ]
+        }
       code: |
         from axllm import agent, ai
 
-        llm = ai("openai")
-        research = agent(
-            "question:string, largeDocument:string -> "
-            "answer:string, sources:string[]",
+        llm = ai("google-gemini")
+        auditor = agent(
+            "ledger:json[], question:string -> total:number, flagged:string[]",
             {
-                "functions": [search_docs],
-                "contextFields": ["largeDocument"],
+                "contextFields": ["ledger"],  # 250 rows stay in the runtime
+                "functions": [get_vendor, get_policy],
             },
         )
 
-        result = research.forward(llm, {
-            "question": "What changed in the release?",
-            "largeDocument": doc,
+        result = auditor.forward(llm, {
+            "ledger": ledger,  # never enters the prompt
+            "question": "Total PROJECT-X spend; flag txns over threshold",
         })
     provider:
       filename: providers.py
@@ -298,24 +312,34 @@ languages:
         );
         var schema = sig.toJSONSchema("outputs");
     agent:
-      filename: Researcher.java
+      filename: Audit.java
       runtimeLabel: JVM host session
+      status: Bulky data stays runtime-side; typed, exact results out
+      output: |
+        {
+          "total": 9161.10,
+          "flagged": [
+            "txn-2020", "txn-2054", "txn-2088",
+            "txn-2105", "txn-2122", "txn-2156",
+            "txn-2207", "txn-2224", "txn-2241"
+          ]
+        }
       code: |
         import dev.axllm.ax.*;
         import java.util.*;
 
-        var llm = Ax.ai("openai", Map.of());
-        var research = Ax.agent(
-          "question:string, largeDocument:string -> answer:string, sources:string[]",
+        var llm = Ax.ai("google-gemini", Map.of());
+        var auditor = Ax.agent(
+          "ledger:json[], question:string -> total:number, flagged:string[]",
           Map.of(
-            "functions", List.of(searchDocs),
-            "contextFields", List.of("largeDocument")
+            "contextFields", List.of("ledger"),
+            "functions", List.of(getVendor, getPolicy)
           )
         );
 
-        var result = research.forward(llm, Map.of(
-          "question", "What changed in the release?",
-          "largeDocument", doc
+        var result = auditor.forward(llm, Map.of(
+          "ledger", ledger,
+          "question", "Total PROJECT-X spend; flag txns over threshold"
         ));
     provider:
       filename: Providers.java
@@ -408,23 +432,33 @@ languages:
         );
         auto schema = sig.to_json_schema("outputs");
     agent:
-      filename: researcher.cpp
+      filename: audit.cpp
       runtimeLabel: C++ host session
+      status: Same audit, same exact answer — native C++ surface
+      output: |
+        {
+          "total": 9161.10,
+          "flagged": [
+            "txn-2020", "txn-2054", "txn-2088",
+            "txn-2105", "txn-2122", "txn-2156",
+            "txn-2207", "txn-2224", "txn-2241"
+          ]
+        }
       code: |
         #include "axllm/axllm.hpp"
 
-        auto llm = axllm::ai("openai");
-        auto research = axllm::agent(
-          "question:string, largeDocument:string -> answer:string, sources:string[]",
+        auto llm = axllm::ai("google-gemini");
+        auto auditor = axllm::agent(
+          "ledger:json[], question:string -> total:number, flagged:string[]",
           axllm::object({
-            {"functions", axllm::array({search_docs})},
-            {"contextFields", axllm::array({"largeDocument"})}
+            {"contextFields", axllm::array({"ledger"})},
+            {"functions", axllm::array({get_vendor, get_policy})}
           })
         );
 
-        auto result = research.forward(*llm, axllm::object({
-          {"question", "What changed in the release?"},
-          {"largeDocument", doc}
+        auto result = auditor.forward(*llm, axllm::object({
+          {"ledger", ledger},
+          {"question", "Total PROJECT-X spend; flag txns over threshold"}
         }));
     provider:
       filename: providers.cpp
@@ -523,23 +557,33 @@ languages:
         )
         schema := sig.ToJSONSchema("outputs")
     agent:
-      filename: researcher.go
+      filename: audit.go
       runtimeLabel: Go host session
+      status: Prompt stays bounded at any ledger size — output is exact
+      output: |
+        {
+          "total": 9161.10,
+          "flagged": [
+            "txn-2020", "txn-2054", "txn-2088",
+            "txn-2105", "txn-2122", "txn-2156",
+            "txn-2207", "txn-2224", "txn-2241"
+          ]
+        }
       code: |
         import ax "github.com/ax-llm/ax/packages/go"
 
-        llm := ax.NewAI("openai", nil)
-        research := ax.NewAgent(
-          "question:string, largeDocument:string -> answer:string, sources:string[]",
+        llm := ax.NewAI("google-gemini", nil)
+        auditor := ax.NewAgent(
+          "ledger:json[], question:string -> total:number, flagged:string[]",
           map[string]ax.Value{
-            "functions": ax.Array(searchDocs),
-            "contextFields": ax.Array("largeDocument"),
+            "contextFields": ax.Array("ledger"), // stays in the runtime
+            "functions":     ax.Array(getVendor, getPolicy),
           },
         )
 
-        result, err := research.Forward(ctx, llm, map[string]ax.Value{
-          "question": "What changed in the release?",
-          "largeDocument": doc,
+        result, err := auditor.Forward(ctx, llm, map[string]ax.Value{
+          "ledger":   ledger, // never enters the prompt
+          "question": "Total PROJECT-X spend; flag txns over threshold",
         }, nil)
     provider:
       filename: providers.go
@@ -638,20 +682,31 @@ languages:
         )?;
         let schema = sig.to_json_schema("outputs");
     agent:
-      filename: researcher.rs
+      filename: audit.rs
       runtimeLabel: Rust host session
+      status: Exact totals from a runtime-grounded agent
+      output: |
+        {
+          "total": 9161.10,
+          "flagged": [
+            "txn-2020", "txn-2054", "txn-2088",
+            "txn-2105", "txn-2122", "txn-2156",
+            "txn-2207", "txn-2224", "txn-2241"
+          ]
+        }
       code: |
-        use axllm::{agent, ai};
+        use axllm::{agent_with_options, ai};
         use serde_json::json;
 
-        let mut llm = ai("openai", json!({}))?;
-        let mut research = agent(
-          "question:string, largeDocument:string -> answer:string, sources:string[]"
+        let mut llm = ai("google-gemini", json!({}))?;
+        let mut auditor = agent_with_options(
+          "ledger:json[], question:string -> total:number, flagged:string[]",
+          json!({ "contextFields": ["ledger"] }), // rows stay in the runtime
         )?;
 
-        let result = research.forward(&mut llm, json!({
-          "question": "What changed in the release?",
-          "largeDocument": doc
+        let result = auditor.forward(&mut llm, json!({
+          "ledger": ledger, // never enters the prompt
+          "question": "Total PROJECT-X spend; flag txns over threshold"
         }))?;
     provider:
       filename: providers.rs

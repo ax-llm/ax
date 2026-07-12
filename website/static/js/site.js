@@ -196,6 +196,7 @@ const homeLanguages = homeLanguageButtons
 const HOME_LANGUAGE_FADE_OUT_MS = 260;
 const HOME_LANGUAGE_FADE_IN_MS = 520;
 const HOME_LANGUAGE_ROTATION_MS = 12000;
+const HOME_LANGUAGE_STORAGE_KEY = 'ax-home-language';
 const homeHeroExamples = [
   ...new Set(
     [...document.querySelectorAll('[data-home-example]')]
@@ -299,13 +300,28 @@ function applyHomeLanguage(language, heroExample = homeActiveHeroExample) {
   for (const output of document.querySelectorAll(
     '[data-home-output-variant]'
   )) {
-    setHomeVariantActive(output, output.dataset.homeOutputVariant === language);
+    const outputExample = output.dataset.homeExample;
+    setHomeVariantActive(
+      output,
+      output.dataset.homeOutputVariant === language &&
+        (!outputExample || outputExample === homeActiveHeroExample)
+    );
   }
 
   for (const button of homeLanguageButtons) {
     const active = button.dataset.homeLanguage === language;
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', String(active));
+  }
+
+  for (const tab of document.querySelectorAll('[data-home-example-tab]')) {
+    const active = tab.dataset.homeExampleTab === homeActiveHeroExample;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+  }
+
+  for (const link of document.querySelectorAll('[data-home-lang-href]')) {
+    link.setAttribute('href', `/${language}/${link.dataset.homeLangHref}`);
   }
 }
 
@@ -417,36 +433,81 @@ function stopHomeLanguageRotation() {
   }
 }
 
-function startHomeLanguageRotation() {
-  if (!homeLanguageRoot || homeLanguages.length < 2) return;
+// The language never auto-rotates — users pick it (and the choice persists).
+// Only the hero example (typed call <-> agent) advances on a timer, within the
+// active language, until the first explicit interaction.
+function startHomeExampleRotation() {
+  if (!homeLanguageRoot || homeHeroExamples.length < 2) return;
   if (prefersReducedMotion()) {
     homeLanguageRoot.dataset.homeRotation = 'reduced-motion';
     return;
   }
 
   const rotate = () => {
-    const current = homeLanguageRoot.dataset.activeLanguage || homeLanguages[0];
-    const index = homeLanguages.indexOf(current);
-    const next = homeLanguages[(index + 1) % homeLanguages.length];
-    setHomeLanguage(next, { heroExample: pickNextHomeHeroExample() });
     homeLanguageTimer = window.setTimeout(rotate, HOME_LANGUAGE_ROTATION_MS);
+    // A transition started while the tab is hidden stalls at the fade-out
+    // stage (rAF never fires) — skip ticks until the page is visible again.
+    if (document.hidden) return;
+    const current = homeLanguageRoot.dataset.activeLanguage || homeLanguages[0];
+    setHomeLanguage(current, { heroExample: pickNextHomeHeroExample() });
   };
 
   homeLanguageRoot.dataset.homeRotation = 'auto';
   homeLanguageTimer = window.setTimeout(rotate, HOME_LANGUAGE_ROTATION_MS);
 }
 
+function readStoredHomeLanguage() {
+  try {
+    return localStorage.getItem(HOME_LANGUAGE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeHomeLanguage(language) {
+  try {
+    localStorage.setItem(HOME_LANGUAGE_STORAGE_KEY, language);
+  } catch {
+    // Storage unavailable (private mode) — the choice just won't persist.
+  }
+}
+
 if (homeLanguageRoot) {
+  const savedLanguage = readStoredHomeLanguage();
   applyHomeLanguage(
-    homeLanguageRoot.dataset.activeLanguage || homeLanguages[0]
+    savedLanguage && homeLanguages.includes(savedLanguage)
+      ? savedLanguage
+      : homeLanguageRoot.dataset.activeLanguage || homeLanguages[0]
   );
   for (const button of homeLanguageButtons) {
     button.addEventListener('click', () => {
       stopHomeLanguageRotation();
       setHomeLanguage(button.dataset.homeLanguage);
+      storeHomeLanguage(button.dataset.homeLanguage);
     });
   }
-  startHomeLanguageRotation();
+  for (const tab of document.querySelectorAll('[data-home-example-tab]')) {
+    tab.addEventListener('click', () => {
+      stopHomeLanguageRotation();
+      const current =
+        homeLanguageRoot.dataset.activeLanguage || homeLanguages[0];
+      setHomeLanguage(current, { heroExample: tab.dataset.homeExampleTab });
+    });
+  }
+  startHomeExampleRotation();
+}
+
+const homeLanguageBar = document.querySelector('[data-home-language-bar]');
+if (homeLanguageBar && 'IntersectionObserver' in window) {
+  const sentinel = document.createElement('div');
+  sentinel.setAttribute('aria-hidden', 'true');
+  homeLanguageBar.before(sentinel);
+  new IntersectionObserver(
+    ([entry]) => {
+      homeLanguageBar.classList.toggle('is-stuck', !entry.isIntersecting);
+    },
+    { rootMargin: '-68px 0px 0px 0px' }
+  ).observe(sentinel);
 }
 
 const searchRoot = document.querySelector('[data-site-search]');
