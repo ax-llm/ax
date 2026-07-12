@@ -596,9 +596,20 @@ function collectQualityFailures(rel, html, failures) {
     if (html.includes('home-section-heading-center')) {
       failures.push(`${rel}: homepage section headings must stay left-aligned`);
     }
-    if (!html.includes('Stop prompting. Start programming.')) {
+    if (
+      !/<h1[^>]*>[\s\S]*?Stop prompting\.[\s\S]*?Start programming\.[\s\S]*?<\/h1>/.test(
+        html
+      )
+    ) {
       failures.push(
-        `${rel}: homepage missing programming-not-prompting hero hook`
+        `${rel}: homepage h1 missing programming-not-prompting hero hook`
+      );
+    }
+    if (
+      !/<span[^>]*\bhome-h1-line\b[^>]*>Stop prompting\.<\/span>/.test(html)
+    ) {
+      failures.push(
+        `${rel}: homepage h1 sentences must sit on their own lines (home-h1-line)`
       );
     }
     if (html.includes('The universal way to build with LLMs')) {

@@ -1734,12 +1734,17 @@ pre.mermaid {
 }
 
 .home h1 {
-  max-width: 12ch;
-  margin: 0 0 0.9rem;
-  font-size: 5.1rem;
+  max-width: none;
+  margin: 0 0 1rem;
+  font-size: 3.6rem;
   font-weight: 780;
-  line-height: 0.97;
-  letter-spacing: -0.045em;
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+}
+
+/* One sentence per line — a natural wrap orphans "Start" / "programming." */
+.home-h1-line {
+  display: block;
 }
 
 .home h2 {
@@ -1776,6 +1781,13 @@ pre.mermaid {
   background: transparent;
   padding: 0;
   box-shadow: none;
+}
+
+/* Reserved height (set by site.js) keeps the page below the hero still when
+   examples swap; gated behind the first measurement so page load doesn't
+   animate the reservation in from zero. */
+.home-hero-panel[data-home-reserved] {
+  transition: min-height 520ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .home-code-rotator {
@@ -1919,7 +1931,8 @@ pre.mermaid {
   [data-home-output-variant],
   .home-code-rotator,
   .home-install code,
-  .home-output-panel {
+  .home-output-panel,
+  .home-hero-panel[data-home-reserved] {
     transition: none;
   }
 }
@@ -3925,7 +3938,7 @@ pre.mermaid {
   }
 
   .home h1 {
-    font-size: 2.45rem;
+    font-size: 2.3rem;
   }
 
   .home h2 {

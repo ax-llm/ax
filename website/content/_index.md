@@ -11,7 +11,7 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
 <section class="home-hero">
 <div class="home-hero-copy">
   <p class="home-kicker">Ax</p>
-  <h1>Stop prompting. Start programming.</h1>
+  <h1><span class="home-h1-line">Stop prompting.</span> <span class="home-h1-line">Start programming.</span></h1>
   <p class="home-lede">A one-line signature declares what goes in and what comes out — Ax turns it into the prompt, the parser, the validators, and the retry loop, and hands back typed data your code can trust. The same contract scales from one typed call to RLM-grade agents on any model — native in <strong class="home-lede-lang"><span data-home-lang-text="typescript" data-home-active="true">TypeScript</span><span data-home-lang-text="python" data-home-active="false" aria-hidden="true">Python</span><span data-home-lang-text="java" data-home-active="false" aria-hidden="true">Java</span><span data-home-lang-text="cpp" data-home-active="false" aria-hidden="true">C++</span><span data-home-lang-text="go" data-home-active="false" aria-hidden="true">Go</span><span data-home-lang-text="rust" data-home-active="false" aria-hidden="true">Rust</span></strong>, and five more languages.</p>
   <div class="home-proof-row" aria-label="Ax highlights">
     <span><i class="home-proof-dot proof-blue" aria-hidden="true"></i>Typed, validated outputs</span>

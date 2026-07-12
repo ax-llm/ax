@@ -323,6 +323,8 @@ function applyHomeLanguage(language, heroExample = homeActiveHeroExample) {
   for (const link of document.querySelectorAll('[data-home-lang-href]')) {
     link.setAttribute('href', `/${language}/${link.dataset.homeLangHref}`);
   }
+
+  reserveHomeHeroPanelHeight();
 }
 
 function homeLanguageTransitionTargets() {
@@ -333,11 +335,22 @@ function homeLanguageTransitionTargets() {
   ];
 }
 
+const HOME_ACTIVE_VARIANT = '[data-home-active="true"]';
+
 function freezeHomeLanguageLayout() {
   const targets = homeLanguageTransitionTargets();
   for (const target of targets) {
     if (target instanceof HTMLElement) {
-      target.style.height = `${target.offsetHeight}px`;
+      const height = target.offsetHeight;
+      const active = target.querySelector(HOME_ACTIVE_VARIANT);
+      // Everything around the swapped variant (panel title, padding). Kept so
+      // the post-swap height can be computed exactly: scrollHeight can never
+      // report smaller than the frozen height, so shrinking containers used
+      // to hold their old size and snap on release instead of animating.
+      target.dataset.homeChromeHeight = String(
+        height - (active?.offsetHeight ?? height)
+      );
+      target.style.height = `${height}px`;
     }
   }
   return targets;
@@ -346,7 +359,13 @@ function freezeHomeLanguageLayout() {
 function animateHomeLanguageLayout(targets) {
   for (const target of targets) {
     if (target instanceof HTMLElement) {
-      target.style.height = `${target.scrollHeight}px`;
+      const active = target.querySelector(HOME_ACTIVE_VARIANT);
+      const chrome = Number(target.dataset.homeChromeHeight);
+      delete target.dataset.homeChromeHeight;
+      target.style.height =
+        active && Number.isFinite(chrome)
+          ? `${chrome + active.offsetHeight}px`
+          : `${target.scrollHeight}px`;
     }
   }
 }
@@ -356,6 +375,61 @@ function releaseHomeLanguageLayout(targets = homeLanguageTransitionTargets()) {
     if (target instanceof HTMLElement) {
       target.style.height = '';
     }
+  }
+}
+
+const homeHeroPanel = document.querySelector('.home-hero-panel');
+let homeHeroPanelChromeHeight;
+
+function measureHomeHeroExampleTotals(language) {
+  return homeHeroExamples.map((example) => {
+    const code = homeHeroPanel.querySelector(
+      `[data-home-code-panel][data-home-lang="${language}"][data-home-example="${example}"]`
+    );
+    const output = homeHeroPanel.querySelector(
+      `[data-home-output-variant="${language}"][data-home-example="${example}"]`
+    );
+    if (!code || !output) return 0;
+    return code.offsetHeight + output.offsetHeight;
+  });
+}
+
+// Reserve the hero panel's height at the tallest example of the active
+// language, so switching examples (tab click or auto-advance) never reflows
+// the page below the hero.
+function reserveHomeHeroPanelHeight(options = {}) {
+  if (!homeHeroPanel || !homeLanguageRoot || homeHeroExamples.length < 2) {
+    return;
+  }
+  const language = options.language || homeLanguageRoot.dataset.activeLanguage;
+  if (!language) return;
+  const totals = measureHomeHeroExampleTotals(language);
+  if (totals.some((total) => total <= 0)) return;
+
+  if (options.useSettledChrome) {
+    // Mid-transition the containers hold frozen px heights, so the panel's
+    // natural height is unreadable — reuse the chrome captured at settle.
+    if (homeHeroPanelChromeHeight === undefined) return;
+  } else {
+    if (homeLanguageTransitioning) return;
+    const activeIndex = Math.max(
+      0,
+      homeHeroExamples.indexOf(homeActiveHeroExample)
+    );
+    homeHeroPanel.style.minHeight = '';
+    homeHeroPanelChromeHeight =
+      homeHeroPanel.offsetHeight - totals[activeIndex];
+  }
+
+  homeHeroPanel.style.minHeight = `${Math.ceil(
+    homeHeroPanelChromeHeight + Math.max(...totals)
+  )}px`;
+  if (!homeHeroPanel.dataset.homeReserved) {
+    // Enable the min-height transition only after the first reservation so
+    // the initial one applies without animating up from zero on page load.
+    window.requestAnimationFrame(() => {
+      homeHeroPanel.dataset.homeReserved = 'true';
+    });
   }
 }
 
@@ -374,6 +448,7 @@ function finishHomeLanguageTransition(targets) {
   delete homeLanguageRoot.dataset.homeLanguageTransition;
   releaseHomeLanguageLayout(targets);
   homeLanguageTransitioning = false;
+  reserveHomeHeroPanelHeight();
 
   const queued = homeLanguageQueued;
   homeLanguageQueued = undefined;
@@ -404,17 +479,28 @@ function setHomeLanguage(language, options = {}) {
   }
 
   homeLanguageTransitioning = true;
+  const languageChanged = language !== homeLanguageRoot.dataset.activeLanguage;
   const targets = freezeHomeLanguageLayout();
   homeLanguageRoot.dataset.homeLanguageTransition = 'out';
 
   window.setTimeout(() => {
-    runHomeLanguageViewTransition(() => {
-      applyHomeLanguage(language, heroExample);
-    }).then(() => {
+    const update = () => applyHomeLanguage(language, heroExample);
+    // Example-only switches (typed call <-> agent, incl. the auto-advance)
+    // keep the panel crossfade but skip the whole-page view transition: its
+    // root snapshot freezes the page mid-scroll and reads as jank.
+    let applied;
+    if (languageChanged) {
+      applied = runHomeLanguageViewTransition(update);
+    } else {
+      update();
+      applied = Promise.resolve();
+    }
+    applied.then(() => {
       if (!homeLanguageRoot) return;
       window.requestAnimationFrame(() => {
         if (!homeLanguageRoot) return;
         homeLanguageRoot.dataset.homeLanguageTransition = 'in';
+        reserveHomeHeroPanelHeight({ language, useSettledChrome: true });
         animateHomeLanguageLayout(targets);
         window.setTimeout(
           () => finishHomeLanguageTransition(targets),
@@ -495,6 +581,19 @@ if (homeLanguageRoot) {
     });
   }
   startHomeExampleRotation();
+
+  if (homeHeroPanel) {
+    let reserveResizeTimer;
+    window.addEventListener('resize', () => {
+      window.clearTimeout(reserveResizeTimer);
+      reserveResizeTimer = window.setTimeout(
+        () => reserveHomeHeroPanelHeight(),
+        150
+      );
+    });
+    // Web fonts change code metrics — re-measure once they are in.
+    document.fonts?.ready?.then(() => reserveHomeHeroPanelHeight());
+  }
 }
 
 const homeLanguageBar = document.querySelector('[data-home-language-bar]');
