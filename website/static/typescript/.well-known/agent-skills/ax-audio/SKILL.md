@@ -1,7 +1,7 @@
 ---
 name: ax-audio
 description: This skill helps an LLM generate correct audio code with @ax-llm/ax. Use when the user asks about ai.transcribe(), ai.speak(), signature audio inputs or outputs, agent audio behavior, .chat() conversational audio, OpenAI audio or realtime models, Gemini Live native audio, Grok Voice Agent models, voices, formats, transcripts, or how audio fits with structured outputs.
-version: "22.0.9"
+version: "23.0.0"
 ---
 
 # Audio I/O Codegen Rules (@ax-llm/ax)

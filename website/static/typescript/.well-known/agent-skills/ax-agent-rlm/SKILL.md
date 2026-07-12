@@ -1,7 +1,7 @@
 ---
 name: ax-agent-rlm
 description: This skill helps an LLM generate correct AxAgent RLM/runtime code using @ax-llm/ax. Use when the user asks about RLM code execution, AxJSRuntime, contextFields, contextPolicy, liveRuntimeState, promptLevel, stage prompt controls, executorModelPolicy, maxRuntimeChars, agent.test(...), llmQuery(...), recursionOptions, or long-running agent runtime behavior.
-version: "22.0.9"
+version: "23.0.0"
 ---
 
 # AxAgent RLM Runtime Rules (@ax-llm/ax)
