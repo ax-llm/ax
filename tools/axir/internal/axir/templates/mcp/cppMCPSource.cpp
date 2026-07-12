@@ -171,6 +171,10 @@ std::vector<Tool> AxMCPClient::native_tools() {
   return out;
 }
 
+Value AxMCPClient::prompts() const { return Value(Array(prompts_.begin(), prompts_.end())); }
+Value AxMCPClient::resources() const { return Value(Array(resources_.begin(), resources_.end())); }
+Value AxMCPClient::resource_templates() const { return Value(Array(resource_templates_.begin(), resource_templates_.end())); }
+
 std::string AxMCPClient::namespace_name() const {
   std::string configured = display(Core::get(options_, "namespace", ""));
   return configured.empty() ? "mcp" : configured;
@@ -542,7 +546,16 @@ void run_mcp_conformance_fixture(Value fixture) {
       client.cancel_request(Core::get(fixture, "request_id", "1"), display(Core::get(fixture, "reason", "cancelled")));
       if (transport->notifications.empty()) throw AxError("fixture", "expected a cancel notification");
       expect_subset_local(transport->notifications.back(), Core::get(fixture, "expected_notification", Value::object()), "cancel notification");
-    } else if (op == "initialize" || op == "protocol_negotiation" || op == "prompts_resources" || op == "roots_notifications") {
+    } else if (op == "prompts_resources") {
+      auto catalog_names = [](Value catalog) {
+        Array names;
+        for (auto item : as_array_local(catalog)) names.push_back(display(Core::get(item, "name", "")));
+        return Value(names);
+      };
+      expect_subset_local(catalog_names(client.prompts()), Core::get(fixture, "expected_prompt_names", Value::array()), "prompt names");
+      expect_subset_local(catalog_names(client.resources()), Core::get(fixture, "expected_resource_names", Value::array()), "resource names");
+      expect_subset_local(catalog_names(client.resource_templates()), Core::get(fixture, "expected_resource_template_names", Value::array()), "resource template names");
+    } else if (op == "initialize" || op == "protocol_negotiation" || op == "roots_notifications") {
       return;
     } else {
       throw AxError("fixture", "unsupported MCP conformance operation " + op);

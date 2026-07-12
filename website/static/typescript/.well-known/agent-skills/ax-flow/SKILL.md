@@ -450,6 +450,10 @@ Task-backed MCP tools called by a Flow node register a continuation on the
 shared event context. `axMCPEventRoutes` observes progress and resumes the Flow
 on input-required or terminal task notifications.
 
+UCP lifecycle webhooks use the same continuation boundary through
+`AxUCPWebhookEventSource`. Correlate on `ucp.checkout` or `ucp.order` only after
+the signed request has been verified and mapped to application identity.
+
 ## Do Not Generate
 
 - Do not use `new AxFlow(...)` for new code.

@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:caf0661f1d6bccc2f487a0957da01dd70ecf632790768a8add3f73e751ff306f"
+      "digest": "sha256:41b842eddc1b02a411f873c3943a384641e83f1604447578be7dcb67c00b6349"
     },
     {
       "name": "ax-audio",
@@ -41,14 +41,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.",
       "url": "ax-flow/SKILL.md",
-      "digest": "sha256:6a29ea5e68086fc8a23130fa1626e3424ef99378087b539db55417ca5c0c2c2a"
+      "digest": "sha256:21105e7b58f4b0f0d3dc2694339321b963038a50920378b9e47bef4ba9529230"
     },
     {
       "name": "ax-agent",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.",
       "url": "ax-agent/SKILL.md",
-      "digest": "sha256:d6369dbc487ae9d394092b9b1aac2eeb636d190583fc968302a92754b33ed5f6"
+      "digest": "sha256:204548a623a2aec25ccb3642f6b4fce3bb3d81a6cf28f91e81cee993b02c04e5"
     },
     {
       "name": "ax-agent-rlm",
@@ -104,7 +104,7 @@
       "type": "skill-md",
       "description": "Use AxEventRuntime to ingest events, explicitly wake or resume AxGen, AxAgent, and AxFlow, persist state and results, and route outputs safely.",
       "url": "ax-event-runtime/SKILL.md",
-      "digest": "sha256:707493a44c84198ba1a31f3a98daed269ddb84db00421648e45c7fdcb47a9446"
+      "digest": "sha256:d3d715f8639f49ac036aca774e14e0626e48b590bd9797dbaa670a1a23041f19"
     },
     {
       "name": "ax-playbook",

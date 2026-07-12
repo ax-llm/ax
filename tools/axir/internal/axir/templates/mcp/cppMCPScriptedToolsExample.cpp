@@ -19,8 +19,8 @@ int main() {
   }));
   AxMCPClient client(transport);
   client.init();
-  Value result = client.to_function().front().handler(object({{"text", "hello"}}));
-  if (display(Core::get(result, "echo", "")) != "hello") return 1;
+  Value result = client.native_tools().front().handler(object({{"text", "hello"}}));
+  if (display(Core::get(Core::get(result, "structuredContent"), "echo", "")) != "hello") return 1;
   std::cout << "cpp-mcp-ok\n";
   return 0;
 }

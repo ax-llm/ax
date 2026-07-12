@@ -110,6 +110,49 @@
         "  }},",
         "})"
       ]
+    },
+    "mcp": {
+      "native": {
+        "sourcePath": "src/examples/go/mcp/native_mcp_tools.go",
+        "code": [
+          "mcp := axllm.NewAxMCPClient(transport, map[string]axllm.Value{\"namespace\": \"inventory\"})",
+          "program := axllm.NewAx(\"request:string -> answer:string\", map[string]axllm.Value{\"mcp\": mcp})"
+        ]
+      },
+      "resourceWake": {
+        "sourcePath": "src/examples/go/mcp/resource_wake_agent.go",
+        "code": [
+          "normalized, _ := axllm.NormalizeMCPEvent(\"inventory\", \"notifications/resources/updated\", params)",
+          "commands, _ := runtime.Publish(event, \"tenant:demo\", \"authenticated\")"
+        ]
+      },
+      "taskResume": {
+        "sourcePath": "src/examples/go/mcp/task_resume_flow.go",
+        "code": [
+          "if command.Action == \"resume\" { flow.Forward(ctx, llm, input, nil) }"
+        ]
+      }
+    },
+    "event": {
+      "wake": {
+        "sourcePath": "src/examples/go/mcp/resource_wake_agent.go",
+        "code": [
+          "if command.Action == \"wake\" { agent.Forward(ctx, llm, input, options) }"
+        ]
+      },
+      "resume": {
+        "sourcePath": "src/examples/go/mcp/task_resume_flow.go",
+        "code": [
+          "if command.Action == \"resume\" { flow.Forward(ctx, llm, input, nil) }"
+        ]
+      },
+      "ucp": {
+        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
+        "code": [
+          "// The Go host owns HTTP; verified UCP ingress then enters AxEventRuntime.",
+          "source.Ingest(request)"
+        ]
+      }
     }
   }
 }

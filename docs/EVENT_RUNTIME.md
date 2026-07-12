@@ -84,7 +84,7 @@ another tenant's notification.
 Matching an event is never enough to invoke an LLM. The route action remains
 the authorization boundary.
 
-Event data is not injected as a fake user message. `mapInput` selects and
+Event data is not injected as a synthetic user message. `mapInput` selects and
 validates the fields accepted by the program signature. The immutable
 `eventContext` remains available to nested programs and tool handlers for
 identity, trust, causation, cancellation, and idempotency.
@@ -192,3 +192,26 @@ restores logical subscriptions after safe session recovery. Supply verified
 identity from the application's token mapping; MCP sessions alone are
 anonymous. `axMCPEventRoutes({ client })` provides observe/invalidate/task
 resume defaults, while resource changes require an explicit wake route.
+
+## UCP Webhook Adapter
+
+`AxUCPWebhookEventSource` is request ingestion, not an HTTP server. Mount its
+`ingest(request)` method in the application's framework. It delegates profile,
+signature, digest, freshness, key-rotation, and replay verification to the
+configured `AxUCPClient` before enqueueing an event. Only then does the
+application-supplied resolver attach tenant/account identity. Unmapped events
+remain anonymous and untrusted.
+
+The adapter advertises `requiresDurable`, so a volatile runtime must opt in with
+`allowVolatile: true`; otherwise startup refuses a configuration that could
+acknowledge a webhook before durable acceptance.
+
+## Generated Languages
+
+AxIR owns the deterministic event state machine used by TypeScript, Python,
+Java, C++, Go, and Rust: route selection, trust gates, retry classification,
+continuation matching, and MCP event normalization. Generated hosts expose
+source, sink, clock, and store boundaries and advertise
+`axevent.single-worker`. Host timers and asynchronous supervision remain native
+to each ecosystem. Multi-worker capability is advertised only when that
+language has a persistent store passing its conformance runner.

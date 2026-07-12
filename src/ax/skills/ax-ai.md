@@ -347,6 +347,11 @@ attach the client through `AxMCPEventSource`. The event adapter is preferred
 for autonomous work because protocol callbacks only enqueue; explicit routes
 decide whether to observe, invalidate, resume, or wake.
 
+For signed UCP lifecycle requests, mount
+`AxUCPWebhookEventSource.ingest(request)` in application-owned HTTP hosting.
+Signature, profile, digest, freshness, and replay verification completes before
+the event runtime sees the request.
+
 ## Critical Rules
 
 - Use `ai()` factory for all providers.

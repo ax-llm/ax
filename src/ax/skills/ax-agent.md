@@ -265,6 +265,9 @@ Rules:
 - To wake an Agent from a resource subscription, use `AxMCPEventSource` and an
   explicit authenticated `wake` route. MCP sessions are not tenant identity;
   supply identity from the application's authenticated token mapping.
+- To wake from a UCP lifecycle webhook, use `AxUCPWebhookEventSource` and map
+  verified profile/account state to Ax tenant identity after request
+  verification. Never derive tenant identity from the order payload.
 
 ## Host-Side Completion From Functions
 

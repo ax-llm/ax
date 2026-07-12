@@ -9,6 +9,20 @@ is not yet implemented and must not be advertised as supported.
 The target is MCP `2025-11-25`, the current official extensions, and UCP
 `2026-04-08`. This is a living acceptance artifact, not a release claim.
 
+Evidence packs apply to every row in their area in addition to the row-specific
+source/test cell:
+
+- MCP and Ax integration: `docs/MCP_UCP.md`; `ax-ai`, `ax-gen`, `ax-agent`,
+  `ax-flow`, and `ax-agent-optimize` skills; native tools, resource-wake, and
+  task-resume public examples.
+- Event runtime: `docs/EVENT_RUNTIME.md`; `ax-event-runtime` skill; generic
+  wake/state/sink examples plus MCP and UCP wake/resume examples.
+- UCP: the UCP section of `docs/MCP_UCP.md`; `ax-event-runtime`, `ax-agent`, and
+  `ax-flow` skills; signed webhook wake/resume examples.
+- Generated languages: `docs/COMPILER.md`, committed package API/capability
+  manifests, `axevent`/`axmcp` conformance, and the six-language public MCP
+  example group.
+
 | Area | Capability from supplied client report | Ax status | Source and verification |
 | --- | --- | --- | --- |
 | MCP lifecycle | Version negotiation and returned-version validation | Implemented | `src/ax/mcp/client.ts`, `client.test.ts`, AxIR `axmcp/protocol-negotiation-rejects.json` |
@@ -85,12 +99,14 @@ The target is MCP `2025-11-25`, the current official extensions, and UCP
 | UCP | Checkout create/get/update/complete/cancel | Implemented | typed methods, idempotency enforcement, REST routing |
 | UCP | Fulfillment, discounts, payment handlers, buyer/context/attribution | Implemented | typed values, profile handlers, checkout composition, business-outcome preservation, and bounded advertised/local JSON Schema validation in `ucp/schema.test.ts` |
 | UCP | Orders and lifecycle state | Implemented | order retrieval plus signed, allowlisted, timestamped, replay-protected lifecycle webhook verification |
+| UCP events | Verified lifecycle webhook to wake/resume | Implemented | `AxUCPWebhookEventSource`, identity-isolation tests, and UCP wake/resume examples |
 | UCP | Identity linking | Implemented | negotiated scope/config inspection plus RFC 6750 challenge-driven OAuth/PKCE retries |
 | UCP | Business outcomes versus transport errors | Implemented | structured success/error outcomes remain results; transport errors throw separately |
 | UCP | RFC 9421 request signatures and content digest | Implemented | `ucp/signing.ts` and deterministic signature test |
 | UCP | Response verification, key rotation, replay protection | Implemented | built-in RFC 9421 ES256/ES384 verification, raw digest, profile key refresh, time windows, and replay cache |
 | Languages | Python, Java, C++, Go, Rust native raw MCP bindings | Implemented | generator templates, committed packages, and five-target conformance fixture |
 | Languages | Full shared execution context and UCP parity | Implemented | AxIR declares `AxExecutionContext`, continuation state, `AxUCPBinding`, profile/outcome semantics, and `AxUCPClient`; generated Python/Java/C++/Go/Rust packages compile and pass `execution-context-ucp.json` |
+| Languages | Event state-machine baseline | Implemented | `ir/axcore/event.axir`, `axevent` fixtures, `axevent.single-worker` manifests, and beginner/intermediate/advanced MCP event examples in all six languages |
 
 ## Completion gates
 

@@ -117,6 +117,49 @@
         "    ))",
         "));"
       ]
+    },
+    "mcp": {
+      "native": {
+        "sourcePath": "src/examples/java/mcp/NativeMCPToolsExample.java",
+        "code": [
+          "AxMCPClient mcp = new AxMCPClient(new AxMCPStreamableHTTPTransport(endpoint));",
+          "AxGen program = new AxGen(Ax.s(\"request:string -> answer:string\"), Map.of(\"mcp\", mcp));"
+        ]
+      },
+      "resourceWake": {
+        "sourcePath": "src/examples/java/mcp/ResourceWakeAgentExample.java",
+        "code": [
+          "var normalized = AxEventRuntime.normalizeMCP(\"inventory\", \"notifications/resources/updated\", params);",
+          "var commands = runtime.publish(event, \"tenant:demo\", \"authenticated\");"
+        ]
+      },
+      "taskResume": {
+        "sourcePath": "src/examples/java/mcp/TaskResumeFlowExample.java",
+        "code": [
+          "if (commands.stream().anyMatch(c -> c.action().equals(\"resume\"))) dispatch(flow);"
+        ]
+      }
+    },
+    "event": {
+      "wake": {
+        "sourcePath": "src/examples/java/mcp/ResourceWakeAgentExample.java",
+        "code": [
+          "if (commands.stream().anyMatch(c -> c.action().equals(\"wake\"))) agent.forward(llm, input);"
+        ]
+      },
+      "resume": {
+        "sourcePath": "src/examples/java/mcp/TaskResumeFlowExample.java",
+        "code": [
+          "if (commands.stream().anyMatch(c -> c.action().equals(\"resume\"))) flow.forward(llm, input);"
+        ]
+      },
+      "ucp": {
+        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
+        "code": [
+          "// Host HTTP in the application; verified ingress is language-host owned.",
+          "source.ingest(request);"
+        ]
+      }
     }
   }
 }

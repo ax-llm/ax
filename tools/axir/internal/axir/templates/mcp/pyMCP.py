@@ -976,9 +976,9 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             _assert_requests(transport.requests, fixture)
             return
         if operation == "prompts_resources":
-            names = [fn.name for fn in client.to_function()]
-            if fixture.get("expected_function_names") and names != fixture["expected_function_names"]:
-                raise AssertionError(f"function names mismatch: {names!r}")
+            _assert_catalog_names(client.prompts, fixture.get("expected_prompt_names"), "prompt names")
+            _assert_catalog_names(client.resources, fixture.get("expected_resource_names"), "resource names")
+            _assert_catalog_names(client.resource_templates, fixture.get("expected_resource_template_names"), "resource template names")
             return
         if operation == "roots_notifications":
             transport.emit({"jsonrpc": "2.0", "id": "server-1", "method": "roots/list"})
@@ -1002,6 +1002,14 @@ def _assert_requests(requests: list[dict[str, Any]], fixture: dict[str, Any]) ->
         raise AssertionError(f"expected at least {len(expected)} requests, got {len(requests)}")
     for index, subset in enumerate(expected):
         _assert_subset(requests[index], subset, f"request {index}")
+
+
+def _assert_catalog_names(catalog: list[dict[str, Any]], expected: Any, label: str) -> None:
+    if expected is None:
+        return
+    names = [str(item.get("name", "")) for item in catalog]
+    if names != expected:
+        raise AssertionError(f"{label} mismatch: {names!r}")
 
 
 def _assert_subset(actual: Any, expected: Any, label: str) -> None:

@@ -150,6 +150,14 @@ catalog/cart/checkout/order and identity flows, validates advertised schemas,
 and supports RFC 9421 signing/verification, rotated keys, replay protection,
 payment handlers, and signed lifecycle events.
 
+Application HTTP handlers can pass signed lifecycle requests to
+`AxUCPWebhookEventSource.ingest(request)`. The client verifies the business
+profile, RFC 9421 signature, content digest, timestamp window, and replay key
+before the adapter publishes. The application then maps the verified event to
+tenant/account identity; an event without that mapping remains anonymous and
+untrusted. The source requires durable acknowledgement unless the runtime
+explicitly opts into volatile acceptance.
+
 ## Evaluation and continuation
 
 Remote task IDs and subscription intent can be serialized in agent state, but
@@ -169,3 +177,9 @@ native MCP/UCP bindings, namespace/tool collision checks, inheritance,
 continuation fingerprints, typed UCP operation wrappers, and business-outcome
 preservation. The shared conformance fixture
 `ir/conformance/axmcp/execution-context-ucp.json` runs in all five targets.
+
+AxIR also declares the protocol-neutral `ax.event` state machine. All generated
+packages advertise deterministic `axevent.single-worker` routing, retry,
+continuation, and MCP-normalization semantics, plus host-owned source, sink,
+clock, and store boundaries. Persistent multi-worker capability remains store-
+and language-specific.

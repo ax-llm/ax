@@ -84,6 +84,19 @@ session is anonymous. Add `...axMCPEventRoutes({ client })` for catalog
 invalidation, progress/log observation, and task resume. Resource notifications
 never get an implicit wake route.
 
+## UCP Adapter
+
+Use `AxUCPWebhookEventSource({ client, identity })` inside an application-owned
+HTTP handler, then call `source.ingest(request)`. Verification of the signer
+profile, RFC 9421 signature, digest, freshness window, key rotation, and replay
+key completes before enqueue. Resolve tenant/account identity from application
+state after verification; do not copy identity from the business payload.
+
+Generated Python, Java, C++, Go, and Rust packages expose the same Core-owned
+single-worker event state machine and host-owned source, sink, clock, and store
+boundaries. Do not claim persistent multi-worker support from
+`axevent.single-worker` alone.
+
 ## Testing
 
 Use `AxManualEventClock`, `AxInMemoryEventStore`, deterministic event IDs, and

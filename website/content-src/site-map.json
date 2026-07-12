@@ -117,6 +117,12 @@
           "description": "Connect MCP servers as Ax tools for generation, agents, prompts, resources, and runtime workflows."
         },
         {
+          "slug": "concepts/event-runtime",
+          "title": "Event Runtime",
+          "template": "concept-event-runtime",
+          "description": "Wake and resume Ax programs safely from subscriptions, webhooks, timers, queues, and application events."
+        },
+        {
           "slug": "concepts/optimization",
           "title": "Optimization",
           "template": "concept-optimization",

@@ -118,6 +118,44 @@
         "  })})}",
         "}));"
       ]
+    },
+    "mcp": {
+      "native": {
+        "sourcePath": "src/examples/cpp/mcp/native_mcp_tools.cpp",
+        "code": [
+          "auto mcp = std::make_shared<axllm::AxMCPClient>(transport);",
+          "axllm::AxExecutionContext context({mcp});",
+          "context.attach(program);"
+        ]
+      },
+      "resourceWake": {
+        "sourcePath": "src/examples/cpp/mcp/resource_wake_agent.cpp",
+        "code": [
+          "auto normalized = axllm::AxEventRuntime::normalize_mcp(\"inventory\", \"notifications/resources/updated\", params);",
+          "auto commands = runtime.publish(event, \"tenant:demo\", \"authenticated\");"
+        ]
+      },
+      "taskResume": {
+        "sourcePath": "src/examples/cpp/mcp/task_resume_flow.cpp",
+        "code": ["if (action == \"resume\") flow.forward(llm, input);"]
+      }
+    },
+    "event": {
+      "wake": {
+        "sourcePath": "src/examples/cpp/mcp/resource_wake_agent.cpp",
+        "code": ["if (action == \"wake\") agent.forward(llm, input);"]
+      },
+      "resume": {
+        "sourcePath": "src/examples/cpp/mcp/task_resume_flow.cpp",
+        "code": ["if (action == \"resume\") flow.forward(llm, input);"]
+      },
+      "ucp": {
+        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
+        "code": [
+          "// Application-owned HTTP verifies UCP ingress before host dispatch.",
+          "source.ingest(request);"
+        ]
+      }
     }
   }
 }

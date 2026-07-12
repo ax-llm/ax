@@ -70,3 +70,5 @@ export {
   AxManualEventClock,
   AxSystemEventClock,
 } from './types.js';
+export type { AxUCPWebhookEventSourceOptions } from './ucpSource.js';
+export { AxUCPWebhookEventSource } from './ucpSource.js';

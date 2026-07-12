@@ -129,6 +129,9 @@ func (c *AxMCPClient) Refresh() error {
 
 func (c *AxMCPClient) ProtocolVersion() string { return c.negotiatedProtocolVersion }
 func (c *AxMCPClient) Tools() []map[string]Value { return append([]map[string]Value(nil), c.tools...) }
+func (c *AxMCPClient) Prompts() []map[string]Value { return append([]map[string]Value(nil), c.prompts...) }
+func (c *AxMCPClient) Resources() []map[string]Value { return append([]map[string]Value(nil), c.resources...) }
+func (c *AxMCPClient) ResourceTemplates() []map[string]Value { return append([]map[string]Value(nil), c.resourceTemplates...) }
 func (c *AxMCPClient) Ping() (map[string]Value, error) { return c.request("ping", map[string]Value{}) }
 func (c *AxMCPClient) ListTools(cursor string) (map[string]Value, error) { return c.request("tools/list", cursorParams(cursor)) }
 func (c *AxMCPClient) CallTool(name string, args map[string]Value) (map[string]Value, error) { if args == nil { args = map[string]Value{} }; return c.request("tools/call", map[string]Value{"name":name, "arguments":args}) }
@@ -678,9 +681,9 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 		}
 		assertMCPRequests(transport.Requests, fixture)
 	case "prompts_resources":
-		var names []Value
-		for _, fn := range client.ToFunction() { names = append(names, fn.Name) }
-		if expected := coreGet(fixture, "expected_function_names", nil); expected != nil { assertEqual(names, expected, "function names") }
+		assertMCPCatalogNames(client.Prompts(), coreGet(fixture, "expected_prompt_names", nil), "prompt names")
+		assertMCPCatalogNames(client.Resources(), coreGet(fixture, "expected_resource_names", nil), "resource names")
+		assertMCPCatalogNames(client.ResourceTemplates(), coreGet(fixture, "expected_resource_template_names", nil), "resource template names")
 	case "roots_notifications":
 		transport.Emit(map[string]Value{"jsonrpc":"2.0", "id":"server-1", "method":"roots/list"})
 		assertSubset(transport.SentResponses[0], coreGet(fixture, "expected_roots_response", Object()), "roots response")
@@ -690,6 +693,13 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 	default:
 		panic("unsupported MCP conformance operation "+op)
 	}
+}
+
+func assertMCPCatalogNames(catalog []map[string]Value, expected Value, label string) {
+	if expected == nil { return }
+	names := []Value{}
+	for _, item := range catalog { names = append(names, display(coreGet(item, "name", ""))) }
+	assertEqual(names, expected, label)
 }
 
 func assertMCPRequests(requests []map[string]Value, fixture map[string]Value) {

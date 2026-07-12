@@ -106,6 +106,49 @@
         "  \"functions\": [\"search\"]",
         "});"
       ]
+    },
+    "mcp": {
+      "native": {
+        "sourcePath": "src/examples/rust/mcp/native_mcp_tools.rs",
+        "code": [
+          "let context = AxExecutionContext::new(vec![mcp], vec![])?;",
+          "let mut program = ax(\"request:string -> answer:string\")?.with_execution_context(context)?;"
+        ]
+      },
+      "resourceWake": {
+        "sourcePath": "src/examples/rust/mcp/resource_wake_agent.rs",
+        "code": [
+          "let normalized = AxEventRuntime::normalize_mcp(\"inventory\", \"notifications/resources/updated\", params)?;",
+          "let commands = runtime.publish(event, \"tenant:demo\", \"authenticated\")?;"
+        ]
+      },
+      "taskResume": {
+        "sourcePath": "src/examples/rust/mcp/task_resume_flow.rs",
+        "code": [
+          "if commands.iter().any(|c| c.action == \"resume\") { flow.forward(&mut llm, input)?; }"
+        ]
+      }
+    },
+    "event": {
+      "wake": {
+        "sourcePath": "src/examples/rust/mcp/resource_wake_agent.rs",
+        "code": [
+          "if commands.iter().any(|c| c.action == \"wake\") { agent.forward(&mut llm, input)?; }"
+        ]
+      },
+      "resume": {
+        "sourcePath": "src/examples/rust/mcp/task_resume_flow.rs",
+        "code": [
+          "if commands.iter().any(|c| c.action == \"resume\") { flow.forward(&mut llm, input)?; }"
+        ]
+      },
+      "ucp": {
+        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
+        "code": [
+          "// The Rust host owns HTTP; verified UCP ingress then enters AxEventRuntime.",
+          "source.ingest(request)?;"
+        ]
+      }
     }
   }
 }

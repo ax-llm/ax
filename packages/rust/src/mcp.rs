@@ -263,6 +263,16 @@ impl AxMCPClient {
         out
     }
 
+    pub fn prompts(&self) -> &[Value] {
+        &self.prompts
+    }
+    pub fn resources(&self) -> &[Value] {
+        &self.resources
+    }
+    pub fn resource_templates(&self) -> &[Value] {
+        &self.resource_templates
+    }
+
     pub fn namespace(&self) -> String {
         self.options
             .get("namespace")
@@ -1487,12 +1497,21 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                     Ok(())
                 }
                 "prompts_resources" => {
-                    let functions = client.to_function();
-                    if let Some(expected) = fixture.get("expected_function_names") {
-                        let names =
-                            Value::Array(functions.iter().map(|tool| json!(tool.name)).collect());
-                        expect_subset("function names", &names, expected)?;
-                    }
+                    expect_catalog_names(
+                        "prompt names",
+                        client.prompts(),
+                        fixture.get("expected_prompt_names"),
+                    )?;
+                    expect_catalog_names(
+                        "resource names",
+                        client.resources(),
+                        fixture.get("expected_resource_names"),
+                    )?;
+                    expect_catalog_names(
+                        "resource template names",
+                        client.resource_templates(),
+                        fixture.get("expected_resource_template_names"),
+                    )?;
                     Ok(())
                 }
                 "cancellation" => {
@@ -1521,6 +1540,19 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
             }
         }
     }
+}
+
+fn expect_catalog_names(label: &str, catalog: &[Value], expected: Option<&Value>) -> AxResult<()> {
+    if let Some(expected) = expected {
+        let names = Value::Array(
+            catalog
+                .iter()
+                .map(|item| json!(item.get("name").and_then(Value::as_str).unwrap_or_default()))
+                .collect(),
+        );
+        expect_subset(label, &names, expected)?;
+    }
+    Ok(())
 }
 
 fn cursor_params(cursor: Option<&str>) -> Value {

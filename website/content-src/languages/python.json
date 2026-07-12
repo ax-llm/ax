@@ -136,6 +136,52 @@
         "    }],",
         "})"
       ]
+    },
+    "mcp": {
+      "native": {
+        "sourcePath": "src/examples/python/mcp/native-mcp-tools.py",
+        "code": [
+          "mcp = AxMCPClient(AxMCPStreamableHTTPTransport(endpoint), {'namespace': 'inventory'})",
+          "program = ax('request:string -> answer:string', {'mcp': mcp})"
+        ]
+      },
+      "resourceWake": {
+        "sourcePath": "src/examples/python/mcp/resource-wake-agent.py",
+        "code": [
+          "normalized = runtime.normalize_mcp('inventory', 'notifications/resources/updated', params)",
+          "commands = runtime.publish(event, identity_scope='tenant:demo', trust='authenticated')"
+        ]
+      },
+      "taskResume": {
+        "sourcePath": "src/examples/python/mcp/task-resume-flow.py",
+        "code": [
+          "normalized = runtime.normalize_mcp('inventory', 'notifications/tasks/status', params)",
+          "if any(command.action == 'resume' for command in commands): dispatch(flow)"
+        ]
+      }
+    },
+    "event": {
+      "wake": {
+        "sourcePath": "src/examples/python/mcp/resource-wake-agent.py",
+        "code": [
+          "if any(command.action == 'wake' for command in commands):",
+          "    program.forward(llm, {'uri': 'demo://inventory'})"
+        ]
+      },
+      "resume": {
+        "sourcePath": "src/examples/python/mcp/task-resume-flow.py",
+        "code": [
+          "if any(command.action == 'resume' for command in commands):",
+          "    program.forward(llm, {'taskId': '42'})"
+        ]
+      },
+      "ucp": {
+        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
+        "code": [
+          "# UCP HTTP hosting is application-owned; verify, map identity, then publish.",
+          "await source.ingest(request)"
+        ]
+      }
     }
   }
 }

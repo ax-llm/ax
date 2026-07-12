@@ -58,6 +58,9 @@ class AxMCPClient {
   void cancel_request(Value request_id, const std::string& reason = "");
   std::vector<Tool> to_function();
   std::vector<Tool> native_tools();
+  Value prompts() const;
+  Value resources() const;
+  Value resource_templates() const;
   std::string namespace_name() const;
   Value request(const std::string& method, Value params = Value::object());
 

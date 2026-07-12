@@ -927,6 +927,10 @@ import {
   AxSystemEventClock,
 } from './event/types.js';
 import {
+  AxUCPWebhookEventSource,
+  type AxUCPWebhookEventSourceOptions,
+} from './event/ucpSource.js';
+import {
   axEventErrorMessage,
   axEventId,
   axEventIdentityScope,
@@ -1338,6 +1342,7 @@ export { AxUCPHTTPMessageSignatureError };
 export { AxUCPHTTPMessageVerifier };
 export { AxUCPSchemaValidationError };
 export { AxUCPSchemaValidator };
+export { AxUCPWebhookEventSource };
 export { agent };
 export { ai };
 export { ax };
@@ -2227,5 +2232,6 @@ export type { AxUCPService };
 export type { AxUCPTransportKind };
 export type { AxUCPValue };
 export type { AxUCPVersionedDeclaration };
+export type { AxUCPWebhookEventSourceOptions };
 export type { AxUsable };
 export type { AxWorkerRuntimeConfig };

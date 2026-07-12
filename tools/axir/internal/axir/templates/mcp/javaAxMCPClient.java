@@ -119,6 +119,10 @@ public final class AxMCPClient {
     return out;
   }
 
+  public List<Map<String, Object>> getPrompts() { return List.copyOf(prompts); }
+  public List<Map<String, Object>> getResources() { return List.copyOf(resources); }
+  public List<Map<String, Object>> getResourceTemplates() { return List.copyOf(resourceTemplates); }
+
   public String namespace() {
     Object configured = options.get("namespace");
     if (configured != null) return String.valueOf(configured);
@@ -341,8 +345,9 @@ public final class AxMCPClient {
         }
         assertRequests(transport.requests, fixture);
       } else if ("prompts_resources".equals(operation)) {
-        List<String> names = client.toFunction().stream().map(tool -> tool.name).toList();
-        if (fixture.get("expected_function_names") != null && !names.equals(Core.asList(fixture.get("expected_function_names")).stream().map(String::valueOf).toList())) throw new AssertionError("function names mismatch: " + names);
+        assertCatalogNames(client.getPrompts(), fixture.get("expected_prompt_names"), "prompt names");
+        assertCatalogNames(client.getResources(), fixture.get("expected_resource_names"), "resource names");
+        assertCatalogNames(client.getResourceTemplates(), fixture.get("expected_resource_template_names"), "resource template names");
       } else if ("roots_notifications".equals(operation)) {
         transport.emit(new LinkedHashMap<>(Map.of("jsonrpc", "2.0", "id", "server-1", "method", "roots/list")));
         assertSubset(transport.sentResponses.get(0), fixture.getOrDefault("expected_roots_response", Map.of()), "roots response");
@@ -357,6 +362,13 @@ public final class AxMCPClient {
       if (error instanceof RuntimeException runtime) throw runtime;
       throw new RuntimeException(error);
     }
+  }
+
+  private static void assertCatalogNames(List<Map<String, Object>> catalog, Object expected, String label) {
+    if (expected == null) return;
+    List<String> names = catalog.stream().map(item -> String.valueOf(item.get("name"))).toList();
+    List<String> expectedNames = Core.asList(expected).stream().map(String::valueOf).toList();
+    if (!names.equals(expectedNames)) throw new AssertionError(label + " mismatch: " + names);
   }
 
   static void assertRequests(List<Map<String, Object>> requests, Map<String, Object> fixture) {

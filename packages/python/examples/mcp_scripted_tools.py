@@ -31,6 +31,6 @@ responses = [
 
 client = AxMCPClient(AxMCPScriptedTransport(responses))
 client.init()
-result = client.to_function()[0].call({"text": "hello"})
-assert result["echo"] == "hello"
+result = client.native_tools()[0].call({"text": "hello"})
+assert result["structuredContent"]["echo"] == "hello"
 print("python-mcp-ok")
