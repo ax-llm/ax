@@ -23,6 +23,13 @@ import {
   formatContextMapTrajectory,
   normalizeAgentContextMap,
 } from '../contextMap.js';
+import {
+  type AxAgentPlaybookSkipReason,
+  type AxAgentPlaybookUpdateResult,
+  type AxResolvedAgentPlaybookConfig,
+  isPlaybookSnapshotSeed,
+  resolveAgentPlaybookConfig,
+} from '../playbookConfig.js';
 import { toCamelCase } from '../runtimeDiscovery.js';
 import { Synthesizer } from '../synthesizer.js';
 import type {
@@ -45,6 +52,12 @@ import type {
   AxContextFieldInput,
 } from './agentPublicTypes.js';
 import { transcribedAgentInputFields } from './audioInputs.js';
+import {
+  type AxAgentFailureReport,
+  type AxAgentFailureSignal,
+  formatFailureFeedback,
+  mergeFailureSignals,
+} from './failureReport.js';
 import {
   createAgentOptimizeMetric,
   createOptimizationProgram,
@@ -211,6 +224,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private readonly options: Readonly<AxAgentOptions<IN>>;
   private readonly contextMapConfig?: AxAgentContextMapConfig;
   private contextMap?: AxAgentContextMap;
+  private readonly playbookConfigResolved?: AxResolvedAgentPlaybookConfig;
+  private playbookHandle?: AxPlaybook<any, any>;
   private func?: AxFunction;
 
   constructor(
@@ -231,6 +246,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.autoUpgradeResolved = resolveAutoUpgrade(options.autoUpgrade);
     this.contextMapConfig = options.contextMap;
     this.contextMap = normalizeAgentContextMap(options.contextMap);
+    this.playbookConfigResolved = resolveAgentPlaybookConfig(options.playbook);
     this.fullSignature =
       typeof init.signature === 'string'
         ? (AxSignature.create(init.signature) as AxSignature<IN, OUT>)
@@ -451,6 +467,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             .join('\n');
         },
       };
+    }
+
+    if (this.playbookConfigResolved) {
+      this.playbookHandle = this._createPlaybookHandle(
+        this.playbookConfigResolved
+      );
     }
 
     this.pipelineFlow = buildPipelineFlow(this);
@@ -877,6 +899,25 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   public playbook(
     options?: Readonly<AxAgentPlaybookOptions>
   ): AxPlaybook<any, any> {
+    if (this.playbookHandle) {
+      if (options && Object.keys(options).length > 0) {
+        throw new Error(
+          'AxAgent.playbook(): a playbook is already attached via the `playbook` config option; call playbook() without options (or getPlaybook()) to use the attached handle.'
+        );
+      }
+      return this.playbookHandle;
+    }
+    return this._buildStagePlaybook(options);
+  }
+
+  /** The playbook attached via the `playbook` config option, when configured. */
+  public getPlaybook(): AxPlaybook<any, any> | undefined {
+    return this.playbookHandle;
+  }
+
+  private _buildStagePlaybook(
+    options?: Readonly<AxAgentPlaybookOptions>
+  ): AxPlaybook<any, any> {
     const target = options?.target ?? 'actor';
     const studentAI = options?.studentAI ?? (this.primaryAgent as any).ai;
     if (!studentAI) {
@@ -934,6 +975,142 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
 
     return handle;
+  }
+
+  /**
+   * Build and seed the construction-time playbook handle (`options.playbook`).
+   * Reuses the `playbook()` stage-binding path; a snapshot seed is restored
+   * via `load()`, a bare playbook seeds the engine directly. Either way the
+   * seeded content is rendered into the live stage prompt (unless
+   * `apply: false`).
+   */
+  private _createPlaybookHandle(
+    resolved: Readonly<AxResolvedAgentPlaybookConfig>
+  ): AxPlaybook<any, any> {
+    const studentAI = resolved.studentAI ?? (this.primaryAgent as any).ai;
+    if (!studentAI) {
+      throw new Error(
+        'AxAgent: the `playbook` config option requires studentAI when the agent has no default ai.'
+      );
+    }
+    const seed = resolved.seedPlaybook;
+    const initialPlaybook =
+      seed && !isPlaybookSnapshotSeed(seed) ? seed : undefined;
+    const handle = this._buildStagePlaybook({
+      target: resolved.target,
+      studentAI,
+      teacherAI: resolved.teacherAI,
+      apply: resolved.apply,
+      ...resolved.playbookOptions,
+      ...(initialPlaybook ? { initialPlaybook } : {}),
+    });
+    if (seed && isPlaybookSnapshotSeed(seed)) {
+      handle.load(seed);
+    } else if (initialPlaybook) {
+      handle.applyTo();
+    }
+    return handle;
+  }
+
+  /**
+   * Run-end failure learning for the attached playbook (see
+   * `AxAgentPlaybookConfig.learn`): merge the stages' deterministic failure
+   * reports, gate on volume and signature novelty, then feed one bounded
+   * playbook update whose curated rules land in the `failures_to_avoid`
+   * section. Non-fatal by construction — playbook upkeep must never break the
+   * completed user-facing run.
+   *
+   * @internal Public for the pipeline flow node and tests.
+   */
+  public async _updatePlaybookFromPipelineState(
+    state: Readonly<Record<string, any>>
+  ): Promise<AxAgentPlaybookUpdateResult | undefined> {
+    const resolved = this.playbookConfigResolved;
+    const handle = this.playbookHandle;
+    if (!resolved || !handle) {
+      return undefined;
+    }
+    try {
+      const skip = (
+        skipReason: AxAgentPlaybookSkipReason,
+        signals: readonly AxAgentFailureSignal[]
+      ): AxAgentPlaybookUpdateResult => ({
+        snapshot: handle.getState(),
+        status: 'skipped',
+        skipReason,
+        signals,
+      });
+      if (!resolved.learn.enabled) {
+        return skip('learning_disabled', []);
+      }
+
+      const reports: (AxAgentFailureReport | undefined)[] = [
+        state.distillerResult?.failureReport,
+        state.executorResult?.failureReport,
+      ];
+      const signals = mergeFailureSignals(reports);
+      if (signals.length === 0) {
+        return skip('no_failures', signals);
+      }
+      if (signals.length < resolved.learn.minSignals) {
+        return skip('below_min_signals', signals);
+      }
+
+      let fresh = signals;
+      if (resolved.learn.dedupe) {
+        // Signatures already curated into this playbook are recorded on the
+        // update events we feed the engine (`example.failureSignatures`), so
+        // the skip decision is deterministic regardless of how the curator
+        // phrased or filed the resulting bullets — and it survives snapshot
+        // save/restore because the events ride the artifact.
+        const curated = new Set<string>();
+        for (const event of handle.getState().artifact?.feedback ?? []) {
+          const sigs = (event.example as { failureSignatures?: unknown })
+            ?.failureSignatures;
+          if (Array.isArray(sigs)) {
+            for (const sig of sigs) {
+              curated.add(String(sig));
+            }
+          }
+        }
+        fresh = signals.filter((signal) => !curated.has(signal.signature));
+        if (fresh.length === 0) {
+          return skip('all_duplicates', signals);
+        }
+      }
+
+      const task =
+        typeof state.executorInputs?.executorRequest === 'string'
+          ? state.executorInputs.executorRequest
+          : JSON.stringify(state.agentValues ?? {});
+      const feedback = formatFailureFeedback(fresh, task);
+      const before = JSON.stringify(handle.getState().playbook);
+      await handle.update({
+        example: {
+          task,
+          failureSignatures: fresh.map((signal) => signal.signature),
+        },
+        prediction: state.responderResult ?? {},
+        feedback,
+      });
+      const snapshot = handle.getState();
+      const result: AxAgentPlaybookUpdateResult = {
+        snapshot,
+        status:
+          JSON.stringify(snapshot.playbook) === before
+            ? 'unchanged'
+            : 'updated',
+        signals: fresh,
+        feedback,
+      };
+      if (resolved.onUpdate) {
+        await resolved.onUpdate(result);
+      }
+      return result;
+    } catch {
+      // Playbook upkeep must not break the completed user-facing run.
+      return undefined;
+    }
   }
 
   private _listOptimizationTargetDescriptors(): AxAgentOptimizationTargetDescriptor[] {

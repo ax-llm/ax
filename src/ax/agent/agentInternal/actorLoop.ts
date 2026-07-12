@@ -26,6 +26,8 @@ import type {
 } from './actorLoopContext.js';
 import { buildActorLoopSetup } from './actorLoopSetup.js';
 import { runActorTurn } from './actorLoopTurn.js';
+import type { AxAgentFailureReport } from './failureReport.js';
+import { buildFailureReport } from './failureReport.js';
 import { renderGuidanceLog } from './guidanceHelpers.js';
 import {
   mergeUsedMemoryResults,
@@ -72,6 +74,13 @@ export async function runActorLoop<IN extends AxGenIn>(
   usedMemories: AxAgentUsedMemory[];
   usedSkills: AxAgentUsedSkill[];
   turnCount: number;
+  /**
+   * Deterministic failure signals harvested from this run's live action-log
+   * entries (internal per-turn metadata included), before serialization drops
+   * the internals. Undefined on clean runs. Transient — never persisted in
+   * `AxAgentState`.
+   */
+  failureReport?: AxAgentFailureReport;
 }> {
   const s = self as any;
   const rlm = s.rlmConfig;
@@ -572,5 +581,6 @@ export async function runActorLoop<IN extends AxGenIn>(
     usedMemories: mutableState.usedMemories,
     usedSkills: mutableState.usedSkills,
     turnCount: actionLogEntries.length,
+    failureReport: buildFailureReport(actionLogEntries, contextStage),
   };
 }

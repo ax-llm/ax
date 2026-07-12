@@ -53,4 +53,21 @@ The two are complementary: tune instructions with `optimize(...)`, and grow situ
 
 `agent.playbook({ target })` binds a playbook to an agent stage (the actor by default, or the responder). The evolved playbook is injected into the live stage prompt, so an agent can keep a strategy playbook current from real runs via `update(...)`. For tuning agent instructions and demos, use `agent.optimize(...)` ([Optimization]({{langRoot}}/concepts/optimization/)).
 
+### Learn From Failures (TypeScript)
+
+TypeScript agents can also attach a playbook at construction and let it learn from the agent's own failures — no examples, metric, or extra wiring:
+
+```typescript
+const support = agent('ticket:string -> reply:string', {
+  ai: llm,
+  functions: [crmTools],
+  playbook: {
+    playbook: savedSnapshot, // optional seed from a previous session
+    onUpdate: ({ snapshot }) => save(snapshot), // persist new lessons
+  },
+});
+```
+
+After each completed run that produced failure signals — error turns, repeated dead-ends, failing tool calls — one bounded playbook update (a single reflection + curation call; zero on clean runs) curates durable avoidance rules, and the refreshed playbook rides the actor prompt on the next run. Signatures already curated are skipped deterministically, so repeated failures do not re-spend LLM calls. Read the live handle via `agent.getPlaybook()`; tune gating with `learn: { minSignals, dedupe }` or disable with `learn: false`. TS-first: the five generated language ports do not ship the construction-time `playbook` option yet.
+
 See [Agents]({{langRoot}}/agents/) and [agent() API]({{langRoot}}/api/agent/).

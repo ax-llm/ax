@@ -14,7 +14,16 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-07-12-playbook-config-attach-and-run-end-failure-learning` [axagent] Port the agent playbook config option and run-end failure learning
+  - Status: open
+  - TS paths: `src/ax/agent/playbookConfig.ts`, `src/ax/agent/agentInternal/failureReport.ts`, `src/ax/agent/agentInternal/coordinator.ts`, `src/ax/agent/agentInternal/actorLoop.ts`, `src/ax/agent/agentInternal/pipelineForward.ts`, `src/ax/agent/agentInternal/agentOptimizeTypes.ts`
+  - Impact: TS agents accept a construction-time `playbook` option: the rendered playbook is injected into the actor prompt and a run-end node harvests deterministic failure signals (error turns, repeated dead-ends, tool errors) into one bounded ACE update whose curated avoidance rules persist via onUpdate snapshots (signature dedupe rides the snapshot artifact). The five generated ports have neither the playbook attachment nor the failure harvest, so ported agents repeat failures TS agents learn to avoid. agentOptimizeTypes.ts documents the option as TS-first.
+  - Suggested AxIR work: Decide whether ports get the full ACE engine or consume TS-produced playbook snapshots (render-only attach + failure harvest without curation).; Add the run-end failure-report op to agent.axir and mirror the digest/dedupe semantics.; Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-12-ace-reflector-bullettags-shape-guard` [axoptimize] Mirror the ACE reflector bulletTags shape guard in optimize.axir
+  - Status: open
+  - TS paths: `src/ax/dsp/optimizers/ace.ts`, `src/ax/dsp/optimizers/ace.test.ts`
+  - Impact: TS now normalizes the reflector's model-produced bulletTags (single object or junk instead of an array) before tag application and curator target resolution; live gpt-5.4-mini reflections triggered the unguarded for...of crash mid-update. optimize.axir reads %reflection["bulletTags"] with only a missing-key default (optimize.axir:1725), so ported ACE updates can still crash or mis-iterate on the same malformed reflector output.
+  - Suggested AxIR work: Add an is-array guard (wrap single objects, drop malformed entries) around the bulletTags read in optimize.axir's reflection handling.; Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

@@ -87,6 +87,12 @@ import {
   type AxAgentConfig,
   agent,
 } from './agent/agentInternal/coordinator.js';
+import {
+  type AxAgentFailureReport,
+  type AxAgentFailureSignal,
+  type AxAgentFailureSignalKind,
+  axPlaybookFailureSection,
+} from './agent/agentInternal/failureReport.js';
 import type { AxAgentMemoryEntry } from './agent/agentInternal/memoriesHelpers.js';
 import type {
   AxAgentMemoriesSearchFn,
@@ -152,6 +158,15 @@ import type {
   AxAgentDirectResponse,
   AxResolvedAutoUpgrade,
 } from './agent/config.js';
+import type {
+  AxAgentPlaybookConfig,
+  AxAgentPlaybookLearnOptions,
+  AxAgentPlaybookSkipReason,
+  AxAgentPlaybookUpdateResult,
+  AxAgentPlaybookUpdateStatus,
+  AxResolvedAgentPlaybookConfig,
+  AxResolvedAgentPlaybookLearn,
+} from './agent/playbookConfig.js';
 import {
   type AxCodeRuntime,
   type AxCodeSession,
@@ -1188,6 +1203,7 @@ export { axNormalizeOpenAIUsage };
 export { axNormalizeTranscriptionResponse };
 export { axOpenAIChatAudioDefaults };
 export { axOptimizableValidators };
+export { axPlaybookFailureSection };
 export { axProcessContentForProvider };
 export { axResolveGeminiLiveAudioConfig };
 export { axResolveGrokRealtimeAudioConfig };
@@ -1459,6 +1475,9 @@ export type { AxAgentEvalFunctionCall };
 export type { AxAgentEvalPrediction };
 export type { AxAgentEvalTask };
 export type { AxAgentExecutorResultPayload };
+export type { AxAgentFailureReport };
+export type { AxAgentFailureSignal };
+export type { AxAgentFailureSignalKind };
 export type { AxAgentForwardOptions };
 export type { AxAgentFunction };
 export type { AxAgentFunctionCall };
@@ -1487,7 +1506,12 @@ export type { AxAgentOptimizeOptions };
 export type { AxAgentOptimizeResult };
 export type { AxAgentOptimizeTarget };
 export type { AxAgentOptions };
+export type { AxAgentPlaybookConfig };
+export type { AxAgentPlaybookLearnOptions };
 export type { AxAgentPlaybookOptions };
+export type { AxAgentPlaybookSkipReason };
+export type { AxAgentPlaybookUpdateResult };
+export type { AxAgentPlaybookUpdateStatus };
 export type { AxAgentRecursionOptions };
 export type { AxAgentRecursiveExpensiveNode };
 export type { AxAgentRecursiveFunctionCall };
@@ -1763,6 +1787,8 @@ export type { AxRefineOptions };
 export type { AxRefineStrategy };
 export type { AxRelevanceHints };
 export type { AxRenderedPrompt };
+export type { AxResolvedAgentPlaybookConfig };
+export type { AxResolvedAgentPlaybookLearn };
 export type { AxResolvedAutoUpgrade };
 export type { AxResolvedContextPolicy };
 export type { AxResolvedExecutorModelPolicy };

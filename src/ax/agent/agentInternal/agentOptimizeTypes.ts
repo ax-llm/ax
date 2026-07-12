@@ -26,6 +26,7 @@ import type {
 import type { AxAgentAutoUpgrade } from '../config.js';
 import type { AxAgentOnContextEvent } from '../contextEvents.js';
 import type { AxAgentContextMapConfig } from '../contextMap.js';
+import type { AxAgentPlaybookConfig } from '../playbookConfig.js';
 import type { AxContextPolicyConfig } from '../rlm.js';
 import type {
   AxAgentActorTurnCallback,
@@ -193,6 +194,20 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * updated snapshot.
    */
   contextMap?: AxAgentContextMapConfig;
+
+  /**
+   * Optional evolving playbook attached at construction. The rendered
+   * playbook is injected into the chosen stage's live prompt (the actor by
+   * default), and — unless `learn: false` — the agent learns from its own
+   * failures: after each completed run that produced failure signals (error
+   * turns, repeated dead-ends, tool errors), one bounded playbook update
+   * (default 1 reflection + 1 curation call, zero on clean runs) curates
+   * durable avoidance rules into a `failures_to_avoid` section so later runs
+   * stop repeating them. Seed it with a persisted snapshot and use `onUpdate`
+   * to persist new snapshots; read the live handle via `getPlaybook()`.
+   * TS-first: the 5 non-TS ports do not ship the playbook option yet.
+   */
+  playbook?: AxAgentPlaybookConfig;
 
   /**
    * Tools registered under their configured namespace globals. May contain

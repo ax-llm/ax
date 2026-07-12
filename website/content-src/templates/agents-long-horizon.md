@@ -74,6 +74,8 @@ Long-horizon behavior is tunable offline. `agent.optimize(...)` evolves the acto
 
 {{agentOptimizeExample}}
 
+Agents can also learn from their own failures at run time, with no dataset: attach a playbook at construction (TypeScript `playbook` option) and each run's error turns, dead-ends, and failing tool calls are curated into durable avoidance rules that ride the next run's prompt. See [Playbook]({{langRoot}}/concepts/playbook/).
+
 ## Observability
 
 Everything above is observable: actor turns, tool calls, discovery, recalls, skill loads, child-agent calls, context pressure events, token usage, and costs. Long-horizon agents are production workflows; treat them like it. See [Telemetry]({{langRoot}}/concepts/telemetry/).
