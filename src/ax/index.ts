@@ -93,6 +93,22 @@ import {
   type AxAgentFailureSignalKind,
   axPlaybookFailureSection,
 } from './agent/agentInternal/failureReport.js';
+import type {
+  AxAgentEvalBatchResult,
+  AxAgentEvalBudget,
+} from './agent/agentInternal/improve/evalHarness.js';
+import type { AxAgentFailureCluster } from './agent/agentInternal/improve/failureClusters.js';
+import type {
+  AxAgentImproveOptions,
+  AxAgentImproveProgressEvent,
+  AxAgentImproveProposal,
+  AxAgentImproveProposalOutcome,
+  AxAgentImproveResult,
+  AxAgentImproveRunRecord,
+  AxAgentImproveSurface,
+  AxAgentWeakness,
+} from './agent/agentInternal/improve/improveTypes.js';
+import type { AxAppliedProposal } from './agent/agentInternal/improve/proposals.js';
 import type { AxAgentMemoryEntry } from './agent/agentInternal/memoriesHelpers.js';
 import type {
   AxAgentMemoriesSearchFn,
@@ -1475,11 +1491,14 @@ export type { AxAgentContextStage };
 export type { AxAgentDemos };
 export type { AxAgentDirectResponse };
 export type { AxAgentDiscoveryPromptState };
+export type { AxAgentEvalBatchResult };
+export type { AxAgentEvalBudget };
 export type { AxAgentEvalDataset };
 export type { AxAgentEvalFunctionCall };
 export type { AxAgentEvalPrediction };
 export type { AxAgentEvalTask };
 export type { AxAgentExecutorResultPayload };
+export type { AxAgentFailureCluster };
 export type { AxAgentFailureReport };
 export type { AxAgentFailureSignal };
 export type { AxAgentFailureSignalKind };
@@ -1495,6 +1514,13 @@ export type { AxAgentGuidanceLogEntry };
 export type { AxAgentGuidancePayload };
 export type { AxAgentGuidanceState };
 export type { AxAgentIdentity };
+export type { AxAgentImproveOptions };
+export type { AxAgentImproveProgressEvent };
+export type { AxAgentImproveProposal };
+export type { AxAgentImproveProposalOutcome };
+export type { AxAgentImproveResult };
+export type { AxAgentImproveRunRecord };
+export type { AxAgentImproveSurface };
 export type { AxAgentInputUpdateCallback };
 export type { AxAgentJudgeEvalInput };
 export type { AxAgentJudgeEvalOutput };
@@ -1548,8 +1574,10 @@ export type { AxAgentUsedMemoriesCallback };
 export type { AxAgentUsedMemory };
 export type { AxAgentUsedSkill };
 export type { AxAgentUsedSkillsCallback };
+export type { AxAgentWeakness };
 export type { AxAgentic };
 export type { AxAnyAgentic };
+export type { AxAppliedProposal };
 export type { AxAssertion };
 export type { AxAttempt };
 export type { AxAudioFormat };

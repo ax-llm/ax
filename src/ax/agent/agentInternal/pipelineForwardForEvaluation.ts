@@ -13,6 +13,7 @@ import {
   restoreDiscoveryPromptState,
   serializeDiscoveryPromptState,
 } from './discoveryHelpers.js';
+import { mergeFailureSignals } from './failureReport.js';
 import {
   beginPipelineSharedSession,
   buildDirectRespondExecutorRun,
@@ -100,6 +101,7 @@ export async function forwardPipelineForEvaluation<
     let turnCount = 0;
     let executorResult: any;
     let nonContextValues: Record<string, unknown>;
+    let executorFailureReport: unknown;
 
     const { nonCtxValues } = splitValues(task.input);
     const distillerRun = await p.distiller._runActorLoop(
@@ -145,11 +147,18 @@ export async function forwardPipelineForEvaluation<
       turnCount = executorRun.turnCount;
       executorResult = executorRun.executorResult;
       nonContextValues = executorRun.nonContextValues;
+      executorFailureReport = executorRun.failureReport;
     }
 
     const toolErrors = functionCalls
       .filter((call) => Boolean(call.error))
       .map((call) => `${call.qualifiedName}: ${call.error ?? 'unknown error'}`);
+    const failureSignals = mergeFailureSignals([
+      distillerRun.failureReport,
+      executorFailureReport as any,
+    ]);
+    const failureSignalsField =
+      failureSignals.length > 0 ? { failureSignals } : {};
 
     if (executorResult.type === 'askClarification') {
       return {
@@ -162,6 +171,7 @@ export async function forwardPipelineForEvaluation<
         functionCalls,
         toolErrors,
         turnCount,
+        ...failureSignalsField,
       };
     }
 
@@ -193,6 +203,7 @@ export async function forwardPipelineForEvaluation<
       functionCalls,
       toolErrors,
       turnCount,
+      ...failureSignalsField,
     };
   } finally {
     endPipelineSharedSession(p, sharedSession);

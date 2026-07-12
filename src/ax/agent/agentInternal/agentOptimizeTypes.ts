@@ -80,6 +80,12 @@ type AxAgentEvalPredictionShared = {
   toolErrors: string[];
   turnCount: number;
   usage?: AxProgramUsage[];
+  /**
+   * Deterministic failure signals harvested from the run's stages (merged
+   * distiller + executor), when the run produced any. Structured input for
+   * failure clustering in `agent.improve()`.
+   */
+  failureSignals?: readonly import('./failureReport.js').AxAgentFailureSignal[];
   recursiveTrace?: AxAgentRecursiveTraceNode;
   recursiveStats?: AxAgentRecursiveStats;
   recursiveSummary?: string;

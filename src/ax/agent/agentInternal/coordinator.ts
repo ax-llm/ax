@@ -63,6 +63,11 @@ import {
   formatFailureFeedback,
   mergeFailureSignals,
 } from './failureReport.js';
+import { improveAgent } from './improve/improve.js';
+import type {
+  AxAgentImproveOptions,
+  AxAgentImproveResult,
+} from './improve/improveTypes.js';
 import {
   createAgentOptimizeMetric,
   createOptimizationProgram,
@@ -906,6 +911,57 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.applyOptimization(result.optimizedProgram);
     }
     return result;
+  }
+
+  /**
+   * Failure-driven repair with regression-validated acceptance. Runs the
+   * dataset's train tasks as the failure corpus, clusters the failures
+   * deterministically, mines each cluster for a grounded weakness, proposes
+   * one bounded edit per weakness (a playbook lesson or an append-only
+   * instruction addendum — config suggestions are report-only), and accepts
+   * a proposal only when the train score improves by `minHeldInGain` AND the
+   * validation score does not drop by more than `epsilon`. Rejected
+   * proposals roll back exactly.
+   *
+   * Sits between {@link optimize} (metric maximization over a dataset) and
+   * {@link playbook} (per-run reflection): use it when the agent has known
+   * failing tasks to repair without eroding what already works. Proposals
+   * and judging need strong models — with weak teachers, mined weaknesses
+   * get discarded by the grounding verifier and little is accepted. Must not
+   * run concurrently with `forward()` on the same instance. TS-first: the 5
+   * non-TS ports do not ship improve() yet.
+   */
+  public async improve(
+    dataset: Readonly<AxAgentEvalDataset<IN>>,
+    options?: Readonly<AxAgentImproveOptions>
+  ): Promise<AxAgentImproveResult<OUT>> {
+    return improveAgent<IN, OUT>(this, dataset, {
+      ...options,
+      studentAI: options?.studentAI ?? (this.primaryAgent as any).ai,
+      judgeAI: options?.judgeAI ?? (this.primaryAgent as any).judgeAI,
+      teacherAI: options?.teacherAI ?? (this.primaryAgent as any).judgeAI,
+    });
+  }
+
+  /**
+   * Append a standing instruction addendum to the executor actor's prompt.
+   * A separate additive channel from `executorOptions.description` and the
+   * playbook injection, so the three never clobber each other. Used by
+   * accepted `improve()` instruction proposals; call it directly to re-apply
+   * a result's `appliedInstructionAddenda` after a restart. Process-local —
+   * not serialized into `AxAgentState`.
+   */
+  public addActorInstruction(addendum: string): void {
+    const trimmed = addendum.trim();
+    if (!trimmed) {
+      return;
+    }
+    const stage: any = this.executor;
+    stage.instructionAddenda = [
+      ...((stage.instructionAddenda as string[] | undefined) ?? []),
+      trimmed,
+    ];
+    stage._buildSplitPrograms?.();
   }
 
   /**

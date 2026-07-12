@@ -293,6 +293,34 @@
         "Port the subset validation as a responder validation rule (ports already run validation_retries: 2).",
         "Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir."
       ]
+    },
+    {
+      "id": "axir-2026-07-12-agent-improve-weakness-mining-repair",
+      "status": "open",
+      "title": "Port agent.improve() \u2014 failure-driven repair with regression-validated acceptance",
+      "createdAt": "2026-07-12",
+      "sourcePR": null,
+      "sourceCommit": null,
+      "tsPaths": [
+        "src/ax/agent/agentInternal/improve/improve.ts",
+        "src/ax/agent/agentInternal/improve/improveTypes.ts",
+        "src/ax/agent/agentInternal/improve/evalHarness.ts",
+        "src/ax/agent/agentInternal/improve/failureClusters.ts",
+        "src/ax/agent/agentInternal/improve/weaknessMiner.ts",
+        "src/ax/agent/agentInternal/improve/proposals.ts",
+        "src/ax/agent/agentInternal/coordinator.ts",
+        "src/ax/agent/agentInternal/pipelineForwardForEvaluation.ts",
+        "src/ax/agent/agentInternal/agentOptimizeTypes.ts",
+        "src/ax/agent/agentInternal/signatureBuilders.ts",
+        "src/ax/agent/AxAgent.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "TS agents gain agent.improve(): sequential batch eval over an AxAgentEvalDataset, deterministic failure clustering keyed by the run's structured failureSignals (also newly threaded onto AxAgentEvalPrediction), a grounded LLM weakness miner (evidence quotes must substring-match real run excerpts), bounded proposals on two surfaces (playbook lesson; executor instructionAddenda \u2014 a new additive prompt channel with addActorInstruction()), and a sequential accept gate (held-in gain + held-out non-regression, exact rollback). The five generated ports have none of this; ported agents cannot self-repair from failing task sets and their eval predictions lack failureSignals.",
+      "suggestedAxirWork": [
+        "Decide the port shape: full improve() loop vs consuming TS-produced playbook snapshots / instruction addenda.",
+        "Thread failureSignals through the ports' eval prediction shape and add the instructionAddenda compose to the actor definition builder in agent.axir.",
+        "Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir."
+      ]
     }
   ],
   "nonPortableExemptions": [
