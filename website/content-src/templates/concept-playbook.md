@@ -72,4 +72,28 @@ After each completed run that produced failure signals — error turns, repeated
 
 Lineage: Reflexion (reflect on failures, retry better) and ExpeL (persist lessons across tasks) — see the [Research Map](/research/).
 
+### Verified Evolve (TypeScript)
+
+`agent.playbook().evolve(dataset, options)` grows the same playbook from a task set instead of live traffic. It runs the train tasks, clusters the failures deterministically, mines each cluster for a grounded weakness (evidence quotes must literally appear in the failing runs — fabricated diagnoses are dropped), and proposes one playbook bullet per weakness. With `verify` (default on) a bullet is kept only when the train score improves by `minHeldInGain` AND the held-out (`validation`) score does not drop by more than `epsilon` — otherwise it rolls back exactly. `verify: false` applies the mined lessons without the gate.
+
+```typescript
+const result = await support.playbook().evolve(
+  { train, validation },
+  { metric, runsPerTask: 2 },
+);
+// result.baseline / result.final hold-in & held-out, result.outcomes per bullet
+```
+
+Mining and judging need strong models. On small task sets set `runsPerTask: 2` or `3` so accept decisions compare averaged scores, not a single lucky run. Lineage: Self-Harness, STOP, and the Darwin Gödel Machine (keep only what provably improves) — see the [Research Map](/research/).
+
+### One Playbook, Three Ways To Grow It
+
+| Mode | Call | Trust or proof |
+| --- | --- | --- |
+| Continuous | the construction `playbook` option — automatic per-run failure harvest | trust |
+| On-demand | `agent.playbook().update({ example, prediction, feedback })` | trust |
+| Batch verified | `agent.playbook().evolve(dataset)` — grow from a task set, keep only what verifies | proof |
+
+All three curate the one playbook the agent renders into its prompt; `agent.getPlaybook()` reads it, `getState()`/`load()` persist it. For tuning instructions and demos (not the playbook), use `agent.optimize(...)`.
+
 See [Agents]({{langRoot}}/agents/) and [agent() API]({{langRoot}}/api/agent/).

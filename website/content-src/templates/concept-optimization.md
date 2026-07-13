@@ -49,21 +49,21 @@ Use `agent.optimize(...)` for tool-use, clarification, delegation, and final-res
 
 {{optimizeAgentExample}}
 
-## Repair With agent.improve() (TypeScript)
+## Verified Playbook Learning (TypeScript)
 
-`agent.improve(dataset, options)` is the failure-driven counterpart to `agent.optimize(...)`: instead of maximizing a metric across the whole dataset, it repairs what is broken without eroding what works. It runs the train tasks as a failure corpus, clusters the failures deterministically by error signature, mines each cluster for a grounded weakness (evidence quotes must literally appear in the failing runs' excerpts — fabricated diagnoses are discarded), and proposes one bounded edit per weakness: a playbook lesson or a standing instruction addendum; configuration suggestions are report-only. A proposal is accepted only when the train score improves by `minHeldInGain` AND the validation score does not drop by more than `epsilon` — rejected proposals roll back exactly. The repair engine is an implementation detail hidden behind the method, exactly as `optimize(...)` hides its optimizer.
+Failure-driven repair lives on the playbook, not on a separate method: `agent.playbook().evolve(dataset, options)` grows the agent's playbook from a task set. It runs the train tasks as a failure corpus, clusters the failures deterministically by error signature, mines each cluster for a grounded weakness (evidence quotes must literally appear in the failing runs' excerpts — fabricated diagnoses are discarded), and proposes one bounded playbook bullet per weakness. With `verify` (default on) a bullet is kept only when the train score improves by `minHeldInGain` AND the validation score does not drop by more than `epsilon` — rejected bullets roll back exactly. `verify: false` applies the mined lessons without the gate (trust-batch). The engine is an implementation detail hidden behind the method, exactly as `optimize(...)` hides its optimizer.
 
-Mining and judging need strong models; with weak teachers, weaknesses fail the grounding check and little is accepted. On small task sets, set `runsPerTask: 2` or `3` so accept decisions compare averaged scores instead of trusting a single (possibly lucky) run per task. TS-first: the five generated language ports do not ship `improve()` yet.
+Mining and judging need strong models; with weak teachers, weaknesses fail the grounding check and little is accepted. On small task sets, set `runsPerTask: 2` or `3` so accept decisions compare averaged scores instead of trusting a single (possibly lucky) run per task. TS-first: the five generated language ports do not ship playbook evolve yet.
 
 Lineage: Self-Harness (mine weaknesses, validate edits), STOP (recursive improvement needs strong models), and the Darwin Gödel Machine (keep only what provably improves) — see the [Research Map](/research/).
 
-### optimize() vs playbook() vs improve()
+### optimize() vs the playbook
 
 | Use | When |
 | --- | --- |
 | `agent.optimize(...)` | Maximize a metric over a labeled dataset by tuning instructions and demos |
-| `agent.playbook(...)` / the `playbook` option | Accumulate reusable lessons continuously — including automatically from each run's failures |
-| `agent.improve(...)` | Repair known failing tasks with validated, rollback-safe edits |
+| The `playbook` option / `agent.playbook().update(...)` | Accumulate reusable lessons continuously (trust) — automatically from each run's failures |
+| `agent.playbook().evolve(dataset)` | Grow the playbook from a task set, keeping only verified, rollback-safe lessons |
 
 ## Metrics And Judges
 
