@@ -143,7 +143,7 @@ This page is not an endorsement wall. It is a map from public research ideas to 
       <div class="paper-title-row"><span class="paper-logo-mark paper-logo-arxiv" aria-label="arXiv"><span>ar</span><strong>X</strong><span>iv</span></span><h2><a href="https://arxiv.org/abs/2310.02304">Self-Taught Optimizer (STOP): Recursively Self-Improving Code Generation</a></h2></div>
     <p><strong>Authors:</strong> Eric Zelikman, Eliana Lorch, Lester Mackey, Adam Tauman Kalai.</p>
     <p><strong>Year:</strong> 2023.</p>
-    <p><strong>Why it matters for Ax:</strong> STOP demonstrated recursive self-improvement of scaffolding — and that it only pays off with capable base models. That finding shapes <code>agent.improve()</code>: mining and judging are documented as strong-model work, and a deterministic grounding verifier discards diagnoses whose evidence quotes are not verbatim from the failing runs.</p>
+    <p><strong>Why it matters for Ax:</strong> STOP demonstrated recursive self-improvement of scaffolding — and that it only pays off with capable base models. That finding shapes <code>agent.playbook().evolve()</code>: mining and judging are documented as strong-model work, and a deterministic grounding verifier discards diagnoses whose evidence quotes are not verbatim from the failing runs.</p>
     </div>
     <div class="paper-item-meta">
       <a class="paper-arxiv-link" href="https://arxiv.org/abs/2310.02304">arXiv 2310.02304</a>
@@ -156,7 +156,7 @@ This page is not an endorsement wall. It is a map from public research ideas to 
       <div class="paper-title-row"><span class="paper-logo-mark paper-logo-arxiv" aria-label="arXiv"><span>ar</span><strong>X</strong><span>iv</span></span><h2><a href="https://arxiv.org/abs/2505.22954">Darwin Gödel Machine: Open-Ended Evolution of Self-Improving Agents</a></h2></div>
     <p><strong>Authors:</strong> Jenny Zhang, Shengran Hu, Cong Lu, Robert Lange, Jeff Clune.</p>
     <p><strong>Year:</strong> 2025.</p>
-    <p><strong>Why it matters for Ax:</strong> The DGM keeps only self-modifications that empirically improve benchmark scores. <code>agent.improve()</code> applies the same discipline to one agent: an edit lands only when the failing tasks improve and a held-out set does not regress; otherwise it rolls back exactly.</p>
+    <p><strong>Why it matters for Ax:</strong> The DGM keeps only self-modifications that empirically improve benchmark scores. <code>agent.playbook().evolve()</code> applies the same discipline to one agent: a playbook bullet lands only when the failing tasks improve and a held-out set does not regress; otherwise it rolls back exactly.</p>
     </div>
     <div class="paper-item-meta">
       <a class="paper-arxiv-link" href="https://arxiv.org/abs/2505.22954">arXiv 2505.22954</a>
@@ -168,7 +168,7 @@ This page is not an endorsement wall. It is a map from public research ideas to 
       <div class="paper-title-row"><span class="paper-logo-mark paper-logo-arxiv" aria-label="arXiv"><span>ar</span><strong>X</strong><span>iv</span></span><h2><a href="https://arxiv.org/abs/2606.09498">Self-Harness: Harnesses That Improve Themselves</a></h2></div>
     <p><strong>Authors:</strong> Hangfan Zhang, Shao Zhang, Kangcong Li, Chen Zhang, Yang Chen, Yiqun Zhang, Lei Bai, Shuyue Hu.</p>
     <p><strong>Year:</strong> 2026.</p>
-    <p><strong>Why it matters for Ax:</strong> Self-Harness runs weakness mining over execution traces, proposes minimal harness edits, and accepts them only after regression validation. <code>agent.improve()</code> is that loop productized at the single-agent level: deterministic failure clustering, a grounded weakness miner that sees what the agent actually did, bounded playbook/instruction proposals, and a sequential accept gate with exact rollback.</p>
+    <p><strong>Why it matters for Ax:</strong> Self-Harness runs weakness mining over execution traces, proposes minimal harness edits, and accepts them only after regression validation. <code>agent.playbook().evolve()</code> is that loop productized at the single-agent level: deterministic failure clustering, a grounded weakness miner that sees what the agent actually did, bounded playbook-bullet proposals, and a sequential accept gate with exact rollback.</p>
     </div>
     <div class="paper-item-meta">
       <a class="paper-arxiv-link" href="https://arxiv.org/abs/2606.09498">arXiv 2606.09498</a>
@@ -180,7 +180,7 @@ This page is not an endorsement wall. It is a map from public research ideas to 
       <div class="paper-title-row"><h2><a href="https://lilianweng.github.io/posts/2026-07-04-harness/">Harness Engineering for Self-Improvement</a></h2></div>
     <p><strong>Author:</strong> Lilian Weng.</p>
     <p><strong>Year:</strong> 2026 (Lil'Log).</p>
-    <p><strong>Why it matters for Ax:</strong> A survey of the harness-engineering design space — workflow loops, persistent memory, context engineering, and self-improving harnesses. It maps directly onto Ax's RLM/ACE/GEPA/PEEK lineage above and motivated three shipped agent features: playbook failure learning, validated citations, and <code>agent.improve()</code>.</p>
+    <p><strong>Why it matters for Ax:</strong> A survey of the harness-engineering design space — workflow loops, persistent memory, context engineering, and self-improving harnesses. It maps directly onto Ax's RLM/ACE/GEPA/PEEK lineage above and motivated three shipped agent features: playbook failure learning, validated citations, and verified playbook evolution (<code>agent.playbook().evolve()</code>).</p>
     </div>
     <div class="paper-item-meta">
       <a class="paper-arxiv-link" href="https://lilianweng.github.io/posts/2026-07-04-harness/">Lil'Log · 2026</a>

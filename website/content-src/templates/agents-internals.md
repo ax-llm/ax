@@ -100,6 +100,6 @@ Measured behavior — the reproducible grounded-audit example, the comparison ag
 - **GEPA** — reflective prompt evolution over a Pareto frontier.
 - **Reflexion / ExpeL** — reflect on failed attempts and persist the lessons across runs; the lineage behind the agent `playbook` option's run-end failure learning.
 - **Self-RAG / Attributed QA** — citation-aware generation and measurable attribution; the lineage behind validated `citations`.
-- **Self-Harness / STOP / Darwin Gödel Machine** — mine weaknesses from real traces and keep only self-modifications that provably improve; the lineage behind `agent.improve()`'s regression-gated repair.
+- **Self-Harness / STOP / Darwin Gödel Machine** — mine weaknesses from real traces and keep only self-modifications that provably improve; the lineage behind `agent.playbook().evolve()`'s regression-gated verify mode.
 
 See the full [Research Map](/research/) for papers and how each maps to Ax.

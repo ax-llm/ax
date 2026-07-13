@@ -45,6 +45,7 @@ Pick the optimization shape from the user's need:
 - "Make the whole agent better" -> use the default actor target first; only broaden target selection when the user clearly wants that extra scope.
 - "Tune child-agent delegation" -> use tasks that exercise when to call the child agent, when to call normal tools, and when to answer directly.
 - "Compare before and after" -> include a held-out task plus artifact save/load and replay.
+- "Repair the tasks it keeps failing, without eroding what works" -> this is playbook territory, not GEPA: use `agent.playbook().evolve(dataset)` (mines failures into verified playbook bullets under a held-out gate). See `ax-playbook`. `optimize(...)` maximizes a metric by tuning instructions and demos; `evolve(...)` grows the playbook.
 
 Choose task design carefully:
 

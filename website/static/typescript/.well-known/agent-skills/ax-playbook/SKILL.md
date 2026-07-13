@@ -68,13 +68,23 @@ playbook(prodProgram, { studentAI }).load(snapshot).applyTo(prodProgram);
 
 ## Agents
 
+`a.playbook({ target })` returns an agent-aware `AxAgentPlaybook` (the stage `AxPlaybook` handle plus an agent-level `evolve`). The one playbook the agent renders into its prompt grows three ways:
+
+- Continuous (trust): the construction-time `playbook` option (see `ax-agent`) harvests each run's failures automatically — no dataset.
+- On-demand (trust): `apb.update({ example, prediction, feedback })`.
+- Batch verified (proof): `apb.evolve(dataset, options)` runs the full agent over a task set, mines failure clusters, and proposes one playbook bullet per weakness; with `verify` (default on) it keeps a bullet only if held-in improves AND the `validation` held-out set does not regress, else exact rollback. `verify: false` = trust-batch. Bullets-only.
+
 ```typescript
 const a = agent('ticket:string -> reply:string', { ai });
-const apb = a.playbook({ target: 'actor' }); // 'actor' (default) or 'responder'
-await apb.update({ example, prediction, feedback }); // injected into the live stage prompt
+const apb = a.playbook({ target: 'actor' }); // agent-aware handle; 'actor' (default) or 'responder'
+await apb.update({ example, prediction, feedback }); // online: injected into the live stage prompt
+const result = await apb.evolve(
+  { train, validation }, // AxAgentEvalDataset
+  { metric, runsPerTask: 2 }, // verify:true by default
+);
 ```
 
-Offline `evolve(...)` on an agent stage scores that stage in isolation; for full-pipeline tuning of agent instructions and demos use `agent.optimize(...)` (GEPA).
+The agent-level `evolve(dataset, options)` is distinct from the program-level `pb.evolve(examples, metric)` above: it takes an `AxAgentEvalDataset` plus options, runs the whole pipeline, and returns baseline/final held-in & held-out with per-bullet outcomes (no `{ bestScore }`). For full-pipeline tuning of agent instructions and demos (not the playbook) use `agent.optimize(...)` (GEPA).
 
 ## Playbook vs optimize()
 

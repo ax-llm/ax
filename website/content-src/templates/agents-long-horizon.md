@@ -74,7 +74,7 @@ Long-horizon behavior is tunable offline. `agent.optimize(...)` evolves the acto
 
 {{agentOptimizeExample}}
 
-Agents can also learn from their own failures at run time, with no dataset: attach a playbook at construction (TypeScript `playbook` option) and each run's error turns, dead-ends, and failing tool calls are curated into durable avoidance rules that ride the next run's prompt. See [Playbook]({{langRoot}}/concepts/playbook/). And when you have a concrete set of failing tasks, `agent.improve(...)` (TypeScript) mines them for grounded weaknesses and applies only repairs that provably help without regressing a held-out set — see [Optimization]({{langRoot}}/concepts/optimization/).
+Agents can also learn from their own failures at run time, with no dataset: attach a playbook at construction (TypeScript `playbook` option) and each run's error turns, dead-ends, and failing tool calls are curated into durable avoidance rules that ride the next run's prompt. See [Playbook]({{langRoot}}/concepts/playbook/). And when you have a concrete set of failing tasks, `agent.playbook().evolve(dataset)` (TypeScript) mines them for grounded weaknesses and keeps only playbook bullets that provably help without regressing a held-out set — see [Playbook]({{langRoot}}/concepts/playbook/).
 
 ## Observability
 

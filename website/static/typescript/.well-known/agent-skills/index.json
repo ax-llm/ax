@@ -48,7 +48,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.",
       "url": "ax-agent/SKILL.md",
-      "digest": "sha256:ca31f31ca6f2bc2cfd5d74bc914fbe8823003c1233e41caa8f8872c830c08b7e"
+      "digest": "sha256:4428980d2cec16413be19043b4e9fa6535f4a91824de4624e3575168b2e5d7cd"
     },
     {
       "name": "ax-agent-rlm",
@@ -76,7 +76,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent tuning and evaluation code using @ax-llm/ax. Use when the user asks about agent.optimize(...), judgeOptions, eval datasets, optimization targets, saved optimizedProgram artifacts, or agent optimization guidance.",
       "url": "ax-agent-optimize/SKILL.md",
-      "digest": "sha256:1b65e7cc0e989e524e10c2d7da7ac14f6ea7073fd2794bf7738ad806d656aa26"
+      "digest": "sha256:1819a136c73e47a5e259ace3320197b38774ee542d42ad1b235473abad72cca4"
     },
     {
       "name": "ax-agent-context",
@@ -104,7 +104,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct playbook code using @ax-llm/ax. Use when the user asks about playbook(), AxPlaybook, context playbooks, evolving context, ACE / Agentic Context Engineering, agent.playbook(), or growing/applying task knowledge offline and online with evolve() and update().",
       "url": "ax-playbook/SKILL.md",
-      "digest": "sha256:6c3ccac210aac3c28e821457db3a522332ccb3736877354cdd7331fd871486a5"
+      "digest": "sha256:6ec598facbf11b36ce1176224de6538e88d44a610393a20e5ff0f537c65b5afb"
     }
   ]
 }
