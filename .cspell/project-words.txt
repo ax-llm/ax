@@ -127,7 +127,6 @@ MCPJSON
 MCPJSONRPC
 MCPO
 MCPSSRF
-memor
 Mgmt
 minibatch
 minibatches
