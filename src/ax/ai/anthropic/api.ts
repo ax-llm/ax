@@ -504,8 +504,11 @@ class AxAIAnthropicImpl
 
     // Model detection helpers
     const isOpus45 = (m: string) => m.includes('claude-opus-4-5');
-    const isOpus47Plus = isClaudeOpus47OrLater(modelStr);
-    const samplingUnsupported = isOpus47Plus;
+    // Every adaptive-thinking model rejects sampling params, not just Opus 4.7+.
+    // Anthropic deprecated `temperature` on these models: any value other than
+    // the default is an unconditional 400 ("`temperature` is deprecated for this
+    // model."), regardless of whether effort or a thinking block is on the wire.
+    const samplingUnsupported = isAdaptiveThinkingModel(modelStr);
 
     // Handle thinking configuration
     let thinkingWire: AxAIAnthropicThinkingWire | undefined;
