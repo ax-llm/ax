@@ -252,32 +252,39 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
       tasks: normalized.train,
     });
     let revalHeldOut: number | undefined;
+    let revalHeldOutExhausted = false;
     if (normalized.validation?.length) {
-      revalHeldOut = (
-        await runAgentEvalBatch<IN, OUT>({
-          ...batchArgs,
-          tasks: normalized.validation,
-        })
-      ).mean;
+      const revalHeldOutBatch = await runAgentEvalBatch<IN, OUT>({
+        ...batchArgs,
+        tasks: normalized.validation,
+      });
+      revalHeldOut = revalHeldOutBatch.mean;
+      revalHeldOutExhausted = revalHeldOutBatch.exhausted;
     }
 
-    const gainOk = revalTrain.mean - heldIn >= minHeldInGain;
+    // A re-eval that exhausted mid-way produced a subset mean — comparing it
+    // to the full-set baseline is apples-to-oranges, so refuse the accept.
+    // The pre-check above normally prevents this; this is belt-and-suspenders.
+    const revalComplete = !revalTrain.exhausted && !revalHeldOutExhausted;
+    const gainOk = revalComplete && revalTrain.mean - heldIn >= minHeldInGain;
     const heldOutOk =
       revalHeldOut === undefined ||
       heldOut === undefined ||
       revalHeldOut - heldOut >= -epsilon;
-    const accept = gainOk && heldOutOk;
+    const accept = revalComplete && gainOk && heldOutOk;
 
     outcomes.push({
       proposal,
       accepted: accept,
-      reason: accept
-        ? heldOut === undefined
-          ? 'held-in improved (no held-out set provided — consider one)'
-          : 'held-in improved, held-out non-regressing'
-        : !gainOk
-          ? `held-in gain ${(revalTrain.mean - heldIn).toFixed(3)} below ${minHeldInGain}`
-          : `held-out regressed ${((revalHeldOut ?? 0) - (heldOut ?? 0)).toFixed(3)}`,
+      reason: !revalComplete
+        ? 'metric_budget exhausted during re-evaluation'
+        : accept
+          ? heldOut === undefined
+            ? 'held-in improved (no held-out set provided — consider one)'
+            : 'held-in improved, held-out non-regressing'
+          : !gainOk
+            ? `held-in gain ${(revalTrain.mean - heldIn).toFixed(3)} below ${minHeldInGain}`
+            : `held-out regressed ${((revalHeldOut ?? 0) - (heldOut ?? 0)).toFixed(3)}`,
       heldIn: { before: heldIn, after: revalTrain.mean },
       ...(revalHeldOut !== undefined && heldOut !== undefined
         ? { heldOut: { before: heldOut, after: revalHeldOut } }

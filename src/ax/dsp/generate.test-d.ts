@@ -1,4 +1,4 @@
-import { ax, AxGen, f, s } from '../index.js';
+import { AxGen, ax, f, s } from '../index.js';
 
 // Default thought key should be `thought?: string`
 {

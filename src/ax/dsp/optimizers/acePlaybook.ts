@@ -193,6 +193,18 @@ export function updateBulletFeedback(
  * appended to a system prompt.
  */
 export function renderPlaybook(playbook: Readonly<AxACEPlaybook>): string {
+  // An empty playbook (no bullets, no description) renders to nothing, so it
+  // injects nothing into a program's context — a bare "## Context Playbook"
+  // header would otherwise pollute the prompt (and perturb the prompt cache)
+  // after e.g. a rolled-back improve() proposal loads an empty snapshot.
+  const totalBullets = Object.values(playbook.sections).reduce(
+    (n, bullets) => n + bullets.length,
+    0
+  );
+  if (totalBullets === 0 && !playbook.description) {
+    return '';
+  }
+
   const header = playbook.description
     ? `## Context Playbook\n${playbook.description.trim()}\n`
     : '## Context Playbook\n';

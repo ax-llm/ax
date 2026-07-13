@@ -272,10 +272,20 @@ describe('_updatePlaybookFromPipelineState', () => {
               prediction: {},
               score: 0,
               generatorOutput: {},
+              curator: { operations: [] },
               timestamp: new Date(0).toISOString(),
             },
           ],
-          history: [],
+          // The earlier update curated the surviving `x-0` bullet.
+          history: [
+            {
+              source: 'online' as const,
+              epoch: -1,
+              exampleIndex: 0,
+              operations: [],
+              updatedBulletIds: ['x-0'],
+            },
+          ],
         },
       },
     });
@@ -443,8 +453,25 @@ describe('collectCoveredFailureSignatures', () => {
     ).toBe(false);
   });
 
-  it('keeps curator no-ops and legacy events covered', () => {
-    const noOp = {
+  it('covers a deliberate curator no-op but re-learns a transient failure', () => {
+    // Deliberate decline: curator ran, produced no ops (no delta). Covered —
+    // don't re-spend on a signature the curator already judged.
+    const deliberateNoOp = {
+      playbook: pbWith([]),
+      artifact: {
+        playbook: pbWith([]),
+        feedback: [{ ...event([BOOM]), curator: { operations: [] } }],
+        history: [],
+      },
+    };
+    expect(
+      collectCoveredFailureSignatures(deliberateNoOp as any).has(BOOM)
+    ).toBe(true);
+
+    // Transient reflector/curator failure: no delta AND no curator on the
+    // event. NOT covered — one bad LLM call must not permanently suppress the
+    // lesson.
+    const transientFailure = {
       playbook: pbWith([]),
       artifact: {
         playbook: pbWith([]),
@@ -452,8 +479,12 @@ describe('collectCoveredFailureSignatures', () => {
         history: [],
       },
     };
-    expect(collectCoveredFailureSignatures(noOp as any).has(BOOM)).toBe(true);
+    expect(
+      collectCoveredFailureSignatures(transientFailure as any).has(BOOM)
+    ).toBe(false);
+  });
 
+  it('keeps legacy events (delta without updatedBulletIds) covered', () => {
     const legacy = {
       playbook: pbWith([]),
       artifact: {

@@ -8,7 +8,11 @@ import {
 } from './failureClusters.js';
 import type { AxAgentImproveRunRecord } from './improveTypes.js';
 import { buildProposal } from './proposals.js';
-import { buildFailureExcerpt, verifyEvidenceQuotes } from './weaknessMiner.js';
+import {
+  buildFailureExcerpt,
+  coerceToArray,
+  verifyEvidenceQuotes,
+} from './weaknessMiner.js';
 
 const BOOM = 'TypeError: boom is not a function';
 
@@ -206,6 +210,20 @@ describe('evalHarness', () => {
 });
 
 describe('weaknessMiner grounding', () => {
+  it('coerceToArray wraps a scalar instead of dropping it (structured-JSON quirk)', () => {
+    expect(coerceToArray(['a', 'b'])).toEqual(['a', 'b']);
+    expect(coerceToArray('single quote')).toEqual(['single quote']);
+    expect(coerceToArray(undefined)).toEqual([]);
+    expect(coerceToArray(null)).toEqual([]);
+    // A single grounded quote returned as a scalar must still verify.
+    expect(
+      verifyEvidenceQuotes(
+        coerceToArray('brokenHelper is not defined'),
+        'x brokenHelper is not defined y'
+      )
+    ).toEqual(['brokenHelper is not defined']);
+  });
+
   it('keeps only quotes that appear (whitespace-insensitively) in the excerpts', () => {
     const excerpts = `--- run 1 ---\nTurn 1\n${BOOM}\n  at step2()`;
     expect(

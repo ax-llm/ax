@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { f, AxSignature } from './sig.js';
+import { AxSignature, f } from './sig.js';
 
 describe('String vs Fluent API Type Equivalence', () => {
   it('should create equivalent signatures using both string and fluent APIs', () => {

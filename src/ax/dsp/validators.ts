@@ -1,9 +1,9 @@
-import type { AxField } from './sig.js';
 import {
   createInvalidURLError,
-  createStringConstraintError,
   createNumberConstraintError,
+  createStringConstraintError,
 } from './errors.js';
+import type { AxField } from './sig.js';
 
 /**
  * Validate URL format

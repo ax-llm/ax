@@ -102,8 +102,8 @@ export type AxAgentImproveOptions = {
   maxProposals?: number;
   /**
    * Budget counting (agent run + judge) pairs across baseline and
-   * re-evaluations. Default `max(100, (maxProposals + 1) * datasetSize *
-   * runsPerTask)`.
+   * re-evaluations. Default `max(100, (maxProposals + 1) * (train + validation)
+   * * runsPerTask)`.
    */
   maxMetricCalls?: number;
   /**

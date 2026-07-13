@@ -23,10 +23,17 @@ export type AxAppliedProposal = {
   rollback: () => void;
 };
 
-/** Current standing instruction text steering the executor actor. */
+/**
+ * Current standing instruction text steering the executor actor — the same
+ * three channels the actor definition composes: the optimizable
+ * `stageInstruction`, the user/playbook `executorDescription`, and any
+ * `instructionAddenda`. Fed to the miner so it never proposes an addendum
+ * that duplicates or contradicts what already steers the agent.
+ */
 export function actorInstructionText(agent: any): string | undefined {
   const stage: any = agent.executor;
   const parts = [
+    stage?.stageInstruction,
     stage?.executorDescription,
     ...((stage?.instructionAddenda as string[] | undefined) ?? []),
   ].filter(

@@ -215,6 +215,78 @@ describe('agent citations', () => {
     expect(res.evidenceCitations).toEqual(['MEM-7']);
   });
 
+  it('accepts NUMERIC record ids (DB primary keys)', async () => {
+    const { ag, ai } = makeAgent(
+      {
+        distiller: ['await final("Answer the question", {})'],
+        executor: [
+          'await final("Answer the question", { rows: [{ id: 42, content: "row" }] })',
+        ],
+        responder: ['Answer: row 42.\nEvidence Citations: ["42"]'],
+      },
+      true
+    );
+    const res = await ag.forward(ai, { question: 'q' });
+    expect(res.evidenceCitations).toEqual(['42']);
+  });
+
+  it('accepts ids in a keyed object-of-records (not just arrays)', async () => {
+    const { ag, ai } = makeAgent(
+      {
+        distiller: ['await final("Answer the question", {})'],
+        executor: [
+          'await final("Answer the question", { docs: { a: { id: "DOC-1" }, b: { id: "DOC-2" } } })',
+        ],
+        responder: [
+          'Answer: see docs.\nEvidence Citations: ["DOC-1", "DOC-2"]',
+        ],
+      },
+      true
+    );
+    const res = await ag.forward(ai, { question: 'q' });
+    expect(res.evidenceCitations).toEqual(['DOC-1', 'DOC-2']);
+  });
+
+  it('rejects fabricated citations on an empty-{} evidence run', async () => {
+    const { ag, ai, counts } = makeAgent(
+      {
+        distiller: ['await final("Answer the question", {})'],
+        executor: ['await final("Answer the question", {})'],
+        responder: [
+          'Answer: plain.\nEvidence Citations: ["made_up"]',
+          'Answer: plain.',
+        ],
+      },
+      true
+    );
+    const res = await ag.forward(ai, { question: 'q' });
+    expect(res.evidenceCitations).toBeUndefined();
+    expect(counts.responderCalls).toBe(2);
+  });
+
+  it('with includeMemoryIds:false the field description does not invite record ids', () => {
+    const { ag } = makeAgent(
+      { distiller: ['await final("t", {})'], executor: [], responder: [] },
+      { includeMemoryIds: false }
+    );
+    const field = ag.responder
+      .getSignature()
+      .getOutputFields()
+      .find((f: any) => f.name === 'evidenceCitations');
+    expect(field?.description).not.toMatch(/memor(y|ies)/i);
+    expect(field?.description).toContain('top-level keys');
+  });
+
+  it('gives a helpful error when citations.field is the reserved contextData', () => {
+    const { ai } = scriptedAI({ distiller: [''], responder: [] });
+    expect(() =>
+      agent('question:string -> answer:string', {
+        ai,
+        citations: { field: 'contextData' },
+      })
+    ).toThrow(/reserved responder evidence input/);
+  });
+
   it('hidden surface strips the field and reports via onCitations', async () => {
     const onCitations = vi.fn();
     const { ag, ai } = makeAgent(

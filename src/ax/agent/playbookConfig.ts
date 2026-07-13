@@ -136,12 +136,18 @@ export function isPlaybookSnapshotSeed(
  * Failure signatures the playbook still covers, for the run-end dedupe gate.
  *
  * A signature is covered while the update event that curated it is still
- * "alive": either the curator explicitly produced no operations (declined —
- * don't re-spend on the same signature), the event predates
+ * "alive": either the curator ran and deliberately produced no operations
+ * (declined — don't re-spend on the same signature), the event predates
  * `updatedBulletIds` tracking (legacy snapshots keep the old always-covered
  * behavior), or at least one bullet that update created/updated still exists
  * in the playbook. Once every such bullet has been pruned, coverage lapses
  * and the signature can be re-learned.
+ *
+ * A transient reflector/curator failure is NOT treated as a deliberate
+ * decline: it leaves no delta AND no `curator` on the feedback event (the
+ * ACE engine sets `curator` only when the curator actually ran), so the
+ * signature stays uncovered and re-learns on the next run instead of being
+ * permanently suppressed by one bad LLM call.
  */
 export function collectCoveredFailureSignatures(
   snapshot: Readonly<AxPlaybookSnapshot>
@@ -163,13 +169,15 @@ export function collectCoveredFailureSignatures(
     const deltas = history.filter(
       (entry) => entry.source === 'online' && entry.exampleIndex === index
     );
+    const curatorRan = (event as { curator?: unknown }).curator !== undefined;
     const alive =
-      deltas.length === 0 ||
-      deltas.some(
-        (entry) =>
-          entry.updatedBulletIds === undefined ||
-          entry.updatedBulletIds.some((id) => liveBulletIds.has(id))
-      );
+      deltas.length === 0
+        ? curatorRan
+        : deltas.some(
+            (entry) =>
+              entry.updatedBulletIds === undefined ||
+              entry.updatedBulletIds.some((id) => liveBulletIds.has(id))
+          );
     if (alive) {
       for (const sig of sigs) {
         covered.add(String(sig));

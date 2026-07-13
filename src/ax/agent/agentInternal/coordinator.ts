@@ -62,6 +62,7 @@ import {
   type AxAgentFailureReport,
   type AxAgentFailureSignal,
   formatFailureFeedback,
+  MAX_FEEDBACK_SIGNALS,
   mergeFailureSignals,
 } from './failureReport.js';
 import { improveAgent } from './improve/improve.js';
@@ -312,7 +313,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const responderOutputFields = this.citationsResolved.enabled
       ? appendCitationsOutputField(
           allOutputFields,
-          this.citationsResolved.field
+          this.citationsResolved.field,
+          this.citationsResolved.includeMemoryIds
         )
       : allOutputFields;
 
@@ -761,7 +763,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const responderOutputFields = this.citationsResolved.enabled
       ? appendCitationsOutputField(
           allOutputFields,
-          this.citationsResolved.field
+          this.citationsResolved.field,
+          this.citationsResolved.includeMemoryIds
         )
       : allOutputFields;
 
@@ -1151,6 +1154,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           return skip('all_duplicates', signals);
         }
       }
+
+      // Only the signals actually shown to the curator can produce a bullet,
+      // so record coverage for exactly that set — recording the uncapped set
+      // would mark overflow signatures covered without ever presenting them.
+      fresh = fresh.slice(0, MAX_FEEDBACK_SIGNALS);
 
       const task =
         typeof state.executorInputs?.executorRequest === 'string'

@@ -225,11 +225,16 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * subset-only against those ids — a violation re-prompts the responder via
    * the standard validation-retry loop; runs without evidence skip
    * validation. Pass an object to rename the field, hide it from the result
-   * (`surface: 'hidden'`), or observe citations via `onCitations`. The
-   * guarantee is existence, not entailment: the model cannot cite evidence
-   * it never collected, but validation does not check that the answer's
-   * claims match the cited evidence's content. TS-first: the 5 non-TS ports
-   * do not ship citations yet.
+   * (`surface: 'hidden'`), or observe citations via `onCitations`. Valid ids
+   * are the evidence object's top-level keys plus (with `includeMemoryIds`,
+   * default on) the `id` of records nested inside it — arrays of records,
+   * keyed maps of records, or single records, with string or numeric ids. A
+   * run whose evidence object is empty rejects any citation; a run with no
+   * evidence object at all skips validation. The guarantee is existence, not
+   * entailment: the model cannot cite evidence it never collected, but
+   * validation does not check that the answer's claims match the cited
+   * evidence's content. TS-first: the 5 non-TS ports do not ship citations
+   * yet.
    */
   citations?: AxAgentCitations;
 

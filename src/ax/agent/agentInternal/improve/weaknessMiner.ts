@@ -108,6 +108,17 @@ export function buildFailureExcerpt(
   return actionLog.slice(start, start + maxChars);
 }
 
+/**
+ * Coerce a model-produced array field to an array. The structured-JSON
+ * extraction path passes a scalar through as-is, so an array-typed output
+ * (evidenceQuotes / configRecommendations) can arrive as a single value —
+ * wrap it (like the ACE reflector's bulletTags guard) rather than dropping
+ * it. Exported for testing.
+ */
+export function coerceToArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : value != null ? [value] : [];
+}
+
 const collapse = (text: string) => text.replace(/\s+/g, ' ').trim();
 
 /**
@@ -187,8 +198,9 @@ export async function mineWeakness(args: {
     currentPlaybook: args.currentPlaybook,
   });
 
+  // A scalar evidenceQuotes must be wrapped, not dropped — see coerceToArray.
   const evidenceQuotes = verifyEvidenceQuotes(
-    Array.isArray(mined.evidenceQuotes) ? mined.evidenceQuotes : [],
+    coerceToArray((mined as { evidenceQuotes?: unknown }).evidenceQuotes),
     excerpts
   );
   if (evidenceQuotes.length === 0) {
@@ -212,8 +224,8 @@ export async function mineWeakness(args: {
     proposedGuidance: String(mined.proposedGuidance ?? ''),
     evidenceQuotes,
     taskIds: args.cluster.taskIds,
-    configRecommendations: Array.isArray(mined.configRecommendations)
-      ? mined.configRecommendations.map(String)
-      : [],
+    configRecommendations: coerceToArray(mined.configRecommendations).map(
+      String
+    ),
   };
 }

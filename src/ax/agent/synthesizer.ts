@@ -112,6 +112,9 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
       if (invalid.length === 0) {
         return true;
       }
+      if (keys.size === 0) {
+        return `This answer has no evidence to cite — leave ${citations.field} empty.`;
+      }
       return (
         `Invalid ${citations.field} entries: ${invalid.join(', ')}. ` +
         `Cite only evidence ids that exist: ${[...keys].join(', ')} — or leave the field empty.`
@@ -121,9 +124,13 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
 
   /**
    * Ids the responder may cite this call: the evidence object's top-level
-   * keys plus (when configured) the `id` of record arrays one level deep —
-   * the shape `recall(...)` memories arrive in. Returns `undefined` when the
-   * payload carries no citable evidence.
+   * keys plus (when `includeMemoryIds`) the `id` of any records nested inside
+   * it — arrays of records (the `recall()` memories shape), keyed maps of
+   * records, or single records — with string OR numeric ids (DB keys are
+   * commonly numeric). Returns `undefined` only when the payload carries no
+   * evidence contract at all (absent / non-object / array); a plain object —
+   * even empty `{}` — returns its (possibly empty) key set so the assert
+   * rejects citations fabricated on an evidence-less run.
    */
   private _computeCitationKeys(
     executorResult: AxAgentExecutorResultPayload
@@ -135,21 +142,37 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
     const keys = new Set(Object.keys(evidence as Record<string, unknown>));
     if (this.init.citations?.includeMemoryIds) {
       for (const value of Object.values(evidence as Record<string, unknown>)) {
-        if (!Array.isArray(value)) {
-          continue;
-        }
-        for (const item of value) {
-          if (
-            item &&
-            typeof item === 'object' &&
-            typeof (item as { id?: unknown }).id === 'string'
-          ) {
-            keys.add((item as { id: string }).id);
-          }
-        }
+        this._collectNestedIds(value, keys, 2);
       }
     }
-    return keys.size > 0 ? keys : undefined;
+    return keys;
+  }
+
+  /**
+   * Collect every `id` (string or number, stringified) reachable within
+   * `depth` levels of `node`, descending through arrays and plain objects.
+   * Bounded so a deeply nested / cyclic evidence object can't spin.
+   */
+  private _collectNestedIds(
+    node: unknown,
+    out: Set<string>,
+    depth: number
+  ): void {
+    if (depth < 0 || !node || typeof node !== 'object') {
+      return;
+    }
+    const id = (node as { id?: unknown }).id;
+    if (typeof id === 'string' || typeof id === 'number') {
+      out.add(String(id));
+    }
+    const children = Array.isArray(node)
+      ? node
+      : Object.values(node as Record<string, unknown>);
+    for (const child of children) {
+      if (child && typeof child === 'object') {
+        this._collectNestedIds(child, out, depth - 1);
+      }
+    }
   }
 
   private _normalizeCitations(raw: unknown): string[] {
@@ -393,19 +416,38 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
     }
     this._validCitationKeys = this._computeCitationKeys(args.executorResult);
     try {
-      let lastCitations: unknown;
+      // Array fields stream as disjoint slices (`newVal.slice(oldVal.length)`),
+      // so accumulate across deltas rather than keeping only the last slice.
+      // Reset on a version change — a validation retry re-streams under a new
+      // version, and only the final version's citations should be reported.
+      let citationAcc: string[] = [];
+      let citationVersion: number | undefined;
       for await (const delta of this.program.streamingForward(
         ai,
         values,
         merged
       )) {
-        const record = delta as { delta?: Record<string, unknown> };
+        const record = delta as {
+          version?: number;
+          delta?: Record<string, unknown>;
+        };
         if (
           record?.delta &&
           typeof record.delta === 'object' &&
           citations.field in record.delta
         ) {
-          lastCitations = record.delta[citations.field];
+          if (record.version !== citationVersion) {
+            citationAcc = [];
+            citationVersion = record.version;
+          }
+          const chunk = record.delta[citations.field];
+          for (const item of Array.isArray(chunk)
+            ? chunk
+            : chunk != null
+              ? [chunk]
+              : []) {
+            citationAcc.push(String(item));
+          }
           if (citations.surface === 'hidden') {
             const { [citations.field]: _stripped, ...rest } = record.delta;
             yield { ...(delta as object), delta: rest } as any;
@@ -415,9 +457,8 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
         yield delta;
       }
       if (citations.onCitations) {
-        Promise.resolve(
-          citations.onCitations(this._normalizeCitations(lastCitations))
-        ).catch(() => {});
+        const finalCitations = citationAcc;
+        Promise.resolve(citations.onCitations(finalCitations)).catch(() => {});
       }
     } finally {
       this._validCitationKeys = undefined;
