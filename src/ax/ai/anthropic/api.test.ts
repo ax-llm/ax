@@ -694,6 +694,85 @@ describe('AxAIAnthropic thinking configuration', () => {
     expect(body.top_k).toBeUndefined();
   });
 
+  // Anthropic rejects sampling params on every adaptive model, not only Opus
+  // 4.7+: `temperature` is deprecated for these models and any value other than
+  // the default is an unconditional HTTP 400 ("`temperature` is deprecated for
+  // this model."). Verified against the live API on claude-sonnet-5, including
+  // with no effort and no thinking block on the wire — the rejection tracks the
+  // model, not the request.
+  it('Sonnet 5 omits sampling params', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude5Sonnet },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-sonnet-5');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        modelConfig: { temperature: 0.2, topP: 0.9, topK: 40 },
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.temperature).toBeUndefined();
+    expect(body.top_p).toBeUndefined();
+    expect(body.top_k).toBeUndefined();
+  });
+
+  it('Opus 4.6 omits sampling params', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude46Opus },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-opus-4-6');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        modelConfig: { temperature: 0.2, topP: 0.9, topK: 40 },
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.temperature).toBeUndefined();
+    expect(body.top_p).toBeUndefined();
+    expect(body.top_k).toBeUndefined();
+  });
+
+  // Non-adaptive models still accept sampling params — the guard must not
+  // suppress them everywhere.
+  it('Sonnet 4.6 still sends sampling params', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude46Sonnet },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-sonnet-4-6');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        modelConfig: { temperature: 0.2, topP: 0.9 },
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.temperature).toBe(0.2);
+    expect(body.top_p).toBe(0.9);
+  });
+
   it('Opus 4.8 accepts provider config xhigh effort', async () => {
     const ai = new AxAIAnthropic({
       apiKey: 'key',
