@@ -1,5 +1,5 @@
 /**
- * LLM weakness miner for `agent.improve()` — one call per failure cluster.
+ * LLM weakness miner for `agent.playbook().evolve()` — one call per failure cluster.
  *
  * Unlike the playbook engine's reflector (which sees only a serialized
  * answer), the miner sees the failing runs' action-log excerpts, function
@@ -14,7 +14,7 @@ import type { AxAIService } from '../../../ai/types.js';
 import { AxGen } from '../../../dsp/generate.js';
 import { f } from '../../../dsp/sig.js';
 import type { AxAgentFailureCluster } from './failureClusters.js';
-import type { AxAgentImproveSurface, AxAgentWeakness } from './improveTypes.js';
+import type { AxAgentPlaybookWeakness } from './playbookEvolveTypes.js';
 
 const EXCERPT_CHARS_PER_RECORD = 2000;
 const MAX_RECORDS_PER_CLUSTER = 4;
@@ -24,11 +24,9 @@ const MINER_DESCRIPTION =
   'You are a failure analyst for an LLM agent harness. You receive one ' +
   'cluster of failed agent runs sharing an error signature, with excerpts ' +
   'of what the agent actually did. Identify the single recurring weakness, ' +
-  'its root cause, and one narrow, durable improvement. Ground every claim: ' +
-  'evidenceQuotes must be verbatim substrings copied from the excerpts. ' +
-  'Choose targetSurface `playbook` for lessons/avoidance rules the agent ' +
-  'should recall while acting, `instructions` for standing behavioral rules ' +
-  'that belong in the system instruction. Keep proposedGuidance concise, ' +
+  'its root cause, and one narrow, durable avoidance rule the agent should ' +
+  'recall while acting. Ground every claim: evidenceQuotes must be verbatim ' +
+  'substrings copied from the excerpts. Keep proposedGuidance concise, ' +
   'imperative, and general to the failure mode (not one task). Use ' +
   'configRecommendations only for setup problems no prompt text can fix ' +
   '(missing tools, timeouts, model choice).';
@@ -46,10 +44,6 @@ const minerSignature = f()
   )
   .input('toolErrors', f.string('Tool errors observed.').optional())
   .input(
-    'currentInstruction',
-    f.string('The instruction text currently steering the agent.').optional()
-  )
-  .input(
     'currentPlaybook',
     f.string('The failure-avoidance playbook currently applied.').optional()
   )
@@ -59,12 +53,8 @@ const minerSignature = f()
   )
   .output('rootCause', f.string('Why the runs fail, mechanically.'))
   .output(
-    'targetSurface',
-    f.class(['playbook', 'instructions'], 'Where the improvement belongs.')
-  )
-  .output(
     'proposedGuidance',
-    f.string('The rule/lesson text to add — concise and imperative.')
+    f.string('The avoidance rule to add to the playbook — concise, imperative.')
   )
   .output(
     'evidenceQuotes',
@@ -141,11 +131,9 @@ export function verifyEvidenceQuotes(
 export async function mineWeakness(args: {
   ai: Readonly<AxAIService>;
   cluster: AxAgentFailureCluster;
-  allowedSurfaces: readonly AxAgentImproveSurface[];
-  currentInstruction?: string;
   currentPlaybook?: string;
   index: number;
-}): Promise<AxAgentWeakness | undefined> {
+}): Promise<AxAgentPlaybookWeakness | undefined> {
   const records = args.cluster.records.slice(0, MAX_RECORDS_PER_CLUSTER);
 
   const taskSummaries = records
@@ -194,7 +182,6 @@ export async function mineWeakness(args: {
     actionLogExcerpts: excerpts,
     functionCallSummary: functionCallSummary || undefined,
     toolErrors: toolErrors || undefined,
-    currentInstruction: args.currentInstruction,
     currentPlaybook: args.currentPlaybook,
   });
 
@@ -207,20 +194,11 @@ export async function mineWeakness(args: {
     return undefined;
   }
 
-  const requested =
-    mined.targetSurface === 'instructions' ? 'instructions' : 'playbook';
-  const surface: AxAgentImproveSurface = args.allowedSurfaces.includes(
-    requested
-  )
-    ? requested
-    : (args.allowedSurfaces[0] ?? 'playbook');
-
   return {
     id: `weakness-${args.index + 1}`,
     clusterSignature: args.cluster.signature,
     description: String(mined.weaknessDescription ?? ''),
     rootCause: String(mined.rootCause ?? ''),
-    surface,
     proposedGuidance: String(mined.proposedGuidance ?? ''),
     evidenceQuotes,
     taskIds: args.cluster.taskIds,

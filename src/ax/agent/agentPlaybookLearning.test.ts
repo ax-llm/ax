@@ -190,7 +190,7 @@ describe('agent playbook config attachment', () => {
     expect(handle).toBeDefined();
     expect(ag.playbook()).toBe(handle);
     expect(() => ag.playbook({ target: 'actor' })).toThrow(
-      /already attached via the `playbook` config option/
+      /this agent already has a playbook/
     );
   });
 
@@ -219,7 +219,8 @@ describe('_updatePlaybookFromPipelineState', () => {
       ai: mockAI(),
       playbook: { ...playbookConfig, ...(onUpdate ? { onUpdate } : {}) },
     }) as any;
-    const handle = ag.getPlaybook();
+    // Run-end learning drives the inner handle; spy there.
+    const handle = ag.getPlaybook().inner;
     const update = vi
       .spyOn(handle, 'update')
       .mockResolvedValue(undefined as any);
@@ -339,7 +340,7 @@ describe('end-to-end failure learning through forward()', () => {
       playbook: { onUpdate },
     }) as any;
     const update = vi
-      .spyOn(ag.getPlaybook(), 'update')
+      .spyOn(ag.getPlaybook().inner, 'update')
       .mockResolvedValue(undefined);
 
     const out = await ag.forward(ai, { question: 'q' });
@@ -362,7 +363,7 @@ describe('end-to-end failure learning through forward()', () => {
       playbook: {},
     }) as any;
     const update = vi
-      .spyOn(ag.getPlaybook(), 'update')
+      .spyOn(ag.getPlaybook().inner, 'update')
       .mockResolvedValue(undefined);
 
     await ag.forward(ai, { question: 'q' });
@@ -383,7 +384,7 @@ describe('end-to-end failure learning through forward()', () => {
       directResponse: 'off',
       playbook: {},
     }) as any;
-    vi.spyOn(ag.getPlaybook(), 'update').mockRejectedValue(
+    vi.spyOn(ag.getPlaybook().inner, 'update').mockRejectedValue(
       new Error('engine down')
     );
 
@@ -525,7 +526,7 @@ describe('collectCoveredFailureSignatures', () => {
       playbook: { playbook: pruned as any },
     }) as any;
     const update = vi
-      .spyOn(ag.getPlaybook(), 'update')
+      .spyOn(ag.getPlaybook().inner, 'update')
       .mockResolvedValue(undefined as any);
     const result = await ag._updatePlaybookFromPipelineState(
       failureState(BOOM)

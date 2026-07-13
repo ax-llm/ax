@@ -6,7 +6,7 @@ import {
   clusterFailures,
   isFailureRecord,
 } from './failureClusters.js';
-import type { AxAgentImproveRunRecord } from './improveTypes.js';
+import type { AxAgentPlaybookEvolveRunRecord } from './playbookEvolveTypes.js';
 import { buildProposal } from './proposals.js';
 import {
   buildFailureExcerpt,
@@ -31,8 +31,8 @@ function prediction(
 }
 
 function record(
-  over: Partial<AxAgentImproveRunRecord> = {}
-): AxAgentImproveRunRecord {
+  over: Partial<AxAgentPlaybookEvolveRunRecord> = {}
+): AxAgentPlaybookEvolveRunRecord {
   return {
     task: { input: { q: 'x' }, criteria: 'answers' },
     prediction: prediction(),
@@ -246,39 +246,24 @@ describe('weaknessMiner grounding', () => {
 });
 
 describe('proposals', () => {
-  const weakness = (surface: 'playbook' | 'instructions') => ({
+  const weakness = {
     id: 'weakness-1',
     clusterSignature: BOOM,
     description: 'calls broken helpers',
     rootCause: 'helper does not exist',
-    surface,
     proposedGuidance: 'Compute inline; never call undeclared helpers.',
     evidenceQuotes: [BOOM],
     taskIds: ['task-0'],
     configRecommendations: [],
-  });
-
-  it('builds an instructions proposal with the trimmed addendum', () => {
-    const proposal = buildProposal({
-      ...weakness('instructions'),
-      proposedGuidance: '  Compute inline; never call undeclared helpers. ',
-    });
-    expect(proposal).toEqual({
-      kind: 'instructions',
-      weaknessId: 'weakness-1',
-      addendum: 'Compute inline; never call undeclared helpers.',
-    });
-  });
+  };
 
   it('builds a playbook proposal carrying signature, guidance, and quotes', () => {
-    const proposal = buildProposal(weakness('playbook'));
-    expect(proposal.kind).toBe('playbook');
-    if (proposal.kind === 'playbook') {
-      expect(proposal.clusterSignature).toBe(BOOM);
-      expect(proposal.feedback).toContain(`[${BOOM}]`);
-      expect(proposal.feedback).toContain('Compute inline');
-      expect(proposal.feedback).toContain(BOOM);
-    }
+    const proposal = buildProposal(weakness);
+    expect(proposal.weaknessId).toBe('weakness-1');
+    expect(proposal.clusterSignature).toBe(BOOM);
+    expect(proposal.feedback).toContain(`[${BOOM}]`);
+    expect(proposal.feedback).toContain('Compute inline');
+    expect(proposal.feedback).toContain(BOOM);
   });
 });
 

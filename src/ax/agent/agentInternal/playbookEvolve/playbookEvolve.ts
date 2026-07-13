@@ -1,15 +1,16 @@
 /**
- * `agent.improve()` orchestrator — failure-driven repair with
- * regression-validated acceptance:
+ * `agent.playbook().evolve()` orchestrator — verified (or trust-batch)
+ * playbook learning from a task set:
  *
  *   baseline batch eval → deterministic failure clustering → per-cluster
- *   weakness mining (grounded) → bounded proposals → sequential accept gate.
+ *   grounded weakness mining → bounded playbook proposal → (verify) sequential
+ *   accept gate.
  *
- * A proposal is accepted only when the held-in (train) score improves by at
- * least `minHeldInGain` AND the held-out (validation) score does not drop by
- * more than `epsilon`; rejected proposals roll back exactly. Sequential
- * evaluation gives clean per-proposal attribution — accepted scores become
- * the next proposal's baseline.
+ * With `verify` (default) a proposal is kept only when the held-in (train)
+ * score improves by at least `minHeldInGain` AND the held-out (validation)
+ * score does not drop by more than `epsilon`; rejected proposals roll back
+ * exactly, and accepted scores become the next proposal's baseline. With
+ * `verify: false` the mined lessons are applied without the gate (trust-batch).
  */
 
 import type { AxGenIn, AxGenOut } from '../../../dsp/types.js';
@@ -23,17 +24,16 @@ import type { AxAgentEvalBudget } from './evalHarness.js';
 import { runAgentEvalBatch } from './evalHarness.js';
 import { clusterFailures } from './failureClusters.js';
 import type {
-  AxAgentImproveOptions,
-  AxAgentImproveProposalOutcome,
-  AxAgentImproveResult,
-  AxAgentImproveSurface,
-  AxAgentWeakness,
-} from './improveTypes.js';
+  AxAgentPlaybookEvolveOptions,
+  AxAgentPlaybookEvolveOutcome,
+  AxAgentPlaybookEvolveResult,
+  AxAgentPlaybookWeakness,
+} from './playbookEvolveTypes.js';
 import type { AxAppliedProposal } from './proposals.js';
 import {
-  actorInstructionText,
   applyProposal,
   buildProposal,
+  currentPlaybookText,
 } from './proposals.js';
 import { mineWeakness } from './weaknessMiner.js';
 
@@ -42,23 +42,26 @@ const DEFAULT_EPSILON = 0.01;
 const DEFAULT_MIN_HELD_IN_GAIN = 0.05;
 const DEFAULT_SCORE_THRESHOLD = 0.7;
 
-export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
+export async function evolveAgentPlaybook<
+  IN extends AxGenIn,
+  OUT extends AxGenOut,
+>(
   self: any,
   dataset: Readonly<AxAgentEvalDataset<IN>>,
-  options?: Readonly<AxAgentImproveOptions>
-): Promise<AxAgentImproveResult<OUT>> {
+  options?: Readonly<AxAgentPlaybookEvolveOptions>
+): Promise<AxAgentPlaybookEvolveResult<OUT>> {
   const s = self as any;
   const normalized = normalizeAgentEvalDataset(dataset);
   if (normalized.train.length === 0) {
     throw new Error(
-      'AxAgent.improve(): at least one training task is required.'
+      'AxAgent.playbook().evolve(): at least one training task is required.'
     );
   }
 
   const studentAI = options?.studentAI ?? s.init?.ai ?? s.ai;
   if (!studentAI) {
     throw new Error(
-      'AxAgent.improve(): studentAI is required when the agent has no default ai.'
+      'AxAgent.playbook().evolve(): studentAI is required when the agent has no default ai.'
     );
   }
   const agentJudgeAI = s.init?.judgeAI ?? s.judgeAI;
@@ -72,6 +75,7 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
   const metric =
     options?.metric ?? createAgentOptimizeMetric(self, judgeAI, judgeOptions);
 
+  const verify = options?.verify !== false;
   const maxProposals = Math.max(
     1,
     Math.floor(options?.maxProposals ?? DEFAULT_MAX_PROPOSALS)
@@ -89,9 +93,6 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
   const epsilon = options?.epsilon ?? DEFAULT_EPSILON;
   const minHeldInGain = options?.minHeldInGain ?? DEFAULT_MIN_HELD_IN_GAIN;
   const scoreThreshold = options?.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD;
-  const surfaces: readonly AxAgentImproveSurface[] = options?.surfaces?.length
-    ? options.surfaces
-    : (['playbook', 'instructions'] as const);
   const budget: AxAgentEvalBudget = { remaining: maxMetricCalls };
   const usedCalls = () => maxMetricCalls - budget.remaining;
 
@@ -101,7 +102,7 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
   ) => {
     options?.onProgress?.({ phase, message, metricCallsUsed: usedCalls() });
     if (options?.verbose) {
-      console.log(`[improve] ${phase}: ${message}`);
+      console.log(`[playbook.evolve] ${phase}: ${message}`);
     }
   };
 
@@ -114,6 +115,21 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
     runsPerTask,
     ...(options?.abortSignal ? { abortSignal: options.abortSignal } : {}),
   };
+
+  // The playbook handle to curate into. The caller (agent.playbook().evolve)
+  // ensures one exists; fall back to attaching one so a bare call still works.
+  const playbookHandle =
+    s.getPlaybook?.() ??
+    (() => {
+      const handle = s._buildStagePlaybook({
+        target: 'actor',
+        studentAI,
+        teacherAI,
+        maxReflectorRounds: 1,
+      });
+      s.playbookHandle = handle;
+      return handle;
+    })();
 
   // ---- Baseline ----
   progress('baseline', `evaluating ${normalized.train.length} train tasks`);
@@ -151,46 +167,21 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
     `${clusters.length} failure cluster(s) from ${baselineTrain.records.length} records`
   );
 
-  const playbookHandle = (() => {
-    const existing = s.getPlaybook?.();
-    if (existing || !surfaces.includes('playbook')) {
-      return existing;
-    }
-    // Lazily attach a playbook so accepted lessons stay live and inspectable
-    // via getPlaybook(); improve() owns curation, so run-end learning stays
-    // whatever the user configured.
-    const handle = s._buildStagePlaybook({
-      target: 'actor',
-      studentAI,
-      teacherAI,
-      maxReflectorRounds: 1,
-    });
-    s.playbookHandle = handle;
-    return handle;
-  })();
-
-  const currentInstruction = actorInstructionText(s);
-
-  const weaknesses: AxAgentWeakness[] = [];
+  const weaknesses: AxAgentPlaybookWeakness[] = [];
   for (const [index, cluster] of clusters.entries()) {
     if (options?.abortSignal?.aborted) {
-      throw new Error('AxAgent.improve(): aborted');
+      throw new Error('AxAgent.playbook().evolve(): aborted');
     }
     try {
       const weakness = await mineWeakness({
         ai: teacherAI,
         cluster,
-        allowedSurfaces: surfaces,
-        currentInstruction,
-        currentPlaybook: playbookHandle?.render?.() || undefined,
+        currentPlaybook: currentPlaybookText(s),
         index,
       });
       if (weakness) {
         weaknesses.push(weakness);
-        progress(
-          'mining',
-          `${weakness.id} [${weakness.clusterSignature}] -> ${weakness.surface}`
-        );
+        progress('mining', `${weakness.id} [${weakness.clusterSignature}]`);
       } else {
         progress(
           'mining',
@@ -205,20 +196,19 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
     }
   }
 
-  // ---- Sequential propose -> validate -> accept/reject ----
-  const outcomes: AxAgentImproveProposalOutcome[] = [];
+  // ---- Sequential propose -> (verify) accept/reject ----
+  const outcomes: AxAgentPlaybookEvolveOutcome[] = [];
   const accepted: AxAppliedProposal[] = [];
-  const appliedInstructionAddenda: string[] = [];
 
   for (const weakness of weaknesses) {
     if (options?.abortSignal?.aborted) {
-      throw new Error('AxAgent.improve(): aborted');
+      throw new Error('AxAgent.playbook().evolve(): aborted');
     }
     const proposal = buildProposal(weakness);
     const requiredCalls =
       (normalized.train.length + (normalized.validation?.length ?? 0)) *
       runsPerTask;
-    if (budget.remaining < requiredCalls) {
+    if (verify && budget.remaining < requiredCalls) {
       outcomes.push({
         proposal,
         accepted: false,
@@ -229,14 +219,10 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
       continue;
     }
 
-    progress('proposal', `${weakness.id}: applying ${proposal.kind} proposal`);
+    progress('proposal', `${weakness.id}: applying playbook proposal`);
     let applied: AxAppliedProposal;
     try {
-      applied = await applyProposal({
-        agent: s,
-        proposal,
-        playbookHandle,
-      });
+      applied = await applyProposal({ proposal, playbookHandle });
     } catch (err) {
       outcomes.push({
         proposal,
@@ -244,6 +230,19 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
         reason: `apply failed: ${err instanceof Error ? err.message : String(err)}`,
         heldIn: { before: heldIn, after: heldIn },
       });
+      continue;
+    }
+
+    // Trust-batch: keep the lesson without a gate.
+    if (!verify) {
+      accepted.push(applied);
+      outcomes.push({
+        proposal,
+        accepted: true,
+        reason: 'applied without verification (verify: false)',
+        heldIn: { before: heldIn, after: heldIn },
+      });
+      progress('validation', `${weakness.id}: applied (trust-batch)`);
       continue;
     }
 
@@ -264,7 +263,6 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
 
     // A re-eval that exhausted mid-way produced a subset mean — comparing it
     // to the full-set baseline is apples-to-oranges, so refuse the accept.
-    // The pre-check above normally prevents this; this is belt-and-suspenders.
     const revalComplete = !revalTrain.exhausted && !revalHeldOutExhausted;
     const gainOk = revalComplete && revalTrain.mean - heldIn >= minHeldInGain;
     const heldOutOk =
@@ -297,9 +295,6 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
       if (revalHeldOut !== undefined) {
         heldOut = revalHeldOut;
       }
-      if (proposal.kind === 'instructions') {
-        appliedInstructionAddenda.push(proposal.addendum);
-      }
       progress('validation', `${weakness.id}: ACCEPTED`);
     } else {
       applied.rollback();
@@ -308,10 +303,8 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
   }
 
   // ---- Finalize ----
-  const playbookTouched = accepted.some((a) => a.proposal.kind === 'playbook');
-  const playbookSnapshot = playbookTouched
-    ? playbookHandle?.getState()
-    : undefined;
+  const playbookSnapshot =
+    accepted.length > 0 ? playbookHandle?.getState() : undefined;
 
   if (options?.apply === false) {
     for (const applied of [...accepted].reverse()) {
@@ -331,9 +324,6 @@ export async function improveAgent<IN extends AxGenIn, OUT extends AxGenOut>(
     outcomes,
     recommendations: weaknesses.flatMap((w) => w.configRecommendations),
     ...(playbookSnapshot ? { playbookSnapshot } : {}),
-    ...(appliedInstructionAddenda.length > 0
-      ? { appliedInstructionAddenda }
-      : {}),
     metricCallsUsed: usedCalls(),
     records: baselineTrain.records,
   };

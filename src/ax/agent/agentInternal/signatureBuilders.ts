@@ -251,7 +251,7 @@ export function buildSplitPrograms(self: any): void {
   // The base description composes the stage's optimizable instruction
   // (`stageInstruction`, the live backing of the `::instruction` component),
   // the user/playbook-owned `executorDescription`, and any standing
-  // instruction addenda (an additive channel owned by `agent.improve()`).
+  // instruction addenda (an additive channel; see addActorInstruction).
   const actorBaseParts = [
     s.stageInstruction,
     s.executorDescription,

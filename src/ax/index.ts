@@ -49,6 +49,7 @@ import type {
   AxAgentStreamingForwardOptions,
   AxStageOptions,
 } from './agent/agentInternal/agentOptimizeTypes.js';
+import { AxAgentPlaybook } from './agent/agentInternal/agentPlaybook.js';
 import {
   type AxAgentActorTurnCallback,
   type AxAgentActorTurnCallbackArgs,
@@ -93,22 +94,6 @@ import {
   type AxAgentFailureSignalKind,
   axPlaybookFailureSection,
 } from './agent/agentInternal/failureReport.js';
-import type {
-  AxAgentEvalBatchResult,
-  AxAgentEvalBudget,
-} from './agent/agentInternal/improve/evalHarness.js';
-import type { AxAgentFailureCluster } from './agent/agentInternal/improve/failureClusters.js';
-import type {
-  AxAgentImproveOptions,
-  AxAgentImproveProgressEvent,
-  AxAgentImproveProposal,
-  AxAgentImproveProposalOutcome,
-  AxAgentImproveResult,
-  AxAgentImproveRunRecord,
-  AxAgentImproveSurface,
-  AxAgentWeakness,
-} from './agent/agentInternal/improve/improveTypes.js';
-import type { AxAppliedProposal } from './agent/agentInternal/improve/proposals.js';
 import type { AxAgentMemoryEntry } from './agent/agentInternal/memoriesHelpers.js';
 import type {
   AxAgentMemoriesSearchFn,
@@ -116,6 +101,20 @@ import type {
   AxAgentUsedMemoriesCallback,
   AxAgentUsedMemory,
 } from './agent/agentInternal/memoriesTypes.js';
+import type {
+  AxAgentEvalBatchResult,
+  AxAgentEvalBudget,
+} from './agent/agentInternal/playbookEvolve/evalHarness.js';
+import type { AxAgentFailureCluster } from './agent/agentInternal/playbookEvolve/failureClusters.js';
+import type {
+  AxAgentPlaybookEvolveOptions,
+  AxAgentPlaybookEvolveOutcome,
+  AxAgentPlaybookEvolveProgressEvent,
+  AxAgentPlaybookEvolveProposal,
+  AxAgentPlaybookEvolveResult,
+  AxAgentPlaybookEvolveRunRecord,
+  AxAgentPlaybookWeakness,
+} from './agent/agentInternal/playbookEvolve/playbookEvolveTypes.js';
 import type {
   AxModuleRankInput,
   AxRankableDocument,
@@ -1072,6 +1071,7 @@ export { AxAIWebLLMModel };
 export { AxAgent };
 export { AxAgentClarificationError };
 export { AxAgentContextMap };
+export { AxAgentPlaybook };
 export { AxAgentProtocolCompletionSignal };
 export { AxAgentSharedRuntimeSession };
 export { AxAssertionError };
@@ -1514,13 +1514,6 @@ export type { AxAgentGuidanceLogEntry };
 export type { AxAgentGuidancePayload };
 export type { AxAgentGuidanceState };
 export type { AxAgentIdentity };
-export type { AxAgentImproveOptions };
-export type { AxAgentImproveProgressEvent };
-export type { AxAgentImproveProposal };
-export type { AxAgentImproveProposalOutcome };
-export type { AxAgentImproveResult };
-export type { AxAgentImproveRunRecord };
-export type { AxAgentImproveSurface };
 export type { AxAgentInputUpdateCallback };
 export type { AxAgentJudgeEvalInput };
 export type { AxAgentJudgeEvalOutput };
@@ -1538,11 +1531,18 @@ export type { AxAgentOptimizeResult };
 export type { AxAgentOptimizeTarget };
 export type { AxAgentOptions };
 export type { AxAgentPlaybookConfig };
+export type { AxAgentPlaybookEvolveOptions };
+export type { AxAgentPlaybookEvolveOutcome };
+export type { AxAgentPlaybookEvolveProgressEvent };
+export type { AxAgentPlaybookEvolveProposal };
+export type { AxAgentPlaybookEvolveResult };
+export type { AxAgentPlaybookEvolveRunRecord };
 export type { AxAgentPlaybookLearnOptions };
 export type { AxAgentPlaybookOptions };
 export type { AxAgentPlaybookSkipReason };
 export type { AxAgentPlaybookUpdateResult };
 export type { AxAgentPlaybookUpdateStatus };
+export type { AxAgentPlaybookWeakness };
 export type { AxAgentRecursionOptions };
 export type { AxAgentRecursiveExpensiveNode };
 export type { AxAgentRecursiveFunctionCall };
@@ -1574,10 +1574,8 @@ export type { AxAgentUsedMemoriesCallback };
 export type { AxAgentUsedMemory };
 export type { AxAgentUsedSkill };
 export type { AxAgentUsedSkillsCallback };
-export type { AxAgentWeakness };
 export type { AxAgentic };
 export type { AxAnyAgentic };
-export type { AxAppliedProposal };
 export type { AxAssertion };
 export type { AxAttempt };
 export type { AxAudioFormat };

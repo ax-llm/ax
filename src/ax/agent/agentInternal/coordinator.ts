@@ -38,6 +38,7 @@ import {
 } from '../playbookConfig.js';
 import { toCamelCase } from '../runtimeDiscovery.js';
 import { Synthesizer } from '../synthesizer.js';
+import { AxAgentPlaybook } from './agentPlaybook.js';
 import type {
   AxAgentDemos,
   AxAgentEvalDataset,
@@ -65,11 +66,6 @@ import {
   MAX_FEEDBACK_SIGNALS,
   mergeFailureSignals,
 } from './failureReport.js';
-import { improveAgent } from './improve/improve.js';
-import type {
-  AxAgentImproveOptions,
-  AxAgentImproveResult,
-} from './improve/improveTypes.js';
 import {
   createAgentOptimizeMetric,
   createOptimizationProgram,
@@ -241,6 +237,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private contextMap?: AxAgentContextMap;
   private readonly playbookConfigResolved?: AxResolvedAgentPlaybookConfig;
   private playbookHandle?: AxPlaybook<any, any>;
+  private _agentPlaybook?: AxAgentPlaybook<any, any>;
   private readonly citationsResolved: AxResolvedCitations;
   private func?: AxFunction;
 
@@ -918,41 +915,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   /**
-   * Failure-driven repair with regression-validated acceptance. Runs the
-   * dataset's train tasks as the failure corpus, clusters the failures
-   * deterministically, mines each cluster for a grounded weakness, proposes
-   * one bounded edit per weakness (a playbook lesson or an append-only
-   * instruction addendum — config suggestions are report-only), and accepts
-   * a proposal only when the train score improves by `minHeldInGain` AND the
-   * validation score does not drop by more than `epsilon`. Rejected
-   * proposals roll back exactly.
-   *
-   * Sits between {@link optimize} (metric maximization over a dataset) and
-   * {@link playbook} (per-run reflection): use it when the agent has known
-   * failing tasks to repair without eroding what already works. Proposals
-   * and judging need strong models — with weak teachers, mined weaknesses
-   * get discarded by the grounding verifier and little is accepted. Must not
-   * run concurrently with `forward()` on the same instance. TS-first: the 5
-   * non-TS ports do not ship improve() yet.
-   */
-  public async improve(
-    dataset: Readonly<AxAgentEvalDataset<IN>>,
-    options?: Readonly<AxAgentImproveOptions>
-  ): Promise<AxAgentImproveResult<OUT>> {
-    return improveAgent<IN, OUT>(this, dataset, {
-      ...options,
-      studentAI: options?.studentAI ?? (this.primaryAgent as any).ai,
-      judgeAI: options?.judgeAI ?? (this.primaryAgent as any).judgeAI,
-      teacherAI: options?.teacherAI ?? (this.primaryAgent as any).judgeAI,
-    });
-  }
-
-  /**
    * Append a standing instruction addendum to the executor actor's prompt.
    * A separate additive channel from `executorOptions.description` and the
-   * playbook injection, so the three never clobber each other. Used by
-   * accepted `improve()` instruction proposals; call it directly to re-apply
-   * a result's `appliedInstructionAddenda` after a restart. Process-local —
+   * playbook injection, so the three never clobber each other. Process-local —
    * not serialized into `AxAgentState`.
    */
   public addActorInstruction(addendum: string): void {
@@ -969,33 +934,41 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   /**
-   * Build an evolving context {@link AxPlaybook} bound to an agent stage
-   * (the actor/task stage by default).
-   *
-   * Use `.update({ example, prediction, feedback })` to refine the playbook from
-   * live feedback, or `.evolve(dataset, metric)` to grow it offline. Offline
-   * evolution scores the chosen stage in isolation; for full-pipeline tuning of
-   * instructions and demos use {@link optimize} instead. Unless `apply` is
-   * `false`, the rendered playbook is injected into the live stage prompt as it
-   * evolves. The evolution engine (ACE) is an implementation detail.
+   * The agent's learned playbook — one evolving body of task knowledge bound
+   * to an agent stage (the actor/task stage by default). It grows three ways:
+   * continuously from each run (the `playbook` construction config),
+   * on demand via `.update(...)`, or from a task set via
+   * `.evolve(dataset, options)` (verified by default). Unless `apply` is
+   * `false`, the rendered playbook is injected into the live stage prompt.
+   * Memoized — one playbook per agent. The evolution engine (ACE) is an
+   * implementation detail.
    */
   public playbook(
     options?: Readonly<AxAgentPlaybookOptions>
-  ): AxPlaybook<any, any> {
-    if (this.playbookHandle) {
-      if (options && Object.keys(options).length > 0) {
-        throw new Error(
-          'AxAgent.playbook(): a playbook is already attached via the `playbook` config option; call playbook() without options (or getPlaybook()) to use the attached handle.'
-        );
-      }
-      return this.playbookHandle;
+  ): AxAgentPlaybook<any, any> {
+    if (!this.playbookHandle) {
+      this.playbookHandle = this._buildStagePlaybook(options);
+    } else if (options && Object.keys(options).length > 0) {
+      throw new Error(
+        'AxAgent.playbook(): this agent already has a playbook; call playbook() / getPlaybook() without options to use it.'
+      );
     }
-    return this._buildStagePlaybook(options);
+    return this._agentPlaybookWrapper();
   }
 
-  /** The playbook attached via the `playbook` config option, when configured. */
-  public getPlaybook(): AxPlaybook<any, any> | undefined {
-    return this.playbookHandle;
+  /** The agent's playbook handle, or `undefined` if none has been created. */
+  public getPlaybook(): AxAgentPlaybook<any, any> | undefined {
+    return this.playbookHandle ? this._agentPlaybookWrapper() : undefined;
+  }
+
+  private _agentPlaybookWrapper(): AxAgentPlaybook<any, any> {
+    if (
+      !this._agentPlaybook ||
+      this._agentPlaybook.inner !== this.playbookHandle
+    ) {
+      this._agentPlaybook = new AxAgentPlaybook(this, this.playbookHandle!);
+    }
+    return this._agentPlaybook;
   }
 
   private _buildStagePlaybook(

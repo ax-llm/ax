@@ -25,6 +25,7 @@ interface ExportInfo {
 const internalExportNames = new Set([
   'AxAIOpenAIResponsesImpl',
   'AxAgentInternalCompletionPayload',
+  'AxAppliedProposal',
   'AxFlowDependencyAnalyzer',
   'AxFlowExecutionPlanner',
   'AxFlowBlockLabel',

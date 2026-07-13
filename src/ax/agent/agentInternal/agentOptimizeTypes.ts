@@ -83,7 +83,7 @@ type AxAgentEvalPredictionShared = {
   /**
    * Deterministic failure signals harvested from the run's stages (merged
    * distiller + executor), when the run produced any. Structured input for
-   * failure clustering in `agent.improve()`.
+   * failure clustering in `agent.playbook().evolve()`.
    */
   failureSignals?: readonly import('./failureReport.js').AxAgentFailureSignal[];
   recursiveTrace?: AxAgentRecursiveTraceNode;

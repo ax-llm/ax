@@ -1,5 +1,5 @@
 /**
- * Sequential agent-layer batch evaluation for `agent.improve()`.
+ * Sequential agent-layer batch evaluation for `agent.playbook().evolve()`.
  *
  * Strictly sequential by design: `_forwardForEvaluation` saves/clears/
  * restores the primary actor's state, discovery state, and llmQuery budget
@@ -14,7 +14,7 @@ import type {
   AxAgentEvalPrediction,
   AxAgentEvalTask,
 } from '../agentOptimizeTypes.js';
-import type { AxAgentImproveRunRecord } from './improveTypes.js';
+import type { AxAgentPlaybookEvolveRunRecord } from './playbookEvolveTypes.js';
 
 /** Mutable (run + judge) pair budget shared across all improve() batches. */
 export type AxAgentEvalBudget = { remaining: number };
@@ -23,7 +23,7 @@ export type AxAgentEvalBatchResult<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenOut = AxGenOut,
 > = {
-  records: AxAgentImproveRunRecord<IN, OUT>[];
+  records: AxAgentPlaybookEvolveRunRecord<IN, OUT>[];
   /** Weighted mean score over executed records (0 when none ran). */
   mean: number;
   /** True when the budget ran out before every task executed. */
@@ -44,7 +44,7 @@ export async function runAgentEvalBatch<
   runsPerTask?: number;
   abortSignal?: AbortSignal;
 }): Promise<AxAgentEvalBatchResult<IN, OUT>> {
-  const records: AxAgentImproveRunRecord<IN, OUT>[] = [];
+  const records: AxAgentPlaybookEvolveRunRecord<IN, OUT>[] = [];
   const runsPerTask = Math.max(1, Math.floor(args.runsPerTask ?? 1));
   let exhausted = false;
 
@@ -55,7 +55,7 @@ export async function runAgentEvalBatch<
 
     for (let run = 0; run < runsPerTask; run++) {
       if (args.abortSignal?.aborted) {
-        throw new Error('AxAgent.improve(): aborted');
+        throw new Error('AxAgent.playbook().evolve(): aborted');
       }
       if (args.budget.remaining <= 0) {
         exhausted = true;

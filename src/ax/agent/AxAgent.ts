@@ -174,10 +174,10 @@ export class ActorAgentRLM<
   private stageInstruction?: string;
   /**
    * Standing instruction addenda appended after `executorDescription` in the
-   * actor definition. A separate additive channel so `agent.improve()`'s
-   * accepted instruction proposals and the playbook apply-hook (which
-   * recomposes `executorDescription` from a captured base) never clobber
-   * each other. Process-local: not serialized into `AxAgentState`.
+   * actor definition (set via `agent.addActorInstruction(...)`). A separate
+   * additive channel so manual standing rules and the playbook apply-hook
+   * (which recomposes `executorDescription` from a captured base) never
+   * clobber each other. Process-local: not serialized into `AxAgentState`.
    */
   private instructionAddenda?: string[];
   private executorModelPolicy?: AxResolvedExecutorModelPolicy;

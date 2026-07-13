@@ -1,5 +1,5 @@
 /**
- * Deterministic failure clustering for `agent.improve()` — zero LLM calls.
+ * Deterministic failure clustering for `agent.playbook().evolve()` — zero LLM calls.
  *
  * Failures group by a stable signature so the miner sees one cluster per
  * failure mode. Key resolution order per record: majority signature among the
@@ -9,11 +9,11 @@
  */
 
 import { extractErrorSignature } from '../../contextManager.js';
-import type { AxAgentImproveRunRecord } from './improveTypes.js';
+import type { AxAgentPlaybookEvolveRunRecord } from './playbookEvolveTypes.js';
 
 export type AxAgentFailureCluster = {
   signature: string;
-  records: AxAgentImproveRunRecord[];
+  records: AxAgentPlaybookEvolveRunRecord[];
   /** count x mean(1 - score): frequent, badly-scored clusters rank first. */
   severity: number;
   taskIds: readonly string[];
@@ -22,7 +22,7 @@ export type AxAgentFailureCluster = {
 export const BEHAVIORAL_CLUSTER_SIGNATURE = 'behavioral:no_error';
 
 export function isFailureRecord(
-  record: AxAgentImproveRunRecord,
+  record: AxAgentPlaybookEvolveRunRecord,
   scoreThreshold: number
 ): boolean {
   if (record.error) {
@@ -34,7 +34,7 @@ export function isFailureRecord(
   return record.score < scoreThreshold;
 }
 
-function recordSignature(record: AxAgentImproveRunRecord): string {
+function recordSignature(record: AxAgentPlaybookEvolveRunRecord): string {
   const signals = record.prediction?.failureSignals ?? [];
   if (signals.length > 0) {
     const counts = new Map<string, number>();
@@ -76,7 +76,7 @@ function recordSignature(record: AxAgentImproveRunRecord): string {
 }
 
 export function taskLabel(
-  record: AxAgentImproveRunRecord,
+  record: AxAgentPlaybookEvolveRunRecord,
   index: number
 ): string {
   return record.task.id ?? `task-${index}`;
@@ -88,13 +88,13 @@ export function taskLabel(
  * this round.
  */
 export function clusterFailures(
-  records: readonly AxAgentImproveRunRecord[],
+  records: readonly AxAgentPlaybookEvolveRunRecord[],
   scoreThreshold: number,
   maxClusters: number
 ): AxAgentFailureCluster[] {
   const bySignature = new Map<
     string,
-    { records: AxAgentImproveRunRecord[]; taskIds: string[] }
+    { records: AxAgentPlaybookEvolveRunRecord[]; taskIds: string[] }
   >();
   records.forEach((record, index) => {
     if (!isFailureRecord(record, scoreThreshold)) {

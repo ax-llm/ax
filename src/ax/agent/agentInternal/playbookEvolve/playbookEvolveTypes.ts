@@ -1,9 +1,9 @@
 /**
- * Public types for `agent.improve()` — failure-driven agent repair with
- * regression-validated acceptance. The repair engine (weakness mining over
- * batch-eval failure clusters, bounded proposals, sequential accept gates) is
- * an implementation detail hidden behind the method, exactly as `optimize()`
- * hides its optimizer and `playbook()` hides its evolution engine.
+ * Public types for `agent.playbook().evolve(dataset, options)` — verified (or
+ * trust-batch) playbook learning. The engine (batch eval → failure clustering
+ * → grounded weakness mining → bounded playbook proposal → regression-gated
+ * accept) is hidden behind the method, exactly as `optimize()` hides GEPA.
+ * Verified learning produces only playbook bullets.
  */
 
 import type { AxAIService } from '../../../ai/types.js';
@@ -16,10 +16,8 @@ import type {
   AxAgentJudgeOptions,
 } from '../agentOptimizeTypes.js';
 
-export type AxAgentImproveSurface = 'playbook' | 'instructions';
-
 /** One executed (task, prediction, score) triple from the batch harness. */
-export type AxAgentImproveRunRecord<
+export type AxAgentPlaybookEvolveRunRecord<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenOut = AxGenOut,
 > = {
@@ -34,15 +32,13 @@ export type AxAgentImproveRunRecord<
 };
 
 /** A verifier-grounded weakness mined from one failure cluster. */
-export type AxAgentWeakness = {
+export type AxAgentPlaybookWeakness = {
   id: string;
   /** Deterministic cluster fingerprint the weakness was mined from. */
   clusterSignature: string;
   description: string;
   rootCause: string;
-  /** Surface the proposal targets. */
-  surface: AxAgentImproveSurface;
-  /** The guidance/rule text the proposal carries. */
+  /** The avoidance rule/lesson the proposal carries into the playbook. */
   proposedGuidance: string;
   /**
    * Quotes from the actual failure excerpts that ground this weakness. Only
@@ -56,48 +52,46 @@ export type AxAgentWeakness = {
   configRecommendations: readonly string[];
 };
 
-export type AxAgentImproveProposal =
-  | {
-      kind: 'playbook';
-      weaknessId: string;
-      /** Cluster signature recorded on the update event (P1 dedupe ledger). */
-      clusterSignature: string;
-      /** Digest handed to the playbook update (curator input). */
-      feedback: string;
-    }
-  | {
-      kind: 'instructions';
-      weaknessId: string;
-      /** Standing rule appended to the executor's instruction addenda. */
-      addendum: string;
-    };
+/** A bounded proposal: one curated playbook update per mined weakness. */
+export type AxAgentPlaybookEvolveProposal = {
+  weaknessId: string;
+  /** Cluster signature recorded on the update event (dedupe ledger). */
+  clusterSignature: string;
+  /** Digest handed to the playbook update (curator input). */
+  feedback: string;
+};
 
-export type AxAgentImproveProposalOutcome = {
-  proposal: AxAgentImproveProposal;
+export type AxAgentPlaybookEvolveOutcome = {
+  proposal: AxAgentPlaybookEvolveProposal;
   accepted: boolean;
   reason: string;
   heldIn: { before: number; after: number };
   heldOut?: { before: number; after: number };
 };
 
-export type AxAgentImproveProgressEvent = {
+export type AxAgentPlaybookEvolveProgressEvent = {
   phase: 'baseline' | 'mining' | 'proposal' | 'validation' | 'done';
   message: string;
   metricCallsUsed: number;
 };
 
-export type AxAgentImproveOptions = {
+export type AxAgentPlaybookEvolveOptions = {
+  /**
+   * Keep only proposals that provably help — re-score train + held-out after
+   * each candidate bullet and accept only on a held-in gain without a
+   * held-out regression, else roll it back. Default true. With `false`,
+   * mined lessons are applied without the gate (fast trust-batch).
+   */
+  verify?: boolean;
   /** Runs the agent during evaluation. Defaults to the agent's `ai`. */
   studentAI?: Readonly<AxAIService>;
-  /** Mines weaknesses and writes proposals. Defaults to `judgeAI`, then the student. */
+  /** Mines weaknesses. Defaults to `judgeAI`, then the student. */
   teacherAI?: Readonly<AxAIService>;
   /** Scores runs via the built-in judge. Resolution mirrors `optimize()`. */
   judgeAI?: Readonly<AxAIService>;
   judgeOptions?: AxAgentJudgeOptions;
   /** Optional deterministic scorer replacing the LLM judge. */
   metric?: AxMetricFn;
-  /** Bounded edit surfaces proposals may touch. Default: both. */
-  surfaces?: readonly AxAgentImproveSurface[];
   /** Maximum weaknesses mined / proposals evaluated. Default 4. */
   maxProposals?: number;
   /**
@@ -113,41 +107,33 @@ export type AxAgentImproveOptions = {
    * decide the gate. Each repeat spends budget.
    */
   runsPerTask?: number;
-  /** Tolerated held-out drop when accepting a proposal. Default 0.01. */
+  /** Tolerated held-out drop when accepting a proposal (verify). Default 0.01. */
   epsilon?: number;
-  /** Required held-in improvement to accept a proposal. Default 0.05. */
+  /** Required held-in improvement to accept a proposal (verify). Default 0.05. */
   minHeldInGain?: number;
   /** Records scoring below this count as failures for mining. Default 0.7. */
   scoreThreshold?: number;
   /**
-   * Keep accepted proposals applied to the live agent (default). With
-   * `false`, everything is rolled back at the end and the result's
-   * `playbookSnapshot` / `appliedComponents` carry the accepted state for a
-   * later `getPlaybook()?.load(...)` / `applyOptimizedComponents(...)`.
+   * Keep accepted bullets on the live playbook (default). With `false`, the
+   * playbook is rolled back at the end and the result's `playbookSnapshot`
+   * carries the accepted state for a later `getPlaybook()?.load(...)`.
    */
   apply?: boolean;
   verbose?: boolean;
-  onProgress?: (event: Readonly<AxAgentImproveProgressEvent>) => void;
+  onProgress?: (event: Readonly<AxAgentPlaybookEvolveProgressEvent>) => void;
   abortSignal?: AbortSignal;
 };
 
-export type AxAgentImproveResult<OUT extends AxGenOut = AxGenOut> = {
+export type AxAgentPlaybookEvolveResult<OUT extends AxGenOut = AxGenOut> = {
   baseline: { heldIn: number; heldOut?: number };
   final: { heldIn: number; heldOut?: number };
-  weaknesses: readonly AxAgentWeakness[];
-  outcomes: readonly AxAgentImproveProposalOutcome[];
+  weaknesses: readonly AxAgentPlaybookWeakness[];
+  outcomes: readonly AxAgentPlaybookEvolveOutcome[];
   /** Config suggestions collected from mined weaknesses; never auto-applied. */
   recommendations: readonly string[];
-  /** Playbook state after the accepted proposals (when any touched it). */
+  /** Playbook state after the accepted bullets. */
   playbookSnapshot?: AxPlaybookSnapshot;
-  /**
-   * Accepted standing instruction addenda. Live on the agent when
-   * `apply: true`; re-apply later (e.g. after a restart) via
-   * `agent.addActorInstruction(...)`. For durable persistence prefer the
-   * playbook surface, whose snapshot rides `playbookSnapshot`.
-   */
-  appliedInstructionAddenda?: readonly string[];
   metricCallsUsed: number;
   /** The baseline corpus (post-run records with scores). */
-  records: readonly AxAgentImproveRunRecord<any, OUT>[];
+  records: readonly AxAgentPlaybookEvolveRunRecord<any, OUT>[];
 };
