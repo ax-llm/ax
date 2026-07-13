@@ -127,6 +127,7 @@ MCPJSON
 MCPJSONRPC
 MCPO
 MCPSSRF
+memor
 Mgmt
 minibatch
 minibatches
@@ -175,6 +176,7 @@ rankable
 RARO
 Readye
 recognises
+reentrancy
 reka
 Renderable
 replayers
@@ -190,6 +192,7 @@ Rpbw
 runbook
 région
 sandboxed
+scriptable
 scalarize
 Scalarize
 scalarized
