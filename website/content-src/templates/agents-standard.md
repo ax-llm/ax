@@ -39,6 +39,14 @@ Keep the top-level `functions` shape either flat or grouped — mixed plain func
 
 Agents ask instead of guessing. When required information is genuinely missing, `forward()` and `streamingForward()` throw a structured clarification error; the host saves state, asks the user, restores, and resumes. Use clarification when the missing fact changes the action, side effect, recipient, policy, or output contract.
 
+## Chain-Of-Evidence Citations (TypeScript)
+
+Answers can be required to point at the evidence that grounds them. With `citations: true`, the responder gains an optional `evidenceCitations` output listing the evidence ids the answer relies on — the keys of the evidence object the actor curated, plus the ids of loaded memories. Citations are validated against the ids that actually exist; an invalid citation re-prompts the responder through the standard validation-retry loop, and runs without evidence skip validation entirely. Use `citations: { surface: 'hidden', onCitations }` to keep the result shape pristine and read citations from the callback.
+
+Be precise about the guarantee: validation proves every citation points at evidence that exists — the model cannot claim support from a source it never collected. It does not verify that the answer's claims match the cited evidence's content; that judgment stays with you (or a judge you add). Citation granularity follows how the actor curates evidence: one big `notes` blob yields one coarse citation, while separate keys per fact yield precise ones. TS-first: the five generated language ports do not ship citations yet.
+
+Lineage: Self-RAG (citation-aware generation) and Attributed QA (attribution as a measurable property) — see the [Research Map](/research/).
+
 ## The Knobs That Matter Here
 
 | Option | What it does |
@@ -46,6 +54,7 @@ Agents ask instead of guessing. When required information is genuinely missing, 
 | `functions` | Flat tools/child agents, or grouped discovery modules |
 | `functionDiscovery` | Module summaries + on-demand `discover(...)` for big catalogs (auto-enabled by `autoUpgrade` for large catalogs) |
 | `autoUpgrade` | Smart defaults, ON: auto-enable discovery for big catalogs, keep oversized inputs runtime-only |
+| `citations` | Opt-in: answers must cite the evidence ids they rely on, validated in-pipeline |
 | `agentIdentity` | Name, description, and namespace when this agent is someone's child |
 | `maxTurns` | Upper bound on actor turns per forward |
 

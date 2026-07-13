@@ -221,6 +221,87 @@ export function resolveDirectResponse(
   return value;
 }
 
+/**
+ * Chain-of-evidence citations knob: when enabled, the responder gains an
+ * optional string-array output field whose entries must be evidence ids the
+ * answer actually relies on — the top-level keys of the `final(task,
+ * evidence)` / `respond(task, evidence)` evidence object, plus (by default)
+ * the `id` of any id-bearing records one level deep inside it, e.g. loaded
+ * memories. Citations are validated subset-only against those ids; a
+ * violation re-prompts the responder through the standard validation-retry
+ * loop. Runs without evidence skip validation entirely.
+ */
+export type AxAgentCitations =
+  | boolean
+  | {
+      /** Responder output field name. Default 'evidenceCitations'. */
+      field?: string;
+      /**
+       * Where validated citations land. `'output'` (default) keeps the field
+       * on the returned result; `'hidden'` strips it after validation so the
+       * result matches the user signature exactly — read citations via
+       * `onCitations`.
+       */
+      surface?: 'output' | 'hidden';
+      /**
+       * Also accept `id` values of record arrays one level deep in the
+       * evidence object (the shape `recall(...)` memories arrive in).
+       * Default true.
+       */
+      includeMemoryIds?: boolean;
+      /** Observer for validated citations; failures are swallowed. */
+      onCitations?: (citations: readonly string[]) => void | Promise<void>;
+    };
+
+/** Convenience result intersection for reading citations off a forward result. */
+export type AxAgentCitationsOutput = { evidenceCitations?: string[] };
+
+export const CITATIONS_DEFAULT: AxAgentCitations = false;
+
+export type AxResolvedCitations = {
+  enabled: boolean;
+  field: string;
+  surface: 'output' | 'hidden';
+  includeMemoryIds: boolean;
+  onCitations?: (citations: readonly string[]) => void | Promise<void>;
+};
+
+export function resolveCitations(
+  value: AxAgentCitations | undefined
+): AxResolvedCitations {
+  const input = value ?? CITATIONS_DEFAULT;
+  if (typeof input === 'boolean') {
+    return {
+      enabled: input,
+      field: 'evidenceCitations',
+      surface: 'output',
+      includeMemoryIds: true,
+    };
+  }
+  const field = input.field ?? 'evidenceCitations';
+  if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(field)) {
+    throw new Error(
+      `citations.field must be a valid field name, got ${JSON.stringify(field)}`
+    );
+  }
+  if (
+    input.surface !== undefined &&
+    input.surface !== 'output' &&
+    input.surface !== 'hidden'
+  ) {
+    throw new Error(
+      `citations.surface must be 'output' or 'hidden', got ${JSON.stringify(input.surface)}`
+    );
+  }
+  return {
+    enabled: true,
+    field,
+    surface: input.surface ?? 'output',
+    includeMemoryIds: input.includeMemoryIds !== false,
+    ...(input.onCitations ? { onCitations: input.onCitations } : {}),
+  };
+}
+
 /** System prompt size at which the chat budget hits the floor ratio. */
 const BUDGET_CURVE_MAX_SYSTEM_CHARS = 30_000;
 /** Minimum fraction of targetPromptChars always reserved for chat context. */

@@ -659,6 +659,13 @@ async function updateContextMapFromState(p: any, state: any) {
   return state;
 }
 
+async function learnFailuresFromState(p: any, state: any) {
+  if (typeof p._updatePlaybookFromPipelineState === 'function') {
+    await p._updatePlaybookFromPipelineState(state);
+  }
+  return state;
+}
+
 function getUsedMemoriesCallback(
   p: any,
   options: unknown
@@ -742,6 +749,7 @@ export function buildPipelineFlow<IN extends AxGenIn, OUT extends AxGenOut>(
       p.responderAi ? { ai: p.responderAi } : undefined
     )
     .map((state) => updateContextMapFromState(p, state))
+    .map((state) => learnFailuresFromState(p, state))
     .returns(mergePipelineReturn);
 }
 
@@ -910,6 +918,14 @@ export async function* streamingForwardPipeline<
     });
     if (typeof p._updateContextMapFromPipelineState === 'function') {
       await p._updateContextMapFromPipelineState(ai, {
+        agentValues: valuesForStages,
+        executorInputs,
+        distillerResult: distillerRun,
+        executorResult: executorRun,
+      });
+    }
+    if (typeof p._updatePlaybookFromPipelineState === 'function') {
+      await p._updatePlaybookFromPipelineState({
         agentValues: valuesForStages,
         executorInputs,
         distillerResult: distillerRun,

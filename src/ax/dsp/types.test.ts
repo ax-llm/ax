@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { ParseSignature } from './types.js';
 
 describe('ParseSignature TypeScript type inference', () => {

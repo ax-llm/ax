@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-
-import { f, fn } from './sig.js';
 import { ValidationError } from './errors.js';
+import { f, fn } from './sig.js';
 import {
   AX_VENDOR,
   isExternalStandardSchema,

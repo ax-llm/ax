@@ -243,6 +243,30 @@ export interface AxACEResult<OUT extends AxGenOut>
 }
 
 /**
+ * The reflector's `bulletTags` field is model-produced JSON: models sometimes
+ * emit a single object (or junk) where the schema asks for an array. Guard
+ * the shape here, once, so the `for...of` consumers (tag application, curator
+ * target resolution) never throw mid-update. Exported for testing.
+ */
+export function normalizeReflectionBulletTags(
+  reflection: AxACEReflectionOutput | undefined
+): AxACEReflectionOutput | undefined {
+  if (!reflection || reflection.bulletTags === undefined) {
+    return reflection;
+  }
+  const raw = reflection.bulletTags as unknown;
+  const candidates = Array.isArray(raw) ? raw : [raw];
+  const bulletTags = candidates.filter(
+    (tag): tag is AxACEReflectionOutput['bulletTags'][number] =>
+      !!tag &&
+      typeof tag === 'object' &&
+      typeof (tag as { id?: unknown }).id === 'string' &&
+      typeof (tag as { tag?: unknown }).tag === 'string'
+  );
+  return { ...reflection, bulletTags };
+}
+
+/**
  * Optimized program artifact that persists ACE playbook updates.
  */
 export class AxACEOptimizedProgram<
@@ -597,6 +621,7 @@ export class AxACE extends AxBaseOptimizer {
               epoch,
               exampleIndex: index,
               operations: curatorResult.operations,
+              updatedBulletIds: appliedDeltaIds,
             });
           }
 
@@ -773,6 +798,7 @@ export class AxACE extends AxBaseOptimizer {
         epoch: -1,
         exampleIndex: this.generatorHistory.length - 1,
         operations: curatorResult.operations,
+        updatedBulletIds: appliedDeltaIds,
       });
     }
 
@@ -1323,7 +1349,9 @@ export class AxACE extends AxBaseOptimizer {
           ? JSON.stringify(previousReflection)
           : undefined,
       });
-      return reflectionRaw as AxACEReflectionOutput;
+      return normalizeReflectionBulletTags(
+        reflectionRaw as AxACEReflectionOutput
+      );
     } catch (error) {
       if (this.verbose) {
         console.warn(

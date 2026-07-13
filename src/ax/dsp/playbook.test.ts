@@ -56,6 +56,14 @@ describe('playbook handle', () => {
     expect(rendered).toContain('Always cite the policy id');
   });
 
+  it('renders an empty playbook as the empty string (no bare header)', () => {
+    // A zero-bullet playbook must inject nothing — a bare "## Context
+    // Playbook" header would otherwise pollute a program's prompt (e.g. after
+    // a rolled-back improve() proposal loads an empty snapshot).
+    const pb = playbook(createProgram(), { studentAI: mockAI });
+    expect(pb.render()).toBe('');
+  });
+
   it('round-trips through toJSON/load', () => {
     const content = buildPlaybook({ Pitfalls: ['Do not skip validation'] });
     const first = playbook(createProgram(), { studentAI: mockAI }).load({

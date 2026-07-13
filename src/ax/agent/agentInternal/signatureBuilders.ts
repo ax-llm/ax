@@ -248,10 +248,24 @@ export function buildSplitPrograms(self: any): void {
       selectionCriteria:
         s.agentFunctionModuleMetadata.get(namespace)?.selectionCriteria,
     }));
+  // The base description composes the stage's optimizable instruction
+  // (`stageInstruction`, the live backing of the `::instruction` component),
+  // the user/playbook-owned `executorDescription`, and any standing
+  // instruction addenda (an additive channel; see addActorInstruction).
+  const actorBaseParts = [
+    s.stageInstruction,
+    s.executorDescription,
+    ...((s.instructionAddenda as string[] | undefined) ?? []),
+  ].filter(
+    (part: unknown): part is string =>
+      typeof part === 'string' && part.trim().length > 0
+  );
   const actorDefinitionBaseDescription =
     s._supportsRecursiveActorSlotOptimization()
       ? undefined
-      : s.executorDescription;
+      : actorBaseParts.length > 0
+        ? actorBaseParts.join('\n\n')
+        : undefined;
   void effectiveMaxSubAgentCalls;
   void effectiveMaxTurns;
   const actorDefinitionBuildOptions: AxStageDefinitionBuildOptions = {

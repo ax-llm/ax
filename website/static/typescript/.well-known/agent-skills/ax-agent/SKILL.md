@@ -536,6 +536,8 @@ agent(signature, {
   functions,
   functionDiscovery,
   autoUpgrade,
+  playbook,
+  citations,
   ...agentOptions,
 });
 ```
@@ -583,6 +585,13 @@ Rules:
 - Values in required non-string fields (arrays, objects, numbers, media) are never auto-promoted — declare those in `contextFields` explicitly when they can be large.
 - Each promotion emits a `field_auto_promoted` context event (`onContextEvent`) with the field name, original size, and preview size; use it to observe what was kept out of the prompt.
 
+### Learning And Citations
+
+Two optional construction-time options (TypeScript, both default off):
+
+- `playbook`: attach an ACE playbook at construction. `learn` is on by default — after each run that produced failure signals (error turns, dead-ends, failing tool calls) one bounded update curates durable avoidance rules that ride the next run's actor prompt; zero LLM cost on clean runs. Seed a prior session with `playbook: { playbook: snapshot }`, persist via `onUpdate`, read the live handle with `getPlaybook()`, gate with `learn: { minSignals, dedupe }`, or disable with `learn: false`. To grow the same playbook from a task set with a held-out verify gate, use `agent.playbook().evolve(...)` — see `ax-playbook`.
+- `citations`: add an optional `evidenceCitations: string[]` responder output listing which evidence entries (top-level keys of the curated evidence, plus memory ids) the answer relied on. Validated in-pipeline — the model cannot cite evidence it never collected (existence, not entailment). Pass `true`, or `{ field?, surface?: 'output' | 'hidden', includeMemoryIds?, onCitations? }`.
+
 ## Public Surface
 
 Use these method groups as the compact AxAgent surface map:
@@ -592,6 +601,7 @@ Use these method groups as the compact AxAgent surface map:
 - State and control: `getState()`, `setState(state?)`, `getContextMap()`, `setContextMap(map?)`, `stop()`, `getSignature()`, `setSignature(signature)`, `getFunction()`, `getId()`, and `setId(id)`. Context-map evolve policy lives on `AxAgentContextMap` (`infiniteEvolve`, `evolveSteps`, `maxChars`), not on the agent config. See [`src/examples/rlm-context-map-live.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-context-map-live.ts) for provider-backed persistence and finite-evolve usage.
 - Observability: `getChatLog()`, `getUsage()`, `getStagedUsage()`, `resetUsage()`, and `getTraces()`; use `ax-agent-observability` for details.
 - Demos and tuning: `setDemos(...)`, `namedPrograms()`, `namedProgramInstances()`, `optimize(...)`, `applyOptimization(...)`, `getOptimizableComponents()`, and `applyOptimizedComponents(...)`; use `ax-agent-optimize` for tuning details.
+- Learning: `playbook()` returns an agent-aware `AxAgentPlaybook` handle (`update(...)`, `render()`, `getState()`, `load(...)`, and `evolve(dataset, options)`); `getPlaybook()` reads the current handle. Use `ax-playbook` for details.
 
 Rules:
 

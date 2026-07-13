@@ -102,3 +102,14 @@ window
   .matchMedia?.('(prefers-color-scheme: dark)')
   .addEventListener('change', rerenderMermaid);
 window.addEventListener('ax-md-theme-change', rerenderMermaid);
+
+// Diagrams inside content appended by the docs infinite scroll (site.js):
+// stash the new nodes' sources, then render — run() skips processed nodes.
+window.axMermaidAppend = () => {
+  for (const node of document.querySelectorAll('.mermaid')) {
+    if (node.dataset.originalMermaid === undefined) {
+      node.dataset.originalMermaid = node.textContent ?? '';
+    }
+  }
+  renderMermaid();
+};

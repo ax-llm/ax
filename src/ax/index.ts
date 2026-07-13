@@ -49,6 +49,7 @@ import type {
   AxAgentStreamingForwardOptions,
   AxStageOptions,
 } from './agent/agentInternal/agentOptimizeTypes.js';
+import { AxAgentPlaybook } from './agent/agentInternal/agentPlaybook.js';
 import {
   type AxAgentActorTurnCallback,
   type AxAgentActorTurnCallbackArgs,
@@ -87,6 +88,12 @@ import {
   type AxAgentConfig,
   agent,
 } from './agent/agentInternal/coordinator.js';
+import {
+  type AxAgentFailureReport,
+  type AxAgentFailureSignal,
+  type AxAgentFailureSignalKind,
+  axPlaybookFailureSection,
+} from './agent/agentInternal/failureReport.js';
 import type { AxAgentMemoryEntry } from './agent/agentInternal/memoriesHelpers.js';
 import type {
   AxAgentMemoriesSearchFn,
@@ -94,6 +101,20 @@ import type {
   AxAgentUsedMemoriesCallback,
   AxAgentUsedMemory,
 } from './agent/agentInternal/memoriesTypes.js';
+import type {
+  AxAgentEvalBatchResult,
+  AxAgentEvalBudget,
+} from './agent/agentInternal/playbookEvolve/evalHarness.js';
+import type { AxAgentFailureCluster } from './agent/agentInternal/playbookEvolve/failureClusters.js';
+import type {
+  AxAgentPlaybookEvolveOptions,
+  AxAgentPlaybookEvolveOutcome,
+  AxAgentPlaybookEvolveProgressEvent,
+  AxAgentPlaybookEvolveProposal,
+  AxAgentPlaybookEvolveResult,
+  AxAgentPlaybookEvolveRunRecord,
+  AxAgentPlaybookWeakness,
+} from './agent/agentInternal/playbookEvolve/playbookEvolveTypes.js';
 import type {
   AxModuleRankInput,
   AxRankableDocument,
@@ -149,9 +170,21 @@ import {
 } from './agent/completion.js';
 import type {
   AxAgentAutoUpgrade,
+  AxAgentCitations,
+  AxAgentCitationsOutput,
   AxAgentDirectResponse,
   AxResolvedAutoUpgrade,
+  AxResolvedCitations,
 } from './agent/config.js';
+import type {
+  AxAgentPlaybookConfig,
+  AxAgentPlaybookLearnOptions,
+  AxAgentPlaybookSkipReason,
+  AxAgentPlaybookUpdateResult,
+  AxAgentPlaybookUpdateStatus,
+  AxResolvedAgentPlaybookConfig,
+  AxResolvedAgentPlaybookLearn,
+} from './agent/playbookConfig.js';
 import {
   type AxCodeRuntime,
   type AxCodeSession,
@@ -1271,6 +1304,7 @@ export { AxAIWebLLMModel };
 export { AxAgent };
 export { AxAgentClarificationError };
 export { AxAgentContextMap };
+export { AxAgentPlaybook };
 export { AxAgentProtocolCompletionSignal };
 export { AxAgentSharedRuntimeSession };
 export { AxAssertionError };
@@ -1462,6 +1496,7 @@ export { axNormalizeOpenAIUsage };
 export { axNormalizeTranscriptionResponse };
 export { axOpenAIChatAudioDefaults };
 export { axOptimizableValidators };
+export { axPlaybookFailureSection };
 export { axProcessContentForProvider };
 export { axResolveGeminiLiveAudioConfig };
 export { axResolveGrokRealtimeAudioConfig };
@@ -1720,6 +1755,8 @@ export type { AxAgentActorTurnCallbackArgs };
 export type { AxAgentAutoPromotionRecord };
 export type { AxAgentAutoUpgrade };
 export type { AxAgentCatalogSkill };
+export type { AxAgentCitations };
+export type { AxAgentCitationsOutput };
 export type { AxAgentClarification };
 export type { AxAgentClarificationChoice };
 export type { AxAgentClarificationKind };
@@ -1736,11 +1773,17 @@ export type { AxAgentContextStage };
 export type { AxAgentDemos };
 export type { AxAgentDirectResponse };
 export type { AxAgentDiscoveryPromptState };
+export type { AxAgentEvalBatchResult };
+export type { AxAgentEvalBudget };
 export type { AxAgentEvalDataset };
 export type { AxAgentEvalFunctionCall };
 export type { AxAgentEvalPrediction };
 export type { AxAgentEvalTask };
 export type { AxAgentExecutorResultPayload };
+export type { AxAgentFailureCluster };
+export type { AxAgentFailureReport };
+export type { AxAgentFailureSignal };
+export type { AxAgentFailureSignalKind };
 export type { AxAgentForwardOptions };
 export type { AxAgentFunction };
 export type { AxAgentFunctionCall };
@@ -1769,7 +1812,19 @@ export type { AxAgentOptimizeOptions };
 export type { AxAgentOptimizeResult };
 export type { AxAgentOptimizeTarget };
 export type { AxAgentOptions };
+export type { AxAgentPlaybookConfig };
+export type { AxAgentPlaybookEvolveOptions };
+export type { AxAgentPlaybookEvolveOutcome };
+export type { AxAgentPlaybookEvolveProgressEvent };
+export type { AxAgentPlaybookEvolveProposal };
+export type { AxAgentPlaybookEvolveResult };
+export type { AxAgentPlaybookEvolveRunRecord };
+export type { AxAgentPlaybookLearnOptions };
 export type { AxAgentPlaybookOptions };
+export type { AxAgentPlaybookSkipReason };
+export type { AxAgentPlaybookUpdateResult };
+export type { AxAgentPlaybookUpdateStatus };
+export type { AxAgentPlaybookWeakness };
 export type { AxAgentRecursionOptions };
 export type { AxAgentRecursiveExpensiveNode };
 export type { AxAgentRecursiveFunctionCall };
@@ -2151,7 +2206,10 @@ export type { AxRefineOptions };
 export type { AxRefineStrategy };
 export type { AxRelevanceHints };
 export type { AxRenderedPrompt };
+export type { AxResolvedAgentPlaybookConfig };
+export type { AxResolvedAgentPlaybookLearn };
 export type { AxResolvedAutoUpgrade };
+export type { AxResolvedCitations };
 export type { AxResolvedContextPolicy };
 export type { AxResolvedExecutorModelPolicy };
 export type { AxResolvedExecutorModelPolicyEntry };

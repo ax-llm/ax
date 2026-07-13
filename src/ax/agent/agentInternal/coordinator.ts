@@ -16,7 +16,12 @@ import type {
   AxProgramTrace,
 } from '../../dsp/types.js';
 import { ActorAgentRLM } from '../AxAgent.js';
-import { type AxResolvedAutoUpgrade, resolveAutoUpgrade } from '../config.js';
+import {
+  type AxResolvedAutoUpgrade,
+  type AxResolvedCitations,
+  resolveAutoUpgrade,
+  resolveCitations,
+} from '../config.js';
 import {
   AxAgentContextMap,
   type AxAgentContextMapConfig,
@@ -24,8 +29,17 @@ import {
   formatContextMapTrajectory,
   normalizeAgentContextMap,
 } from '../contextMap.js';
+import {
+  type AxAgentPlaybookSkipReason,
+  type AxAgentPlaybookUpdateResult,
+  type AxResolvedAgentPlaybookConfig,
+  collectCoveredFailureSignatures,
+  isPlaybookSnapshotSeed,
+  resolveAgentPlaybookConfig,
+} from '../playbookConfig.js';
 import { toCamelCase } from '../runtimeDiscovery.js';
 import { Synthesizer } from '../synthesizer.js';
+import { AxAgentPlaybook } from './agentPlaybook.js';
 import type {
   AxAgentDemos,
   AxAgentEvalDataset,
@@ -47,6 +61,13 @@ import type {
 } from './agentPublicTypes.js';
 import { transcribedAgentInputFields } from './audioInputs.js';
 import {
+  type AxAgentFailureReport,
+  type AxAgentFailureSignal,
+  formatFailureFeedback,
+  MAX_FEEDBACK_SIGNALS,
+  mergeFailureSignals,
+} from './failureReport.js';
+import {
   createAgentOptimizeMetric,
   createOptimizationProgram,
   optimizeAgent,
@@ -57,7 +78,10 @@ import {
   streamingForwardPipeline,
 } from './pipelineForward.js';
 import { forwardPipelineForEvaluation } from './pipelineForwardForEvaluation.js';
-import { buildFinalResponderSignature } from './synthesizerSignature.js';
+import {
+  appendCitationsOutputField,
+  buildFinalResponderSignature,
+} from './synthesizerSignature.js';
 import type { AxAgentOptimizationTargetDescriptor } from './types.js';
 
 /**
@@ -212,6 +236,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private readonly options: Readonly<AxAgentOptions<IN>>;
   private readonly contextMapConfig?: AxAgentContextMapConfig;
   private contextMap?: AxAgentContextMap;
+  private readonly playbookConfigResolved?: AxResolvedAgentPlaybookConfig;
+  private playbookHandle?: AxPlaybook<any, any>;
+  private _agentPlaybook?: AxAgentPlaybook<any, any>;
+  private readonly citationsResolved: AxResolvedCitations;
   private func?: AxFunction;
 
   constructor(
@@ -232,6 +260,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.autoUpgradeResolved = resolveAutoUpgrade(options.autoUpgrade);
     this.contextMapConfig = options.contextMap;
     this.contextMap = normalizeAgentContextMap(options.contextMap);
+    this.playbookConfigResolved = resolveAgentPlaybookConfig(options.playbook);
+    this.citationsResolved = resolveCitations(options.citations);
     this.fullSignature =
       typeof init.signature === 'string'
         ? (AxSignature.create(init.signature) as AxSignature<IN, OUT>)
@@ -278,7 +308,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const responderNonCtxInputFields = nonCtxInputFields.filter(
       (fld) => !this.responderExcludeFields.has(fld.name)
     );
-    const responderOutputFields = allOutputFields;
+    const responderOutputFields = this.citationsResolved.enabled
+      ? appendCitationsOutputField(
+          allOutputFields,
+          this.citationsResolved.field,
+          this.citationsResolved.includeMemoryIds
+        )
+      : allOutputFields;
 
     const {
       description: finalResponderDescription,
@@ -414,6 +450,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         role: 'final',
         description: finalResponderDescription,
         agentIdentity: init.agentIdentity,
+        ...(this.citationsResolved.enabled
+          ? { citations: this.citationsResolved }
+          : {}),
       },
       {
         forwardOptions: finalResponderForwardOptions as Partial<
@@ -452,6 +491,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             .join('\n');
         },
       };
+    }
+
+    if (this.playbookConfigResolved) {
+      this.playbookHandle = this._createPlaybookHandle(
+        this.playbookConfigResolved
+      );
     }
 
     this.pipelineFlow = buildPipelineFlow(this);
@@ -713,7 +758,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const allInputFields = nextSig.getInputFields();
     const allOutputFields = nextSig.getOutputFields();
     const ctxNames = this.contextFieldNames;
-    const responderOutputFields = allOutputFields;
+    const responderOutputFields = this.citationsResolved.enabled
+      ? appendCitationsOutputField(
+          allOutputFields,
+          this.citationsResolved.field,
+          this.citationsResolved.includeMemoryIds
+        )
+      : allOutputFields;
 
     const inputFieldNames = new Set(allInputFields.map((fld) => fld.name));
     for (const field of ctxNames) {
@@ -865,17 +916,63 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   /**
-   * Build an evolving context {@link AxPlaybook} bound to an agent stage
-   * (the actor/task stage by default).
-   *
-   * Use `.update({ example, prediction, feedback })` to refine the playbook from
-   * live feedback, or `.evolve(dataset, metric)` to grow it offline. Offline
-   * evolution scores the chosen stage in isolation; for full-pipeline tuning of
-   * instructions and demos use {@link optimize} instead. Unless `apply` is
-   * `false`, the rendered playbook is injected into the live stage prompt as it
-   * evolves. The evolution engine (ACE) is an implementation detail.
+   * Append a standing instruction addendum to the executor actor's prompt.
+   * A separate additive channel from `executorOptions.description` and the
+   * playbook injection, so the three never clobber each other. Process-local —
+   * not serialized into `AxAgentState`.
+   */
+  public addActorInstruction(addendum: string): void {
+    const trimmed = addendum.trim();
+    if (!trimmed) {
+      return;
+    }
+    const stage: any = this.executor;
+    stage.instructionAddenda = [
+      ...((stage.instructionAddenda as string[] | undefined) ?? []),
+      trimmed,
+    ];
+    stage._buildSplitPrograms?.();
+  }
+
+  /**
+   * The agent's learned playbook — one evolving body of task knowledge bound
+   * to an agent stage (the actor/task stage by default). It grows three ways:
+   * continuously from each run (the `playbook` construction config),
+   * on demand via `.update(...)`, or from a task set via
+   * `.evolve(dataset, options)` (verified by default). Unless `apply` is
+   * `false`, the rendered playbook is injected into the live stage prompt.
+   * Memoized — one playbook per agent. The evolution engine (ACE) is an
+   * implementation detail.
    */
   public playbook(
+    options?: Readonly<AxAgentPlaybookOptions>
+  ): AxAgentPlaybook<any, any> {
+    if (!this.playbookHandle) {
+      this.playbookHandle = this._buildStagePlaybook(options);
+    } else if (options && Object.keys(options).length > 0) {
+      throw new Error(
+        'AxAgent.playbook(): this agent already has a playbook; call playbook() / getPlaybook() without options to use it.'
+      );
+    }
+    return this._agentPlaybookWrapper();
+  }
+
+  /** The agent's playbook handle, or `undefined` if none has been created. */
+  public getPlaybook(): AxAgentPlaybook<any, any> | undefined {
+    return this.playbookHandle ? this._agentPlaybookWrapper() : undefined;
+  }
+
+  private _agentPlaybookWrapper(): AxAgentPlaybook<any, any> {
+    if (
+      !this._agentPlaybook ||
+      this._agentPlaybook.inner !== this.playbookHandle
+    ) {
+      this._agentPlaybook = new AxAgentPlaybook(this, this.playbookHandle!);
+    }
+    return this._agentPlaybook;
+  }
+
+  private _buildStagePlaybook(
     options?: Readonly<AxAgentPlaybookOptions>
   ): AxPlaybook<any, any> {
     const target = options?.target ?? 'actor';
@@ -935,6 +1032,140 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
 
     return handle;
+  }
+
+  /**
+   * Build and seed the construction-time playbook handle (`options.playbook`).
+   * Reuses the `playbook()` stage-binding path; a snapshot seed is restored
+   * via `load()`, a bare playbook seeds the engine directly. Either way the
+   * seeded content is rendered into the live stage prompt (unless
+   * `apply: false`).
+   */
+  private _createPlaybookHandle(
+    resolved: Readonly<AxResolvedAgentPlaybookConfig>
+  ): AxPlaybook<any, any> {
+    const studentAI = resolved.studentAI ?? (this.primaryAgent as any).ai;
+    if (!studentAI) {
+      throw new Error(
+        'AxAgent: the `playbook` config option requires studentAI when the agent has no default ai.'
+      );
+    }
+    const seed = resolved.seedPlaybook;
+    const initialPlaybook =
+      seed && !isPlaybookSnapshotSeed(seed) ? seed : undefined;
+    const handle = this._buildStagePlaybook({
+      target: resolved.target,
+      studentAI,
+      teacherAI: resolved.teacherAI,
+      apply: resolved.apply,
+      ...resolved.playbookOptions,
+      ...(initialPlaybook ? { initialPlaybook } : {}),
+    });
+    if (seed && isPlaybookSnapshotSeed(seed)) {
+      handle.load(seed);
+    } else if (initialPlaybook) {
+      handle.applyTo();
+    }
+    return handle;
+  }
+
+  /**
+   * Run-end failure learning for the attached playbook (see
+   * `AxAgentPlaybookConfig.learn`): merge the stages' deterministic failure
+   * reports, gate on volume and signature novelty, then feed one bounded
+   * playbook update whose curated rules land in the `failures_to_avoid`
+   * section. Non-fatal by construction — playbook upkeep must never break the
+   * completed user-facing run.
+   *
+   * @internal Public for the pipeline flow node and tests.
+   */
+  public async _updatePlaybookFromPipelineState(
+    state: Readonly<Record<string, any>>
+  ): Promise<AxAgentPlaybookUpdateResult | undefined> {
+    const resolved = this.playbookConfigResolved;
+    const handle = this.playbookHandle;
+    if (!resolved || !handle) {
+      return undefined;
+    }
+    try {
+      const skip = (
+        skipReason: AxAgentPlaybookSkipReason,
+        signals: readonly AxAgentFailureSignal[]
+      ): AxAgentPlaybookUpdateResult => ({
+        snapshot: handle.getState(),
+        status: 'skipped',
+        skipReason,
+        signals,
+      });
+      if (!resolved.learn.enabled) {
+        return skip('learning_disabled', []);
+      }
+
+      const reports: (AxAgentFailureReport | undefined)[] = [
+        state.distillerResult?.failureReport,
+        state.executorResult?.failureReport,
+      ];
+      const signals = mergeFailureSignals(reports);
+      if (signals.length === 0) {
+        return skip('no_failures', signals);
+      }
+      if (signals.length < resolved.learn.minSignals) {
+        return skip('below_min_signals', signals);
+      }
+
+      let fresh = signals;
+      if (resolved.learn.dedupe) {
+        // Signatures already curated into this playbook are recorded on the
+        // update events we feed the engine (`example.failureSignatures`), so
+        // the skip decision is deterministic regardless of how the curator
+        // phrased or filed the resulting bullets — and it survives snapshot
+        // save/restore because the events ride the artifact. Coverage lapses
+        // when the curated bullets have since been pruned, so lost lessons
+        // re-learn (see `collectCoveredFailureSignatures`).
+        const curated = collectCoveredFailureSignatures(handle.getState());
+        fresh = signals.filter((signal) => !curated.has(signal.signature));
+        if (fresh.length === 0) {
+          return skip('all_duplicates', signals);
+        }
+      }
+
+      // Only the signals actually shown to the curator can produce a bullet,
+      // so record coverage for exactly that set — recording the uncapped set
+      // would mark overflow signatures covered without ever presenting them.
+      fresh = fresh.slice(0, MAX_FEEDBACK_SIGNALS);
+
+      const task =
+        typeof state.executorInputs?.executorRequest === 'string'
+          ? state.executorInputs.executorRequest
+          : JSON.stringify(state.agentValues ?? {});
+      const feedback = formatFailureFeedback(fresh, task);
+      const before = JSON.stringify(handle.getState().playbook);
+      await handle.update({
+        example: {
+          task,
+          failureSignatures: fresh.map((signal) => signal.signature),
+        },
+        prediction: state.responderResult ?? {},
+        feedback,
+      });
+      const snapshot = handle.getState();
+      const result: AxAgentPlaybookUpdateResult = {
+        snapshot,
+        status:
+          JSON.stringify(snapshot.playbook) === before
+            ? 'unchanged'
+            : 'updated',
+        signals: fresh,
+        feedback,
+      };
+      if (resolved.onUpdate) {
+        await resolved.onUpdate(result);
+      }
+      return result;
+    } catch {
+      // Playbook upkeep must not break the completed user-facing run.
+      return undefined;
+    }
   }
 
   private _listOptimizationTargetDescriptors(): AxAgentOptimizationTargetDescriptor[] {

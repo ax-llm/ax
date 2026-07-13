@@ -164,6 +164,22 @@ export class ActorAgentRLM<
   private rlmConfig!: AxRLMConfig;
   private runtime!: AxCodeRuntime;
   private executorDescription?: string;
+  /**
+   * Stage-owned optimizable instruction, rendered at the top of the actor
+   * definition. This is the live backing for the stage's `::instruction`
+   * component: it survives `_buildSplitPrograms()` rebuilds (unlike an
+   * instruction set on the inner split programs, which are recreated) and
+   * setting it triggers a rebuild so it takes effect immediately.
+   */
+  private stageInstruction?: string;
+  /**
+   * Standing instruction addenda appended after `executorDescription` in the
+   * actor definition (set via `agent.addActorInstruction(...)`). A separate
+   * additive channel so manual standing rules and the playbook apply-hook
+   * (which recomposes `executorDescription` from a captured base) never
+   * clobber each other. Process-local: not serialized into `AxAgentState`.
+   */
+  private instructionAddenda?: string[];
   private executorModelPolicy?: AxResolvedExecutorModelPolicy;
   private judgeOptions?: AxAgentJudgeOptions;
   private recursionForwardOptions?: AxAgentRecursionOptions;
@@ -253,6 +269,14 @@ export class ActorAgentRLM<
     const id = this.getId();
     const out: AxOptimizableComponent[] = [];
 
+    out.push({
+      key: `${id}::instruction`,
+      kind: 'instruction',
+      current: this.stageInstruction ?? '',
+      description:
+        'High-level instruction rendered at the top of the actor definition. Use for strategy and standing rules; survives actor rebuilds.',
+    });
+
     const actorTplId = this._actorTemplateId();
     const current =
       this._actorTemplateOverrides?.get(actorTplId) ??
@@ -306,10 +330,21 @@ export class ActorAgentRLM<
     const id = this.getId();
     const tplPrefix = `${id}::actor-tpl:`;
     const primPrefix = `${id}::primitive:`;
+    const instructionKey = `${id}::instruction`;
     let changed = false;
 
     for (const [key, value] of Object.entries(updates)) {
       if (typeof value !== 'string') continue;
+
+      if (key === instructionKey) {
+        const trimmed = value.trim();
+        const next = trimmed.length > 0 ? trimmed : undefined;
+        if (next !== this.stageInstruction) {
+          this.stageInstruction = next;
+          changed = true;
+        }
+        continue;
+      }
 
       if (key.startsWith(tplPrefix)) {
         const tplId = key.slice(tplPrefix.length) as TemplateId;
@@ -557,11 +592,45 @@ export class ActorAgentRLM<
     applyOptimizationImpl(this, optimizedProgram);
   }
 
+  /**
+   * The stage's optimizable instruction. Backed by the stage itself (not the
+   * inner split programs, which are recreated on every rebuild and would
+   * silently drop it) and rendered at the top of the actor definition.
+   */
+  public getInstruction(): string | undefined {
+    return this.stageInstruction;
+  }
+
+  public setInstruction(instruction: string): void {
+    const trimmed = instruction.trim();
+    this.stageInstruction = trimmed.length > 0 ? trimmed : undefined;
+    if (this.actorProgram) {
+      this._buildSplitPrograms();
+    }
+  }
+
   public getOptimizableComponents(): readonly any[] {
     const out: any[] = [];
-    if (this.program) out.push(...this.program.getOptimizableComponents());
+    // The inner split programs are recreated by `_buildSplitPrograms()`, so
+    // instruction values set on them are silently wiped and never render in
+    // the actor loop — drop those dead knobs and expose the stage-owned
+    // `::instruction` component (in `_localOptimizableComponents`) instead.
+    const isSplitProgramInstruction = (c: any) =>
+      c?.kind === 'instruction' &&
+      (c?.key === `${this.program?.getId()}::instruction` ||
+        c?.key === `${this.actorProgram?.getId()}::instruction`);
+    if (this.program)
+      out.push(
+        ...this.program
+          .getOptimizableComponents()
+          .filter((c: any) => !isSplitProgramInstruction(c))
+      );
     if (this.actorProgram)
-      out.push(...this.actorProgram.getOptimizableComponents());
+      out.push(
+        ...this.actorProgram
+          .getOptimizableComponents()
+          .filter((c: any) => !isSplitProgramInstruction(c))
+      );
     if (this.agents) {
       for (const a of this.agents) {
         const fn = (a as any).getOptimizableComponents;

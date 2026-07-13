@@ -1,6 +1,7 @@
 // Debug what's happening with BuildObject types
+
+import type { BuildObject, ParseSignature } from './sigtypes.js';
 import { ax } from './template.js';
-import type { ParseSignature, BuildObject } from './sigtypes.js';
 
 // Test direct ParseSignature usage
 type TestParse = ParseSignature<'userQuestion:string -> responseText:string'>;

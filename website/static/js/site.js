@@ -162,29 +162,33 @@ function selectCodeText(code) {
   selection?.addRange(range);
 }
 
-for (const button of document.querySelectorAll('[data-copy-code]')) {
-  button.addEventListener('click', async () => {
-    const block = button.closest('[data-code-block]');
-    const code = block?.querySelector('pre code, pre');
-    if (!code) return;
+function wireCopyCodeButtons(root = document) {
+  for (const button of root.querySelectorAll('[data-copy-code]')) {
+    button.addEventListener('click', async () => {
+      const block = button.closest('[data-code-block]');
+      const code = block?.querySelector('pre code, pre');
+      if (!code) return;
 
-    const originalLabel = button.textContent || 'Copy';
-    try {
-      await writeClipboard(code.textContent || '');
-      button.textContent = 'Copied';
-      button.dataset.copied = 'true';
-    } catch {
-      selectCodeText(code);
-      button.textContent = 'Selected';
-      button.dataset.copied = 'selected';
-    }
+      const originalLabel = button.textContent || 'Copy';
+      try {
+        await writeClipboard(code.textContent || '');
+        button.textContent = 'Copied';
+        button.dataset.copied = 'true';
+      } catch {
+        selectCodeText(code);
+        button.textContent = 'Selected';
+        button.dataset.copied = 'selected';
+      }
 
-    window.setTimeout(() => {
-      button.textContent = originalLabel;
-      delete button.dataset.copied;
-    }, 1600);
-  });
+      window.setTimeout(() => {
+        button.textContent = originalLabel;
+        delete button.dataset.copied;
+      }, 1600);
+    });
+  }
 }
+
+wireCopyCodeButtons();
 
 const homeLanguageRoot = document.querySelector('[data-home-language-root]');
 const homeLanguageButtons = [
@@ -1579,3 +1583,271 @@ async function hydrateHomeStats(root) {
 if (homeStatsRoot) {
   hydrateHomeStats(homeStatsRoot).catch(() => {});
 }
+
+// --- Docs: side-nav scroll persistence + infinite reading ---
+
+const docsShell = document.querySelector('.page-shell');
+const docsSideNav = document.querySelector('aside.side-nav');
+const docsMain = docsShell?.querySelector('#main-content');
+const SIDENAV_SCROLL_KEY = `ax-md-sidenav-scroll:${location.pathname.split('/')[1] || 'root'}`;
+
+function saveSideNavScroll() {
+  if (!docsSideNav) return;
+  try {
+    sessionStorage.setItem(
+      SIDENAV_SCROLL_KEY,
+      String(Math.round(docsSideNav.scrollTop))
+    );
+  } catch {
+    // Storage unavailable (private mode) — the spot just won't persist.
+  }
+}
+
+// Scroll only the nav box — scrollIntoView would drag the document too.
+function centerSideNavLink(link) {
+  docsSideNav.scrollTop =
+    link.offsetTop - (docsSideNav.clientHeight - link.offsetHeight) / 2;
+}
+
+function sideNavLinkVisible(link) {
+  const navBox = docsSideNav.getBoundingClientRect();
+  const box = link.getBoundingClientRect();
+  return box.top >= navBox.top && box.bottom <= navBox.bottom;
+}
+
+if (docsSideNav) {
+  let savedSideNavScroll = null;
+  try {
+    savedSideNavScroll = sessionStorage.getItem(SIDENAV_SCROLL_KEY);
+  } catch {
+    // Unreadable storage — treated as a first visit.
+  }
+  if (savedSideNavScroll !== null) {
+    docsSideNav.scrollTop = Number(savedSideNavScroll) || 0;
+  }
+
+  const activeSideNavLink = docsSideNav.querySelector('a.active');
+  if (activeSideNavLink && !sideNavLinkVisible(activeSideNavLink)) {
+    // Landed from search, the header, or a direct link — surface the current
+    // page instead of wherever the list was last scrolled.
+    centerSideNavLink(activeSideNavLink);
+  }
+
+  let sideNavScrollFrame;
+  docsSideNav.addEventListener(
+    'scroll',
+    () => {
+      if (sideNavScrollFrame) return;
+      sideNavScrollFrame = window.requestAnimationFrame(() => {
+        sideNavScrollFrame = undefined;
+        saveSideNavScroll();
+      });
+    },
+    { passive: true }
+  );
+  window.addEventListener('pagehide', saveSideNavScroll);
+}
+
+const DOCS_INFINITE_MAX_APPENDS = 8;
+
+function ensureAppendedMermaid(root) {
+  if (!root.querySelector('.mermaid')) return;
+  if (typeof window.axMermaidAppend === 'function') {
+    window.axMermaidAppend();
+    return;
+  }
+  // The current page had no diagrams, so mermaid-init.js never loaded — pull
+  // it in once; on load it stashes sources and renders every .mermaid node.
+  if (document.querySelector('script[data-mermaid-init]')) return;
+  const siteScript = document.querySelector('script[src*="js/site.js"]');
+  const assetVersion = siteScript ? new URL(siteScript.src).search : '';
+  const loader = document.createElement('script');
+  loader.type = 'module';
+  loader.dataset.mermaidInit = 'true';
+  loader.src = `/js/mermaid-init.js${assetVersion}`;
+  document.head.append(loader);
+}
+
+function initDocsInfiniteScroll() {
+  if (!docsShell || !docsMain || !docsSideNav) return;
+  if (!('IntersectionObserver' in window)) return;
+
+  const navLinks = [...docsSideNav.querySelectorAll('.side-section a')];
+  const activeIndex = navLinks.findIndex((link) =>
+    link.classList.contains('active')
+  );
+  if (activeIndex === -1 || activeIndex + 1 >= navLinks.length) return;
+
+  const firstArticle = docsMain.querySelector('article');
+  if (!firstArticle) return;
+
+  const tocHost = docsShell.querySelector('.toc-nav');
+  const pages = [
+    {
+      url: location.pathname,
+      title: document.title,
+      element: firstArticle,
+      tocHTML: tocHost ? tocHost.innerHTML : '',
+    },
+  ];
+  let nextIndex = activeIndex + 1;
+  let appended = 0;
+  let loading = false;
+  let activePage = pages[0];
+
+  const status = document.createElement('div');
+  status.className = 'docs-infinite-status';
+  status.setAttribute('data-pagefind-ignore', '');
+  docsMain.append(status);
+
+  function showContinueLink() {
+    const next = navLinks[nextIndex];
+    if (!next) {
+      status.remove();
+      return;
+    }
+    status.textContent = 'Continue to ';
+    const link = document.createElement('a');
+    link.href = next.href;
+    link.textContent = next.textContent.trim();
+    status.append(link);
+  }
+
+  // Appended pages can repeat heading ids the merged view already has — keep
+  // ids unique and point the incoming page's own anchors at the renames.
+  function dedupeIds(article, toc, pageNumber) {
+    const renames = new Map();
+    for (const el of article.querySelectorAll('[id]')) {
+      if (!document.getElementById(el.id)) continue;
+      const unique = `${el.id}-p${pageNumber}`;
+      renames.set(el.id, unique);
+      el.id = unique;
+    }
+    if (renames.size === 0) return;
+    for (const scope of toc ? [article, toc] : [article]) {
+      for (const anchor of scope.querySelectorAll('a[href^="#"]')) {
+        const target = decodeURIComponent(anchor.getAttribute('href').slice(1));
+        if (renames.has(target)) {
+          anchor.setAttribute('href', `#${renames.get(target)}`);
+        }
+      }
+    }
+  }
+
+  async function appendNextPage() {
+    const next = navLinks[nextIndex];
+    if (!next || loading) return;
+    loading = true;
+    status.textContent = `Loading ${next.textContent.trim()}…`;
+    try {
+      const response = await fetch(next.href);
+      if (!response.ok) throw new Error(`unexpected ${response.status}`);
+      const fetched = new DOMParser().parseFromString(
+        await response.text(),
+        'text/html'
+      );
+      const article = fetched.querySelector('#main-content > article');
+      if (!article) throw new Error('fetched page has no article');
+      const toc = fetched.querySelector('.toc-nav .page-toc');
+
+      appended += 1;
+      dedupeIds(article, toc, appended);
+      const adopted = document.adoptNode(article);
+      status.before(adopted);
+      wireCopyCodeButtons(adopted);
+      ensureAppendedMermaid(adopted);
+
+      pages.push({
+        url: new URL(next.href).pathname,
+        title: fetched.title || document.title,
+        element: adopted,
+        tocHTML: toc ? toc.outerHTML : '',
+      });
+      nextIndex += 1;
+      status.textContent = '';
+
+      if (nextIndex >= navLinks.length) {
+        observer.disconnect();
+        status.remove();
+      } else if (appended >= DOCS_INFINITE_MAX_APPENDS) {
+        observer.disconnect();
+        showContinueLink();
+      }
+      syncActivePage();
+    } catch {
+      observer.disconnect();
+      showContinueLink();
+    } finally {
+      loading = false;
+    }
+  }
+
+  function currentPage() {
+    const readingLine = window.innerHeight * 0.3;
+    let current = pages[0];
+    for (const page of pages) {
+      if (page.element.getBoundingClientRect().top <= readingLine) {
+        current = page;
+      }
+    }
+    return current;
+  }
+
+  // As reading crosses into an appended page, the URL, title, side-nav
+  // highlight, and "On this page" list follow it.
+  function syncActivePage() {
+    const page = currentPage();
+    if (page === activePage) return;
+    activePage = page;
+    history.replaceState(null, '', page.url);
+    document.title = page.title;
+    for (const link of document.querySelectorAll('.side-section a')) {
+      const active = new URL(link.href).pathname === page.url;
+      link.classList.toggle('active', active);
+      if (active) {
+        link.setAttribute('aria-current', 'page');
+      } else {
+        link.removeAttribute('aria-current');
+      }
+    }
+    const navLink = navLinks.find(
+      (link) => new URL(link.href).pathname === page.url
+    );
+    if (navLink && !sideNavLinkVisible(navLink)) {
+      centerSideNavLink(navLink);
+    }
+    if (tocHost) {
+      tocHost.innerHTML = page.tocHTML;
+    }
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        appendNextPage();
+      }
+    },
+    { rootMargin: '520px 0px' }
+  );
+
+  if (navigator.connection?.saveData) {
+    showContinueLink();
+  } else {
+    observer.observe(status);
+  }
+
+  let readingFrame;
+  window.addEventListener(
+    'scroll',
+    () => {
+      if (readingFrame) return;
+      readingFrame = window.requestAnimationFrame(() => {
+        readingFrame = undefined;
+        syncActivePage();
+      });
+    },
+    { passive: true }
+  );
+}
+
+initDocsInfiniteScroll();

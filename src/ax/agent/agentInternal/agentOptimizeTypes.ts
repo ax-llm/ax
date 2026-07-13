@@ -25,9 +25,10 @@ import type {
   AxAgentRecursiveStats,
   AxAgentRecursiveTraceNode,
 } from '../agentRecursiveOptimize.js';
-import type { AxAgentAutoUpgrade } from '../config.js';
+import type { AxAgentAutoUpgrade, AxAgentCitations } from '../config.js';
 import type { AxAgentOnContextEvent } from '../contextEvents.js';
 import type { AxAgentContextMapConfig } from '../contextMap.js';
+import type { AxAgentPlaybookConfig } from '../playbookConfig.js';
 import type { AxContextPolicyConfig } from '../rlm.js';
 import type {
   AxAgentActorTurnCallback,
@@ -81,6 +82,12 @@ type AxAgentEvalPredictionShared = {
   toolErrors: string[];
   turnCount: number;
   usage?: AxProgramUsage[];
+  /**
+   * Deterministic failure signals harvested from the run's stages (merged
+   * distiller + executor), when the run produced any. Structured input for
+   * failure clustering in `agent.playbook().evolve()`.
+   */
+  failureSignals?: readonly import('./failureReport.js').AxAgentFailureSignal[];
   recursiveTrace?: AxAgentRecursiveTraceNode;
   recursiveStats?: AxAgentRecursiveStats;
   recursiveSummary?: string;
@@ -210,6 +217,43 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * updated snapshot.
    */
   contextMap?: AxAgentContextMapConfig;
+
+  /**
+   * Optional evolving playbook attached at construction. The rendered
+   * playbook is injected into the chosen stage's live prompt (the actor by
+   * default), and — unless `learn: false` — the agent learns from its own
+   * failures: after each completed run that produced failure signals (error
+   * turns, repeated dead-ends, tool errors), one bounded playbook update
+   * (default 1 reflection + 1 curation call, zero on clean runs) curates
+   * durable avoidance rules into a `failures_to_avoid` section so later runs
+   * stop repeating them. Seed it with a persisted snapshot and use `onUpdate`
+   * to persist new snapshots; read the live handle via `getPlaybook()`.
+   * TS-first: the 5 non-TS ports do not ship the playbook option yet.
+   */
+  playbook?: AxAgentPlaybookConfig;
+
+  /**
+   * Chain-of-evidence citations — opt-in (default off). When enabled, the
+   * responder gains an optional string-array output field (default
+   * `evidenceCitations`) that must list the evidence ids the answer actually
+   * relies on: the top-level keys of the `final(task, evidence)` /
+   * `respond(task, evidence)` evidence object, plus the `id` of id-bearing
+   * records inside it (e.g. loaded memories). Citations are validated
+   * subset-only against those ids — a violation re-prompts the responder via
+   * the standard validation-retry loop; runs without evidence skip
+   * validation. Pass an object to rename the field, hide it from the result
+   * (`surface: 'hidden'`), or observe citations via `onCitations`. Valid ids
+   * are the evidence object's top-level keys plus (with `includeMemoryIds`,
+   * default on) the `id` of records nested inside it — arrays of records,
+   * keyed maps of records, or single records, with string or numeric ids. A
+   * run whose evidence object is empty rejects any citation; a run with no
+   * evidence object at all skips validation. The guarantee is existence, not
+   * entailment: the model cannot cite evidence it never collected, but
+   * validation does not check that the answer's claims match the cited
+   * evidence's content. TS-first: the 5 non-TS ports do not ship citations
+   * yet.
+   */
+  citations?: AxAgentCitations;
 
   /**
    * Tools registered under their configured namespace globals. May contain

@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AxAIService } from '../../ai/types.js';
 import { f } from '../sig.js';
 import { ax } from '../template.js';
-import { AxACE, isAceNoOpAcknowledgment } from './ace.js';
+import {
+  AxACE,
+  isAceNoOpAcknowledgment,
+  normalizeReflectionBulletTags,
+} from './ace.js';
 import { applyCuratorOperations, createEmptyPlaybook } from './acePlaybook.js';
 import type {
   AxACECuratorOperation,
@@ -589,5 +593,48 @@ describe('AxACE', () => {
 
     expect(trajectory.input.first).toEqual({ value: 'shared' });
     expect(trajectory.input.second).toEqual({ value: 'shared' });
+  });
+});
+
+describe('normalizeReflectionBulletTags', () => {
+  const base = {
+    reasoning: 'r',
+    errorIdentification: 'e',
+    rootCauseAnalysis: 'rc',
+    correctApproach: 'c',
+    keyInsight: 'k',
+  };
+
+  it('passes proper arrays through and keeps undefined reflections', () => {
+    const tags = [{ id: 'a-1', tag: 'helpful' as const }];
+    expect(
+      normalizeReflectionBulletTags({ ...base, bulletTags: tags })?.bulletTags
+    ).toEqual(tags);
+    expect(normalizeReflectionBulletTags(undefined)).toBeUndefined();
+  });
+
+  it('wraps a single-object bulletTags into an array (model quirk)', () => {
+    const reflection = normalizeReflectionBulletTags({
+      ...base,
+      bulletTags: { id: 'a-1', tag: 'harmful' } as any,
+    });
+    expect(reflection?.bulletTags).toEqual([{ id: 'a-1', tag: 'harmful' }]);
+    for (const tag of reflection?.bulletTags ?? []) {
+      expect(tag.id).toBe('a-1');
+    }
+  });
+
+  it('drops malformed entries instead of throwing downstream', () => {
+    const reflection = normalizeReflectionBulletTags({
+      ...base,
+      bulletTags: 'not tags' as any,
+    });
+    expect(reflection?.bulletTags).toEqual([]);
+    expect(
+      normalizeReflectionBulletTags({
+        ...base,
+        bulletTags: [{ id: 1 }, null, { id: 'ok', tag: 'neutral' }] as any,
+      })?.bulletTags
+    ).toEqual([{ id: 'ok', tag: 'neutral' }]);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AxMockAIService } from '../ai/mock/api.js';
 import { axGlobals } from './globals.js';
 import { ax } from './template.js';

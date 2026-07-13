@@ -53,4 +53,47 @@ The two are complementary: tune instructions with `optimize(...)`, and grow situ
 
 `agent.playbook({ target })` binds a playbook to an agent stage (the actor by default, or the responder). The evolved playbook is injected into the live stage prompt, so an agent can keep a strategy playbook current from real runs via `update(...)`. For tuning agent instructions and demos, use `agent.optimize(...)` ([Optimization]({{langRoot}}/concepts/optimization/)).
 
+### Learn From Failures (TypeScript)
+
+TypeScript agents can also attach a playbook at construction and let it learn from the agent's own failures — no examples, metric, or extra wiring:
+
+```typescript
+const support = agent('ticket:string -> reply:string', {
+  ai: llm,
+  functions: [crmTools],
+  playbook: {
+    playbook: savedSnapshot, // optional seed from a previous session
+    onUpdate: ({ snapshot }) => save(snapshot), // persist new lessons
+  },
+});
+```
+
+After each completed run that produced failure signals — error turns, repeated dead-ends, failing tool calls — one bounded playbook update (a single reflection + curation call; zero on clean runs) curates durable avoidance rules, and the refreshed playbook rides the actor prompt on the next run. Signatures already curated are skipped deterministically, so repeated failures do not re-spend LLM calls. Read the live handle via `agent.getPlaybook()`; tune gating with `learn: { minSignals, dedupe }` or disable with `learn: false`. TS-first: the five generated language ports do not ship the construction-time `playbook` option yet.
+
+Lineage: Reflexion (reflect on failures, retry better) and ExpeL (persist lessons across tasks) — see the [Research Map](/research/).
+
+### Verified Evolve (TypeScript)
+
+`agent.playbook().evolve(dataset, options)` grows the same playbook from a task set instead of live traffic. It runs the train tasks, clusters the failures deterministically, mines each cluster for a grounded weakness (evidence quotes must literally appear in the failing runs — fabricated diagnoses are dropped), and proposes one playbook bullet per weakness. With `verify` (default on) a bullet is kept only when the train score improves by `minHeldInGain` AND the held-out (`validation`) score does not drop by more than `epsilon` — otherwise it rolls back exactly. `verify: false` applies the mined lessons without the gate.
+
+```typescript
+const result = await support.playbook().evolve(
+  { train, validation },
+  { metric, runsPerTask: 2 },
+);
+// result.baseline / result.final hold-in & held-out, result.outcomes per bullet
+```
+
+Mining and judging need strong models. On small task sets set `runsPerTask: 2` or `3` so accept decisions compare averaged scores, not a single lucky run. Lineage: Self-Harness, STOP, and the Darwin Gödel Machine (keep only what provably improves) — see the [Research Map](/research/).
+
+### One Playbook, Three Ways To Grow It
+
+| Mode | Call | Trust or proof |
+| --- | --- | --- |
+| Continuous | the construction `playbook` option — automatic per-run failure harvest | trust |
+| On-demand | `agent.playbook().update({ example, prediction, feedback })` | trust |
+| Batch verified | `agent.playbook().evolve(dataset)` — grow from a task set, keep only what verifies | proof |
+
+All three curate the one playbook the agent renders into its prompt; `agent.getPlaybook()` reads it, `getState()`/`load()` persist it. For tuning instructions and demos (not the playbook), use `agent.optimize(...)`.
+
 See [Agents]({{langRoot}}/agents/) and [agent() API]({{langRoot}}/api/agent/).

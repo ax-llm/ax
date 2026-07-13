@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.",
       "url": "ax-agent/SKILL.md",
-      "digest": "sha256:5159f59693f537204e5b42c70b6a6210e5ecd54d870ee9e90b740e2e200cb067"
+      "digest": "sha256:4428980d2cec16413be19043b4e9fa6535f4a91824de4624e3575168b2e5d7cd"
     },
     {
       "name": "ax-agent-rlm",
@@ -83,7 +83,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent tuning and evaluation code using @ax-llm/ax. Use when the user asks about agent.optimize(...), judgeOptions, eval datasets, optimization targets, saved optimizedProgram artifacts, or agent optimization guidance.",
       "url": "ax-agent-optimize/SKILL.md",
-      "digest": "sha256:7af6d9fba99a66681ba98180c081008fd900d0c765ab1f8cbd5f7020ab4bc9eb"
+      "digest": "sha256:1819a136c73e47a5e259ace3320197b38774ee542d42ad1b235473abad72cca4"
     },
     {
       "name": "ax-agent-context",
@@ -118,7 +118,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct playbook code using @ax-llm/ax. Use when the user asks about playbook(), AxPlaybook, context playbooks, evolving context, ACE / Agentic Context Engineering, agent.playbook(), or growing/applying task knowledge offline and online with evolve() and update().",
       "url": "ax-playbook/SKILL.md",
-      "digest": "sha256:6c3ccac210aac3c28e821457db3a522332ccb3736877354cdd7331fd871486a5"
+      "digest": "sha256:6ec598facbf11b36ce1176224de6538e88d44a610393a20e5ff0f537c65b5afb"
     }
   ]
 }
