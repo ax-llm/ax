@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-agent-optimize"
 description: "Use when writing Rust code with `axllm` for agent optimization, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA."
-version: "23.0.0"
+version: "23.0.1"
 ---
 # AxAgent Optimize For Rust
 

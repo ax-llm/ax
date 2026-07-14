@@ -407,6 +407,25 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-07-14-anthropic-ir-never-requests-summarized-thinking-display-on-adapt",
+      "status": "open",
+      "title": "Anthropic: IR never requests summarized thinking display on adaptive models",
+      "createdAt": "2026-07-14",
+      "sourcePR": 561,
+      "sourceCommit": "5dfd044af5b6ac2c1839a40262286fec7c55e2ec",
+      "tsPaths": ["src/ax/ai/anthropic/types.ts", "src/ax/ai/anthropic/api.ts"],
+      "portableSurface": "axai",
+      "impact": "TS now sets thinking.display on the adaptive request: display='summarized' by default (gated on showThoughts) so the human-readable reasoning summary is returned, or 'omitted' when showThoughts===false. The Anthropic IR's adaptive branch (provider.axir, is_adaptive) builds thinking={type:'adaptive'} with no display field, so generated Python/Java/C++/Go/Rust targets inherit Anthropic's server default of display='omitted' on Sonnet 5 / Opus 4.7+ — the model still thinks and bills, but streams empty thinking text, and there is no way to request the summary. Fix: mirror the TS derivation by setting thinking['display'] in the is_adaptive block from the showThoughts option (summarized unless showThoughts is false).",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

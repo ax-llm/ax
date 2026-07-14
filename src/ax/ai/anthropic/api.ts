@@ -532,8 +532,14 @@ class AxAIAnthropicImpl
           | 'highest';
 
         if (isAdaptiveThinkingModel(modelStr)) {
-          // Opus 4.6+, Sonnet 5: adaptive thinking + effort
-          thinkingWire = { type: 'adaptive' };
+          // Opus 4.6+, Sonnet 5: adaptive thinking + effort.
+          // `display` defaults to "omitted" on Sonnet 5 / Opus 4.7+, dropping
+          // the reasoning summary; request "summarized" (gated on showThoughts
+          // like the response side) to restore it. Display-only — thinking is
+          // run and billed the same either way.
+          const display: 'summarized' | 'omitted' =
+            config?.showThoughts === false ? 'omitted' : 'summarized';
+          thinkingWire = { type: 'adaptive', display };
           const effort = effortMap?.[budgetLevel] ?? 'medium';
           outputConfig = { effort };
         } else if (isOpus45(modelStr)) {

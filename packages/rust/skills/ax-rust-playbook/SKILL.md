@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-playbook"
 description: "Use when writing Rust code with `axllm` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program."
-version: "23.0.0"
+version: "23.0.1"
 ---
 # Ax Playbook For Rust
 
