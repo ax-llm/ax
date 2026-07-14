@@ -55,7 +55,7 @@ export type AxAIAnthropicThinkingConfig = {
 // Internal wire types for the Anthropic API (not user-facing)
 export type AxAIAnthropicThinkingWire =
   | { type: 'enabled'; budget_tokens: number }
-  | { type: 'adaptive' };
+  | { type: 'adaptive'; display?: 'summarized' | 'omitted' };
 
 export type AxAIAnthropicEffortLevel =
   | 'low'
