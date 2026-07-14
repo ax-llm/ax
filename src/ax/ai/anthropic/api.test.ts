@@ -576,7 +576,7 @@ describe('AxAIAnthropic thinking configuration', () => {
     expect(fetch).toHaveBeenCalled();
     const body = capture.lastBody;
     expect(body.model).toBe('claude-opus-4-8');
-    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
     expect(body.output_config).toEqual({ effort: 'high' });
   });
 
@@ -597,7 +597,7 @@ describe('AxAIAnthropic thinking configuration', () => {
     expect(fetch).toHaveBeenCalled();
     const body = capture.lastBody;
     expect(body.model).toBe('claude-opus-4-7');
-    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
     expect(body.output_config).toEqual({ effort: 'high' });
   });
 
@@ -618,7 +618,7 @@ describe('AxAIAnthropic thinking configuration', () => {
     expect(fetch).toHaveBeenCalled();
     const body = capture.lastBody;
     expect(body.model).toBe('claude-sonnet-5');
-    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
     expect(body.output_config).toEqual({ effort: 'high' });
     expect(body.thinking?.budget_tokens).toBeUndefined();
   });
@@ -639,9 +639,56 @@ describe('AxAIAnthropic thinking configuration', () => {
 
     expect(fetch).toHaveBeenCalled();
     const body = capture.lastBody;
-    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
     expect(body.output_config).toEqual({ effort: 'max' });
     expect(body.thinking?.budget_tokens).toBeUndefined();
+  });
+
+  // `display` is derived purely from showThoughts inside the shared
+  // isAdaptiveThinkingModel branch, so it behaves identically for every
+  // adaptive model — exercise one, chosen arbitrarily.
+  const adaptiveModel = AxAIAnthropicModel.Claude5Sonnet;
+
+  it('adaptive model requests summarized display when showThoughts is true', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: adaptiveModel },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-sonnet-5');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false, thinkingTokenBudget: 'high', showThoughts: true }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    expect(capture.lastBody?.thinking).toEqual({
+      type: 'adaptive',
+      display: 'summarized',
+    });
+  });
+
+  it('adaptive model omits display when showThoughts is false', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: adaptiveModel },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-sonnet-5');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false, thinkingTokenBudget: 'high', showThoughts: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    expect(capture.lastBody?.thinking).toEqual({
+      type: 'adaptive',
+      display: 'omitted',
+    });
   });
 
   it('Sonnet 5 accepts direct xhigh effort', async () => {
@@ -810,7 +857,7 @@ describe('AxAIAnthropic thinking configuration', () => {
 
     expect(fetch).toHaveBeenCalled();
     const body = capture.lastBody;
-    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
     expect(body.output_config).toEqual({ effort: 'high' });
   });
 
@@ -911,7 +958,7 @@ describe('AxAIAnthropic thinking configuration', () => {
 
     expect(fetch).toHaveBeenCalled();
     const body = capture.lastBody;
-    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
     expect(body.output_config).toEqual({ effort: 'max' });
   });
 

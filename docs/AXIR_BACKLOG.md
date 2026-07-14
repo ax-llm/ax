@@ -46,6 +46,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.test.ts`
   - Impact: anthropic_apply_model_config_impl copies temperature/top_p/top_k into the payload unconditionally, with no adaptive-model guard anywhere in the Anthropic IR. Anthropic rejects sampling params on adaptive models (Opus 4.6/4.7/4.8, Sonnet 5) with an unconditional HTTP 400: '`temperature` is deprecated for this model.' So generated Python/Java/C++/Go/Rust targets 400 on every adaptive-model call. This is broader than the TS bug fixed in this PR: TS at least guarded Opus 4.7+, the IR guards nothing. Fix: mirror the TS guard by deleting temperature/top_p/top_k in anthropic_apply_model_config_impl when the model matches the adaptive set (the same is_adaptive detection already exists in anthropic_thinking_config_impl).
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-14-anthropic-ir-never-requests-summarized-thinking-display-on-adapt` [axai] Anthropic: IR never requests summarized thinking display on adaptive models
+  - Status: open
+  - Source PR: #561
+  - Source commit: `5dfd044af5b6ac2c1839a40262286fec7c55e2ec`
+  - TS paths: `src/ax/ai/anthropic/types.ts`, `src/ax/ai/anthropic/api.ts`
+  - Impact: TS now sets thinking.display on the adaptive request: display='summarized' by default (gated on showThoughts) so the human-readable reasoning summary is returned, or 'omitted' when showThoughts===false. The Anthropic IR's adaptive branch (provider.axir, is_adaptive) builds thinking={type:'adaptive'} with no display field, so generated Python/Java/C++/Go/Rust targets inherit Anthropic's server default of display='omitted' on Sonnet 5 / Opus 4.7+ — the model still thinks and bills, but streams empty thinking text, and there is no way to request the summary. Fix: mirror the TS derivation by setting thinking['display'] in the is_adaptive block from the showThoughts option (summarized unless showThoughts is false).
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
