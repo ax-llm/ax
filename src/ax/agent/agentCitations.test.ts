@@ -273,7 +273,7 @@ describe('agent citations', () => {
       .getSignature()
       .getOutputFields()
       .find((f: any) => f.name === 'evidenceCitations');
-    expect(field?.description).not.toMatch(/memor(y|ies)/i);
+    expect(field?.description).not.toMatch(/memory|memories/i);
     expect(field?.description).toContain('top-level keys');
   });
 
