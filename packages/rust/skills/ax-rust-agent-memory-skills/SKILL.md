@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-agent-memory-skills"
 description: "Use when writing Rust code with `axllm` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking."
-version: "23.0.0"
+version: "23.0.1"
 ---
 # AxAgent Memory And Skills For Rust
 

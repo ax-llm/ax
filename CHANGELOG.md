@@ -1,5 +1,43 @@
 # Changelog
 
+## [23.0.1](https://github.com/ax-llm/ax/compare/22.0.9...23.0.0) (2026-07-14)
+
+### Features
+
+* **agent:** agent.improve() — failure-driven repair with regression-validated acceptance ([994aac0](https://github.com/ax-llm/ax/commit/994aac0e6a7932eb02d6855f5ba8dbaf651e2f3c))
+* **agent:** construction-time playbook with run-end failure learning ([87be227](https://github.com/ax-llm/ax/commit/87be2273faca24a14e3a4704e42b0477c8dac29c))
+* **agent:** opt-in chain-of-evidence citations on the responder ([12fe8d0](https://github.com/ax-llm/ax/commit/12fe8d0b81f256b482dbdc782dffa3879e5f971f))
+* **website:** keep docs side-nav position across pages; chain next page on scroll ([f4f16fc](https://github.com/ax-llm/ax/commit/f4f16fc1c854353b3adf0399ce2936f04d2e9f00))
+* **website:** rework homepage top of page around the real moat ([5ef34b7](https://github.com/ax-llm/ax/commit/5ef34b743dbd987aac053f20c8befedb0624181d))
+
+### Bug Fixes
+
+* **agent:** correctness fixes from adversarial review of P1-P3 ([f4d4ac8](https://github.com/ax-llm/ax/commit/f4d4ac8deb71c7e7c2be1dbaa84579892db08b98))
+* **agent:** revive the dead stage ::instruction knob; playbook dedupe re-learns pruned lessons; improve() runsPerTask ([052fe52](https://github.com/ax-llm/ax/commit/052fe52d05ab80f4c008f5ee166774fbc2246289))
+* **anthropic:** omit sampling params on all adaptive models, not just Opus 4.7+ ([#560](https://github.com/ax-llm/ax/issues/560)) ([10eecc9](https://github.com/ax-llm/ax/commit/10eecc9dccee135af7a7175c1f84162b64d9934c))
+* **anthropic:** request summarized thinking display on adaptive models ([#561](https://github.com/ax-llm/ax/issues/561)) ([61bea23](https://github.com/ax-llm/ax/commit/61bea23f346f61a5821f347a8972c18047af037c)), closes [#560](https://github.com/ax-llm/ax/issues/560)
+* **website:** stop hero example swaps from reflowing the page; calmer two-line h1 ([1758469](https://github.com/ax-llm/ax/commit/17584697655efa1b38748a89cf6651255a48d038))
+
+## [23.0.0](https://github.com/ax-llm/ax/compare/22.0.9...23.0.0) (2026-07-05)
+
+### Features
+
+* **agent:** auto-upgrade smart defaults for discovery and context fields ([c114323](https://github.com/ax-llm/ax/commit/c1143238765bd7ae85fe17678d7013f23e6f9238))
+* **agent:** direct-respond — distiller respond(task, evidence) skips the executor ([8df3c3c](https://github.com/ax-llm/ax/commit/8df3c3c2b715c70ec77441453079a089cd3ea547))
+* **agent:** direct-respond live eval gate — 0 false-skips, 100% skip recall on both pinned models ([30669f1](https://github.com/ax-llm/ax/commit/30669f163981dc81928cb8cb16b937c43093b5f0))
+* **agent:** shape hints in evidence descriptors and context metadata ([3306475](https://github.com/ax-llm/ax/commit/3306475085414d36aee4411ad2466e08e53bef8a))
+* **agent:** shared runtime session across distiller/executor phases ([2395334](https://github.com/ax-llm/ax/commit/23953349a02a5f3b43845d69dbba99033919cf75))
+* **agent:** unified relevance layer with catalog-backed search and advisory hints ([6840ab3](https://github.com/ax-llm/ax/commit/6840ab390a69bdb3e0e52a35c72c26b33b994329))
+* **axir:** port agent backlog to generated packages ([d22f09d](https://github.com/ax-llm/ax/commit/d22f09d5595a221eae9a86fa5e0b76e66e9332c3))
+* **axir:** port direct-respond to AxIR and all five language runtimes ([b86d16d](https://github.com/ax-llm/ax/commit/b86d16dce93ca4a8afb2d2946b38bcd54e4cf127))
+
+### Bug Fixes
+
+* **agent:** executor must discover before declaring data unavailable ([6c72769](https://github.com/ax-llm/ax/commit/6c727693c3b781e9471f75cd6c1d0ebe7d7d4254))
+* **agent:** keep memories cache breakpoint after setSignature() ([6d7286c](https://github.com/ax-llm/ax/commit/6d7286ce8ea519f5d80bb3d75e8b2c71b76a8069))
+* **axir:** stop the backlog gate crashing on large diffs; order open entries by landing date ([6f85dc9](https://github.com/ax-llm/ax/commit/6f85dc9ca057331f59baaefaf370fb113e089c58))
+* **examples:** repair CI type checks ([d42d379](https://github.com/ax-llm/ax/commit/d42d379d0bb722c5602d5baa726b6dfb66589ef0))
+
 ## [23.0.0](https://github.com/ax-llm/ax/compare/22.0.8...22.0.9) (2026-07-05)
 
 ### Features
