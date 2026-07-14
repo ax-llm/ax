@@ -53,13 +53,11 @@ const runtime = eventRuntime({
   sources: [source],
   routes: [
     ...axMCPEventRoutes({ client }),
-    eventRoute({
-      id: 'handbook-wake',
-      match: { types: ['mcp.resource.updated'] },
-      action: 'wake',
-      requireAuthenticated: true,
-      target,
-    }),
+    eventRoute('handbook-wake')
+      .types('mcp.resource.updated')
+      .authenticated()
+      .wake(target)
+      .build(),
   ],
   // Required only while using the Milestone 1-2 volatile store.
   allowVolatile: true,
@@ -126,6 +124,30 @@ Streamable HTTP supervises the background GET, resumes SSE with
 subscriptions. Legacy SSE and WebSocket transports already receive messages on
 their connected channel and use the same client handle for cancellation.
 
+For the checked-in subscription examples, point `AX_MCP_ENDPOINT` at a real
+Streamable HTTP endpoint. Plain HTTP and loopback remain denied by default.
+Only a controlled localhost demo should opt in explicitly:
+
+```ts
+const transport = new AxMCPStreamableHTTPTransport(endpoint, {
+  ssrfProtection: { allowHTTP: true, allowLoopback: true },
+});
+```
+
+Generated-language examples make the equivalent local-only choice with
+`requireHttps: false`, `allowLocalhost: true`, and
+`allowPrivateNetworks: true` only when the endpoint is `127.0.0.1`. Keep secure
+defaults for every remote endpoint. On shutdown, close the event source or
+runtime first, then close the caller-owned MCP client and local demo server.
+
+Run the credential-free five-language protocol gate with
+`npm run test:mcp-events:generated`. To exercise a provider-backed public
+example manually, start `src/examples/mcp-event-demo-server.ts`, set
+`AX_MCP_ENDPOINT=http://127.0.0.1:3001/mcp`, then POST to
+`/control/resource` or `/control/task/complete` from another terminal. The
+examples wait on target/sink completion and close their source, runtime, and
+client in order; they do not use `waitForIdle()` as an ingress detector.
+
 - Sampling: pass `sampling(params, { client, namespace })` to the client and
   return a typed `sampling/createMessage` result.
 - Elicitation: pass `elicitation` and validate both form and URL-mode requests
@@ -178,8 +200,19 @@ continuation fingerprints, typed UCP operation wrappers, and business-outcome
 preservation. The shared conformance fixture
 `ir/conformance/axmcp/execution-context-ucp.json` runs in all five targets.
 
-AxIR also declares the protocol-neutral `ax.event` state machine. All generated
-packages advertise deterministic `axevent.single-worker` routing, retry,
-continuation, and MCP-normalization semantics, plus host-owned source, sink,
-clock, and store boundaries. Persistent multi-worker capability remains store-
-and language-specific.
+AxIR also declares the protocol-neutral `ax.event` state machine. Generated
+packages provide deterministic volatile single-worker routing, signature input
+mapping, automatic dispatch of work due now, retry, cancellation, program-state
+restoration, continuation resume, output-before-sink persistence, isolated sink
+redrive, dead letters, and MCP normalization. Delayed work is host-scheduled:
+call `nextDueAt()` to choose the next wake time and `runDue()` after advancing
+or waiting on the injected clock. No generated runtime owns a hidden worker
+thread.
+
+Their `AxMCPEventSource` composes listeners, restores logical resource
+subscriptions, and publishes identity-scoped notifications into the runtime.
+Transport supervisors own the long-lived HTTP/SSE listener; Rust hosts also
+call `source.poll()` to drain queued protocol callbacks on the host thread.
+The `axevent.single-worker` and lifecycle-dispatch capability markers are tied
+to the all-language conformance gate. Persistent multi-worker capability
+remains store- and language-specific.

@@ -99,6 +99,7 @@ struct Core {
   static Value add(Value left, Value right);
   static Value mul(Value left, Value right);
   static Value div(Value left, Value right);
+  static double number(Value value);
   static Value contains(Value container, Value item);
   static Value len(Value value);
   static Value is_none(Value value);

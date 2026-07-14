@@ -514,10 +514,19 @@ Under an event target, a required task-backed MCP tool registers the owning
 
 ## Event Targets
 
-Wrap an AxGen in `eventTarget({ program, ai, mapInput })` to invoke it from an
-explicit `wake` or `resume` route. `mapInput` must return valid signature
-inputs. Streaming targets persist each chunk before optional chunk sinks and
+Wrap an AxGen with
+`eventTarget('id').program(gen).ai(ai).input(...).build()` to invoke it from an
+explicit `wake` or `resume` route. Use segment-safe `eventPath` selectors;
+projection and explicit fields are validated against the AxGen signature before
+invocation. Use `.wakeInput()` and `.resumeInput()` for different action
+contracts. Streaming targets persist each chunk before optional chunk sinks and
 persist the final result before final sinks.
+
+Use a reusable `eventInput().project(...).field(...)` plan when mapping should
+be callback-free. Callback `mapInput` remains available, but its result is
+cloned, stripped to declared AxGen inputs, and signature-validated before the
+first model call; mapper exceptions become non-retryable
+`event_input_invalid` deliveries.
 
 ## Do Not Generate
 

@@ -195,20 +195,19 @@ const runtime = eventRuntime({
   sources: [source],
   routes: [
     ...axMCPEventRoutes({ client: docs }),
-    eventRoute({
-      id: 'guide-updated',
-      match: { types: ['mcp.resource.updated'] },
-      action: 'wake',
-      requireAuthenticated: true,
-      target: eventTarget({
-        id: 'reviewer',
-        ai: llm,
-        program: reviewer,
-        mapInput: ({ event }) => ({
-          uri: (event.data as { uri: string }).uri,
-        }),
-      }),
-    }),
+    eventRoute('guide-updated')
+      .types('mcp.resource.updated')
+      .authenticated()
+      .wake(
+        eventTarget('reviewer')
+          .program(reviewer)
+          .ai(llm)
+          .input((input) =>
+            input.field('uri', eventPath.data('uri'))
+          )
+          .build()
+      )
+      .build(),
   ],
 });
 ```
@@ -220,8 +219,10 @@ Safe defaults are:
 - resource updates -> no implicit wake
 - `input_required` and terminal task states -> resume the owning continuation
 
-`mapInput` is the signature and trust boundary. Raw event data remains in
-`eventContext`; only selected fields become program inputs.
+The signature-aware input plan is the data boundary. Raw event data remains in
+`eventContext`; only fields selected with segment-safe `eventPath` descriptors
+become program inputs. Use multiple matching routes to fan one notification out
+to multiple Agents with independent authorization and run records.
 
 ## Server-Initiated Requests
 
@@ -251,6 +252,19 @@ event state.
 Keep SSRF protection enabled for remote discovery and redirect handling. Relax
 loopback or HTTP restrictions only for controlled local development.
 
+For checked-in Streamable HTTP examples, set `AX_MCP_ENDPOINT`. A localhost
+TypeScript demo must opt in explicitly with
+`ssrfProtection: { allowHTTP: true, allowLoopback: true }`; never copy that
+configuration to a remote endpoint. Generated examples use their equivalent
+`requireHttps` / `allowLocalhost` / `allowPrivateNetworks` fields only for
+`127.0.0.1`.
+
+For a real local check, run `src/examples/mcp-event-demo-server.ts`, set
+`AX_MCP_ENDPOINT=http://127.0.0.1:3001/mcp`, and trigger
+`/control/resource` or `/control/task/complete`. The mandatory credential-free
+matrix is `npm run test:mcp-events:generated`; provider-backed examples are
+advisory and require their documented API key.
+
 ## MCP Apps And Extensions
 
 Negotiate official extensions through client capabilities. Use
@@ -278,6 +292,13 @@ runs could repeat external side effects; opt in only deliberately.
 - Test terminal task events resume only the owning identity and correlation.
 - Test cancellation and uncertain outcomes without duplicate side effects.
 - Close clients, listening handles, runtimes, and local servers in `finally`.
+
+Generated transports supervise real long-lived GET/SSE connections and resume
+with `Last-Event-ID` when available. Generated event runtimes remain
+host-driven: schedule delayed work with `nextDueAt()` and `runDue()`. Rust hosts
+also call `AxMCPEventSource.poll()` to drain protocol callbacks on the host
+thread. Close the source/runtime before the caller-owned client so unsubscribe
+and cancellation messages can still be sent.
 
 For generic inbox, continuation, store, and sink behavior, use the
 `ax-event-runtime` skill. For program-specific behavior, combine this skill with

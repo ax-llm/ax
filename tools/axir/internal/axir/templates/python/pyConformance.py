@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -77,7 +78,7 @@ from .runtime_quickjs import AxQuickJsCodeRuntime
 from .schema import strip_internal, to_json_schema, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
-from .mcp import event_continuation_match, event_normalize_mcp, event_retry_transition, event_route_commands, mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, run_mcp_conformance_fixture
+from .mcp import AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventTarget, AxManualEventClock, AxMCPClient, AxMCPEventSource, AxMCPScriptedTransport, AxPushEventSource, event_continuation_match, event_map_input, event_normalize_mcp, event_path, event_retry_transition, event_route, event_route_commands, event_target, mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, run_mcp_conformance_fixture
 
 
 class FixtureError(AssertionError):
@@ -559,6 +560,136 @@ def _run_event(fixture):
     if operation == "mcp_normalization":
         actual = event_normalize_mcp(fixture["namespace"], fixture["method"], fixture["params"])
         _assert_equal(actual, fixture["expected"], "event MCP normalization")
+        return
+    if operation == "mapping":
+        actual = event_map_input(fixture["ingress"], fixture["plan"], fixture["signature_fields"], None)
+        _assert_equal(actual, fixture["expected"], "event input mapping")
+        return
+    if operation == "lifecycle":
+        route = fixture["route"]
+        source = AxPushEventSource("fixture")
+        target = AxEventTarget(route["targetId"], lambda value, _context: {"handled": value["message"]})
+        runtime = AxEventRuntime([AxEventRoute(route["id"], route["action"], route["match"], route["targetId"])], {"targets": [target], "sources": [source]})
+        runtime.start()
+        receipt = source.publish(AxEventEnvelope(**fixture["event"]), identity_scope=fixture["identity_scope"], trust=fixture["trust"])
+        run = runtime.get_run(f"run:{route['id']}:{fixture['event']['id']}:1")
+        _assert_equal(receipt.accepted, True, "event publish receipt")
+        _assert_equal(run.output, fixture["expected_output"], "event automatic dispatch")
+        runtime.close()
+
+        def envelope(event_id, event_type, data, correlation=None):
+            return AxEventEnvelope(event_id, "test://axevent", event_type, data,
+                                   correlation=correlation or [])
+
+        retry_calls = [0]
+        def retry_invoke(value, _context):
+            retry_calls[0] += 1
+            if retry_calls[0] == 1: raise RuntimeError("retry once")
+            return {"attempt": retry_calls[0]}
+        retry_target = AxEventTarget("retry-target", retry_invoke, retrySafety="idempotent")
+        retry_clock = AxManualEventClock(1_000)
+        retry_runtime = AxEventRuntime(
+            [AxEventRoute("retry-route", "wake", {"types": ["event.retry"]}, "retry-target")],
+            {"targets": [retry_target], "clock": retry_clock, "retryBackoffMs": 500})
+        retry_runtime.start(); retry_runtime.publish(envelope("retry-1", "event.retry", {}))
+        retry_run = retry_runtime.get_run("run:retry-route:retry-1:1")
+        _assert_equal([retry_run.attempt, retry_run.status, retry_runtime.next_due_at()], [1, "queued", 1_500], "event delayed retry")
+        retry_clock.advance(500); retry_runtime.run_due()
+        _assert_equal([retry_run.attempt, retry_run.status], [2, "succeeded"], "event retry dispatch")
+
+        debounce_clock = AxManualEventClock(2_000); debounce_values = []
+        debounce_target = AxEventTarget("debounce-target", lambda value, _context: debounce_values.append(value) or value)
+        debounce_runtime = AxEventRuntime(
+            [AxEventRoute("debounce-route", "wake", {"types": ["event.debounce"]}, "debounce-target", debounceMs=250)],
+            {"targets": [debounce_target], "clock": debounce_clock})
+        debounce_runtime.start(); debounce_runtime.publish(envelope("debounce-1", "event.debounce", {"revision": 1})); debounce_runtime.publish(envelope("debounce-2", "event.debounce", {"revision": 2}))
+        _assert_equal([debounce_values, debounce_runtime.next_due_at()], [[], 2_250], "event debounce scheduling")
+        debounce_clock.advance(250); debounce_runtime.run_due()
+        _assert_equal(debounce_values, [{"revision": 2}], "event latest-value coalescing")
+
+        capacity_clock = AxManualEventClock(3_000)
+        capacity_runtime = AxEventRuntime(
+            [AxEventRoute("capacity-route", "wake", {"types": ["event.capacity"]}, "debounce-target", debounceMs=1_000, instanceKey=event_path.data("key"))],
+            {"targets": [debounce_target], "clock": capacity_clock, "maxPending": 1, "publishTimeoutMs": 100})
+        capacity_runtime.start(); capacity_runtime.publish(envelope("capacity-1", "event.capacity", {"key": "one"}))
+        capacity_errors = []
+        worker = threading.Thread(target=lambda: _capture_error(capacity_errors, lambda: capacity_runtime.publish(envelope("capacity-2", "event.capacity", {"key": "two"}))))
+        worker.start(); capacity_clock.wait_for_sleepers(); capacity_clock.advance(100); worker.join(1)
+        _assert_equal([len(capacity_errors), "Backpressure" in str(capacity_errors[0])], [1, True], "event queue backpressure")
+
+        state = [0]
+        state_target = AxEventTarget(
+            "state-target", lambda _value, _context: state.__setitem__(0, state[0] + 1) or {"state": state[0]},
+            retrySafety="idempotent", captureState=lambda: state[0], restoreState=lambda value: state.__setitem__(0, value))
+        state_runtime = AxEventRuntime(
+            [AxEventRoute("state-route", "wake", {"types": ["event.state"]}, "state-target")],
+            {"targets": [state_target]})
+        state_runtime.start(); state_runtime.publish(envelope("state-1", "event.state", {})); state[0] = 0
+        state_runtime.publish(envelope("state-2", "event.state", {}))
+        _assert_equal(state_runtime.get_run("run:state-route:state-2:2").output, {"state": 2}, "event state restore")
+
+        cancel_target = AxEventTarget(
+            "cancel-target",
+            lambda _value, context: context["cancellation"].cancel("fixture") or {"should": "not persist"})
+        cancel_runtime = AxEventRuntime(
+            [AxEventRoute("cancel-route", "wake", {"types": ["event.cancel"]}, "cancel-target")],
+            {"targets": [cancel_target]})
+        cancel_runtime.start(); cancel_runtime.publish(envelope("cancel-1", "event.cancel", {}))
+        cancel_run = cancel_runtime.get_run("run:cancel-route:cancel-1:1")
+        _assert_equal([cancel_run.status, cancel_run.output], ["cancelled", None], "event cooperative cancellation")
+
+        class FixtureSink(AxEventSink):
+            id = "fixture-sink"
+            def __init__(self): self.calls = 0
+            def write(self, output, context):
+                self.calls += 1
+                if self.calls == 1: raise RuntimeError("sink once")
+                if context["run"].output != output: raise RuntimeError("output was not persisted before sink")
+        sink = FixtureSink(); model_calls = [0]
+        sink_target = AxEventTarget(
+            "sink-target", lambda value, _context: model_calls.__setitem__(0, model_calls[0] + 1) or value,
+            sinks=[sink], retrySafety="idempotent")
+        sink_runtime = AxEventRuntime(
+            [AxEventRoute("sink-route", "wake", {"types": ["event.sink"]}, "sink-target")],
+            {"targets": [sink_target]})
+        sink_runtime.start(); sink_runtime.publish(envelope("sink-1", "event.sink", {"ok": True}))
+        sink_dead = sink_runtime.list_dead_letters()[0]; sink_runtime.redrive(sink_dead.id)
+        _assert_equal([model_calls[0], sink.calls, len(sink_runtime.list_dead_letters())], [1, 2, 0], "event sink-only redrive")
+
+        continuation_calls = [0]
+        continuation_target = AxEventTarget(
+            "continuation-target",
+            lambda value, _context: continuation_calls.__setitem__(0, continuation_calls[0] + 1) or value,
+            waitFor=[{"kind": "job", "value": "job"}])
+        continuation_runtime = AxEventRuntime([
+            AxEventRoute("continuation-wake", "wake", {"types": ["event.continuation.start"]}, "continuation-target"),
+            AxEventRoute("continuation-resume", "resume", {"types": ["event.continuation.done"]}, None),
+        ], {"targets": [continuation_target]})
+        continuation_runtime.start()
+        continuation_runtime.publish(envelope("continuation-1", "event.continuation.start", {"job": "job-1"}), identity_scope="tenant:test", trust="authenticated")
+        continuation_runtime.publish(envelope("continuation-2", "event.continuation.done", {"job": "job-1"}, [{"kind": "job", "value": "job-1"}]), identity_scope="tenant:test", trust="authenticated")
+        _assert_equal(continuation_calls[0], 2, "event continuation resume")
+
+        mcp_transport = AxMCPScriptedTransport([{"method": "initialize", "result": {"protocolVersion": "2025-11-25", "capabilities": {"resources": {"subscribe": True}}}}]); mcp_client = AxMCPClient(mcp_transport, {"namespace": "inventory"})
+        lifecycle_calls = [0]; mcp_client.add_lifecycle_listener(lambda _state: lifecycle_calls.__setitem__(0, lifecycle_calls[0] + 1))
+        mcp_calls = [0]
+        mcp_target = AxEventTarget("mcp-target", lambda value, _context: mcp_calls.__setitem__(0, mcp_calls[0] + 1) or value)
+        mcp_source = AxMCPEventSource(mcp_client, "inventory", identity_scope="tenant:test", trust="authenticated", subscriptions=["demo://inventory"])
+        mcp_runtime = AxEventRuntime([AxEventRoute("mcp-wake", "wake", {"types": ["mcp.resource.updated"]}, "mcp-target", True)], {"targets": [mcp_target], "sources": [mcp_source]})
+        mcp_runtime.start(); mcp_transport.emit({"jsonrpc": "2.0", "method": "notifications/resources/updated", "params": {"uri": "demo://inventory"}})
+        mcp_client.emit_lifecycle("reconnected"); mcp_runtime.close(); mcp_transport.emit({"jsonrpc": "2.0", "method": "notifications/resources/updated", "params": {"uri": "demo://inventory"}})
+        subscribe_calls = sum(1 for request in mcp_transport.requests if request.get("method") == "resources/subscribe")
+        _assert_equal([mcp_calls[0], lifecycle_calls[0], subscribe_calls], [1, 1, 2], "MCP listener composition and resubscription")
+
+        mapped_inputs = []
+        mapped_target = (event_target("mapped-target").signature(s("url:string, revision:number -> ok:boolean"))
+            .invoke(lambda value, _context: mapped_inputs.append(value) or value)
+            .wake_input(lambda input: input.field("url", event_path.data("uri")).field("revision", event_path.data("revision"))).build())
+        mapped_route = (event_route("mapped-route").types("event.mapped").instance_key(event_path.data("uri")).wake(mapped_target).build())
+        mapped_runtime = AxEventRuntime([mapped_route], {"targets": [mapped_target]}); mapped_runtime.start()
+        mapped_runtime.publish(envelope("mapped-1", "event.mapped", {"uri": "demo://one", "revision": 2}))
+        mapped_runtime.publish(envelope("mapped-2", "event.mapped", {"uri": "demo://two", "revision": "bad"}))
+        _assert_equal([mapped_inputs, len(mapped_runtime.list_dead_letters())], [[{"url": "demo://one", "revision": 2}], 1], "signature-aware event mapping")
         return
     raise FixtureError(f"unsupported event operation {operation!r}")
 
@@ -2321,6 +2452,13 @@ def _assert_equal(actual, expected, label):
         raise FixtureError(
             f"{label} mismatch\nactual: {json.dumps(actual, sort_keys=True)}\nexpected: {json.dumps(expected, sort_keys=True)}"
         )
+
+
+def _capture_error(errors, callback):
+    try:
+        callback()
+    except Exception as error:
+        errors.append(error)
 
 
 def _assert_subset(actual, expected, label):

@@ -1,4 +1,5 @@
 import type { AxAIService } from '../ai/types.js';
+import type { AxSignature } from '../dsp/sig.js';
 import type {
   AxGenDeltaOut,
   AxProgramForwardOptions,
@@ -153,6 +154,15 @@ export class AxEventOutcomeUnknownError extends Error {
   }
 }
 
+export class AxEventInputError extends Error {
+  readonly code = 'event_input_invalid';
+
+  constructor(message: string, options?: ErrorOptions) {
+    super(`event_input_invalid: ${message}`, options);
+    this.name = 'AxEventInputError';
+  }
+}
+
 export type AxEventRouteAction = 'observe' | 'invalidate' | 'resume' | 'wake';
 
 export interface AxEventMatcher {
@@ -243,6 +253,61 @@ export interface AxEventTargetInputContext {
   continuation?: Readonly<AxEventContinuation>;
 }
 
+export type AxEventPathSegment = string | number;
+
+export type AxEventPathRoot =
+  | 'constant'
+  | 'correlation'
+  | 'data'
+  | 'envelope'
+  | 'extensions'
+  | 'identity'
+  | 'trust'
+  | 'continuation';
+
+/** Immutable, segment-safe selector over an event ingress and continuation. */
+export interface AxEventPath<T = unknown> {
+  readonly root: AxEventPathRoot;
+  readonly segments?: readonly AxEventPathSegment[];
+  readonly correlationKind?: string;
+  readonly value?: T;
+}
+
+export interface AxEventInputFieldMapping {
+  readonly field: string;
+  readonly path: Readonly<AxEventPath>;
+}
+
+export interface AxEventInputPlan<IN = any> {
+  readonly project?: Readonly<AxEventPath>;
+  readonly fields: readonly Readonly<AxEventInputFieldMapping>[];
+  /** Phantom type used for contextual target input inference. */
+  readonly __input?: IN;
+}
+
+export interface AxEventInputBuilder<IN = any> {
+  project(path: Readonly<AxEventPath>): AxEventInputBuilder<IN>;
+  field<K extends Extract<keyof IN, string>>(
+    field: K,
+    path: Readonly<AxEventPath>
+  ): AxEventInputBuilder<IN>;
+  build(): Readonly<AxEventInputPlan<IN>>;
+}
+
+export type AxEventInputDefinition<IN = any> =
+  | Readonly<AxEventInputPlan<IN>>
+  | Readonly<AxEventInputBuilder<IN>>
+  | ((
+      builder: AxEventInputBuilder<IN>
+    ) => Readonly<AxEventInputPlan<IN>> | Readonly<AxEventInputBuilder<IN>>);
+
+export interface AxEventContinuationPlan {
+  readonly kind: string;
+  readonly value: Readonly<AxEventPath>;
+  readonly expiresInMs?: number;
+  readonly metadata?: Readonly<Record<string, Readonly<AxEventPath>>>;
+}
+
 export interface AxEventTarget<IN = any, OUT = any> {
   id: string;
   ai: Readonly<AxAIService>;
@@ -254,7 +319,13 @@ export interface AxEventTarget<IN = any, OUT = any> {
       identity: Readonly<AxEventIdentity>;
     }>
   ) => AxProgrammable<IN, OUT> | Promise<AxProgrammable<IN, OUT>>;
-  mapInput: (
+  /** Required when createProgram is combined with declarative input plans. */
+  inputSignature?: Readonly<AxSignature>;
+  input?: Readonly<AxEventInputPlan<IN>>;
+  wakeInput?: Readonly<AxEventInputPlan<IN>>;
+  resumeInput?: Readonly<AxEventInputPlan<IN>>;
+  waitFor?: readonly Readonly<AxEventContinuationPlan>[];
+  mapInput?: (
     ingress: Readonly<AxEventIngress>,
     context: Readonly<AxEventTargetInputContext>
   ) => IN | Promise<IN>;

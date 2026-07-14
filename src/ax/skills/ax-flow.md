@@ -458,6 +458,18 @@ UCP lifecycle webhooks use the same continuation boundary through
 `AxUCPWebhookEventSource`. Correlate on `ucp.checkout` or `ucp.order` only after
 the signed request has been verified and mapped to application identity.
 
+Use `eventTarget('id').program(flow).wakeInput(...).resumeInput(...)` when wake
+and resume events have different shapes. Segment-safe `eventPath` mappings are
+validated against the Flow signature before any node executes; a declarative
+`.waitFor(kind, path)` creates the owned continuation consumed by the resume
+route.
+
+Reusable `eventInput()` plans are the preferred callback-free boundary.
+Callback `mapInput` is normalized against the Flow signature before any node
+runs. In generated hosts, immediate publications dispatch inline; the host uses
+`nextDueAt()` and `runDue()` for delayed retries, debounce, and continuation
+expiry.
+
 ## Do Not Generate
 
 - Do not use `new AxFlow(...)` for new code.

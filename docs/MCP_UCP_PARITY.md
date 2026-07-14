@@ -106,7 +106,9 @@ source/test cell:
 | UCP | Response verification, key rotation, replay protection | Implemented | built-in RFC 9421 ES256/ES384 verification, raw digest, profile key refresh, time windows, and replay cache |
 | Languages | Python, Java, C++, Go, Rust native raw MCP bindings | Implemented | generator templates, committed packages, and five-target conformance fixture |
 | Languages | Full shared execution context and UCP parity | Implemented | AxIR declares `AxExecutionContext`, continuation state, `AxUCPBinding`, profile/outcome semantics, and `AxUCPClient`; generated Python/Java/C++/Go/Rust packages compile and pass `execution-context-ucp.json` |
-| Languages | Event state-machine baseline | Implemented | `ir/axcore/event.axir`, `axevent` fixtures, `axevent.single-worker` manifests, and beginner/intermediate/advanced MCP event examples in all six languages |
+| Languages | Signature-aware event input mapping | Implemented | `event_map_input` and path descriptors in `ir/axcore/event.axir`, `axevent/mapping.json`, TypeScript fluent mapping tests, generated idiomatic path/input/target/route builders, and five generated lifecycle runners proving pre-invocation type rejection |
+| Languages | Event runtime lifecycle baseline | Implemented | Python, Java, C++, Go, and Rust advertise `axevent.single-worker` and `axevent-lifecycle-dispatch`; `axevent/lifecycle.json` proves host-driven due scheduling, deterministic clocks, debounce/coalescing, retry delay, continuation expiry, cancellation, dead letters, redrive, state restoration, backpressure limits, and output-before-sink ordering in all five runners. |
+| Languages | MCP event source wake/resume baseline | Implemented | `npm run test:mcp-events:generated` drives every generated `AxMCPEventSource` through real localhost Streamable HTTP/SSE resource wake, task progress and terminal resume, reconnect, and logical resubscription. |
 
 ## Completion gates
 

@@ -891,6 +891,12 @@ import {
   runAxEventStoreConformance,
 } from './event/conformance.js';
 import {
+  AxEventRouteBuilder,
+  AxEventTargetBuilder,
+  eventInput,
+  eventPath,
+} from './event/mapping.js';
+import {
   type AxMCPDefaultEventRoutesOptions,
   AxMCPEventSource,
   type AxMCPEventSourceIdentity,
@@ -920,6 +926,7 @@ import {
   type AxEventContext,
   type AxEventContinuation,
   AxEventContinuationNotFoundError,
+  type AxEventContinuationPlan,
   type AxEventContinuationRegistration,
   type AxEventCorrelationKey,
   type AxEventDeadLetter,
@@ -930,9 +937,17 @@ import {
   type AxEventIdentity,
   type AxEventIngress,
   type AxEventInheritance,
+  type AxEventInputBuilder,
+  type AxEventInputDefinition,
+  AxEventInputError,
+  type AxEventInputFieldMapping,
+  type AxEventInputPlan,
   type AxEventInvalidator,
   type AxEventMatcher,
   AxEventOutcomeUnknownError,
+  type AxEventPath,
+  type AxEventPathRoot,
+  type AxEventPathSegment,
   type AxEventPayloadStore,
   type AxEventProgramStateAdapter,
   type AxEventPublishReceipt,
@@ -1321,8 +1336,11 @@ export { AxEmbeddingAdapter };
 export { AxEvalUtil };
 export { AxEventBackpressureError };
 export { AxEventContinuationNotFoundError };
+export { AxEventInputError };
 export { AxEventOutcomeUnknownError };
+export { AxEventRouteBuilder };
 export { AxEventRuntime };
+export { AxEventTargetBuilder };
 export { AxFlow };
 export { AxFluentFieldType };
 export { AxFunctionError };
@@ -1522,6 +1540,8 @@ export { axValidateGeminiLiveAudioInput };
 export { axValidateProviderCapabilities };
 export { axWorkerRuntime };
 export { bestOfN };
+export { eventInput };
+export { eventPath };
 export { eventRoute };
 export { eventRuntime };
 export { eventTarget };
@@ -1912,6 +1932,7 @@ export type { AxEventClock };
 export type { AxEventCloseOptions };
 export type { AxEventContext };
 export type { AxEventContinuation };
+export type { AxEventContinuationPlan };
 export type { AxEventContinuationRegistration };
 export type { AxEventCorrelationKey };
 export type { AxEventDeadLetter };
@@ -1922,8 +1943,15 @@ export type { AxEventEnvelope };
 export type { AxEventIdentity };
 export type { AxEventIngress };
 export type { AxEventInheritance };
+export type { AxEventInputBuilder };
+export type { AxEventInputDefinition };
+export type { AxEventInputFieldMapping };
+export type { AxEventInputPlan };
 export type { AxEventInvalidator };
 export type { AxEventMatcher };
+export type { AxEventPath };
+export type { AxEventPathRoot };
+export type { AxEventPathSegment };
 export type { AxEventPayloadStore };
 export type { AxEventProgramStateAdapter };
 export type { AxEventPublishReceipt };

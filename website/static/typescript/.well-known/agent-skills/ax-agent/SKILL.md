@@ -271,6 +271,10 @@ Rules:
 - To wake an Agent from a resource subscription, use `AxMCPEventSource` and an
   explicit authenticated `wake` route. MCP sessions are not tenant identity;
   supply identity from the application's authenticated token mapping.
+- Map the event with a signature-aware `.wakeInput(...)` plan, or reuse an
+  `eventInput()` plan. Callback `mapInput` is still signature-validated and
+  cannot inject undeclared Agent fields. Use multiple matching routes to wake
+  multiple Agents with independent state, authorization, retries, and runs.
 - To wake from a UCP lifecycle webhook, use `AxUCPWebhookEventSource` and map
   verified profile/account state to Ax tenant identity after request
   verification. Never derive tenant identity from the order payload.
@@ -642,6 +646,12 @@ state. Use `createProgram(instance)` for multi-tenant Agents; one mutable Agent
 object must not serve multiple instance keys concurrently. Clarification and
 remote task completion are represented as owned continuations, not synthetic
 user turns.
+
+Declare the Agent signature on
+`eventTarget('id').createProgram(signature, factory)` and map event values with
+`eventPath`. The runtime verifies every created Agent against that signature
+before invoking it. Fan-out uses multiple matching routes so each Agent keeps
+its own authorization, instance serialization, retry policy, and run record.
 
 ## Do Not Generate
 

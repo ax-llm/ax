@@ -5,6 +5,12 @@ export type {
   AxEventStoreConformanceReport,
 } from './conformance.js';
 export { runAxEventStoreConformance } from './conformance.js';
+export {
+  AxEventRouteBuilder,
+  AxEventTargetBuilder,
+  eventInput,
+  eventPath,
+} from './mapping.js';
 export type {
   AxMCPDefaultEventRoutesOptions,
   AxMCPEventSourceIdentity,
@@ -38,8 +44,15 @@ export type {
   AxEventIdentity,
   AxEventIngress,
   AxEventInheritance,
+  AxEventInputBuilder,
+  AxEventInputDefinition,
+  AxEventInputFieldMapping,
+  AxEventInputPlan,
   AxEventInvalidator,
   AxEventMatcher,
+  AxEventPath,
+  AxEventPathRoot,
+  AxEventPathSegment,
   AxEventPayloadStore,
   AxEventProgramStateAdapter,
   AxEventPublishReceipt,
@@ -66,6 +79,7 @@ export type {
 export {
   AxEventBackpressureError,
   AxEventContinuationNotFoundError,
+  AxEventInputError,
   AxEventOutcomeUnknownError,
   AxManualEventClock,
   AxSystemEventClock,

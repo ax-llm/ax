@@ -1,9 +1,13 @@
 pub mod mcp;
 pub use mcp::{
-    AxEventClock, AxEventCommand, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink,
-    AxEventSource, AxEventStore, AxExecutionContext, AxMCPClient, AxMCPContinuationState,
-    AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet,
-    AxMCPTransport, AxUCPBinding, AxUCPClient,
+    event_route, event_target, AxEventCancellationToken, AxEventClock, AxEventCommand,
+    AxEventContinuation, AxEventCorrelationKey, AxEventDeadLetter, AxEventEnvelope,
+    AxEventInputBuilder, AxEventInputPlan, AxEventInvocationContext, AxEventPath,
+    AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime,
+    AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxExecutionContext,
+    AxInMemoryEventStore, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions,
+    AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet,
+    AxMCPTransport, AxManualEventClock, AxSystemEventClock, AxUCPBinding, AxUCPClient,
 };
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
@@ -6229,6 +6233,540 @@ fn run_event_fixture(fixture: &Value) -> AxResult<()> {
             &fixture["expected"],
             "event MCP normalization",
         ),
+        "mapping" => call(
+            event_map_input(&[
+                core_value_from_json(&fixture["ingress"]),
+                core_value_from_json(&fixture["plan"]),
+                core_value_from_json(&fixture["signature_fields"]),
+                core_value_from_json(&Value::Null),
+            ]),
+            &fixture["expected"],
+            "event input mapping",
+        ),
+        "lifecycle" => {
+            struct FixtureSource(Option<AxEventEnvelope>);
+            impl AxEventSource for FixtureSource {
+                fn start(
+                    &mut self,
+                    publish: &mut dyn FnMut(AxEventEnvelope) -> AxResult<()>,
+                ) -> AxResult<()> {
+                    publish(self.0.take().unwrap())
+                }
+            }
+            let make_event =
+                |id: &str,
+                 event_type: &str,
+                 data: Value,
+                 correlation: Vec<AxEventCorrelationKey>| AxEventEnvelope {
+                    specversion: "1.0".into(),
+                    id: id.into(),
+                    source: "test://axevent".into(),
+                    r#type: event_type.into(),
+                    subject: Some("fixture".into()),
+                    data,
+                    extensions: Map::new(),
+                    correlation,
+                };
+            let route_value = &fixture["route"];
+            let event_value = &fixture["event"];
+            let route = AxEventRoute {
+                id: route_value["id"].as_str().unwrap().into(),
+                action: route_value["action"].as_str().unwrap().into(),
+                r#match: route_value["match"].clone(),
+                target_id: Some(route_value["targetId"].as_str().unwrap().into()),
+                require_authenticated: false,
+                ordering: "strict".into(),
+                debounce_ms: 0,
+                instance_key: None,
+            };
+            let mut target = AxEventTarget::new(route.target_id.clone().unwrap(), |input, _| {
+                Ok(json!({"handled":input["message"]}))
+            });
+            target.retry_safety = "idempotent".into();
+            let event = AxEventEnvelope {
+                specversion: "1.0".into(),
+                id: event_value["id"].as_str().unwrap().into(),
+                source: event_value["source"].as_str().unwrap().into(),
+                r#type: event_value["type"].as_str().unwrap().into(),
+                subject: event_value
+                    .get("subject")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                data: event_value["data"].clone(),
+                extensions: Map::new(),
+                correlation: vec![],
+            };
+            let mut runtime = AxEventRuntime::new(vec![route.clone()], json!({}))?;
+            runtime.register_target(target);
+            runtime.start()?;
+            let receipts = runtime.start_source(
+                &mut FixtureSource(Some(event.clone())),
+                fixture["identity_scope"].as_str().unwrap(),
+                fixture["trust"].as_str().unwrap(),
+            )?;
+            let run_id = format!("run:{}:{}:1", route.id, event.id);
+            let run = runtime
+                .get_run(&run_id)
+                .ok_or_else(|| AxError::new("fixture", "event lifecycle did not dispatch"))?;
+            if !receipts
+                .first()
+                .map(|value| value.accepted)
+                .unwrap_or(false)
+                || run.output.as_ref() != Some(&fixture["expected_output"])
+            {
+                return Err(AxError::new("fixture", "event lifecycle mismatch"));
+            }
+            runtime.close()?;
+
+            let retry_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+            let retry_state = retry_calls.clone();
+            let mut retry_target = AxEventTarget::new("retry-target", move |_, _| {
+                let mut calls = retry_state.lock().unwrap();
+                *calls += 1;
+                if *calls == 1 {
+                    return Err(AxError::new("fixture", "retry once"));
+                }
+                Ok(json!({"attempt":*calls}))
+            });
+            retry_target.retry_safety = "idempotent".into();
+            let retry_clock = std::sync::Arc::new(AxManualEventClock::new(1_000));
+            let mut retry_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "retry-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.retry"]}),
+                    target_id: Some("retry-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            retry_runtime.set_clock(retry_clock.clone());
+            retry_runtime.register_target(retry_target);
+            retry_runtime.start()?;
+            retry_runtime.publish(
+                make_event("retry-1", "event.retry", json!({}), vec![]),
+                "anonymous",
+                "untrusted",
+            )?;
+            let retry_run = retry_runtime.get_run("run:retry-route:retry-1:1").unwrap();
+            if retry_run.attempt != 1
+                || retry_run.status != "queued"
+                || retry_runtime.next_due_at() != Some(2_000)
+            {
+                return Err(AxError::new("fixture", "event delayed retry mismatch"));
+            }
+            retry_clock.advance(1_000);
+            retry_runtime.run_due();
+            let retry_run = retry_runtime.get_run("run:retry-route:retry-1:1").unwrap();
+            if retry_run.attempt != 2 || retry_run.status != "succeeded" {
+                return Err(AxError::new("fixture", "event retry dispatch mismatch"));
+            }
+
+            let debounce_clock = std::sync::Arc::new(AxManualEventClock::new(2_000));
+            let debounce_values = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+            let debounce_state = debounce_values.clone();
+            let debounce_target = AxEventTarget::new("debounce-target", move |value, _| {
+                debounce_state.lock().unwrap().push(value.clone());
+                Ok(value)
+            });
+            let mut debounce_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "debounce-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.debounce"]}),
+                    target_id: Some("debounce-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 250,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            debounce_runtime.set_clock(debounce_clock.clone());
+            debounce_runtime.register_target(debounce_target);
+            debounce_runtime.start()?;
+            debounce_runtime.publish(
+                make_event(
+                    "debounce-1",
+                    "event.debounce",
+                    json!({"revision":1}),
+                    vec![],
+                ),
+                "anonymous",
+                "untrusted",
+            )?;
+            debounce_runtime.publish(
+                make_event(
+                    "debounce-2",
+                    "event.debounce",
+                    json!({"revision":2}),
+                    vec![],
+                ),
+                "anonymous",
+                "untrusted",
+            )?;
+            if !debounce_values.lock().unwrap().is_empty()
+                || debounce_runtime.next_due_at() != Some(2_250)
+            {
+                return Err(AxError::new(
+                    "fixture",
+                    "event debounce scheduling mismatch",
+                ));
+            }
+            debounce_clock.advance(250);
+            debounce_runtime.run_due();
+            if *debounce_values.lock().unwrap() != vec![json!({"revision":2})] {
+                return Err(AxError::new(
+                    "fixture",
+                    "event latest-value coalescing mismatch",
+                ));
+            }
+
+            let capacity_target = AxEventTarget::new("capacity-target", |value, _| Ok(value));
+            let mut capacity_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "capacity-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.capacity"]}),
+                    target_id: Some("capacity-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({"maxEnvelopeBytes":16}),
+            )?;
+            capacity_runtime.register_target(capacity_target);
+            capacity_runtime.start()?;
+            if capacity_runtime
+                .publish(
+                    make_event(
+                        "capacity-1",
+                        "event.capacity",
+                        json!({"payload":"too-large"}),
+                        vec![],
+                    ),
+                    "anonymous",
+                    "untrusted",
+                )
+                .is_ok()
+            {
+                return Err(AxError::new(
+                    "fixture",
+                    "event envelope backpressure mismatch",
+                ));
+            }
+
+            let state = std::sync::Arc::new(std::sync::Mutex::new(0i64));
+            let invoke_state = state.clone();
+            let capture_state = state.clone();
+            let restore_state = state.clone();
+            let mut state_target = AxEventTarget::new("state-target", move |_, _| {
+                let mut value = invoke_state.lock().unwrap();
+                *value += 1;
+                Ok(json!({"state":*value}))
+            });
+            state_target.retry_safety = "idempotent".into();
+            state_target.capture_state =
+                Some(std::sync::Arc::new(std::sync::Mutex::new(move || {
+                    Ok(json!(*capture_state.lock().unwrap()))
+                })));
+            state_target.restore_state = Some(std::sync::Arc::new(std::sync::Mutex::new(
+                move |value: Value| {
+                    *restore_state.lock().unwrap() = value.as_i64().unwrap();
+                    Ok(())
+                },
+            )));
+            let mut state_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "state-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.state"]}),
+                    target_id: Some("state-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            state_runtime.register_target(state_target);
+            state_runtime.start()?;
+            state_runtime.publish(
+                make_event("state-1", "event.state", json!({}), vec![]),
+                "anonymous",
+                "untrusted",
+            )?;
+            *state.lock().unwrap() = 0;
+            state_runtime.publish(
+                make_event("state-2", "event.state", json!({}), vec![]),
+                "anonymous",
+                "untrusted",
+            )?;
+            if state_runtime
+                .get_run("run:state-route:state-2:2")
+                .and_then(|run| run.output.as_ref())
+                != Some(&json!({"state":2}))
+            {
+                return Err(AxError::new("fixture", "event state restore mismatch"));
+            }
+
+            let cancel_target = AxEventTarget::new("cancel-target", |_, context| {
+                context.cancellation.cancel("fixture");
+                Ok(json!({"should":"not persist"}))
+            });
+            let mut cancel_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "cancel-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.cancel"]}),
+                    target_id: Some("cancel-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            cancel_runtime.register_target(cancel_target);
+            cancel_runtime.start()?;
+            cancel_runtime.publish(
+                make_event("cancel-1", "event.cancel", json!({}), vec![]),
+                "anonymous",
+                "untrusted",
+            )?;
+            let cancel_run = cancel_runtime
+                .get_run("run:cancel-route:cancel-1:1")
+                .unwrap();
+            if cancel_run.status != "cancelled" || cancel_run.output.is_some() {
+                return Err(AxError::new("fixture", "event cancellation mismatch"));
+            }
+
+            let model_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+            let model_state = model_calls.clone();
+            let sink_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+            let sink_state = sink_calls.clone();
+            let mut sink_target = AxEventTarget::new("sink-target", move |value, _| {
+                *model_state.lock().unwrap() += 1;
+                Ok(value)
+            });
+            sink_target.retry_safety = "idempotent".into();
+            sink_target.sinks.push((
+                "fixture-sink".into(),
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    move |output: Value, context: Value| {
+                        let mut calls = sink_state.lock().unwrap();
+                        *calls += 1;
+                        if *calls == 1 {
+                            return Err(AxError::new("fixture", "sink once"));
+                        }
+                        if context["run"]["output"] != output {
+                            return Err(AxError::new("fixture", "output-before-sink"));
+                        }
+                        Ok(())
+                    },
+                )),
+            ));
+            let mut sink_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "sink-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.sink"]}),
+                    target_id: Some("sink-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            sink_runtime.register_target(sink_target);
+            sink_runtime.start()?;
+            sink_runtime.publish(
+                make_event("sink-1", "event.sink", json!({"ok":true}), vec![]),
+                "anonymous",
+                "untrusted",
+            )?;
+            let dead = sink_runtime.list_dead_letters().into_iter().next().unwrap();
+            sink_runtime.redrive(&dead.id)?;
+            if *model_calls.lock().unwrap() != 1
+                || *sink_calls.lock().unwrap() != 2
+                || !sink_runtime.list_dead_letters().is_empty()
+            {
+                return Err(AxError::new("fixture", "event sink-only redrive mismatch"));
+            }
+
+            let continuation_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+            let continuation_state = continuation_calls.clone();
+            let mut continuation_target =
+                AxEventTarget::new("continuation-target", move |value, _| {
+                    *continuation_state.lock().unwrap() += 1;
+                    Ok(value)
+                });
+            continuation_target.wait_for = vec![json!({"kind":"job","value":"job"})];
+            let mut continuation_runtime = AxEventRuntime::new(
+                vec![
+                    AxEventRoute {
+                        id: "continuation-wake".into(),
+                        action: "wake".into(),
+                        r#match: json!({"types":["event.continuation.start"]}),
+                        target_id: Some("continuation-target".into()),
+                        require_authenticated: false,
+                        ordering: "strict".into(),
+                        debounce_ms: 0,
+                        instance_key: None,
+                    },
+                    AxEventRoute {
+                        id: "continuation-resume".into(),
+                        action: "resume".into(),
+                        r#match: json!({"types":["event.continuation.done"]}),
+                        target_id: None,
+                        require_authenticated: false,
+                        ordering: "strict".into(),
+                        debounce_ms: 0,
+                        instance_key: None,
+                    },
+                ],
+                json!({}),
+            )?;
+            continuation_runtime.register_target(continuation_target);
+            continuation_runtime.start()?;
+            continuation_runtime.publish(
+                make_event(
+                    "continuation-1",
+                    "event.continuation.start",
+                    json!({"job":"job-1"}),
+                    vec![],
+                ),
+                "tenant:test",
+                "authenticated",
+            )?;
+            continuation_runtime.publish(
+                make_event(
+                    "continuation-2",
+                    "event.continuation.done",
+                    json!({"job":"job-1"}),
+                    vec![AxEventCorrelationKey {
+                        kind: "job".into(),
+                        value: "job-1".into(),
+                    }],
+                ),
+                "tenant:test",
+                "authenticated",
+            )?;
+            if *continuation_calls.lock().unwrap() != 2 {
+                return Err(AxError::new(
+                    "fixture",
+                    "event continuation resume mismatch",
+                ));
+            }
+
+            let mcp_client = std::sync::Arc::new(std::sync::Mutex::new(AxMCPClient::new(
+                Box::new(AxMCPScriptedTransport::new(vec![
+                    json!({"method":"initialize","result":{"protocolVersion":"2025-11-25","capabilities":{"resources":{"subscribe":true}}}}),
+                ])),
+                json!({"namespace":"inventory"}),
+            )));
+            let lifecycle_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+            let lifecycle_state = lifecycle_calls.clone();
+            mcp_client
+                .lock()
+                .unwrap()
+                .add_lifecycle_listener(move |_| *lifecycle_state.lock().unwrap() += 1);
+            let mcp_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+            let mcp_state = mcp_calls.clone();
+            let mcp_target = AxEventTarget::new("mcp-target", move |value, _| {
+                *mcp_state.lock().unwrap() += 1;
+                Ok(value)
+            });
+            let mut mcp_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "mcp-wake".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["mcp.resource.updated"]}),
+                    target_id: Some("mcp-target".into()),
+                    require_authenticated: true,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            mcp_runtime.register_target(mcp_target);
+            mcp_runtime.start()?;
+            let mcp_runtime = std::sync::Arc::new(std::sync::Mutex::new(mcp_runtime));
+            let mut mcp_source = AxMCPEventSource::new(
+                mcp_client.clone(),
+                mcp_runtime.clone(),
+                "inventory",
+                "tenant:test",
+                "authenticated",
+                vec!["demo://inventory".into()],
+            );
+            mcp_source.start()?;
+            mcp_client.lock().unwrap().emit_notification(json!({"jsonrpc":"2.0","method":"notifications/resources/updated","params":{"uri":"demo://inventory"}}));
+            mcp_client.lock().unwrap().emit_lifecycle("reconnected");
+            mcp_source.poll();
+            mcp_source.close()?;
+            mcp_client.lock().unwrap().emit_notification(json!({"jsonrpc":"2.0","method":"notifications/resources/updated","params":{"uri":"demo://inventory"}}));
+            if *mcp_calls.lock().unwrap() != 1 || *lifecycle_calls.lock().unwrap() != 1 {
+                return Err(AxError::new("fixture", "MCP listener composition mismatch"));
+            }
+            let mapped_inputs = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+            let mapped_state = mapped_inputs.clone();
+            let mapped_target = event_target("mapped-target", move |value, _| {
+                mapped_state.lock().unwrap().push(value.clone());
+                Ok(value)
+            })
+            .signature(AxSignature::parse(
+                "url:string, revision:number -> ok:boolean",
+            )?)
+            .wake_input(|input| {
+                input
+                    .field("url", AxEventPath::data(vec![json!("uri")]))
+                    .field("revision", AxEventPath::data(vec![json!("revision")]));
+            });
+            let mapped_route = event_route("mapped-route")
+                .types(&["event.mapped"])
+                .instance_key(AxEventPath::data(vec![json!("uri")]))
+                .wake(&mapped_target)
+                .build()?;
+            let mut mapped_runtime = AxEventRuntime::new(vec![mapped_route], json!({}))?;
+            mapped_runtime.register_target(mapped_target);
+            mapped_runtime.start()?;
+            mapped_runtime.publish(
+                make_event(
+                    "mapped-1",
+                    "event.mapped",
+                    json!({"uri":"demo://one","revision":2}),
+                    vec![],
+                ),
+                "anonymous",
+                "untrusted",
+            )?;
+            mapped_runtime.publish(
+                make_event(
+                    "mapped-2",
+                    "event.mapped",
+                    json!({"uri":"demo://two","revision":"bad"}),
+                    vec![],
+                ),
+                "anonymous",
+                "untrusted",
+            )?;
+            if *mapped_inputs.lock().unwrap() != vec![json!({"url":"demo://one","revision":2})]
+                || mapped_runtime.list_dead_letters().len() != 1
+            {
+                return Err(AxError::new(
+                    "fixture",
+                    "signature-aware event mapping mismatch",
+                ));
+            }
+            Ok(())
+        }
         _ => Err(AxError::new(
             "fixture",
             format!("unsupported event operation {operation}"),
@@ -13467,7 +14005,7 @@ fn core_fields_value(fields: &[Field]) -> Result<CoreValue, AxError> {
     Ok(out)
 }
 
-fn validate_fields_native(fields: &[Field], values: &Value) -> AxResult<()> {
+pub(crate) fn validate_fields_native(fields: &[Field], values: &Value) -> AxResult<()> {
     validate_fields(&[core_fields_value(fields)?, core_value_from_json(values)])?;
     Ok(())
 }
@@ -56549,6 +57087,74 @@ fn ucp_normalize_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn mcp_execution_context_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_execution_context_descriptor");
+    let mut v_namespaces = core_arg(args, 0);
+    let mut v_inheritance = core_arg(args, 1);
+    let mut v_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("namespaces"), v_namespaces.clone())?;
+    v_missing = core_is_none(&[v_inheritance.clone()])?;
+    if core_truthy(&v_missing) {
+        core_set(
+            &v_out,
+            CoreValue::from("inheritance"),
+            CoreValue::from("all"),
+        )?;
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("inheritance"),
+            v_inheritance.clone(),
+        )?;
+    }
+    core_set(&v_out, CoreValue::from("native"), CoreValue::Bool(true))?;
+    core_set(
+        &v_out,
+        CoreValue::from("lossyAdapter"),
+        CoreValue::Bool(false),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_protocol_constants(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_protocol_constants");
+    let mut v_out = CoreValue::Null;
+    let mut v_versions = CoreValue::Null;
+    v_versions = CoreValue::new_list();
+    core_append(&v_versions, CoreValue::from("2025-11-25"))?;
+    core_append(&v_versions, CoreValue::from("2025-06-18"))?;
+    core_append(&v_versions, CoreValue::from("2025-03-26"))?;
+    core_append(&v_versions, CoreValue::from("2024-11-05"))?;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("protocolVersion"),
+        CoreValue::from("2025-11-25"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("supportedProtocolVersions"),
+        v_versions.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn event_runtime_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("event_runtime_descriptor");
     let mut v_routes = core_arg(args, 0);
@@ -56591,34 +57197,22 @@ fn event_runtime_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn mcp_execution_context_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_execution_context_descriptor");
-    let mut v_namespaces = core_arg(args, 0);
-    let mut v_inheritance = core_arg(args, 1);
+fn mcp_jsonrpc_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_jsonrpc_request");
+    let mut v_id = core_arg(args, 0);
+    let mut v_method = core_arg(args, 1);
+    let mut v_params = core_arg(args, 2);
     let mut v_missing = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("namespaces"), v_namespaces.clone())?;
-    v_missing = core_is_none(&[v_inheritance.clone()])?;
+    core_set(&v_out, CoreValue::from("jsonrpc"), CoreValue::from("2.0"))?;
+    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_out, CoreValue::from("method"), v_method.clone())?;
+    v_missing = core_is_none(&[v_params.clone()])?;
     if core_truthy(&v_missing) {
-        core_set(
-            &v_out,
-            CoreValue::from("inheritance"),
-            CoreValue::from("all"),
-        )?;
     } else {
-        core_set(
-            &v_out,
-            CoreValue::from("inheritance"),
-            v_inheritance.clone(),
-        )?;
+        core_set(&v_out, CoreValue::from("params"), v_params.clone())?;
     }
-    core_set(&v_out, CoreValue::from("native"), CoreValue::Bool(true))?;
-    core_set(
-        &v_out,
-        CoreValue::from("lossyAdapter"),
-        CoreValue::Bool(false),
-    )?;
     return Ok(v_out.clone());
 }
 
@@ -56744,62 +57338,6 @@ fn event_route_commands(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn mcp_protocol_constants(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_protocol_constants");
-    let mut v_out = CoreValue::Null;
-    let mut v_versions = CoreValue::Null;
-    v_versions = CoreValue::new_list();
-    core_append(&v_versions, CoreValue::from("2025-11-25"))?;
-    core_append(&v_versions, CoreValue::from("2025-06-18"))?;
-    core_append(&v_versions, CoreValue::from("2025-03-26"))?;
-    core_append(&v_versions, CoreValue::from("2024-11-05"))?;
-    v_out = CoreValue::new_map();
-    core_set(
-        &v_out,
-        CoreValue::from("protocolVersion"),
-        CoreValue::from("2025-11-25"),
-    )?;
-    core_set(
-        &v_out,
-        CoreValue::from("supportedProtocolVersions"),
-        v_versions.clone(),
-    )?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn mcp_jsonrpc_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_jsonrpc_request");
-    let mut v_id = core_arg(args, 0);
-    let mut v_method = core_arg(args, 1);
-    let mut v_params = core_arg(args, 2);
-    let mut v_missing = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("jsonrpc"), CoreValue::from("2.0"))?;
-    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
-    core_set(&v_out, CoreValue::from("method"), v_method.clone())?;
-    v_missing = core_is_none(&[v_params.clone()])?;
-    if core_truthy(&v_missing) {
-    } else {
-        core_set(&v_out, CoreValue::from("params"), v_params.clone())?;
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn mcp_jsonrpc_notification(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_jsonrpc_notification");
     let mut v_method = core_arg(args, 0);
@@ -56815,6 +57353,51 @@ fn mcp_jsonrpc_notification(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         core_set(&v_out, CoreValue::from("params"), v_params.clone())?;
     }
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_normalize_error");
+    let mut v_response = core_arg(args, 0);
+    let mut v_code = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_err = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_ok = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    v_err = core_get(&v_response, &CoreValue::from("error"), CoreValue::Null);
+    v_missing = core_is_none(&[v_err.clone()])?;
+    if core_truthy(&v_missing) {
+        v_ok = CoreValue::new_map();
+        v_result = core_get(&v_response, &CoreValue::from("result"), CoreValue::Null);
+        core_set(&v_ok, CoreValue::from("ok"), CoreValue::Bool(true))?;
+        core_set(&v_ok, CoreValue::from("result"), v_result.clone())?;
+        return Ok(v_ok.clone());
+    } else {
+        v_code = core_get(&v_err, &CoreValue::from("code"), CoreValue::Num(0f64));
+        v_message = core_get(
+            &v_err,
+            &CoreValue::from("message"),
+            CoreValue::from("MCP JSON-RPC error"),
+        );
+        v_data = core_get(&v_err, &CoreValue::from("data"), CoreValue::Null);
+        v_out = CoreValue::new_map();
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(&v_out, CoreValue::from("category"), CoreValue::from("mcp"))?;
+        core_set(&v_out, CoreValue::from("code"), v_code.clone())?;
+        core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        core_set(&v_out, CoreValue::from("data"), v_data.clone())?;
+        return Ok(v_out.clone());
+    }
+    return Ok(v_response.clone());
 }
 
 #[allow(
@@ -56865,42 +57448,223 @@ fn event_retry_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_normalize_error");
-    let mut v_response = core_arg(args, 0);
-    let mut v_code = CoreValue::Null;
-    let mut v_data = CoreValue::Null;
-    let mut v_err = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
-    let mut v_ok = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    v_err = core_get(&v_response, &CoreValue::from("error"), CoreValue::Null);
-    v_missing = core_is_none(&[v_err.clone()])?;
-    if core_truthy(&v_missing) {
-        v_ok = CoreValue::new_map();
-        v_result = core_get(&v_response, &CoreValue::from("result"), CoreValue::Null);
-        core_set(&v_ok, CoreValue::from("ok"), CoreValue::Bool(true))?;
-        core_set(&v_ok, CoreValue::from("result"), v_result.clone())?;
-        return Ok(v_ok.clone());
-    } else {
-        v_code = core_get(&v_err, &CoreValue::from("code"), CoreValue::Num(0f64));
-        v_message = core_get(
-            &v_err,
-            &CoreValue::from("message"),
-            CoreValue::from("MCP JSON-RPC error"),
-        );
-        v_data = core_get(&v_err, &CoreValue::from("data"), CoreValue::Null);
-        v_out = CoreValue::new_map();
-        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
-        core_set(&v_out, CoreValue::from("category"), CoreValue::from("mcp"))?;
-        core_set(&v_out, CoreValue::from("code"), v_code.clone())?;
-        core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
-        core_set(&v_out, CoreValue::from("data"), v_data.clone())?;
-        return Ok(v_out.clone());
+fn event_resolve_path(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_resolve_path");
+    let mut v_ingress = core_arg(args, 0);
+    let mut v_path = core_arg(args, 1);
+    let mut v_continuation = core_arg(args, 2);
+    let mut v_array = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_container = CoreValue::Null;
+    let mut v_current = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_is_constant = CoreValue::Null;
+    let mut v_is_continuation = CoreValue::Null;
+    let mut v_is_correlation = CoreValue::Null;
+    let mut v_is_data = CoreValue::Null;
+    let mut v_is_envelope = CoreValue::Null;
+    let mut v_is_extensions = CoreValue::Null;
+    let mut v_is_identity = CoreValue::Null;
+    let mut v_is_trust = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_keys_empty = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_object = CoreValue::Null;
+    let mut v_root = CoreValue::Null;
+    let mut v_segment = CoreValue::Null;
+    let mut v_segments = CoreValue::Null;
+    let mut v_segments_empty = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_root = core_get(&v_path, &CoreValue::from("root"), CoreValue::from("data"));
+    v_event = core_get(&v_ingress, &CoreValue::from("event"), v_ingress.clone());
+    v_current = v_none.clone();
+    v_is_data = core_eq(&[v_root.clone(), CoreValue::from("data")])?;
+    v_is_envelope = core_eq(&[v_root.clone(), CoreValue::from("envelope")])?;
+    v_is_extensions = core_eq(&[v_root.clone(), CoreValue::from("extensions")])?;
+    v_is_identity = core_eq(&[v_root.clone(), CoreValue::from("identity")])?;
+    v_is_trust = core_eq(&[v_root.clone(), CoreValue::from("trust")])?;
+    v_is_continuation = core_eq(&[v_root.clone(), CoreValue::from("continuation")])?;
+    v_is_constant = core_eq(&[v_root.clone(), CoreValue::from("constant")])?;
+    v_is_correlation = core_eq(&[v_root.clone(), CoreValue::from("correlation")])?;
+    if core_truthy(&v_is_data) {
+        v_current = core_get(&v_event, &CoreValue::from("data"), v_none.clone());
     }
-    return Ok(v_response.clone());
+    if core_truthy(&v_is_envelope) {
+        v_current = v_event.clone();
+    }
+    if core_truthy(&v_is_extensions) {
+        v_current = core_get(&v_event, &CoreValue::from("extensions"), v_none.clone());
+    }
+    if core_truthy(&v_is_identity) {
+        v_current = core_get(&v_ingress, &CoreValue::from("identity"), v_none.clone());
+    }
+    if core_truthy(&v_is_trust) {
+        v_current = core_get(
+            &v_ingress,
+            &CoreValue::from("trust"),
+            CoreValue::from("untrusted"),
+        );
+    }
+    if core_truthy(&v_is_continuation) {
+        v_current = core_get(
+            &v_continuation,
+            &CoreValue::from("metadata"),
+            v_none.clone(),
+        );
+    }
+    if core_truthy(&v_is_constant) {
+        v_current = core_get(&v_path, &CoreValue::from("value"), v_none.clone());
+    }
+    if core_truthy(&v_is_correlation) {
+        v_kind = core_get(
+            &v_path,
+            &CoreValue::from("correlationKind"),
+            CoreValue::from(""),
+        );
+        v_keys_empty = CoreValue::new_list();
+        v_keys = core_get(
+            &v_ingress,
+            &CoreValue::from("correlation"),
+            v_keys_empty.clone(),
+        );
+        for v_key in core_iter(&v_keys)? {
+            let mut v_key = v_key;
+            v_candidate = core_get(&v_key, &CoreValue::from("kind"), CoreValue::from(""));
+            v_matches = core_eq(&[v_candidate.clone(), v_kind.clone()])?;
+            if core_truthy(&v_matches) {
+                v_current = core_get(&v_key, &CoreValue::from("value"), v_none.clone());
+            }
+        }
+    }
+    v_segments_empty = CoreValue::new_list();
+    v_segments = core_get(
+        &v_path,
+        &CoreValue::from("segments"),
+        v_segments_empty.clone(),
+    );
+    for v_segment in core_iter(&v_segments)? {
+        let mut v_segment = v_segment;
+        v_object = core_type_is(&v_current, CoreValue::from("object"));
+        v_array = core_type_is(&v_current, CoreValue::from("array"));
+        v_container = core_or(&[v_object.clone(), v_array.clone()])?;
+        if core_truthy(&v_container) {
+            v_current = core_get(&v_current, &v_segment.clone(), v_none.clone());
+        } else {
+            v_current = v_none.clone();
+        }
+    }
+    return Ok(v_current.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_map_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_map_input");
+    let mut v_ingress = core_arg(args, 0);
+    let mut v_plan = core_arg(args, 1);
+    let mut v_signature_fields = core_arg(args, 2);
+    let mut v_continuation = core_arg(args, 3);
+    let mut v_destination = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_has_project = CoreValue::Null;
+    let mut v_has_selector = CoreValue::Null;
+    let mut v_mapping = CoreValue::Null;
+    let mut v_mappings = CoreValue::Null;
+    let mut v_mappings_empty = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_optional = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_project_object = CoreValue::Null;
+    let mut v_project_path = CoreValue::Null;
+    let mut v_projection = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_selector = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_out = CoreValue::new_map();
+    v_result = CoreValue::new_map();
+    v_error = v_none.clone();
+    v_project_path = core_get(&v_plan, &CoreValue::from("project"), v_none.clone());
+    v_projection = v_none.clone();
+    v_has_project = core_is_not_none(&[v_project_path.clone()])?;
+    if core_truthy(&v_has_project) {
+        v_projection = event_resolve_path(&[
+            v_ingress.clone(),
+            v_project_path.clone(),
+            v_continuation.clone(),
+        ])?;
+    }
+    v_mappings_empty = CoreValue::new_list();
+    v_mappings = core_get(
+        &v_plan,
+        &CoreValue::from("fields"),
+        v_mappings_empty.clone(),
+    );
+    for v_field in core_iter(&v_signature_fields)? {
+        let mut v_field = v_field;
+        v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+        v_optional = core_get(
+            &v_field,
+            &CoreValue::from("optional"),
+            CoreValue::Bool(false),
+        );
+        v_selector = v_none.clone();
+        for v_mapping in core_iter(&v_mappings)? {
+            let mut v_mapping = v_mapping;
+            v_destination = core_get(&v_mapping, &CoreValue::from("field"), CoreValue::from(""));
+            v_matches = core_eq(&[v_destination.clone(), v_name.clone()])?;
+            if core_truthy(&v_matches) {
+                v_selector = core_get(&v_mapping, &CoreValue::from("path"), v_none.clone());
+            }
+        }
+        v_value = v_none.clone();
+        v_has_selector = core_is_not_none(&[v_selector.clone()])?;
+        if core_truthy(&v_has_selector) {
+            v_value = event_resolve_path(&[
+                v_ingress.clone(),
+                v_selector.clone(),
+                v_continuation.clone(),
+            ])?;
+        } else {
+            v_project_object = core_type_is(&v_projection, CoreValue::from("object"));
+            if core_truthy(&v_project_object) {
+                v_value = core_get(&v_projection, &v_name.clone(), v_none.clone());
+            }
+        }
+        v_missing = core_is_none(&[v_value.clone()])?;
+        if core_truthy(&v_missing) {
+            if core_truthy(&v_optional) {
+            } else {
+                v_error = core_string_format(&[
+                    CoreValue::from("Required signature input {} was not present"),
+                    v_name.clone(),
+                ])?;
+            }
+        } else {
+            core_set(&v_out, v_name.clone(), v_value.clone())?;
+        }
+    }
+    v_failed = core_is_not_none(&[v_error.clone()])?;
+    core_set(&v_result, CoreValue::from("ok"), CoreValue::Bool(true))?;
+    core_set(&v_result, CoreValue::from("value"), v_out.clone())?;
+    if core_truthy(&v_failed) {
+        core_set(&v_result, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(&v_result, CoreValue::from("error"), v_error.clone())?;
+    }
+    return Ok(v_result.clone());
 }
 
 #[allow(
@@ -56983,6 +57747,114 @@ fn event_continuation_match(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_delivery_due(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_delivery_due");
+    let mut v_status = core_arg(args, 0);
+    let mut v_available_at = core_arg(args, 1);
+    let mut v_now = core_arg(args, 2);
+    let mut v_due = CoreValue::Null;
+    let mut v_queued = CoreValue::Null;
+    let mut v_ready = CoreValue::Null;
+    v_queued = core_eq(&[v_status.clone(), CoreValue::from("queued")])?;
+    v_ready = core_lte(&[v_available_at.clone(), v_now.clone()])?;
+    v_due = core_and(&[v_queued.clone(), v_ready.clone()])?;
+    return Ok(v_due.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_capacity_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_capacity_transition");
+    let mut v_pending = core_arg(args, 0);
+    let mut v_queued_bytes = core_arg(args, 1);
+    let mut v_envelope_bytes = core_arg(args, 2);
+    let mut v_max_pending = core_arg(args, 3);
+    let mut v_max_queued_bytes = core_arg(args, 4);
+    let mut v_max_envelope_bytes = core_arg(args, 5);
+    let mut v_accepted = CoreValue::Null;
+    let mut v_envelope_ok = CoreValue::Null;
+    let mut v_next_bytes = CoreValue::Null;
+    let mut v_next_pending = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_pending_ok = CoreValue::Null;
+    let mut v_queue_capacity = CoreValue::Null;
+    let mut v_queue_ok = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_next_pending = core_add(&[v_pending.clone(), CoreValue::Num(1f64)])?;
+    v_next_bytes = core_add(&[v_queued_bytes.clone(), v_envelope_bytes.clone()])?;
+    v_pending_ok = core_lte(&[v_next_pending.clone(), v_max_pending.clone()])?;
+    v_queue_ok = core_lte(&[v_next_bytes.clone(), v_max_queued_bytes.clone()])?;
+    v_envelope_ok = core_lte(&[v_envelope_bytes.clone(), v_max_envelope_bytes.clone()])?;
+    v_queue_capacity = core_and(&[v_pending_ok.clone(), v_queue_ok.clone()])?;
+    v_accepted = core_and(&[v_queue_capacity.clone(), v_envelope_ok.clone()])?;
+    core_set(&v_out, CoreValue::from("accepted"), v_accepted.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("nextPending"),
+        v_next_pending.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("nextQueuedBytes"),
+        v_next_bytes.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("reason"),
+        CoreValue::from("capacity"),
+    )?;
+    if core_truthy(&v_envelope_ok) {
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("reason"),
+            CoreValue::from("envelope_too_large"),
+        )?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_debounce_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_debounce_transition");
+    let mut v_now = core_arg(args, 0);
+    let mut v_debounce_ms = core_arg(args, 1);
+    let mut v_has_queued_predecessor = core_arg(args, 2);
+    let mut v_available_at = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_available_at = core_add(&[v_now.clone(), v_debounce_ms.clone()])?;
+    core_set(
+        &v_out,
+        CoreValue::from("availableAt"),
+        v_available_at.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("coalescePredecessor"),
+        v_has_queued_predecessor.clone(),
+    )?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -57116,4 +57988,4 @@ fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (444 of 444 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (449 of 449 core functions)

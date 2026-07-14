@@ -161,13 +161,20 @@ AxEventRuntime connects supervised sources to an inbox, selects an explicit
 route action, invokes an AxGen, AxAgent, or AxFlow target when authorized,
 persists the result, and then dispatches sinks. Protocol callbacks only publish
 events; they never invoke models directly. Event payloads remain untrusted data
-until a target's typed `mapInput` selects them.
+until a target's signature-aware input plan selects them. `eventPath` uses
+segment-safe descriptors for envelope data, extensions, verified identity,
+trust, correlation, and continuation metadata. Mapping and signature failures
+dead-letter before invocation begins. Fan-out is represented as multiple
+matching routes so each target retains independent authorization, ordering,
+retry, cancellation, and run state.
 
 The in-memory store is volatile and single-worker. Crash-safe, cooperating
 multi-process execution requires the conforming SQLite store from the Node-only
-tools entry point. AxIR specifies deterministic routing, retry classification,
-continuation matching, and adapter normalization. Generated-language hosts own
-timers, listener supervision, and other asynchronous loops. See
+tools entry point. AxIR specifies deterministic routing, input mapping, retry
+classification, continuation matching, output-before-sink ordering, and adapter
+normalization. Generated-language runtimes dispatch inline without hidden
+worker threads; their hosts own timers, listener supervision, and other
+asynchronous loops. See
 [`docs/EVENT_RUNTIME.md`](./EVENT_RUNTIME.md).
 
 ## Optimization And GEPA

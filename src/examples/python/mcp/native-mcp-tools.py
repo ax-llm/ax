@@ -23,4 +23,7 @@ program = ax(
     'request:string -> answer:string "Use the inventory MCP tool."',
     {"mcp": mcp},
 )
-print(program.forward(llm, {"request": "Reindex inventory."}))
+try:
+    print(program.forward(llm, {"request": "Reindex inventory."}))
+finally:
+    mcp.close()

@@ -176,6 +176,20 @@
         "operation": "mcp_normalization",
         "runner": "go:axevent.mcp_normalization",
         "category": "semantic"
+      },
+      {
+        "suite": "axevent",
+        "kind": "event",
+        "operation": "mapping",
+        "runner": "go:axevent.mapping",
+        "category": "semantic"
+      },
+      {
+        "suite": "axevent",
+        "kind": "event",
+        "operation": "lifecycle",
+        "runner": "go:axevent.lifecycle",
+        "category": "semantic"
       }
     ],
     "axflow": [

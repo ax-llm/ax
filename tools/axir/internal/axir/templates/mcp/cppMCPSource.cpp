@@ -4,6 +4,10 @@
 #include <chrono>
 #include <cstring>
 
+#if defined(AXLLM_ENABLE_CURL)
+#include <curl/curl.h>
+#endif
+
 namespace axllm {
 
 static Object as_object_local(Value value) {
@@ -78,9 +82,10 @@ static void expect_subset_local(Value actual, Value expected, const std::string&
 }
 
 AxMCPClient::AxMCPClient(std::shared_ptr<AxMCPTransport> transport, Value options)
-    : transport_(std::move(transport)), options_(std::move(options)) {}
+    : transport_(std::move(transport)), options_(std::move(options)) { transport_->set_message_handler([this](Value message){emit_notification(std::move(message));});transport_->set_lifecycle_handler([this](std::string state){emit_lifecycle(state);}); }
 
 void AxMCPClient::init() {
+  if(initialized_)return;
   transport_->connect();
   Value capabilities = Core::get(options_, "capabilities", Value::object());
   if (!Core::get(options_, "roots", Value()).is_null() && Core::get(capabilities, "roots", Value()).is_null()) {
@@ -99,7 +104,11 @@ void AxMCPClient::init() {
   server_capabilities_ = Core::get(result, "capabilities", Value::object());
   notify("notifications/initialized");
   refresh();
+  initialized_=true;
+  transport_->start_listening();
 }
+
+void AxMCPClient::close(){initialized_=false;transport_->close();}
 
 void AxMCPClient::refresh() {
   tools_.clear();
@@ -122,6 +131,10 @@ Value AxMCPClient::list_prompts(const std::string& cursor) { return request("pro
 Value AxMCPClient::get_prompt(const std::string& name, Value arguments) { return request("prompts/get", object({{"name", name}, {"arguments", arguments}})); }
 Value AxMCPClient::list_resources(const std::string& cursor) { return request("resources/list", cursor_params(cursor)); }
 Value AxMCPClient::read_resource(const std::string& uri) { return request("resources/read", object({{"uri", uri}})); }
+Value AxMCPClient::subscribe_resource(const std::string& uri) { return request("resources/subscribe", object({{"uri", uri}})); }
+Value AxMCPClient::unsubscribe_resource(const std::string& uri) { return request("resources/unsubscribe", object({{"uri", uri}})); }
+Value AxMCPClient::get_task(const std::string& task_id) { return request("tasks/get", object({{"taskId", task_id}})); }
+Value AxMCPClient::cancel_task(const std::string& task_id) { return request("tasks/cancel", object({{"taskId", task_id}})); }
 Value AxMCPClient::list_resource_templates(const std::string& cursor) { return request("resources/templates/list", cursor_params(cursor)); }
 
 void AxMCPClient::notify(const std::string& method, Value params) {
@@ -345,13 +358,15 @@ static std::vector<Value> ax_mcp_parse_sse(const std::string& body) {
   return messages;
 }
 
-static Value ax_mcp_select_sse_response(const std::vector<Value>& messages, const Value& request_id) {
-  // Return the JSON-RPC response whose id matches the request. The C++ MCP
-  // transports expose no inbound message handler, so interleaved server->client
-  // notifications on the POST stream are not dispatched.
+static Value ax_mcp_select_sse_response(const std::vector<Value>& messages, const Value& request_id,
+                                        const std::function<void(Value)>& handler) {
+  // Return the matching response and dispatch interleaved inbound messages.
+  Value response;
   for (const auto& message : messages) {
-    if (value_has(message, "id") && equal(Core::get(message, "id", Value()), request_id)) return message;
+    if (response.is_null()&&value_has(message, "id") && equal(Core::get(message, "id", Value()), request_id)) response=message;
+    else if(handler)handler(message);
   }
+  if(!response.is_null())return response;
   if (!messages.empty()) return messages.back();
   return object({{"jsonrpc", "2.0"}, {"id", request_id}, {"result", Value::object()}});
 }
@@ -366,13 +381,16 @@ Value AxMCPStreamableHTTPTransport::send(Value message) {
   // JSON-decoded. Otherwise keep the JSON path. (The optional standalone GET
   // stream for unsolicited server->client messages is out of scope here.)
   Value response = http_.call(object({{"url", endpoint_}, {"method", "POST"}, {"headers", headers}, {"json", message}, {"stream", true}}));
+  auto response_headers=Core::get(response,"headers",Value::object());
+  auto session=display(Core::get(response_headers,"MCP-Session-Id",Core::get(response_headers,"mcp-session-id","")));
+  if(!session.empty())session_id_=session;
   Value request_id = Core::get(message, "id", Value());
   std::string body = display(Core::get(response, "body", ""));
   if (body.empty()) return object({{"jsonrpc", "2.0"}, {"id", request_id}, {"result", Value::object()}});
   std::string content_type = display(Core::get(response, "contentType", ""));
   std::transform(content_type.begin(), content_type.end(), content_type.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   if (content_type.find("text/event-stream") != std::string::npos) {
-    return ax_mcp_select_sse_response(ax_mcp_parse_sse(body), request_id);
+    return ax_mcp_select_sse_response(ax_mcp_parse_sse(body), request_id, message_handler_);
   }
   return Core::json_parse(body);
 }
@@ -380,6 +398,66 @@ Value AxMCPStreamableHTTPTransport::send(Value message) {
 void AxMCPStreamableHTTPTransport::send_notification(Value message) { (void)send(std::move(message)); }
 void AxMCPStreamableHTTPTransport::set_protocol_version(const std::string& protocol_version) { protocol_version_ = protocol_version; }
 void AxMCPStreamableHTTPTransport::set_session_id(std::string session_id) { session_id_ = std::move(session_id); }
+
+void AxMCPStreamableHTTPTransport::start_listening(){
+  std::lock_guard<std::mutex> lock(listen_mutex_);
+  if(listen_thread_.joinable())return;
+  listen_stop_=false;
+  listen_thread_=std::thread([this]{listen_loop();});
+}
+
+void AxMCPStreamableHTTPTransport::close(){
+  listen_stop_=true;
+  std::thread thread;
+  {std::lock_guard<std::mutex> lock(listen_mutex_);if(listen_thread_.joinable())thread=std::move(listen_thread_);}
+  if(thread.joinable())thread.join();
+}
+
+void AxMCPStreamableHTTPTransport::consume_sse_chunk(const char* data,std::size_t size){
+  for(std::size_t i=0;i<size;++i)if(data[i]!='\r')sse_buffer_.push_back(data[i]);
+  while(true){
+    auto end=sse_buffer_.find("\n\n");
+    if(end==std::string::npos)break;
+    auto frame=sse_buffer_.substr(0,end);sse_buffer_.erase(0,end+2);
+    std::string event_id;std::string payload;std::size_t pos=0;
+    while(pos<=frame.size()){
+      auto eol=frame.find('\n',pos);auto line=frame.substr(pos,eol==std::string::npos?std::string::npos:eol-pos);
+      if(line.rfind("id:",0)==0){event_id=line.substr(3);auto begin=event_id.find_first_not_of(" \t");event_id=begin==std::string::npos?std::string():event_id.substr(begin);}
+      else if(line.rfind("data:",0)==0){auto value=line.substr(5);auto begin=value.find_first_not_of(" \t");value=begin==std::string::npos?std::string():value.substr(begin);if(!payload.empty())payload+='\n';payload+=value;}
+      if(eol==std::string::npos)break;pos=eol+1;
+    }
+    if(!event_id.empty())last_event_id_=event_id;
+    if(!payload.empty()&&message_handler_){try{message_handler_(Core::json_parse(payload));}catch(...){}}
+  }
+}
+
+void AxMCPStreamableHTTPTransport::listen_loop(){
+#if !defined(AXLLM_ENABLE_CURL)
+  listen_stop_=true;
+  return;
+#else
+  static bool curl_initialized=[](){curl_global_init(CURL_GLOBAL_DEFAULT);return true;}();(void)curl_initialized;
+  bool connected_once=false;
+  auto delay=static_cast<long>(Core::number(Core::get(options_,"reconnectDelayMs",100)));
+  while(!listen_stop_){
+    CURL* curl=curl_easy_init();if(!curl)break;
+    struct ListenContext{AxMCPStreamableHTTPTransport* self;bool* connected_once;bool announced=false;} context{this,&connected_once,false};
+    auto header_values=build_headers(object({{"Accept","text/event-stream"}}),true);
+    if(!last_event_id_.empty())Core::set(header_values,"Last-Event-ID",last_event_id_);
+    curl_slist* headers=nullptr;for(const auto& entry:as_object_local(header_values)){if(entry.first=="__order")continue;headers=curl_slist_append(headers,(entry.first+": "+display(entry.second)).c_str());}
+    curl_easy_setopt(curl,CURLOPT_URL,endpoint_.c_str());curl_easy_setopt(curl,CURLOPT_HTTPGET,1L);curl_easy_setopt(curl,CURLOPT_HTTPHEADER,headers);
+    curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,+[](char* ptr,size_t size,size_t nmemb,void* raw)->size_t{auto* ctx=static_cast<ListenContext*>(raw);if(ctx->self->listen_stop_)return 0;if(!ctx->announced){if(*ctx->connected_once&&ctx->self->lifecycle_handler_)ctx->self->lifecycle_handler_("reconnected");*ctx->connected_once=true;ctx->announced=true;}auto count=size*nmemb;ctx->self->consume_sse_chunk(ptr,count);return count;});
+    curl_easy_setopt(curl,CURLOPT_WRITEDATA,&context);
+    curl_easy_setopt(curl,CURLOPT_HEADERFUNCTION,+[](char* ptr,size_t size,size_t nmemb,void* raw)->size_t{auto* self=static_cast<AxMCPStreamableHTTPTransport*>(raw);std::string line(ptr,size*nmemb);auto colon=line.find(':');if(colon!=std::string::npos){auto name=line.substr(0,colon);std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});if(name=="mcp-session-id"){auto value=line.substr(colon+1);auto begin=value.find_first_not_of(" \t");auto end=value.find_last_not_of(" \t\r\n");if(begin!=std::string::npos)self->session_id_=value.substr(begin,end-begin+1);}}return size*nmemb;});
+    curl_easy_setopt(curl,CURLOPT_HEADERDATA,this);curl_easy_setopt(curl,CURLOPT_NOPROGRESS,0L);
+    curl_easy_setopt(curl,CURLOPT_XFERINFOFUNCTION,+[](void* raw,curl_off_t,curl_off_t,curl_off_t,curl_off_t)->int{return static_cast<AxMCPStreamableHTTPTransport*>(raw)->listen_stop_?1:0;});curl_easy_setopt(curl,CURLOPT_XFERINFODATA,this);
+    auto result=curl_easy_perform(curl);curl_slist_free_all(headers);curl_easy_cleanup(curl);
+    if(!listen_stop_&&connected_once&&lifecycle_handler_)lifecycle_handler_("disconnected");
+    if(listen_stop_)break;
+    if(result!=CURLE_OK||context.announced)std::this_thread::sleep_for(std::chrono::milliseconds(std::max(1L,delay)));
+  }
+#endif
+}
 
 Value AxMCPStreamableHTTPTransport::build_headers(Value base, bool include_protocol) const {
   Value out = Core::map_merge(headers_, base);

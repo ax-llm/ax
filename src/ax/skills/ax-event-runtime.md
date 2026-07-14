@@ -21,22 +21,21 @@ Sources never call an Ax program directly. A route must explicitly choose
 
 ```ts
 const source = new AxPushEventSource('application');
-const target = eventTarget({
-  id: 'triage',
-  ai: llm,
-  program: triageAgent,
-  mapInput: ({ event }) => ({ incident: event.data }),
-  sinks: [{ id: 'result', write: saveResult }],
-});
+const target = eventTarget('triage')
+  .program(triageAgent)
+  .ai(llm)
+  .input((input) => input.field('incident', eventPath.data()))
+  .sink({ id: 'result', write: saveResult })
+  .build();
 
 const events = eventRuntime({
   sources: [source],
-  routes: [eventRoute({
-    id: 'incident-created',
-    match: { types: ['incident.created'] },
-    action: 'wake',
-    target,
-  })],
+  routes: [
+    eventRoute('incident-created')
+      .types('incident.created')
+      .wake(target)
+      .build(),
+  ],
 });
 
 await events.start();
@@ -48,6 +47,19 @@ await source.publish({ event, identity, trust: 'authenticated' });
 - Supply identity from authenticated adapter state, never from event data.
 - Treat events without verified identity as anonymous and untrusted.
 - Map event data into signature inputs; do not synthesize a user message.
+- Use `eventPath.data('field')` and other segment-safe selectors. Do not use
+  dotted JSONPath strings or repurpose `s()` as a mapping language.
+- Use `.project(path)` only for same-name signature projection. Explicit
+  `.field()` mappings override projection; missing or invalid signature inputs
+  dead-letter before model invocation.
+- Use `eventInput().project(...).field(...)` when a declarative mapping should
+  be callback-free and reusable, then pass that plan to `.input()`,
+  `.wakeInput()`, or `.resumeInput()`.
+- Callback `mapInput` is an escape hatch, not a validation bypass: its result is
+  normalized to the program signature and mapper failures dead-letter before
+  invocation.
+- Use `.wakeInput()` and `.resumeInput()` when the two actions need different
+  contracts. Neither action silently uses the other action's mapping.
 - Use `observe` for progress/logs and `invalidate` for catalog changes.
 - Use `resume` only with an owned continuation correlation key.
 - Use `createProgram(instance)` for stateful multi-tenant Agents.
@@ -63,6 +75,8 @@ await source.publish({ event, identity, trust: 'authenticated' });
   retention and `coordination: 'multi-worker'`. Never recommend SQLite on a
   network filesystem.
 - Close the runtime and caller-owned protocol clients explicitly.
+- Fan out to several Agents with several matching routes, not a multi-target
+  route. This preserves independent authorization, ordering, retries, and runs.
 
 ## Continuation Pattern
 
@@ -97,9 +111,20 @@ key completes before enqueue. Resolve tenant/account identity from application
 state after verification; do not copy identity from the business payload.
 
 Generated Python, Java, C++, Go, and Rust packages expose the same Core-owned
-single-worker event state machine and host-owned source, sink, clock, and store
-boundaries. Do not claim persistent multi-worker support from
+single-worker event state machine plus functioning inline lifecycle dispatch,
+continuations, state restoration, cancellation, persisted outputs, isolated
+sink redrive, signature-aware path/input/target/route builders, and host-owned
+source, sink, clock, and store boundaries. Generated targets use the host
+signature plus a typed invocation callback when no common object-safe program
+interface exists. Do not claim persistent multi-worker support from
 `axevent.single-worker` alone.
+
+Generated runtimes do not create worker threads. `publish()` drains work due at
+`clock.now()`. Hosts use `nextDueAt()` to schedule `runDue()` for debounce,
+retry, and continuation expiry; `redrive()` is due immediately. Manual clocks
+make these transitions deterministic. Generated in-memory stores enforce
+10,000 pending deliveries, 64 MiB queued data, 1 MiB per envelope, and a
+five-second publication wait.
 
 ## Testing
 

@@ -13,6 +13,7 @@
     "pretty": true,
     "baseUrl": ".",
     "paths": {
+      "@ax-llm/ax-tools/event/sqlite": ["src/tools/event/sqlite.ts"],
       "@ax-llm/*": ["src/*"]
     }
   },

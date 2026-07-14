@@ -17144,6 +17144,35 @@ final class Core {
     return out;
   }
 
+  static Object mcp_execution_context_descriptor(Object namespaces, Object inheritance) {
+    axirCoverageMark("mcp_execution_context_descriptor");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "namespaces", namespaces);
+    Object missing = Core.isNone(inheritance);
+    if (Core.truthy(missing)) {
+      Core.set(out, "inheritance", "all");
+    }
+    if (!Core.truthy(missing)) {
+      Core.set(out, "inheritance", inheritance);
+    }
+    Core.set(out, "native", Boolean.TRUE);
+    Core.set(out, "lossyAdapter", Boolean.FALSE);
+    return out;
+  }
+
+  static Object mcp_protocol_constants() {
+    axirCoverageMark("mcp_protocol_constants");
+    Object versions = new java.util.ArrayList<Object>();
+    Core.append(versions, "2025-11-25");
+    Core.append(versions, "2025-06-18");
+    Core.append(versions, "2025-03-26");
+    Core.append(versions, "2024-11-05");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "protocolVersion", "2025-11-25");
+    Core.set(out, "supportedProtocolVersions", versions);
+    return out;
+  }
+
   static Object event_runtime_descriptor(Object routes, Object options) {
     axirCoverageMark("event_runtime_descriptor");
     Object empty = new java.util.LinkedHashMap<String, Object>();
@@ -17161,19 +17190,19 @@ final class Core {
     return out;
   }
 
-  static Object mcp_execution_context_descriptor(Object namespaces, Object inheritance) {
-    axirCoverageMark("mcp_execution_context_descriptor");
+  static Object mcp_jsonrpc_request(Object id, Object method, Object params) {
+    axirCoverageMark("mcp_jsonrpc_request");
     Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "namespaces", namespaces);
-    Object missing = Core.isNone(inheritance);
+    Core.set(out, "jsonrpc", "2.0");
+    Core.set(out, "id", id);
+    Core.set(out, "method", method);
+    Object missing = Core.isNone(params);
     if (Core.truthy(missing)) {
-      Core.set(out, "inheritance", "all");
+      // empty
     }
     if (!Core.truthy(missing)) {
-      Core.set(out, "inheritance", inheritance);
+      Core.set(out, "params", params);
     }
-    Core.set(out, "native", Boolean.TRUE);
-    Core.set(out, "lossyAdapter", Boolean.FALSE);
     return out;
   }
 
@@ -17225,35 +17254,6 @@ final class Core {
     return commands;
   }
 
-  static Object mcp_protocol_constants() {
-    axirCoverageMark("mcp_protocol_constants");
-    Object versions = new java.util.ArrayList<Object>();
-    Core.append(versions, "2025-11-25");
-    Core.append(versions, "2025-06-18");
-    Core.append(versions, "2025-03-26");
-    Core.append(versions, "2024-11-05");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "protocolVersion", "2025-11-25");
-    Core.set(out, "supportedProtocolVersions", versions);
-    return out;
-  }
-
-  static Object mcp_jsonrpc_request(Object id, Object method, Object params) {
-    axirCoverageMark("mcp_jsonrpc_request");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "jsonrpc", "2.0");
-    Core.set(out, "id", id);
-    Core.set(out, "method", method);
-    Object missing = Core.isNone(params);
-    if (Core.truthy(missing)) {
-      // empty
-    }
-    if (!Core.truthy(missing)) {
-      Core.set(out, "params", params);
-    }
-    return out;
-  }
-
   static Object mcp_jsonrpc_notification(Object method, Object params) {
     axirCoverageMark("mcp_jsonrpc_notification");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -17265,28 +17265,6 @@ final class Core {
     }
     if (!Core.truthy(missing)) {
       Core.set(out, "params", params);
-    }
-    return out;
-  }
-
-  static Object event_retry_transition(Object invocation_started, Object retry_safety, Object attempt, Object max_attempts) {
-    axirCoverageMark("event_retry_transition");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object idempotent = Core.eq(retry_safety, "idempotent");
-    Object can_retry = Core.lt(attempt, max_attempts);
-    Object pre_invocation = Core.not(invocation_started);
-    Object safe = Core.or(pre_invocation, idempotent);
-    Object retry = Core.and(safe, can_retry);
-    Core.set(out, "retry", retry);
-    Core.set(out, "status", "failed");
-    if (Core.truthy(invocation_started)) {
-      if (Core.truthy(idempotent)) {
-        // empty
-      }
-      if (!Core.truthy(idempotent)) {
-        Core.set(out, "status", "outcome_unknown");
-        Core.set(out, "retry", Boolean.FALSE);
-      }
     }
     return out;
   }
@@ -17315,6 +17293,150 @@ final class Core {
       return out;
     }
     return response;
+  }
+
+  static Object event_retry_transition(Object invocation_started, Object retry_safety, Object attempt, Object max_attempts) {
+    axirCoverageMark("event_retry_transition");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object idempotent = Core.eq(retry_safety, "idempotent");
+    Object can_retry = Core.lt(attempt, max_attempts);
+    Object pre_invocation = Core.not(invocation_started);
+    Object safe = Core.or(pre_invocation, idempotent);
+    Object retry = Core.and(safe, can_retry);
+    Core.set(out, "retry", retry);
+    Core.set(out, "status", "failed");
+    if (Core.truthy(invocation_started)) {
+      if (Core.truthy(idempotent)) {
+        // empty
+      }
+      if (!Core.truthy(idempotent)) {
+        Core.set(out, "status", "outcome_unknown");
+        Core.set(out, "retry", Boolean.FALSE);
+      }
+    }
+    return out;
+  }
+
+  static Object event_resolve_path(Object ingress, Object path, Object continuation) {
+    axirCoverageMark("event_resolve_path");
+    Object none = Core.none();
+    Object root = Core.get(path, "root", "data");
+    Object event = Core.get(ingress, "event", ingress);
+    Object current = none;
+    Object is_data = Core.eq(root, "data");
+    Object is_envelope = Core.eq(root, "envelope");
+    Object is_extensions = Core.eq(root, "extensions");
+    Object is_identity = Core.eq(root, "identity");
+    Object is_trust = Core.eq(root, "trust");
+    Object is_continuation = Core.eq(root, "continuation");
+    Object is_constant = Core.eq(root, "constant");
+    Object is_correlation = Core.eq(root, "correlation");
+    if (Core.truthy(is_data)) {
+      current = Core.get(event, "data", none);
+    }
+    if (Core.truthy(is_envelope)) {
+      current = event;
+    }
+    if (Core.truthy(is_extensions)) {
+      current = Core.get(event, "extensions", none);
+    }
+    if (Core.truthy(is_identity)) {
+      current = Core.get(ingress, "identity", none);
+    }
+    if (Core.truthy(is_trust)) {
+      current = Core.get(ingress, "trust", "untrusted");
+    }
+    if (Core.truthy(is_continuation)) {
+      current = Core.get(continuation, "metadata", none);
+    }
+    if (Core.truthy(is_constant)) {
+      current = Core.get(path, "value", none);
+    }
+    if (Core.truthy(is_correlation)) {
+      Object kind = Core.get(path, "correlationKind", "");
+      Object keys_empty = new java.util.ArrayList<Object>();
+      Object keys = Core.get(ingress, "correlation", keys_empty);
+      for (Object key : Core.iter(keys)) {
+        Object candidate = Core.get(key, "kind", "");
+        Object matches = Core.eq(candidate, kind);
+        if (Core.truthy(matches)) {
+          current = Core.get(key, "value", none);
+        }
+      }
+    }
+    Object segments_empty = new java.util.ArrayList<Object>();
+    Object segments = Core.get(path, "segments", segments_empty);
+    for (Object segment : Core.iter(segments)) {
+      Object object = Core.typeIs(current, "object");
+      Object array = Core.typeIs(current, "array");
+      Object container = Core.or(object, array);
+      if (Core.truthy(container)) {
+        current = Core.get(current, segment, none);
+      }
+      if (!Core.truthy(container)) {
+        current = none;
+      }
+    }
+    return current;
+  }
+
+  static Object event_map_input(Object ingress, Object plan, Object signature_fields, Object continuation) {
+    axirCoverageMark("event_map_input");
+    Object none = Core.none();
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object result = new java.util.LinkedHashMap<String, Object>();
+    Object error = none;
+    Object project_path = Core.get(plan, "project", none);
+    Object projection = none;
+    Object has_project = Core.isNotNone(project_path);
+    if (Core.truthy(has_project)) {
+      projection = Core.event_resolve_path(ingress, project_path, continuation);
+    }
+    Object mappings_empty = new java.util.ArrayList<Object>();
+    Object mappings = Core.get(plan, "fields", mappings_empty);
+    for (Object field : Core.iter(signature_fields)) {
+      Object name = Core.get(field, "name", "");
+      Object optional = Core.get(field, "optional", Boolean.FALSE);
+      Object selector = none;
+      for (Object mapping : Core.iter(mappings)) {
+        Object destination = Core.get(mapping, "field", "");
+        Object matches = Core.eq(destination, name);
+        if (Core.truthy(matches)) {
+          selector = Core.get(mapping, "path", none);
+        }
+      }
+      Object value = none;
+      Object has_selector = Core.isNotNone(selector);
+      if (Core.truthy(has_selector)) {
+        value = Core.event_resolve_path(ingress, selector, continuation);
+      }
+      if (!Core.truthy(has_selector)) {
+        Object project_object = Core.typeIs(projection, "object");
+        if (Core.truthy(project_object)) {
+          value = Core.get(projection, name, none);
+        }
+      }
+      Object missing = Core.isNone(value);
+      if (Core.truthy(missing)) {
+        if (Core.truthy(optional)) {
+          // empty
+        }
+        if (!Core.truthy(optional)) {
+          error = Core.stringFormat("Required signature input {} was not present", name);
+        }
+      }
+      if (!Core.truthy(missing)) {
+        Core.set(out, name, value);
+      }
+    }
+    Object failed = Core.isNotNone(error);
+    Core.set(result, "ok", Boolean.TRUE);
+    Core.set(result, "value", out);
+    if (Core.truthy(failed)) {
+      Core.set(result, "ok", Boolean.FALSE);
+      Core.set(result, "error", error);
+    }
+    return result;
   }
 
   static Object event_continuation_match(Object continuations, Object identity_scope, Object kind, Object value, Object now) {
@@ -17348,6 +17470,46 @@ final class Core {
       }
     }
     return result;
+  }
+
+  static Object event_delivery_due(Object status, Object available_at, Object now) {
+    axirCoverageMark("event_delivery_due");
+    Object queued = Core.eq(status, "queued");
+    Object ready = Core.lte(available_at, now);
+    Object due = Core.and(queued, ready);
+    return due;
+  }
+
+  static Object event_capacity_transition(Object pending, Object queued_bytes, Object envelope_bytes, Object max_pending, Object max_queued_bytes, Object max_envelope_bytes) {
+    axirCoverageMark("event_capacity_transition");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object next_pending = Core.add(pending, 1);
+    Object next_bytes = Core.add(queued_bytes, envelope_bytes);
+    Object pending_ok = Core.lte(next_pending, max_pending);
+    Object queue_ok = Core.lte(next_bytes, max_queued_bytes);
+    Object envelope_ok = Core.lte(envelope_bytes, max_envelope_bytes);
+    Object queue_capacity = Core.and(pending_ok, queue_ok);
+    Object accepted = Core.and(queue_capacity, envelope_ok);
+    Core.set(out, "accepted", accepted);
+    Core.set(out, "nextPending", next_pending);
+    Core.set(out, "nextQueuedBytes", next_bytes);
+    Core.set(out, "reason", "capacity");
+    if (Core.truthy(envelope_ok)) {
+      // empty
+    }
+    if (!Core.truthy(envelope_ok)) {
+      Core.set(out, "reason", "envelope_too_large");
+    }
+    return out;
+  }
+
+  static Object event_debounce_transition(Object now, Object debounce_ms, Object has_queued_predecessor) {
+    axirCoverageMark("event_debounce_transition");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object available_at = Core.add(now, debounce_ms);
+    Core.set(out, "availableAt", available_at);
+    Core.set(out, "coalescePredecessor", has_queued_predecessor);
+    return out;
   }
 
   static Object event_normalize_mcp(Object namespace, Object method, Object params) {

@@ -5,15 +5,18 @@ import base64
 import hashlib
 import ipaddress
 import json
+import socket
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .signature import AxSignature
 from .tool import Tool
 
 
@@ -41,6 +44,16 @@ def _core_get(target, key, default=None):
 
 def _core_is_none(value):
     return value is None
+def _core_is_not_none(value):
+    return value is not None
+def _core_type_is(value, expected):
+    return {
+        "object": isinstance(value, dict),
+        "array": isinstance(value, (list, tuple)),
+        "string": isinstance(value, str),
+        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+        "bool": isinstance(value, bool),
+    }.get(expected, False)
 
 
 def _core_and(left, right): return bool(left and right)
@@ -48,6 +61,8 @@ def _core_or(left, right): return bool(left or right)
 def _core_not(value): return not bool(value)
 def _core_eq(left, right): return left == right
 def _core_lt(left, right): return left < right
+def _core_lte(left, right): return left <= right
+def _core_add(left, right): return left + right
 def _core_len(value): return len(value or [])
 def _core_contains(container, item): return False if container is None else item in container
 def _core_none(): return None
@@ -89,6 +104,33 @@ def ucp_normalize_outcome(operation: str, response: Any) -> Any:
     return out
 
 
+def mcp_execution_context_descriptor(namespaces: list[Any], inheritance: Any) -> Any:
+    _core_coverage_mark("mcp_execution_context_descriptor")
+    out = {}
+    out["namespaces"] = namespaces
+    missing = _core_is_none(inheritance)
+    if missing:
+        out["inheritance"] = "all"
+    else:
+        out["inheritance"] = inheritance
+    out["native"] = True
+    out["lossyAdapter"] = False
+    return out
+
+
+def mcp_protocol_constants() -> Any:
+    _core_coverage_mark("mcp_protocol_constants")
+    versions = []
+    versions.append("2025-11-25")
+    versions.append("2025-06-18")
+    versions.append("2025-03-26")
+    versions.append("2024-11-05")
+    out = {}
+    out["protocolVersion"] = "2025-11-25"
+    out["supportedProtocolVersions"] = versions
+    return out
+
+
 def event_runtime_descriptor(routes: list[Any], options: Any) -> Any:
     _core_coverage_mark("event_runtime_descriptor")
     empty = {}
@@ -107,17 +149,17 @@ def event_runtime_descriptor(routes: list[Any], options: Any) -> Any:
     return out
 
 
-def mcp_execution_context_descriptor(namespaces: list[Any], inheritance: Any) -> Any:
-    _core_coverage_mark("mcp_execution_context_descriptor")
+def mcp_jsonrpc_request(id: str, method: str, params: Any) -> Any:
+    _core_coverage_mark("mcp_jsonrpc_request")
     out = {}
-    out["namespaces"] = namespaces
-    missing = _core_is_none(inheritance)
+    out["jsonrpc"] = "2.0"
+    out["id"] = id
+    out["method"] = method
+    missing = _core_is_none(params)
     if missing:
-        out["inheritance"] = "all"
+        pass
     else:
-        out["inheritance"] = inheritance
-    out["native"] = True
-    out["lossyAdapter"] = False
+        out["params"] = params
     return out
 
 
@@ -170,33 +212,6 @@ def event_route_commands(event: Any, routes: list[Any], identity_scope: str, tru
     return commands
 
 
-def mcp_protocol_constants() -> Any:
-    _core_coverage_mark("mcp_protocol_constants")
-    versions = []
-    versions.append("2025-11-25")
-    versions.append("2025-06-18")
-    versions.append("2025-03-26")
-    versions.append("2024-11-05")
-    out = {}
-    out["protocolVersion"] = "2025-11-25"
-    out["supportedProtocolVersions"] = versions
-    return out
-
-
-def mcp_jsonrpc_request(id: str, method: str, params: Any) -> Any:
-    _core_coverage_mark("mcp_jsonrpc_request")
-    out = {}
-    out["jsonrpc"] = "2.0"
-    out["id"] = id
-    out["method"] = method
-    missing = _core_is_none(params)
-    if missing:
-        pass
-    else:
-        out["params"] = params
-    return out
-
-
 def mcp_jsonrpc_notification(method: str, params: Any) -> Any:
     _core_coverage_mark("mcp_jsonrpc_notification")
     out = {}
@@ -207,27 +222,6 @@ def mcp_jsonrpc_notification(method: str, params: Any) -> Any:
         pass
     else:
         out["params"] = params
-    return out
-
-
-def event_retry_transition(invocation_started: bool, retry_safety: str, attempt: int, max_attempts: int) -> Any:
-    _core_coverage_mark("event_retry_transition")
-    out = {}
-    idempotent = _core_eq(retry_safety, "idempotent")
-    can_retry = _core_lt(attempt, max_attempts)
-    pre_invocation = _core_not(invocation_started)
-    safe = _core_or(pre_invocation, idempotent)
-    retry = _core_and(safe, can_retry)
-    out["retry"] = retry
-    out["status"] = "failed"
-    if invocation_started:
-        if idempotent:
-            pass
-        else:
-            out["status"] = "outcome_unknown"
-            out["retry"] = False
-    else:
-        pass
     return out
 
 
@@ -253,6 +247,150 @@ def mcp_normalize_error(response: Any) -> Any:
         out["data"] = data
         return out
     return response
+
+
+def event_retry_transition(invocation_started: bool, retry_safety: str, attempt: int, max_attempts: int) -> Any:
+    _core_coverage_mark("event_retry_transition")
+    out = {}
+    idempotent = _core_eq(retry_safety, "idempotent")
+    can_retry = _core_lt(attempt, max_attempts)
+    pre_invocation = _core_not(invocation_started)
+    safe = _core_or(pre_invocation, idempotent)
+    retry = _core_and(safe, can_retry)
+    out["retry"] = retry
+    out["status"] = "failed"
+    if invocation_started:
+        if idempotent:
+            pass
+        else:
+            out["status"] = "outcome_unknown"
+            out["retry"] = False
+    else:
+        pass
+    return out
+
+
+def event_resolve_path(ingress: Any, path: Any, continuation: Any) -> Any:
+    _core_coverage_mark("event_resolve_path")
+    none = _core_none()
+    root = _core_get(path, "root", "data")
+    event = _core_get(ingress, "event", ingress)
+    current = none
+    is_data = _core_eq(root, "data")
+    is_envelope = _core_eq(root, "envelope")
+    is_extensions = _core_eq(root, "extensions")
+    is_identity = _core_eq(root, "identity")
+    is_trust = _core_eq(root, "trust")
+    is_continuation = _core_eq(root, "continuation")
+    is_constant = _core_eq(root, "constant")
+    is_correlation = _core_eq(root, "correlation")
+    if is_data:
+        current = _core_get(event, "data", none)
+    else:
+        pass
+    if is_envelope:
+        current = event
+    else:
+        pass
+    if is_extensions:
+        current = _core_get(event, "extensions", none)
+    else:
+        pass
+    if is_identity:
+        current = _core_get(ingress, "identity", none)
+    else:
+        pass
+    if is_trust:
+        current = _core_get(ingress, "trust", "untrusted")
+    else:
+        pass
+    if is_continuation:
+        current = _core_get(continuation, "metadata", none)
+    else:
+        pass
+    if is_constant:
+        current = _core_get(path, "value", none)
+    else:
+        pass
+    if is_correlation:
+        kind = _core_get(path, "correlationKind", "")
+        keys_empty = []
+        keys = _core_get(ingress, "correlation", keys_empty)
+        for key in keys:
+            candidate = _core_get(key, "kind", "")
+            matches = _core_eq(candidate, kind)
+            if matches:
+                current = _core_get(key, "value", none)
+            else:
+                pass
+    else:
+        pass
+    segments_empty = []
+    segments = _core_get(path, "segments", segments_empty)
+    for segment in segments:
+        object = _core_type_is(current, "object")
+        array = _core_type_is(current, "array")
+        container = _core_or(object, array)
+        if container:
+            current = _core_get(current, segment, none)
+        else:
+            current = none
+    return current
+
+
+def event_map_input(ingress: Any, plan: Any, signature_fields: list[Any], continuation: Any) -> Any:
+    _core_coverage_mark("event_map_input")
+    none = _core_none()
+    out = {}
+    result = {}
+    error = none
+    project_path = _core_get(plan, "project", none)
+    projection = none
+    has_project = _core_is_not_none(project_path)
+    if has_project:
+        projection = event_resolve_path(ingress, project_path, continuation)
+    else:
+        pass
+    mappings_empty = []
+    mappings = _core_get(plan, "fields", mappings_empty)
+    for field in signature_fields:
+        name = _core_get(field, "name", "")
+        optional = _core_get(field, "optional", False)
+        selector = none
+        for mapping in mappings:
+            destination = _core_get(mapping, "field", "")
+            matches = _core_eq(destination, name)
+            if matches:
+                selector = _core_get(mapping, "path", none)
+            else:
+                pass
+        value = none
+        has_selector = _core_is_not_none(selector)
+        if has_selector:
+            value = event_resolve_path(ingress, selector, continuation)
+        else:
+            project_object = _core_type_is(projection, "object")
+            if project_object:
+                value = _core_get(projection, name, none)
+            else:
+                pass
+        missing = _core_is_none(value)
+        if missing:
+            if optional:
+                pass
+            else:
+                error = _core_string_format("Required signature input {} was not present", name)
+        else:
+            out[name] = value
+    failed = _core_is_not_none(error)
+    result["ok"] = True
+    result["value"] = out
+    if failed:
+        result["ok"] = False
+        result["error"] = error
+    else:
+        pass
+    return result
 
 
 def event_continuation_match(continuations: list[Any], identity_scope: str, kind: str, value: str, now: float) -> Any:
@@ -283,6 +421,44 @@ def event_continuation_match(continuations: list[Any], identity_scope: str, kind
             else:
                 pass
     return result
+
+
+def event_delivery_due(status: str, available_at: float, now: float) -> bool:
+    _core_coverage_mark("event_delivery_due")
+    queued = _core_eq(status, "queued")
+    ready = _core_lte(available_at, now)
+    due = _core_and(queued, ready)
+    return due
+
+
+def event_capacity_transition(pending: int, queued_bytes: int, envelope_bytes: int, max_pending: int, max_queued_bytes: int, max_envelope_bytes: int) -> Any:
+    _core_coverage_mark("event_capacity_transition")
+    out = {}
+    next_pending = _core_add(pending, 1)
+    next_bytes = _core_add(queued_bytes, envelope_bytes)
+    pending_ok = _core_lte(next_pending, max_pending)
+    queue_ok = _core_lte(next_bytes, max_queued_bytes)
+    envelope_ok = _core_lte(envelope_bytes, max_envelope_bytes)
+    queue_capacity = _core_and(pending_ok, queue_ok)
+    accepted = _core_and(queue_capacity, envelope_ok)
+    out["accepted"] = accepted
+    out["nextPending"] = next_pending
+    out["nextQueuedBytes"] = next_bytes
+    out["reason"] = "capacity"
+    if envelope_ok:
+        pass
+    else:
+        out["reason"] = "envelope_too_large"
+    return out
+
+
+def event_debounce_transition(now: float, debounce_ms: float, has_queued_predecessor: bool) -> Any:
+    _core_coverage_mark("event_debounce_transition")
+    out = {}
+    available_at = _core_add(now, debounce_ms)
+    out["availableAt"] = available_at
+    out["coalescePredecessor"] = has_queued_predecessor
+    return out
 
 
 def event_normalize_mcp(namespace: str, method: str, params: Any) -> Any:
@@ -390,6 +566,8 @@ class AxEventEnvelope:
     data: Any = None
     subject: str | None = None
     specversion: str = "1.0"
+    extensions: dict[str, Any] = field(default_factory=dict)
+    correlation: list[dict[str, str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         value = {
@@ -402,7 +580,76 @@ class AxEventEnvelope:
             value["subject"] = self.subject
         if self.data is not None:
             value["data"] = self.data
+        if self.extensions:
+            value["extensions"] = dict(self.extensions)
+        if self.correlation:
+            value["correlation"] = list(self.correlation)
         return value
+
+
+@dataclass(frozen=True)
+class AxEventPath:
+    root: str
+    segments: tuple[str | int, ...] = ()
+    correlationKind: str | None = None
+    value: Any = None
+
+    def __post_init__(self):
+        for segment in self.segments:
+            if (isinstance(segment, str) and (not segment or segment in {"__proto__", "constructor", "prototype"})) or (isinstance(segment, int) and segment < 0):
+                raise AxEventInputError(f"Unsafe event path segment: {segment}")
+
+    def to_dict(self):
+        value = {"root": self.root, "segments": list(self.segments)}
+        if self.correlationKind is not None: value["correlationKind"] = self.correlationKind
+        if self.root == "constant": value["value"] = self.value
+        return value
+
+
+class event_path:
+    @staticmethod
+    def data(*segments): return AxEventPath("data", tuple(segments))
+    @staticmethod
+    def envelope(*segments): return AxEventPath("envelope", tuple(segments))
+    @staticmethod
+    def extension(name): return AxEventPath("extensions", (name,))
+    @staticmethod
+    def identity(*segments): return AxEventPath("identity", tuple(segments))
+    @staticmethod
+    def trust(): return AxEventPath("trust")
+    @staticmethod
+    def correlation(kind): return AxEventPath("correlation", correlationKind=kind)
+    @staticmethod
+    def continuation(*segments): return AxEventPath("continuation", tuple(segments))
+    @staticmethod
+    def constant(value): return AxEventPath("constant", value=value)
+    @staticmethod
+    def subject(): return AxEventPath("envelope", ("subject",))
+
+
+@dataclass(frozen=True)
+class AxEventInputPlan:
+    project: AxEventPath | None = None
+    fields: tuple[tuple[str, AxEventPath], ...] = ()
+
+    def to_dict(self):
+        return {"project": self.project.to_dict() if self.project else None,
+                "fields": [{"field": name, "path": path.to_dict()} for name, path in self.fields]}
+
+
+class AxEventInputBuilder:
+    def __init__(self): self._project = None; self._fields = []
+    def project(self, path):
+        if self._project is not None: raise AxEventInputError("An event input plan may project only one path")
+        self._project = path; return self
+    def field(self, name, path):
+        if not name or name in {"__proto__", "constructor", "prototype"}: raise AxEventInputError(f"Unsafe target field: {name}")
+        if any(existing == name for existing, _ in self._fields): raise AxEventInputError(f"Event input field {name} is mapped more than once")
+        self._fields.append((name, path)); return self
+    def build(self): return AxEventInputPlan(self._project, tuple(self._fields))
+
+
+def event_input(): return AxEventInputBuilder()
 
 
 @dataclass(frozen=True)
@@ -414,6 +661,7 @@ class AxEventRoute:
     requireAuthenticated: bool = False
     ordering: str = "strict"
     debounceMs: int = 0
+    instanceKey: AxEventPath | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -424,6 +672,7 @@ class AxEventRoute:
             "requireAuthenticated": self.requireAuthenticated,
             "ordering": self.ordering,
             "debounceMs": self.debounceMs,
+            "instanceKey": self.instanceKey.to_dict() if self.instanceKey else None,
         }
 
 
@@ -434,6 +683,155 @@ class AxEventCommand:
     instanceKey: str
     idempotencyKey: str
     targetId: str | None = None
+
+
+@dataclass(frozen=True)
+class AxEventPublishReceipt:
+    eventId: str
+    accepted: bool
+    duplicate: bool
+    durability: str
+    deliveryIds: list[str]
+
+
+@dataclass
+class AxEventRun:
+    id: str
+    deliveryId: str
+    routeId: str
+    targetId: str | None
+    instanceKey: str
+    status: str = "queued"
+    attempt: int = 0
+    output: Any = None
+    error: str | None = None
+    continuationIds: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AxEventDeadLetter:
+    id: str
+    deliveryId: str
+    reason: str
+    runId: str | None = None
+    sinkId: str | None = None
+
+
+@dataclass
+class AxEventContinuation:
+    id: str
+    targetId: str
+    instanceKey: str
+    identityScope: str
+    correlation: list[dict[str, str]]
+    metadata: dict[str, Any] = field(default_factory=dict)
+    completed: bool = False
+    expiresAt: float | None = None
+
+
+class AxEventCancellationToken:
+    def __init__(self): self.cancelled = False; self.reason = None
+    def cancel(self, reason="cancelled"): self.cancelled = True; self.reason = reason
+
+
+@dataclass
+class AxEventTarget:
+    id: str
+    invoke: Callable[[Any, dict[str, Any]], Any]
+    mapInput: Callable[[AxEventEnvelope, AxEventContinuation | None], Any] | None = None
+    sinks: list[Any] = field(default_factory=list)
+    retrySafety: str = "unknown"
+    waitFor: list[dict[str, Any]] = field(default_factory=list)
+    captureState: Callable[[], Any] | None = None
+    restoreState: Callable[[Any], None] | None = None
+    signature: AxSignature | None = None
+    input: AxEventInputPlan | None = None
+    wakeInput: AxEventInputPlan | None = None
+    resumeInput: AxEventInputPlan | None = None
+
+
+class AxEventInputError(ValueError): pass
+
+
+def _event_plan(value):
+    if callable(value): value = value(event_input())
+    if isinstance(value, AxEventInputBuilder): value = value.build()
+    if not isinstance(value, AxEventInputPlan): raise AxEventInputError("Event input mapping did not produce a plan")
+    return value
+
+
+def _event_validate_signature_value(field, value):
+    kind = field.type.name
+    values = value if field.type.is_array else [value]
+    if field.type.is_array and not isinstance(value, list): raise AxEventInputError(f"Signature input {field.name} failed validation")
+    for item in values:
+        valid = (kind in {"string", "url", "date", "datetime", "code", "file", "image", "audio", "class"} and isinstance(item, str)) or (kind == "number" and isinstance(item, (int, float)) and not isinstance(item, bool)) or (kind == "boolean" and isinstance(item, bool)) or (kind in {"object", "json", "dateRange", "datetimeRange"} and isinstance(item, (dict, list)))
+        if not valid: raise AxEventInputError(f"Signature input {field.name} failed validation")
+
+
+def _event_map_target_input(target, event, continuation, action, identity_scope, trust):
+    plan = (target.resumeInput if action == "resume" else target.wakeInput) or target.input
+    if plan is None:
+        mapped = target.mapInput(event, continuation) if target.mapInput else event.data
+    else:
+        if target.signature is None: raise AxEventInputError(f"Target {target.id} requires a signature for declarative input mapping")
+        ingress = {"event": event.to_dict(), "identity": {"scope": identity_scope}, "trust": trust, "correlation": event.correlation}
+        fields = [{"name": field.name, "optional": field.is_optional} for field in target.signature.get_input_fields()]
+        result = event_map_input(ingress, plan.to_dict(), fields, vars(continuation) if continuation else None)
+        if not result.get("ok"): raise AxEventInputError(str(result.get("error") or "Event input mapping failed"))
+        mapped = result["value"]
+    if target.signature is not None:
+        if not isinstance(mapped, dict): raise AxEventInputError("Mapped event input must be an object")
+        for field in target.signature.get_input_fields():
+            if field.name not in mapped:
+                if not field.is_optional: raise AxEventInputError(f"Required signature input {field.name} was not present")
+                continue
+            _event_validate_signature_value(field, mapped[field.name])
+    return mapped
+
+
+class AxEventTargetBuilder:
+    def __init__(self, id): self.value = {"id": id, "sinks": [], "waitFor": []}
+    def signature(self, value): self.value["signature"] = value if isinstance(value, AxSignature) else AxSignature(value); return self
+    def invoke(self, callback): self.value["invoke"] = callback; return self
+    def program(self, program, client, signature=None):
+        self.value["signature"] = signature or getattr(program, "signature", None)
+        self.value["invoke"] = lambda input, _context: program.forward(client, input)
+        return self
+    def map_input(self, callback): self.value["mapInput"] = callback; return self
+    def input(self, value): self.value["input"] = _event_plan(value); return self
+    def wake_input(self, value): self.value["wakeInput"] = _event_plan(value); return self
+    def resume_input(self, value): self.value["resumeInput"] = _event_plan(value); return self
+    def sink(self, value): self.value["sinks"].append(value); return self
+    def retry_safety(self, value): self.value["retrySafety"] = value; return self
+    def wait_for(self, kind, path, **options): self.value["waitFor"].append({"kind": kind, "value": path.to_dict(), **options}); return self
+    def build(self):
+        if "invoke" not in self.value: raise ValueError("Event target requires an invoker or program")
+        plans = [self.value.get(name) for name in ("input", "wakeInput", "resumeInput") if self.value.get(name) is not None]
+        if plans and self.value.get("mapInput") is not None: raise ValueError("Declarative mappings and mapInput are mutually exclusive")
+        if plans and self.value.get("signature") is None: raise ValueError("Declarative event mappings require a signature")
+        return AxEventTarget(**self.value)
+
+
+def event_target(id): return AxEventTargetBuilder(id)
+
+
+class AxEventRouteBuilder:
+    def __init__(self, id): self.id = id; self.match = {}; self.auth = False; self.instance = None; self.action = None; self.target = None
+    def types(self, *values): self.match["types"] = list(values); return self
+    def sources(self, *values): self.match["sources"] = list(values); return self
+    def authenticated(self): self.auth = True; return self
+    def instance_key(self, path): self.instance = path; return self
+    def wake(self, target): self.action = "wake"; self.target = target.id if isinstance(target, AxEventTarget) else str(target); return self
+    def resume(self): self.action = "resume"; return self
+    def observe(self): self.action = "observe"; return self
+    def invalidate(self): self.action = "invalidate"; return self
+    def build(self):
+        if self.action is None: raise ValueError("Event route requires one action")
+        return AxEventRoute(self.id, self.action, dict(self.match), self.target, self.auth, instanceKey=self.instance)
+
+
+def event_route(id): return AxEventRouteBuilder(id)
 
 
 class AxEventSource:
@@ -450,23 +848,148 @@ class AxEventClock:
     def now(self) -> float:
         raise NotImplementedError
 
+    def sleep(self, seconds: float, cancellation: AxEventCancellationToken | None = None) -> bool:
+        raise NotImplementedError
+
+
+class AxSystemEventClock(AxEventClock):
+    def now(self) -> float: return time.time() * 1000
+    def sleep(self, seconds, cancellation=None):
+        if cancellation is not None and cancellation.cancelled: return False
+        time.sleep(max(0.0, seconds))
+        return cancellation is None or not cancellation.cancelled
+
+
+class AxManualEventClock(AxEventClock):
+    def __init__(self, now=0): self._now = float(now); self._condition = threading.Condition(); self._sleepers = 0
+    def now(self):
+        with self._condition: return self._now
+    def advance(self, milliseconds):
+        with self._condition:
+            self._now += float(milliseconds); self._condition.notify_all()
+    def wait_for_sleepers(self, count=1):
+        with self._condition:
+            while self._sleepers < count: self._condition.wait()
+    def sleep(self, seconds, cancellation=None):
+        target = self.now() + max(0.0, seconds) * 1000
+        with self._condition:
+            self._sleepers += 1; self._condition.notify_all()
+            try:
+                while self._now < target:
+                    if cancellation is not None and cancellation.cancelled: return False
+                    self._condition.wait()
+            finally:
+                self._sleepers -= 1
+        return cancellation is None or not cancellation.cancelled
+
 
 class AxEventStore:
     def enqueue(self, event: dict[str, Any], commands: list[dict[str, Any]]) -> None:
         raise NotImplementedError
 
 
+class AxInMemoryEventStore(AxEventStore):
+    """Volatile single-worker store used by generated packages."""
+    def __init__(self, *, maxPending=10_000, maxQueuedBytes=64 * 1024 * 1024,
+                 maxEnvelopeBytes=1024 * 1024, publishTimeoutMs=5_000,
+                 clock=None):
+        self.deliveries: dict[str, dict[str, Any]] = {}
+        self.runs: dict[str, AxEventRun] = {}
+        self.deadLetters: dict[str, AxEventDeadLetter] = {}
+        self.continuations: dict[str, AxEventContinuation] = {}
+        self.programState: dict[str, Any] = {}
+        self.maxPending = int(maxPending)
+        self.maxQueuedBytes = int(maxQueuedBytes)
+        self.maxEnvelopeBytes = int(maxEnvelopeBytes)
+        self.publishTimeoutMs = int(publishTimeoutMs)
+        self.clock = clock or AxSystemEventClock()
+        self.queuedBytes = 0
+        self._sequence = 0
+        self._capacity = threading.Condition()
+
+    def enqueue(self, event, commands, available_at=None):
+        raw = event.to_dict() if isinstance(event, AxEventEnvelope) else event
+        envelope_size = len(json.dumps(raw, separators=(",", ":"), default=str).encode("utf-8"))
+        if envelope_size > self.maxEnvelopeBytes:
+            raise AxEventInputError(f"Event envelope exceeds {self.maxEnvelopeBytes} bytes")
+        new_commands = [command for command in commands
+                        if f"{command.routeId}:{event.id}" not in self.deliveries]
+        required = envelope_size * len(new_commands)
+        deadline = self.clock.now() + self.publishTimeoutMs
+        while new_commands:
+            with self._capacity:
+                pending = sum(1 for value in self.deliveries.values() if value["status"] == "queued")
+                if pending + len(new_commands) <= self.maxPending and self.queuedBytes + required <= self.maxQueuedBytes:
+                    break
+            remaining = deadline - self.clock.now()
+            if remaining <= 0: raise RuntimeError("AxEventBackpressureError: event inbox capacity timed out")
+            self.clock.sleep(min(remaining, 50) / 1000)
+        with self._capacity:
+            for command in new_commands:
+                delivery_id = f"{command.routeId}:{event.id}"
+                self._sequence += 1
+                self.deliveries[delivery_id] = {"event": event, "command": command,
+                    "status": "queued", "availableAt": self.clock.now() if available_at is None else available_at,
+                    "sequence": self._sequence, "size": envelope_size, "attempt": 0}
+                self.queuedBytes += envelope_size
+
+    def release(self, delivery):
+        with self._capacity:
+            self.queuedBytes = max(0, self.queuedBytes - int(delivery.get("size", 0)))
+            delivery["size"] = 0
+            self._capacity.notify_all()
+
+    def requeue(self, delivery, available_at):
+        raw = delivery["event"].to_dict() if isinstance(delivery["event"], AxEventEnvelope) else delivery["event"]
+        size = len(json.dumps(raw, separators=(",", ":"), default=str).encode("utf-8"))
+        with self._capacity:
+            delivery["size"] = size; delivery["status"] = "queued"; delivery["availableAt"] = available_at
+            self.queuedBytes += size; self._capacity.notify_all()
+
+
+class AxPushEventSource(AxEventSource):
+    def __init__(self, id="push"): self.id = id; self._publish = None
+    def start(self, publish): self._publish = publish; return self
+    def publish(self, event, **options):
+        if self._publish is None: raise RuntimeError("AxPushEventSource is not started")
+        return self._publish(event, **options)
+    def close(self): self._publish = None
+
+
 class AxEventRuntime:
-    """Deterministic single-worker event state machine; hosts own async loops."""
+    """Deterministic inline single-worker runtime; no background thread is hidden."""
 
     def __init__(self, routes: list[AxEventRoute], options: dict[str, Any] | None = None):
         self.routes = list(routes)
         self.options = dict(options or {})
+        configured_targets = self.options.get("targets") or {}
+        self.targets = ({target.id: target for target in configured_targets}
+                        if isinstance(configured_targets, (list, tuple)) else dict(configured_targets))
+        self.sources = list(self.options.get("sources") or [])
+        self.clock = self.options.get("clock") or AxSystemEventClock()
+        self.store = self.options.get("store") or AxInMemoryEventStore(
+            maxPending=self.options.get("maxPending", 10_000),
+            maxQueuedBytes=self.options.get("maxQueuedBytes", 64 * 1024 * 1024),
+            maxEnvelopeBytes=self.options.get("maxEnvelopeBytes", 1024 * 1024),
+            publishTimeoutMs=self.options.get("publishTimeoutMs", 5_000), clock=self.clock)
+        self.max_attempts = int(self.options.get("maxAttempts", 3))
+        self.retry_backoff_ms = int(self.options.get("retryBackoffMs", 1_000))
+        self.started = False
+        self.closed = False
+        self._active: dict[str, AxEventCancellationToken] = {}
         self.descriptor = event_runtime_descriptor(
             [route.to_dict() for route in self.routes], self.options
         )
 
-    def publish(
+    def start(self):
+        if self.closed: raise RuntimeError("AxEventRuntime is closed")
+        if self.started: return self
+        self.started = True
+        for source in self.sources:
+            source.start(self.publish)
+        return self
+
+    def plan(
         self,
         event: AxEventEnvelope | dict[str, Any],
         *,
@@ -480,7 +1003,203 @@ class AxEventRuntime:
             identity_scope,
             trust,
         )
-        return [AxEventCommand(**value) for value in values]
+        commands = [AxEventCommand(**value) for value in values]
+        ingress = {"event": envelope, "identity": {"scope": identity_scope}, "trust": trust,
+                   "correlation": envelope.get("correlation") or []}
+        routes = {route.id: route for route in self.routes}
+        for command in commands:
+            route = routes[command.routeId]
+            if route.instanceKey is not None:
+                resolved = event_resolve_path(ingress, route.instanceKey.to_dict(), None)
+                if resolved is None: raise AxEventInputError(f"Route {route.id} instance key was not present")
+                object.__setattr__(command, "instanceKey", str(resolved))
+        return commands
+
+    def publish(
+        self,
+        event: AxEventEnvelope | dict[str, Any],
+        *,
+        identity_scope: str = "anonymous",
+        trust: str = "untrusted",
+    ) -> AxEventPublishReceipt:
+        if not self.started: raise RuntimeError("AxEventRuntime must be started first")
+        envelope = event if isinstance(event, AxEventEnvelope) else AxEventEnvelope(
+            str(event.get("id", "")), str(event.get("source", "")), str(event.get("type", "")),
+            event.get("data"), event.get("subject"), str(event.get("specversion", "1.0")),
+            dict(event.get("extensions") or {}), list(event.get("correlation") or []))
+        commands = self.plan(envelope, identity_scope=identity_scope, trust=trust)
+        delivery_ids = [f"{command.routeId}:{envelope.id}" for command in commands]
+        duplicate = bool(delivery_ids) and all(delivery_id in self.store.deliveries for delivery_id in delivery_ids)
+        routes = {route.id: route for route in self.routes}
+        now = self.clock.now()
+        for command in commands:
+            route = routes[command.routeId]
+            if route.debounceMs > 0:
+                for existing in self.store.deliveries.values():
+                    old = existing["command"]
+                    if (existing["status"] == "queued" and old.routeId == command.routeId and
+                            old.targetId == command.targetId and old.instanceKey == command.instanceKey):
+                        existing["status"] = "coalesced"; self.store.release(existing)
+        for command in commands:
+            self.store.enqueue(envelope, [command], now + routes[command.routeId].debounceMs)
+        for delivery_id in delivery_ids:
+            self.store.deliveries[delivery_id]["identityScope"] = identity_scope
+            self.store.deliveries[delivery_id]["trust"] = trust
+        if not duplicate: self.run_due()
+        return AxEventPublishReceipt(envelope.id, True, duplicate, "volatile", delivery_ids)
+
+    def next_due_at(self):
+        values = [value.get("availableAt", 0) for value in self.store.deliveries.values()
+                  if value["status"] == "queued"]
+        return min(values) if values else None
+
+    def run_due(self):
+        processed = 0
+        while True:
+            due = [(key, value) for key, value in self.store.deliveries.items()
+                   if value["status"] == "queued" and value.get("availableAt", 0) <= self.clock.now()]
+            if not due: return processed
+            due.sort(key=lambda item: (item[1].get("availableAt", 0), item[1].get("sequence", 0)))
+            _, delivery = due[0]
+            delivery["status"] = "running"; self.store.release(delivery)
+            self._dispatch(delivery["event"], delivery["command"],
+                           delivery.get("identityScope", "anonymous"), delivery.get("trust", "untrusted"))
+            processed += 1
+
+    def _dispatch(self, event, command, identity_scope, trust="untrusted"):
+        delivery_id = f"{command.routeId}:{event.id}"
+        delivery = self.store.deliveries[delivery_id]
+        continuation = None
+        target_id = command.targetId
+        if command.action == "resume":
+            continuation = self._find_continuation(event.correlation, identity_scope)
+            if continuation is None:
+                self._dead_letter(delivery_id, None, "continuation_not_found")
+                return
+            target_id = continuation.targetId
+        if command.action in ("observe", "invalidate"):
+            delivery["status"] = "succeeded"
+            return
+        target = self.targets.get(target_id)
+        if target is None:
+            self._dead_letter(delivery_id, None, f"unknown_target:{target_id}")
+            return
+        run_id = delivery.get("runId") or f"run:{delivery_id}:{len(self.store.runs)+1}"
+        run = self.store.runs.get(run_id) or AxEventRun(run_id, delivery_id, command.routeId, target.id, command.instanceKey)
+        self.store.runs[run_id] = run; delivery["runId"] = run_id
+        token = AxEventCancellationToken()
+        self._active[run_id] = token
+        state_key = f"{target.id}\n{identity_scope}\n{command.instanceKey}"
+        if target.restoreState and state_key in self.store.programState:
+            target.restoreState(self.store.programState[state_key])
+        try:
+            try:
+                mapped = _event_map_target_input(target, event, continuation, command.action, identity_scope, trust)
+            except Exception as error:
+                raise AxEventInputError(str(error)) from error
+            attempt = int(delivery.get("attempt", 0)) + 1
+            delivery["attempt"] = attempt
+            run.attempt = attempt; run.status = "running"
+            try:
+                output = target.invoke(mapped, {"runId": run_id, "deliveryId": delivery_id,
+                    "instanceKey": command.instanceKey, "identityScope": identity_scope,
+                    "idempotencyKey": command.idempotencyKey, "cancellation": token,
+                    "continuation": continuation})
+                if token.cancelled:
+                    run.status = "cancelled"; delivery["status"] = "cancelled"; return
+                if target.captureState: self.store.programState[state_key] = target.captureState()
+                run.output = output
+                registrations = self._register_declared(target, event, command, identity_scope)
+                if registrations:
+                    run.continuationIds = registrations; run.status = "waiting_event"; delivery["status"] = "waiting_event"
+                else:
+                    run.status = "succeeded"; delivery["status"] = "succeeded"
+                    # The run, including output, is already in the store before sinks execute.
+                    for sink in target.sinks:
+                        try: sink.write(output, {"run": run, "idempotencyKey": f"{run_id}:{getattr(sink, 'id', 'sink')}"})
+                        except Exception as error:
+                            self._dead_letter(delivery_id, run_id, str(error), getattr(sink, "id", "sink"))
+                if continuation: continuation.completed = True
+                return
+            except Exception as error:
+                if attempt < self.max_attempts and target.retrySafety == "idempotent":
+                    run.status = "queued"; self.store.requeue(delivery, self.clock.now() + self.retry_backoff_ms * (2 ** (attempt - 1))); return
+                run.status = "outcome_unknown" if target.retrySafety != "idempotent" else "failed"
+                run.error = str(error); delivery["status"] = run.status
+                self._dead_letter(delivery_id, run_id, str(error)); return
+        except AxEventInputError as error:
+            run.status = "failed"; run.error = f"event_input_invalid:{error}"; delivery["status"] = "dead_lettered"
+            self._dead_letter(delivery_id, run_id, run.error)
+        finally:
+            self._active.pop(run_id, None)
+
+    def _register_declared(self, target, event, command, identity_scope):
+        ids = []
+        for declaration in target.waitFor:
+            raw = declaration.get("value")
+            if isinstance(raw, dict) and "root" in raw:
+                value = event_resolve_path({"event": event.to_dict(), "identity": {"scope": identity_scope}, "correlation": event.correlation}, raw, None)
+            else:
+                value = raw(event) if callable(raw) else (event.data or {}).get(raw) if isinstance(raw, str) and isinstance(event.data, dict) else raw
+            if value is None: raise AxEventInputError("continuation value is missing")
+            continuation_id = f"continuation:{target.id}:{len(self.store.continuations)+1}"
+            metadata = declaration.get("metadata") or {}
+            if callable(metadata): metadata = metadata(event)
+            expires = declaration.get("expiresInMs")
+            self.store.continuations[continuation_id] = AxEventContinuation(
+                continuation_id, target.id, command.instanceKey, identity_scope,
+                [{"kind": str(declaration["kind"]), "value": str(value)}], dict(metadata),
+                False, self.clock.now() + float(expires) if expires is not None else None)
+            ids.append(continuation_id)
+        return ids
+
+    def _find_continuation(self, correlation, identity_scope):
+        for continuation in self.store.continuations.values():
+            if (continuation.completed or continuation.identityScope != identity_scope or
+                    (continuation.expiresAt is not None and continuation.expiresAt <= self.clock.now())): continue
+            for key in correlation or []:
+                if key in continuation.correlation: return continuation
+        return None
+
+    def _dead_letter(self, delivery_id, run_id, reason, sink_id=None):
+        value = AxEventDeadLetter(f"dead:{len(self.store.deadLetters)+1}", delivery_id, reason, run_id, sink_id)
+        self.store.deadLetters[value.id] = value
+        if sink_id is None and delivery_id in self.store.deliveries:
+            self.store.deliveries[delivery_id]["status"] = "dead_lettered"
+
+    def cancel_run(self, run_id, reason="cancelled"):
+        token = self._active.get(run_id)
+        if token is None: return False
+        token.cancel(reason); return True
+
+    def get_run(self, run_id): return self.store.runs.get(run_id)
+    def list_dead_letters(self): return list(self.store.deadLetters.values())
+    def redrive(self, dead_letter_id):
+        dead = self.store.deadLetters.pop(dead_letter_id)
+        delivery = self.store.deliveries[dead.deliveryId]
+        if dead.sinkId is not None:
+            run = self.store.runs.get(dead.runId)
+            target = self.targets.get(run.targetId if run else None)
+            sink = next((value for value in (target.sinks if target else [])
+                         if getattr(value, "id", "sink") == dead.sinkId), None)
+            if run is None or target is None or sink is None:
+                self.store.deadLetters[dead.id] = dead
+                raise RuntimeError("sink redrive state is unavailable")
+            try:
+                sink.write(run.output, {"run": run, "idempotencyKey": f"{run.id}:{dead.sinkId}"})
+            except Exception:
+                self.store.deadLetters[dead.id] = dead
+                raise
+            return
+        delivery["attempt"] = 0
+        self.store.requeue(delivery, self.clock.now())
+        self.run_due()
+
+    def close(self):
+        for source in self.sources:
+            close = getattr(source, "close", None)
+            if callable(close): close()
+        self.started = False; self.closed = True
 
     @staticmethod
     def normalize_mcp(namespace: str, method: str, params: Any) -> dict[str, Any]:
@@ -504,6 +1223,15 @@ class AxMCPTransport:
         self.protocol_version = protocol_version
 
     def connect(self) -> None:
+        return None
+
+    def set_lifecycle_handler(self, handler: Callable[[str], None]) -> None:
+        self._lifecycle_handler = handler
+
+    def start_listening(self) -> None:
+        return None
+
+    def close(self) -> None:
         return None
 
 
@@ -561,9 +1289,15 @@ class AxMCPClient:
         self.resources: list[dict[str, Any]] = []
         self.resource_templates: list[dict[str, Any]] = []
         self._next_id = 1
+        self._notification_listeners: list[Callable[[dict[str, Any]], None]] = []
+        self._lifecycle_listeners: list[Callable[[str], None]] = []
+        self._initialized = False
         self.transport.set_message_handler(self._handle_inbound_message)
+        self.transport.set_lifecycle_handler(self.emit_lifecycle)
 
     def init(self) -> None:
+        if self._initialized:
+            return
         self.transport.connect()
         protocol_version = self.options.get("protocolVersion", AX_MCP_PROTOCOL_VERSION)
         result = self._request(
@@ -590,6 +1324,11 @@ class AxMCPClient:
         self.server_instructions = result.get("instructions")
         self.notify("notifications/initialized")
         self.refresh()
+        self._initialized = True
+        self.transport.start_listening()
+
+    def close(self) -> None:
+        self.transport.close()
 
     def refresh(self) -> None:
         self.tools = self.list_tools().get("tools", []) if self._capability("tools") else []
@@ -622,6 +1361,18 @@ class AxMCPClient:
 
     def read_resource(self, uri: str) -> dict[str, Any]:
         return self._request("resources/read", {"uri": uri})
+
+    def subscribe_resource(self, uri: str) -> dict[str, Any]:
+        return self._request("resources/subscribe", {"uri": uri})
+
+    def unsubscribe_resource(self, uri: str) -> dict[str, Any]:
+        return self._request("resources/unsubscribe", {"uri": uri})
+
+    def get_task(self, task_id: str) -> dict[str, Any]:
+        return self._request("tasks/get", {"taskId": task_id})
+
+    def cancel_task(self, task_id: str) -> dict[str, Any]:
+        return self._request("tasks/cancel", {"taskId": task_id})
 
     def list_resource_templates(self, cursor: str | None = None) -> dict[str, Any]:
         return self._request("resources/templates/list", {"cursor": cursor} if cursor else {})
@@ -667,6 +1418,24 @@ class AxMCPClient:
         """Send any negotiated MCP method without converting it into a function."""
         return self._request(method, params)
 
+    def add_notification_listener(self, listener: Callable[[dict[str, Any]], None]):
+        self._notification_listeners.append(listener)
+        def remove():
+            if listener in self._notification_listeners:
+                self._notification_listeners.remove(listener)
+        return remove
+
+    def add_lifecycle_listener(self, listener: Callable[[str], None]):
+        self._lifecycle_listeners.append(listener)
+        def remove():
+            if listener in self._lifecycle_listeners:
+                self._lifecycle_listeners.remove(listener)
+        return remove
+
+    def emit_lifecycle(self, state: str) -> None:
+        for listener in list(self._lifecycle_listeners):
+            listener(state)
+
     def namespace(self) -> str:
         return str(self.options.get("namespace") or (self.server_info or {}).get("name") or "mcp")
 
@@ -704,6 +1473,8 @@ class AxMCPClient:
         callback = self.options.get("onNotification")
         if callable(callback):
             callback(message)
+        for listener in list(self._notification_listeners):
+            listener(message)
 
     def _tool_to_function(self, tool: dict[str, Any]) -> Tool:
         name = _override_name(tool.get("name", ""), self.options)
@@ -736,6 +1507,50 @@ class AxMCPClient:
         name = _override_name("resource_template_" + _safe_name(template.get("name", "template")), self.options)
         description = _override_description(template, self.options)
         return Tool(name, description, {"type": "object", "properties": {"uri": {"type": "string"}}}, lambda args: self.read_resource(args["uri"]))
+
+
+class AxMCPEventSource(AxEventSource):
+    """Composable MCP notification adapter for AxEventRuntime."""
+    def __init__(self, client: AxMCPClient, namespace: str | None = None, *,
+                 identity_scope: str = "anonymous", trust: str = "untrusted",
+                 subscriptions: list[str] | None = None):
+        self.client = client; self.namespace = namespace or client.namespace()
+        self.identity_scope = identity_scope; self.trust = trust
+        self.subscriptions = list(subscriptions or []); self._publish = None; self._remove = None; self._remove_lifecycle = None
+
+    def start(self, publish):
+        self.client.init()
+        self._publish = publish
+        self._remove = self.client.add_notification_listener(self._on_notification)
+        self._remove_lifecycle = self.client.add_lifecycle_listener(
+            lambda state: self.reconnect() if state == "reconnected" else None)
+        for uri in self.subscriptions: self.client.subscribe_resource(uri)
+        return self
+
+    def _on_notification(self, message):
+        if not self._publish or "method" not in message: return
+        normalized = event_normalize_mcp(self.namespace, str(message["method"]), message.get("params") or {})
+        raw_correlation = normalized.get("correlation")
+        correlation = [raw_correlation] if isinstance(raw_correlation, dict) else list(raw_correlation or [])
+        data = normalized.get("data")
+        subject = None
+        if isinstance(data, dict):
+            subject = data.get("uri") or (data.get("task") or {}).get("taskId")
+        self._publish(AxEventEnvelope(
+            f"mcp:{self.namespace}:{uuid.uuid4()}", normalized["source"], normalized["type"],
+            data, subject, correlation=correlation),
+            identity_scope=self.identity_scope, trust=self.trust)
+
+    def reconnect(self):
+        for uri in self.subscriptions: self.client.subscribe_resource(uri)
+
+    def close(self):
+        for uri in self.subscriptions:
+            try: self.client.unsubscribe_resource(uri)
+            except Exception: pass
+        if self._remove: self._remove()
+        if self._remove_lifecycle: self._remove_lifecycle()
+        self._remove = None; self._remove_lifecycle = None; self._publish = None
 
 
 class AxUCPBinding:
@@ -892,12 +1707,74 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
         self.session_id: str | None = None
         self.last_headers: dict[str, str] = {}
         self._message_handler: Callable[[dict[str, Any]], None] | None = None
+        self._lifecycle_handler: Callable[[str], None] | None = None
+        self._listen_stop = threading.Event()
+        self._listen_thread: threading.Thread | None = None
+        self._listen_response: Any = None
+        self._last_event_id: str | None = None
 
     def set_headers(self, headers: dict[str, str]) -> None:
         self.headers = dict(headers)
 
     def set_authorization(self, authorization: str) -> None:
         self.headers["Authorization"] = authorization
+
+    def set_lifecycle_handler(self, handler: Callable[[str], None]) -> None:
+        self._lifecycle_handler = handler
+
+    def start_listening(self) -> None:
+        if self._listen_thread and self._listen_thread.is_alive(): return
+        self._listen_stop.clear()
+        self._listen_thread = threading.Thread(target=self._listen_loop, name="ax-mcp-sse", daemon=True)
+        self._listen_thread.start()
+
+    def _listen_loop(self) -> None:
+        connected_once = False
+        delay = float(self.options.get("reconnectDelay", 0.1))
+        while not self._listen_stop.is_set():
+            try:
+                headers = self.build_headers({"Accept": "text/event-stream"}, True)
+                if self._last_event_id: headers["Last-Event-ID"] = self._last_event_id
+                request = urllib.request.Request(self.endpoint, headers=headers, method="GET")
+                response = urllib.request.urlopen(request, timeout=float(self.options.get("listenTimeout", 300)))
+                self._listen_response = response; self._capture_session(response.headers)
+                if connected_once and self._lifecycle_handler: self._lifecycle_handler("reconnected")
+                connected_once = True
+                data: list[str] = []; event_id: str | None = None
+                while not self._listen_stop.is_set():
+                    raw = response.readline()
+                    if not raw: break
+                    line = raw.decode("utf-8").rstrip("\r\n")
+                    if line.startswith("id:"): event_id = line[3:].strip()
+                    elif line.startswith("data:"): data.append(line[5:].lstrip())
+                    elif line == "":
+                        if event_id: self._last_event_id = event_id
+                        if data:
+                            message = json.loads("\n".join(data))
+                            if self._message_handler: self._message_handler(message)
+                        data = []; event_id = None
+                response.close(); self._listen_response = None
+                if not self._listen_stop.is_set() and self._lifecycle_handler: self._lifecycle_handler("disconnected")
+            except Exception:
+                self._listen_response = None
+                if not self._listen_stop.is_set() and connected_once and self._lifecycle_handler: self._lifecycle_handler("disconnected")
+            if not self._listen_stop.is_set(): self._listen_stop.wait(delay)
+
+    def close(self) -> None:
+        self._listen_stop.set()
+        if self._listen_response is not None:
+            try:
+                raw = getattr(getattr(self._listen_response, "fp", None), "raw", None)
+                connection = getattr(raw, "_sock", None)
+                if connection is not None:
+                    connection.shutdown(socket.SHUT_RDWR)
+                else:
+                    self._listen_response.close()
+            except Exception:
+                pass
+        if self._listen_thread and self._listen_thread is not threading.current_thread():
+            self._listen_thread.join(float(self.options.get("closeTimeout", 2)))
+        self._listen_thread = None
 
     def send(self, message: dict[str, Any]) -> dict[str, Any]:
         body = json.dumps(message).encode("utf-8")
@@ -941,7 +1818,7 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
         return messages[-1] if messages else {"jsonrpc": "2.0", "id": request_id, "result": {}}
 
     def send_notification(self, message: dict[str, Any]) -> None:
-        response = self.send({**message, "id": "__notification__"})
+        response = self.send(message)
         if "error" in response:
             error = response["error"]
             raise AxMCPError(str(error.get("message", "MCP notification failed")), code=error.get("code"))

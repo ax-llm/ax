@@ -123,37 +123,48 @@
       "native": {
         "sourcePath": "src/examples/cpp/mcp/native_mcp_tools.cpp",
         "code": [
-          "auto mcp = std::make_shared<axllm::AxMCPClient>(transport);",
+          "auto mcp = std::make_shared<axllm::AxMCPClient>(transport, axllm::object({{\"namespace\", \"inventory\"}}));",
           "axllm::AxExecutionContext context({mcp});",
-          "context.attach(program);"
+          "context.attach(program);",
+          "  mcp->close();"
         ]
       },
       "resourceWake": {
         "sourcePath": "src/examples/cpp/mcp/resource_wake_agent.cpp",
         "code": [
-          "auto normalized = axllm::AxEventRuntime::normalize_mcp(\"inventory\", \"notifications/resources/updated\", params);",
-          "auto commands = runtime.publish(event, \"tenant:demo\", \"authenticated\");"
+          "auto source=std::make_shared<axllm::AxMCPEventSource>(client,\"inventory\",\"tenant:demo\",\"authenticated\",std::vector<std::string>{\"demo://inventory\"});",
+          "runtime.register_target(std::move(target)).add_source(source).start();",
+          "if(!changed.wait_for(lock,std::chrono::seconds(60),[&]{return complete;}))throw std::runtime_error(\"Timed out waiting for an MCP resource notification\");"
         ]
       },
       "taskResume": {
         "sourcePath": "src/examples/cpp/mcp/task_resume_flow.cpp",
-        "code": ["if (action == \"resume\") flow.forward(llm, input);"]
+        "code": [
+          "auto result=client->call_tool(\"start_reindex\",axllm::object({{\"scope\",\"all\"}}));",
+          "source->start_scoped([&](axllm::AxEventEnvelope inbound,std::string scope,std::string trust){runtime.publish(inbound,scope,trust);});"
+        ]
       }
     },
     "event": {
       "wake": {
         "sourcePath": "src/examples/cpp/mcp/resource_wake_agent.cpp",
-        "code": ["if (action == \"wake\") agent.forward(llm, input);"]
+        "code": [
+          "runtime.register_target(std::move(target)).add_source(source).start();",
+          "if(!changed.wait_for(lock,std::chrono::seconds(60),[&]{return complete;}))throw std::runtime_error(\"Timed out waiting for an MCP resource notification\");"
+        ]
       },
       "resume": {
         "sourcePath": "src/examples/cpp/mcp/task_resume_flow.cpp",
-        "code": ["if (action == \"resume\") flow.forward(llm, input);"]
+        "code": [
+          "runtime.publish(event,\"tenant:demo\",\"authenticated\");",
+          "source->start_scoped([&](axllm::AxEventEnvelope inbound,std::string scope,std::string trust){runtime.publish(inbound,scope,trust);});"
+        ]
       },
       "ucp": {
         "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
         "code": [
-          "// Application-owned HTTP verifies UCP ingress before host dispatch.",
-          "source.ingest(request);"
+          "  const receipt = await source.ingest(request);",
+          "  if (!receipt.accepted) return new Response(null, { status: 503 });"
         ]
       }
     }

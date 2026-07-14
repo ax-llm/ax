@@ -1,5 +1,8 @@
 package dev.axllm.ax;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -9,6 +12,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   private final String endpoint;
@@ -17,8 +22,13 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   private String sessionId;
   private String protocolVersion;
   private java.util.function.Consumer<Map<String, Object>> handler;
+  private Consumer<String> lifecycleHandler;
   private final Map<String, String> headers = new LinkedHashMap<>();
   private Map<String, String> lastHeaders = new LinkedHashMap<>();
+  private final AtomicBoolean listenStop = new AtomicBoolean(true);
+  private volatile Thread listenThread;
+  private volatile InputStream listenBody;
+  private volatile String lastEventId;
 
   public AxMCPStreamableHTTPTransport(String endpoint) {
     this(endpoint, Map.of());
@@ -95,16 +105,82 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   }
 
   public void sendNotification(Map<String, Object> message) {
-    Map<String, Object> withId = new LinkedHashMap<>(message);
-    withId.put("id", "__notification__");
-    send(withId);
+    send(message);
   }
 
   public void setMessageHandler(java.util.function.Consumer<Map<String, Object>> handler) { this.handler = handler; }
+  public void setLifecycleHandler(Consumer<String> handler) { this.lifecycleHandler = handler; }
   public void setProtocolVersion(String protocolVersion) { this.protocolVersion = protocolVersion; }
   public void setSessionId(String sessionId) { this.sessionId = sessionId; }
   public Map<String, String> headers() { return headers; }
   public Map<String, String> lastHeaders() { return lastHeaders; }
+
+  public synchronized void startListening() {
+    if (listenThread != null && listenThread.isAlive()) return;
+    listenStop.set(false);
+    listenThread = new Thread(this::listenLoop, "ax-mcp-sse");
+    listenThread.setDaemon(true);
+    listenThread.start();
+  }
+
+  private void listenLoop() {
+    boolean connectedOnce = false;
+    long reconnectDelay = ((Number) options.getOrDefault("reconnectDelayMs", 100)).longValue();
+    while (!listenStop.get()) {
+      try {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(endpoint)).GET();
+        Map<String, String> requestHeaders = buildHeaders(Map.of("Accept", "text/event-stream"), true);
+        if (lastEventId != null && !lastEventId.isBlank()) requestHeaders.put("Last-Event-ID", lastEventId);
+        for (Map.Entry<String, String> entry : requestHeaders.entrySet()) builder.header(entry.getKey(), entry.getValue());
+        HttpResponse<InputStream> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+          response.body().close();
+          throw new AxMCPError("HTTP listen error " + response.statusCode());
+        }
+        response.headers().firstValue("MCP-Session-Id").ifPresent(value -> sessionId = value);
+        listenBody = response.body();
+        if (connectedOnce && lifecycleHandler != null) lifecycleHandler.accept("reconnected");
+        connectedOnce = true;
+        consumeSse(listenBody);
+        listenBody.close();
+        listenBody = null;
+        if (!listenStop.get() && lifecycleHandler != null) lifecycleHandler.accept("disconnected");
+      } catch (Exception error) {
+        listenBody = null;
+        if (!listenStop.get() && connectedOnce && lifecycleHandler != null) lifecycleHandler.accept("disconnected");
+      }
+      if (!listenStop.get()) {
+        try { Thread.sleep(reconnectDelay); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+      }
+    }
+  }
+
+  private void consumeSse(InputStream body) throws Exception {
+    BufferedReader reader = new BufferedReader(new InputStreamReader(body, java.nio.charset.StandardCharsets.UTF_8));
+    List<String> data = new ArrayList<>();
+    String eventId = null;
+    String line;
+    while (!listenStop.get() && (line = reader.readLine()) != null) {
+      if (line.isEmpty()) {
+        if (eventId != null) lastEventId = eventId;
+        if (!data.isEmpty() && handler != null) handler.accept(Core.asMap(Json.parse(String.join("\n", data))));
+        data.clear(); eventId = null;
+      } else if (line.startsWith("id:")) eventId = line.substring(3).trim();
+      else if (line.startsWith("data:")) data.add(line.substring(5).stripLeading());
+    }
+  }
+
+  public synchronized void close() {
+    listenStop.set(true);
+    InputStream body = listenBody;
+    if (body != null) try { body.close(); } catch (Exception ignored) {}
+    Thread thread = listenThread;
+    if (thread != null) {
+      thread.interrupt();
+      try { thread.join(2000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+    }
+    listenThread = null; listenBody = null;
+  }
 
   public Map<String, String> buildHeaders(Map<String, String> base, boolean includeProtocolVersion) {
     Map<String, String> out = new LinkedHashMap<>(headers);

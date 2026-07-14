@@ -1,6 +1,17 @@
 import { AxAgentClarificationError } from '../agent/agentInternal/agentStateTypes.js';
 import type { AxGenDeltaOut, AxProgrammable } from '../dsp/types.js';
 import {
+  AxEventRouteBuilder,
+  AxEventTargetBuilder,
+  mapEventInput,
+  normalizeEventInputValue,
+  resolveEventPath,
+  selectEventInputPlan,
+  validateEventRoute,
+  validateEventTarget,
+  verifyEventTargetProgram,
+} from './mapping.js';
+import {
   AxInMemoryEventStore,
   AxInMemoryProgramStateStore,
 } from './memoryStore.js';
@@ -13,6 +24,7 @@ import {
   type AxEventDeadLetter,
   type AxEventDelivery,
   type AxEventIngress,
+  AxEventInputError,
   AxEventOutcomeUnknownError,
   type AxEventProgramStateAdapter,
   type AxEventPublishReceipt,
@@ -91,38 +103,26 @@ class AxRuntimeEventContext implements AxEventContext {
   }
 }
 
+export function eventTarget(id: string): AxEventTargetBuilder;
 export function eventTarget<IN, OUT>(
   target: Readonly<AxEventTarget<IN, OUT>>
-): AxEventTarget<IN, OUT> {
-  if (!target.id.trim()) throw new Error('AxEventTarget.id must be non-empty');
-  if (Boolean(target.program) === Boolean(target.createProgram)) {
-    throw new Error(
-      `AxEventTarget ${target.id} must provide exactly one of program or createProgram`
-    );
-  }
-  return { ...target };
+): AxEventTarget<IN, OUT>;
+export function eventTarget<IN, OUT>(
+  target: string | Readonly<AxEventTarget<IN, OUT>>
+): AxEventTargetBuilder | AxEventTarget<IN, OUT> {
+  return typeof target === 'string'
+    ? new AxEventTargetBuilder(target)
+    : validateEventTarget(target);
 }
 
-export function eventRoute(route: Readonly<AxEventRoute>): AxEventRoute {
-  if (!route.id.trim()) throw new Error('AxEventRoute.id must be non-empty');
-  if ((route.action === 'wake' || route.action === 'resume') && !route.target) {
-    if (route.action === 'wake') {
-      throw new Error(`Wake route ${route.id} requires a target`);
-    }
-  }
-  if (route.action === 'invalidate' && !route.invalidator) {
-    throw new Error(`Invalidate route ${route.id} requires an invalidator`);
-  }
-  if (
-    route.debounceMs !== undefined &&
-    (!Number.isFinite(route.debounceMs) || route.debounceMs < 0)
-  ) {
-    throw new Error(`Event route ${route.id} debounceMs must be non-negative`);
-  }
-  if (route.coalesce && !route.debounceMs) {
-    throw new Error(`Event route ${route.id} coalescing requires debounceMs`);
-  }
-  return { ...route };
+export function eventRoute(id: string): AxEventRouteBuilder;
+export function eventRoute(route: Readonly<AxEventRoute>): AxEventRoute;
+export function eventRoute(
+  route: string | Readonly<AxEventRoute>
+): AxEventRouteBuilder | AxEventRoute {
+  return typeof route === 'string'
+    ? new AxEventRouteBuilder(route)
+    : validateEventRoute(route);
 }
 
 export class AxEventRuntime {
@@ -133,6 +133,7 @@ export class AxEventRuntime {
   private readonly clock;
   private readonly routes = new Map<string, AxEventRoute>();
   private readonly targets = new Map<string, AxEventTarget<any, any>>();
+  private readonly targetSources = new Map<string, AxEventTarget<any, any>>();
   private readonly singletonTargetInstances = new Map<string, string>();
   private readonly activeRuns = new Map<string, AbortController>();
   private readonly sourceHandles: AxEventSourceHandle[] = [];
@@ -158,11 +159,12 @@ export class AxEventRuntime {
       this.routes.set(route.id, route);
       if (route.target) {
         const target = eventTarget(route.target);
-        const previous = this.targets.get(target.id);
+        const previous = this.targetSources.get(target.id);
         if (previous && previous !== route.target) {
           throw new Error(`Duplicate AxEventTarget id: ${target.id}`);
         }
-        this.targets.set(target.id, route.target);
+        this.targetSources.set(target.id, route.target);
+        this.targets.set(target.id, target);
       }
     }
   }
@@ -547,20 +549,20 @@ export class AxEventRuntime {
         } else if (route.action === 'invalidate') {
           await route.invalidator!.invalidate(claimed.ingress, eventContext);
         } else {
-          await this.store.saveDelivery({
-            ...claimed,
-            status: 'running',
-            attempt,
-            runId,
-            invocationStarted: true,
-          });
           result = await this.invokeTarget(
             target!,
             instanceKey,
             claimed.ingress,
             eventContext,
             run,
-            () => {
+            async () => {
+              await this.store.saveDelivery({
+                ...claimed,
+                status: 'running',
+                attempt,
+                runId,
+                invocationStarted: true,
+              });
               invoked = true;
             }
           );
@@ -689,7 +691,9 @@ export class AxEventRuntime {
           });
           return;
         }
-        const nonRetryable = error instanceof AxEventContinuationNotFoundError;
+        const nonRetryable =
+          error instanceof AxEventContinuationNotFoundError ||
+          error instanceof AxEventInputError;
         if (!nonRetryable && attempt < (this.options.maxAttempts ?? 5)) {
           const retryMs = Math.min(
             this.options.retryMaxMs ?? 60_000,
@@ -739,9 +743,10 @@ export class AxEventRuntime {
     ingress: Readonly<AxEventIngress>,
     eventContext: AxRuntimeEventContext,
     run: AxEventRun,
-    onInvoke: () => void
+    onInvoke: () => Promise<void>
   ): Promise<InvocationResult> {
     const program = await this.resolveProgram(target, instanceKey, ingress);
+    verifyEventTargetProgram(target, program);
     const stateAdapter = target.state ?? this.defaultStateAdapter(program);
     const stateKey = `${target.id}\n${axEventIdentityScope(ingress.identity)}\n${instanceKey}`;
     const stored = stateAdapter
@@ -768,10 +773,61 @@ export class AxEventRuntime {
       }
       await stateAdapter.restore(program, state);
     }
-    const input = await target.mapInput(ingress, {
-      eventContext,
-      continuation: eventContext.continuation,
-    });
+    const inputPlan = selectEventInputPlan(target, eventContext.continuation);
+    let input: unknown;
+    try {
+      if (inputPlan) {
+        input = mapEventInput(
+          inputPlan,
+          program.getSignature(),
+          ingress,
+          eventContext.continuation
+        );
+      } else {
+        const mapped = await target.mapInput?.(ingress, {
+          eventContext,
+          continuation: eventContext.continuation,
+        });
+        if (mapped === undefined) {
+          throw new AxEventInputError(
+            `Target ${target.id} has no mapping for ${eventContext.continuation ? 'resume' : 'wake'}`
+          );
+        }
+        input = normalizeEventInputValue(mapped, program.getSignature());
+      }
+    } catch (error) {
+      if (error instanceof AxEventInputError) throw error;
+      throw new AxEventInputError(`Target ${target.id} input mapping failed`, {
+        cause: error,
+      });
+    }
+    if (!eventContext.continuation) {
+      for (const continuation of target.waitFor ?? []) {
+        const value = resolveEventPath(continuation.value, ingress);
+        if (
+          (typeof value !== 'string' && typeof value !== 'number') ||
+          !String(value).trim()
+        ) {
+          throw new AxEventInputError(
+            `Target ${target.id} waitFor ${continuation.kind} did not resolve to a scalar`
+          );
+        }
+        const metadataEntries = Object.entries(continuation.metadata ?? {}).map(
+          ([key, selector]) =>
+            [key, resolveEventPath(selector, ingress)] as const
+        );
+        const metadata = Object.fromEntries(
+          metadataEntries.filter((entry) => entry[1] !== undefined)
+        );
+        eventContext.registerContinuation({
+          correlation: [{ kind: continuation.kind, value: String(value) }],
+          ...(continuation.expiresInMs !== undefined
+            ? { expiresAt: this.clock.now() + continuation.expiresInMs }
+            : {}),
+          ...(metadataEntries.length ? { metadata: metadata as never } : {}),
+        });
+      }
+    }
     const options = {
       ...(target.forwardOptions ?? {}),
       eventContext,
@@ -781,7 +837,7 @@ export class AxEventRuntime {
     let output: unknown;
     const chunks: AxGenDeltaOut<unknown>[] = [];
     try {
-      onInvoke();
+      await onInvoke();
       if (target.execution === 'streaming') {
         const stream = program.streamingForward(target.ai, input, options);
         for await (const chunk of stream) {

@@ -141,22 +141,26 @@
       "native": {
         "sourcePath": "src/examples/python/mcp/native-mcp-tools.py",
         "code": [
-          "mcp = AxMCPClient(AxMCPStreamableHTTPTransport(endpoint), {'namespace': 'inventory'})",
-          "program = ax('request:string -> answer:string', {'mcp': mcp})"
+          "mcp = AxMCPClient(AxMCPStreamableHTTPTransport(endpoint), {\"namespace\": \"inventory\"})",
+          "    {\"mcp\": mcp},",
+          "    mcp.close()"
         ]
       },
       "resourceWake": {
         "sourcePath": "src/examples/python/mcp/resource-wake-agent.py",
         "code": [
-          "normalized = runtime.normalize_mcp('inventory', 'notifications/resources/updated', params)",
-          "commands = runtime.publish(event, identity_scope='tenant:demo', trust='authenticated')"
+          "transport = AxMCPStreamableHTTPTransport(",
+          "source = AxMCPEventSource(",
+          "runtime.start()",
+          "if not completed.wait(60):"
         ]
       },
       "taskResume": {
         "sourcePath": "src/examples/python/mcp/task-resume-flow.py",
         "code": [
-          "normalized = runtime.normalize_mcp('inventory', 'notifications/tasks/status', params)",
-          "if any(command.action == 'resume' for command in commands): dispatch(flow)"
+          "task_id = client.call_tool(\"start_reindex\", {\"scope\": \"all\"})[\"task\"][\"taskId\"]",
+          "started.publish(",
+          "if not completed.wait(60):"
         ]
       }
     },
@@ -164,22 +168,24 @@
       "wake": {
         "sourcePath": "src/examples/python/mcp/resource-wake-agent.py",
         "code": [
-          "if any(command.action == 'wake' for command in commands):",
-          "    program.forward(llm, {'uri': 'demo://inventory'})"
+          "runtime.start()",
+          "if not completed.wait(60):",
+          "runtime.close()"
         ]
       },
       "resume": {
         "sourcePath": "src/examples/python/mcp/task-resume-flow.py",
         "code": [
-          "if any(command.action == 'resume' for command in commands):",
-          "    program.forward(llm, {'taskId': '42'})"
+          "runtime.start()",
+          "started.publish(",
+          "if not completed.wait(60):"
         ]
       },
       "ucp": {
         "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
         "code": [
-          "# UCP HTTP hosting is application-owned; verify, map identity, then publish.",
-          "await source.ingest(request)"
+          "  const receipt = await source.ingest(request);",
+          "  if (!receipt.accepted) return new Response(null, { status: 503 });"
         ]
       }
     }

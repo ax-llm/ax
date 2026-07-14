@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { AxSignature } from '../dsp/sig.js';
 import type { AxProgrammable } from '../dsp/types.js';
 import { AxMCPClient } from '../mcp/client.js';
 import { AxMCPExecutionContext } from '../mcp/execution.js';
@@ -123,10 +124,13 @@ class MCPEventTransport implements AxMCPTransport {
 }
 
 function program(
+  signature: string,
   forward: (input: any, options?: any) => unknown | Promise<unknown>
 ): AxProgrammable<any, any> {
+  const parsed = new AxSignature(signature);
   return {
     getId: () => 'mcp-event-program',
+    getSignature: () => parsed,
     forward: (_ai: unknown, input: unknown, options?: unknown) =>
       Promise.resolve(forward(input, options)),
     streamingForward: async function* () {},
@@ -162,7 +166,10 @@ describe('AxMCPEventSource', () => {
           target: eventTarget({
             id: 'resource-agent',
             ai,
-            program: program(forward),
+            program: program(
+              'namespace:string, uri:string -> handled:boolean',
+              forward
+            ),
             mapInput: ({ event }) => event.data,
             retrySafety: 'idempotent',
           }),
@@ -197,7 +204,10 @@ describe('AxMCPEventSource', () => {
           target: eventTarget({
             id: 'secure-agent',
             ai,
-            program: program(forward),
+            program: program(
+              'namespace:string, uri:string -> handled:boolean',
+              forward
+            ),
             mapInput: ({ event }) => event.data,
           }),
         }),
@@ -230,20 +240,23 @@ describe('AxMCPEventSource', () => {
     const target = eventTarget({
       id: 'task-flow',
       ai,
-      program: program(async ({ type }, options) => {
-        calls.push(type);
-        if (type === 'job.start') {
-          await taskTool.func?.(
-            {},
-            {
-              eventContext: options.eventContext,
-              abortSignal: options.abortSignal,
-            }
-          );
+      program: program(
+        'eventType:string -> handledEventType:string',
+        async ({ eventType }, options) => {
+          calls.push(eventType);
+          if (eventType === 'job.start') {
+            await taskTool.func?.(
+              {},
+              {
+                eventContext: options.eventContext,
+                abortSignal: options.abortSignal,
+              }
+            );
+          }
+          return { handledEventType: eventType };
         }
-        return { type };
-      }),
-      mapInput: ({ event }) => ({ type: event.type }),
+      ),
+      mapInput: ({ event }) => ({ eventType: event.type }),
       retrySafety: 'idempotent',
     });
     const observed = vi.fn();

@@ -24,4 +24,5 @@ int main() {
   context.attach(program);
   axllm::OpenAICompatibleClient llm(axllm::object({{"api_key", key}, {"model", "gpt-5.4-mini"}}));
   std::cout << axllm::stringify(program.forward(llm, axllm::object({{"request", "Reindex inventory."}}))) << "\n";
+  mcp->close();
 }

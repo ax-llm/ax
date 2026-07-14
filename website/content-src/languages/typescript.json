@@ -473,23 +473,27 @@
       "native": {
         "sourcePath": "src/examples/typescript/mcp/native-mcp-tools.ts",
         "code": [
-          "const mcp = new AxMCPClient(new AxMCPStreamableHTTPTransport(endpoint), { namespace: 'inventory' });",
-          "const program = ax('request:string -> answer:string', { mcp });",
-          "await program.forward(llm, { request: 'Reindex inventory.' });"
+          "const mcp = new AxMCPClient(",
+          "const program = ax(",
+          "await program.forward(llm, { taskRequest: 'Reindex inventory.' })"
         ]
       },
       "resourceWake": {
         "sourcePath": "src/examples/typescript/mcp/resource-wake-agent.ts",
         "code": [
-          "const source = new AxMCPEventSource({ client: mcp, resources: ['demo://inventory'], identity, trust: 'authenticated' });",
-          "const route = eventRoute({ action: 'wake', requireAuthenticated: true, target: inventoryAgent });"
+          "const target = eventTarget('inventory-agent')",
+          "  .program(program)",
+          "  .ai(llm)",
+          "  .input((input) => input.field('uri', eventPath.data('uri')))",
+          "  .build();"
         ]
       },
       "taskResume": {
-        "sourcePath": "src/examples/typescript/mcp/task-resume-flow.ts",
+        "sourcePath": "src/examples/mcp-task-resume-flow.ts",
         "code": [
-          "// Progress observes; input_required and terminal task events resume the owner.",
-          "const routes = axMCPEventRoutes({ client: mcp });"
+          "const taskId = await server.waitForTask();",
+          "server.completeTask(taskId);",
+          "await waitForDemoSignal(resumeCompleted, 'the MCP task continuation');"
         ]
       },
       "stdio": [
@@ -601,17 +605,19 @@
         ]
       },
       "resume": {
-        "sourcePath": "src/examples/typescript/mcp/task-resume-flow.ts",
+        "sourcePath": "src/examples/mcp-task-resume-flow.ts",
         "code": [
-          "server.completeTask(task.taskId);",
-          "await runtime.waitForIdle();"
+          "const taskId = await server.waitForTask();",
+          "server.completeTask(taskId);",
+          "await waitForDemoSignal(resumeCompleted, 'the MCP task continuation');"
         ]
       },
       "ucp": {
         "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
         "code": [
-          "export async function handleUCPWebhook(request: Request) {",
-          "  await source.ingest(request);",
+          "export async function handleUCPWebhook(request: Request): Promise<Response> {",
+          "  const receipt = await source.ingest(request);",
+          "  if (!receipt.accepted) return new Response(null, { status: 503 });",
           "  return new Response(null, { status: 202 });",
           "}"
         ]

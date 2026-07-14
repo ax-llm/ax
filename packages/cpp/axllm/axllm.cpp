@@ -365,6 +365,7 @@ Value HttpTransport::call(Value request) {
   }
 
   std::string response;
+  Value response_headers = Value::object();
   char error_buffer[CURL_ERROR_SIZE] = {0};
 
   // Build the request body. Normal operations carry a JSON payload under "json";
@@ -413,6 +414,20 @@ Value HttpTransport::call(Value request) {
     return size * nmemb;
   });
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+  curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+    auto* out = static_cast<Value*>(userdata);
+    std::string line(ptr, size * nmemb);
+    auto colon = line.find(':');
+    if (colon != std::string::npos) {
+      auto name = line.substr(0, colon);
+      auto value = line.substr(colon + 1);
+      auto begin = value.find_first_not_of(" \t");
+      auto end = value.find_last_not_of(" \t\r\n");
+      if (begin != std::string::npos) Core::set(*out, name, value.substr(begin, end - begin + 1));
+    }
+    return size * nmemb;
+  });
+  curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response_headers);
   if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
   if (method == "POST") {
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
@@ -447,6 +462,7 @@ Value HttpTransport::call(Value request) {
   Value out = Value::object();
   Core::set(out, "status", static_cast<double>(status));
   Core::set(out, "contentType", content_type);
+  Core::set(out, "headers", response_headers);
   if (binary_response) {
     // Base64-encode the full (binary-safe) body; response may contain NULs, so
     // axir_base64_encode reads its whole .size() rather than a c_str().
@@ -505,6 +521,8 @@ Value Core::div(Value left, Value right) {
   double denom = num(right);
   return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
+
+double Core::number(Value value) { return num(value); }
 Value Core::contains(Value container, Value item) {
   if (container.is_object()) return Value(has_key(container, key_string(item)));
   if (container.is_array()) {
@@ -18112,6 +18130,35 @@ Value Core::ucp_normalize_outcome(Value operation, Value response) {
   return out;
 }
 
+Value Core::mcp_execution_context_descriptor(Value namespaces, Value inheritance) {
+  axir_coverage_mark("mcp_execution_context_descriptor");
+  Value out = Value::object();
+  Core::set(out, Value("namespaces"), namespaces);
+  Value missing = Core::is_none(inheritance);
+  if (Core::truthy(missing)) {
+    Core::set(out, Value("inheritance"), Value("all"));
+  }
+  if (!Core::truthy(missing)) {
+    Core::set(out, Value("inheritance"), inheritance);
+  }
+  Core::set(out, Value("native"), Value(true));
+  Core::set(out, Value("lossyAdapter"), Value(false));
+  return out;
+}
+
+Value Core::mcp_protocol_constants() {
+  axir_coverage_mark("mcp_protocol_constants");
+  Value versions = Value::array();
+  Core::append(versions, Value("2025-11-25"));
+  Core::append(versions, Value("2025-06-18"));
+  Core::append(versions, Value("2025-03-26"));
+  Core::append(versions, Value("2024-11-05"));
+  Value out = Value::object();
+  Core::set(out, Value("protocolVersion"), Value("2025-11-25"));
+  Core::set(out, Value("supportedProtocolVersions"), versions);
+  return out;
+}
+
 Value Core::event_runtime_descriptor(Value routes, Value options) {
   axir_coverage_mark("event_runtime_descriptor");
   Value empty = Value::object();
@@ -18129,19 +18176,19 @@ Value Core::event_runtime_descriptor(Value routes, Value options) {
   return out;
 }
 
-Value Core::mcp_execution_context_descriptor(Value namespaces, Value inheritance) {
-  axir_coverage_mark("mcp_execution_context_descriptor");
+Value Core::mcp_jsonrpc_request(Value id, Value method, Value params) {
+  axir_coverage_mark("mcp_jsonrpc_request");
   Value out = Value::object();
-  Core::set(out, Value("namespaces"), namespaces);
-  Value missing = Core::is_none(inheritance);
+  Core::set(out, Value("jsonrpc"), Value("2.0"));
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("method"), method);
+  Value missing = Core::is_none(params);
   if (Core::truthy(missing)) {
-    Core::set(out, Value("inheritance"), Value("all"));
+    // empty
   }
   if (!Core::truthy(missing)) {
-    Core::set(out, Value("inheritance"), inheritance);
+    Core::set(out, Value("params"), params);
   }
-  Core::set(out, Value("native"), Value(true));
-  Core::set(out, Value("lossyAdapter"), Value(false));
   return out;
 }
 
@@ -18193,35 +18240,6 @@ Value Core::event_route_commands(Value event, Value routes, Value identity_scope
   return commands;
 }
 
-Value Core::mcp_protocol_constants() {
-  axir_coverage_mark("mcp_protocol_constants");
-  Value versions = Value::array();
-  Core::append(versions, Value("2025-11-25"));
-  Core::append(versions, Value("2025-06-18"));
-  Core::append(versions, Value("2025-03-26"));
-  Core::append(versions, Value("2024-11-05"));
-  Value out = Value::object();
-  Core::set(out, Value("protocolVersion"), Value("2025-11-25"));
-  Core::set(out, Value("supportedProtocolVersions"), versions);
-  return out;
-}
-
-Value Core::mcp_jsonrpc_request(Value id, Value method, Value params) {
-  axir_coverage_mark("mcp_jsonrpc_request");
-  Value out = Value::object();
-  Core::set(out, Value("jsonrpc"), Value("2.0"));
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("method"), method);
-  Value missing = Core::is_none(params);
-  if (Core::truthy(missing)) {
-    // empty
-  }
-  if (!Core::truthy(missing)) {
-    Core::set(out, Value("params"), params);
-  }
-  return out;
-}
-
 Value Core::mcp_jsonrpc_notification(Value method, Value params) {
   axir_coverage_mark("mcp_jsonrpc_notification");
   Value out = Value::object();
@@ -18233,28 +18251,6 @@ Value Core::mcp_jsonrpc_notification(Value method, Value params) {
   }
   if (!Core::truthy(missing)) {
     Core::set(out, Value("params"), params);
-  }
-  return out;
-}
-
-Value Core::event_retry_transition(Value invocation_started, Value retry_safety, Value attempt, Value max_attempts) {
-  axir_coverage_mark("event_retry_transition");
-  Value out = Value::object();
-  Value idempotent = Core::eq(retry_safety, Value("idempotent"));
-  Value can_retry = Core::lt(attempt, max_attempts);
-  Value pre_invocation = Core::not_(invocation_started);
-  Value safe = Core::or_(pre_invocation, idempotent);
-  Value retry = Core::and_(safe, can_retry);
-  Core::set(out, Value("retry"), retry);
-  Core::set(out, Value("status"), Value("failed"));
-  if (Core::truthy(invocation_started)) {
-    if (Core::truthy(idempotent)) {
-      // empty
-    }
-    if (!Core::truthy(idempotent)) {
-      Core::set(out, Value("status"), Value("outcome_unknown"));
-      Core::set(out, Value("retry"), Value(false));
-    }
   }
   return out;
 }
@@ -18283,6 +18279,150 @@ Value Core::mcp_normalize_error(Value response) {
     return out;
   }
   return response;
+}
+
+Value Core::event_retry_transition(Value invocation_started, Value retry_safety, Value attempt, Value max_attempts) {
+  axir_coverage_mark("event_retry_transition");
+  Value out = Value::object();
+  Value idempotent = Core::eq(retry_safety, Value("idempotent"));
+  Value can_retry = Core::lt(attempt, max_attempts);
+  Value pre_invocation = Core::not_(invocation_started);
+  Value safe = Core::or_(pre_invocation, idempotent);
+  Value retry = Core::and_(safe, can_retry);
+  Core::set(out, Value("retry"), retry);
+  Core::set(out, Value("status"), Value("failed"));
+  if (Core::truthy(invocation_started)) {
+    if (Core::truthy(idempotent)) {
+      // empty
+    }
+    if (!Core::truthy(idempotent)) {
+      Core::set(out, Value("status"), Value("outcome_unknown"));
+      Core::set(out, Value("retry"), Value(false));
+    }
+  }
+  return out;
+}
+
+Value Core::event_resolve_path(Value ingress, Value path, Value continuation) {
+  axir_coverage_mark("event_resolve_path");
+  Value none = Core::none();
+  Value root = Core::get(path, Value("root"), Value("data"));
+  Value event = Core::get(ingress, Value("event"), ingress);
+  Value current = none;
+  Value is_data = Core::eq(root, Value("data"));
+  Value is_envelope = Core::eq(root, Value("envelope"));
+  Value is_extensions = Core::eq(root, Value("extensions"));
+  Value is_identity = Core::eq(root, Value("identity"));
+  Value is_trust = Core::eq(root, Value("trust"));
+  Value is_continuation = Core::eq(root, Value("continuation"));
+  Value is_constant = Core::eq(root, Value("constant"));
+  Value is_correlation = Core::eq(root, Value("correlation"));
+  if (Core::truthy(is_data)) {
+    current = Core::get(event, Value("data"), none);
+  }
+  if (Core::truthy(is_envelope)) {
+    current = event;
+  }
+  if (Core::truthy(is_extensions)) {
+    current = Core::get(event, Value("extensions"), none);
+  }
+  if (Core::truthy(is_identity)) {
+    current = Core::get(ingress, Value("identity"), none);
+  }
+  if (Core::truthy(is_trust)) {
+    current = Core::get(ingress, Value("trust"), Value("untrusted"));
+  }
+  if (Core::truthy(is_continuation)) {
+    current = Core::get(continuation, Value("metadata"), none);
+  }
+  if (Core::truthy(is_constant)) {
+    current = Core::get(path, Value("value"), none);
+  }
+  if (Core::truthy(is_correlation)) {
+    Value kind = Core::get(path, Value("correlationKind"), Value(""));
+    Value keys_empty = Value::array();
+    Value keys = Core::get(ingress, Value("correlation"), keys_empty);
+    for (auto key : Core::iter(keys)) {
+      Value candidate = Core::get(key, Value("kind"), Value(""));
+      Value matches = Core::eq(candidate, kind);
+      if (Core::truthy(matches)) {
+        current = Core::get(key, Value("value"), none);
+      }
+    }
+  }
+  Value segments_empty = Value::array();
+  Value segments = Core::get(path, Value("segments"), segments_empty);
+  for (auto segment : Core::iter(segments)) {
+    Value object = Core::type_is(current, Value("object"));
+    Value array = Core::type_is(current, Value("array"));
+    Value container = Core::or_(object, array);
+    if (Core::truthy(container)) {
+      current = Core::get(current, segment, none);
+    }
+    if (!Core::truthy(container)) {
+      current = none;
+    }
+  }
+  return current;
+}
+
+Value Core::event_map_input(Value ingress, Value plan, Value signature_fields, Value continuation) {
+  axir_coverage_mark("event_map_input");
+  Value none = Core::none();
+  Value out = Value::object();
+  Value result = Value::object();
+  Value error = none;
+  Value project_path = Core::get(plan, Value("project"), none);
+  Value projection = none;
+  Value has_project = Core::is_not_none(project_path);
+  if (Core::truthy(has_project)) {
+    projection = Core::event_resolve_path(ingress, project_path, continuation);
+  }
+  Value mappings_empty = Value::array();
+  Value mappings = Core::get(plan, Value("fields"), mappings_empty);
+  for (auto field : Core::iter(signature_fields)) {
+    Value name = Core::get(field, Value("name"), Value(""));
+    Value optional = Core::get(field, Value("optional"), Value(false));
+    Value selector = none;
+    for (auto mapping : Core::iter(mappings)) {
+      Value destination = Core::get(mapping, Value("field"), Value(""));
+      Value matches = Core::eq(destination, name);
+      if (Core::truthy(matches)) {
+        selector = Core::get(mapping, Value("path"), none);
+      }
+    }
+    Value value = none;
+    Value has_selector = Core::is_not_none(selector);
+    if (Core::truthy(has_selector)) {
+      value = Core::event_resolve_path(ingress, selector, continuation);
+    }
+    if (!Core::truthy(has_selector)) {
+      Value project_object = Core::type_is(projection, Value("object"));
+      if (Core::truthy(project_object)) {
+        value = Core::get(projection, name, none);
+      }
+    }
+    Value missing = Core::is_none(value);
+    if (Core::truthy(missing)) {
+      if (Core::truthy(optional)) {
+        // empty
+      }
+      if (!Core::truthy(optional)) {
+        error = Core::string_format(Value("Required signature input {} was not present"), name);
+      }
+    }
+    if (!Core::truthy(missing)) {
+      Core::set(out, name, value);
+    }
+  }
+  Value failed = Core::is_not_none(error);
+  Core::set(result, Value("ok"), Value(true));
+  Core::set(result, Value("value"), out);
+  if (Core::truthy(failed)) {
+    Core::set(result, Value("ok"), Value(false));
+    Core::set(result, Value("error"), error);
+  }
+  return result;
 }
 
 Value Core::event_continuation_match(Value continuations, Value identity_scope, Value kind, Value value, Value now) {
@@ -18316,6 +18456,46 @@ Value Core::event_continuation_match(Value continuations, Value identity_scope, 
     }
   }
   return result;
+}
+
+Value Core::event_delivery_due(Value status, Value available_at, Value now) {
+  axir_coverage_mark("event_delivery_due");
+  Value queued = Core::eq(status, Value("queued"));
+  Value ready = Core::lte(available_at, now);
+  Value due = Core::and_(queued, ready);
+  return due;
+}
+
+Value Core::event_capacity_transition(Value pending, Value queued_bytes, Value envelope_bytes, Value max_pending, Value max_queued_bytes, Value max_envelope_bytes) {
+  axir_coverage_mark("event_capacity_transition");
+  Value out = Value::object();
+  Value next_pending = Core::add(pending, Value(1));
+  Value next_bytes = Core::add(queued_bytes, envelope_bytes);
+  Value pending_ok = Core::lte(next_pending, max_pending);
+  Value queue_ok = Core::lte(next_bytes, max_queued_bytes);
+  Value envelope_ok = Core::lte(envelope_bytes, max_envelope_bytes);
+  Value queue_capacity = Core::and_(pending_ok, queue_ok);
+  Value accepted = Core::and_(queue_capacity, envelope_ok);
+  Core::set(out, Value("accepted"), accepted);
+  Core::set(out, Value("nextPending"), next_pending);
+  Core::set(out, Value("nextQueuedBytes"), next_bytes);
+  Core::set(out, Value("reason"), Value("capacity"));
+  if (Core::truthy(envelope_ok)) {
+    // empty
+  }
+  if (!Core::truthy(envelope_ok)) {
+    Core::set(out, Value("reason"), Value("envelope_too_large"));
+  }
+  return out;
+}
+
+Value Core::event_debounce_transition(Value now, Value debounce_ms, Value has_queued_predecessor) {
+  axir_coverage_mark("event_debounce_transition");
+  Value out = Value::object();
+  Value available_at = Core::add(now, debounce_ms);
+  Core::set(out, Value("availableAt"), available_at);
+  Core::set(out, Value("coalescePredecessor"), has_queued_predecessor);
+  return out;
 }
 
 Value Core::event_normalize_mcp(Value namespace_, Value method, Value params) {

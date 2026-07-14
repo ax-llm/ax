@@ -1,0 +1,43 @@
+{
+  "name": "event-input-path-mapping",
+  "kind": "event",
+  "operation": "mapping",
+  "ingress": {
+    "event": {
+      "specversion": "1.0",
+      "id": "mapping-1",
+      "source": "test://axevent",
+      "type": "event.mapping",
+      "data": {
+        "document": { "url": "https://example.com", "revision": 7 },
+        "canonical": "https://example.com/canonical"
+      }
+    },
+    "identity": { "tenantId": "tenant-1" },
+    "trust": "authenticated",
+    "correlation": [{ "kind": "job", "value": "job-42" }]
+  },
+  "plan": {
+    "project": { "root": "data", "segments": ["document"] },
+    "fields": [
+      { "field": "url", "path": { "root": "data", "segments": ["canonical"] } },
+      {
+        "field": "tenant",
+        "path": { "root": "identity", "segments": ["tenantId"] }
+      }
+    ]
+  },
+  "signature_fields": [
+    { "name": "url", "optional": false },
+    { "name": "revision", "optional": false },
+    { "name": "tenant", "optional": true }
+  ],
+  "expected": {
+    "ok": true,
+    "value": {
+      "url": "https://example.com/canonical",
+      "revision": 7,
+      "tenant": "tenant-1"
+    }
+  }
+}

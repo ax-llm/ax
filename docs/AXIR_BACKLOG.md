@@ -141,3 +141,21 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-04
   - Completed by: `working-tree`
   - Verification: `go -C tools/axir test -count=1 ./... (all 5 language conformance incl. the 3 new direct-respond fixtures and the G2 anti-facade self-test); packages/go: go run ./conformance ir/conformance/axagent-real (real goja engine executes model-authored respond() and skips the executor); npx vitest run src/ax/agent (663 tests incl. agent.directRespond.test.ts 20 cases + rlmPromptsSync primitives-parity test); node scripts/axir-prompt-sync-check.mjs`
+- `axir-2026-07-12-port-axeventruntime-deterministic-single-worker-semantics` [axprogram] Port AxEventRuntime deterministic single-worker semantics
+  - Status: done
+  - Source commit: `9c0520371669a553eed605351fdd5417a734da1f`
+  - TS paths: `src/ax/event`
+  - Impact: Generated Python, Java, C++, Go, and Rust currently expose only event normalization and route-command planning. They do not yet run sources, invoke targets, persist outputs, manage continuations, dispatch sinks, cancel runs, expose dead letters, or redrive deliveries, so the axevent.single-worker capability is not yet truthful.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-14
+  - Completed by: `816e0089acba4dbb46db72dd7029caf710495fd7`
+  - Verification: `npm run test:axir; lifecycle.json passes Python, Java, C++, Go, and Rust`
+- `axir-2026-07-12-port-mcp-event-listening-and-axeventruntime-adapter-semantics` [axmcp] Port MCP event listening and AxEventRuntime adapter semantics
+  - Status: done
+  - Source commit: `47856347b35aed15f2ec0f7884c235f0868c3f88`
+  - TS paths: `src/ax/mcp/client.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust do not yet expose composable MCP notification listeners, subscription restoration, or an AxMCPEventSource that publishes identity-scoped notifications into a functioning event runtime. Their wake/resume examples manually inspect commands and call program.forward().
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-14
+  - Completed by: `816e0089acba4dbb46db72dd7029caf710495fd7`
+  - Verification: `npm run test:mcp-events:generated; real localhost Streamable HTTP/SSE wake, task resume, reconnect, and resubscribe pass Python, Java, C++, Go, and Rust`

@@ -31,6 +31,10 @@ export class AxMCPEventDemoServer {
   private readonly history: Array<{ id: number; message: unknown }> = [];
   private readonly tasks = new Map<string, DemoTask>();
   private readonly subscriptions = new Set<string>();
+  private readonly subscriptionCounts = new Map<string, number>();
+  private readonly subscriptionWaiters = new Map<string, Set<() => void>>();
+  private readonly taskWaiters = new Set<(taskId: string) => void>();
+  private readonly listenerWaiters = new Set<() => void>();
   private sequence = 0;
   private sessionId = randomUUID();
   private endpoint?: string;
@@ -55,6 +59,88 @@ export class AxMCPEventDemoServer {
   updateResource(uri = 'demo://inventory'): void {
     if (!this.subscriptions.has(uri)) return;
     this.notify('notifications/resources/updated', { uri });
+  }
+
+  async waitForSubscription(
+    uri = 'demo://inventory',
+    timeoutMs = 15_000
+  ): Promise<void> {
+    if (this.subscriptions.has(uri)) return;
+    let resolveSignal!: () => void;
+    const signal = new Promise<void>((resolve) => {
+      resolveSignal = resolve;
+      const waiters = this.subscriptionWaiters.get(uri) ?? new Set();
+      waiters.add(resolve);
+      this.subscriptionWaiters.set(uri, waiters);
+    });
+    try {
+      await waitForDemoSignal(signal, `subscription ${uri}`, timeoutMs);
+    } finally {
+      this.subscriptionWaiters.get(uri)?.delete(resolveSignal);
+    }
+  }
+
+  isSubscribed(uri = 'demo://inventory'): boolean {
+    return this.subscriptions.has(uri);
+  }
+
+  getSubscriptionCount(uri = 'demo://inventory'): number {
+    return this.subscriptionCounts.get(uri) ?? 0;
+  }
+
+  async waitForSubscriptionCount(
+    count: number,
+    uri = 'demo://inventory',
+    timeoutMs = 15_000
+  ): Promise<void> {
+    const startedAt = Date.now();
+    while (this.getSubscriptionCount(uri) < count) {
+      if (Date.now() - startedAt >= timeoutMs) {
+        throw new Error(
+          `Timed out waiting for ${count} subscriptions to ${uri}`
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  async waitForTask(timeoutMs = 15_000): Promise<string> {
+    const existing = [...this.tasks.keys()].at(-1);
+    if (existing) return existing;
+    let remove!: (taskId: string) => void;
+    const signal = new Promise<string>((resolve) => {
+      remove = resolve;
+      this.taskWaiters.add(resolve);
+    });
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        signal,
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error('Timed out waiting for task creation')),
+            timeoutMs
+          );
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      this.taskWaiters.delete(remove);
+    }
+  }
+
+  async waitForListeningConnection(timeoutMs = 15_000): Promise<void> {
+    if (this.listeners.size > 0) return;
+    let resolveSignal!: () => void;
+    const signal = new Promise<void>((resolve) => {
+      resolveSignal = resolve;
+      this.listenerWaiters.add(resolve);
+    });
+    try {
+      await waitForDemoSignal(signal, 'MCP listening connection', timeoutMs);
+    } finally {
+      this.listenerWaiters.delete(resolveSignal);
+    }
   }
 
   changeCatalog(): void {
@@ -86,6 +172,10 @@ export class AxMCPEventDemoServer {
     request: IncomingMessage,
     response: ServerResponse
   ): Promise<void> {
+    if (request.url?.startsWith('/control/')) {
+      await this.control(request, response);
+      return;
+    }
     if (request.url !== '/mcp') {
       response.writeHead(404).end();
       return;
@@ -131,6 +221,61 @@ export class AxMCPEventDemoServer {
     }
   }
 
+  private async control(
+    request: IncomingMessage,
+    response: ServerResponse
+  ): Promise<void> {
+    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+    if (request.method === 'GET' && url.pathname === '/control/state') {
+      this.writeJSON(response, {
+        subscriptions: [...this.subscriptions],
+        subscriptionCounts: Object.fromEntries(this.subscriptionCounts),
+        listeners: this.listeners.size,
+        tasks: [...this.tasks.values()],
+      });
+      return;
+    }
+    if (request.method !== 'POST') {
+      response.writeHead(405).end();
+      return;
+    }
+    if (url.pathname === '/control/resource') {
+      this.updateResource(url.searchParams.get('uri') ?? 'demo://inventory');
+      response.writeHead(202).end();
+      return;
+    }
+    if (url.pathname === '/control/drop') {
+      this.dropListeningConnections();
+      response.writeHead(202).end();
+      return;
+    }
+    if (url.pathname === '/control/task/complete') {
+      const taskId =
+        url.searchParams.get('taskId') ?? [...this.tasks.keys()].at(-1);
+      if (!taskId) {
+        this.writeJSON(response, { error: 'No demo task exists' }, 409);
+        return;
+      }
+      this.completeTask(taskId);
+      this.writeJSON(response, this.requireTask(taskId));
+      return;
+    }
+    response.writeHead(404).end();
+  }
+
+  private writeJSON(
+    response: ServerResponse,
+    value: unknown,
+    status = 200
+  ): void {
+    const body = JSON.stringify(value);
+    response.writeHead(status, {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+    });
+    response.end(body);
+  }
+
   private listen(request: IncomingMessage, response: ServerResponse): void {
     response.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -144,6 +289,8 @@ export class AxMCPEventDemoServer {
       if (event.id > lastId) this.writeEvent(response, event);
     }
     this.listeners.add(response);
+    for (const resolve of this.listenerWaiters) resolve();
+    this.listenerWaiters.clear();
     request.on('close', () => this.listeners.delete(response));
   }
 
@@ -212,6 +359,15 @@ export class AxMCPEventDemoServer {
         };
       case 'resources/subscribe':
         this.subscriptions.add(String(message.params?.uri));
+        this.subscriptionCounts.set(
+          String(message.params?.uri),
+          (this.subscriptionCounts.get(String(message.params?.uri)) ?? 0) + 1
+        );
+        for (const resolve of this.subscriptionWaiters.get(
+          String(message.params?.uri)
+        ) ?? [])
+          resolve();
+        this.subscriptionWaiters.delete(String(message.params?.uri));
         return {};
       case 'resources/unsubscribe':
         this.subscriptions.delete(String(message.params?.uri));
@@ -243,6 +399,8 @@ export class AxMCPEventDemoServer {
       pollInterval: 250,
     };
     this.tasks.set(task.taskId, task);
+    for (const resolve of this.taskWaiters) resolve(task.taskId);
+    this.taskWaiters.clear();
     return task;
   }
 
@@ -295,6 +453,27 @@ export class AxMCPEventDemoServer {
       chunks.push(value);
     }
     return Buffer.concat(chunks).toString('utf8');
+  }
+}
+
+export async function waitForDemoSignal(
+  signal: Promise<void>,
+  label: string,
+  timeoutMs = 15_000
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      signal,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`Timed out waiting for ${label}`)),
+          timeoutMs
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 

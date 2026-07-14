@@ -250,6 +250,8 @@ var javaAxEventClock string
 var javaAxEventStore string
 //go:embed templates/mcp/javaAxEventRuntime.java
 var javaAxEventRuntime string
+//go:embed templates/mcp/javaAxMCPEventSource.java
+var javaAxMCPEventSource string
 
 //go:embed templates/mcp/javaAxExecutionContext.java
 var javaAxExecutionContext string

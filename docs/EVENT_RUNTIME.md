@@ -19,30 +19,35 @@ import {
   eventRoute,
   eventRuntime,
   eventTarget,
+  eventPath,
 } from '@ax-llm/ax';
 
 const source = new AxPushEventSource('orders');
-const target = eventTarget({
-  id: 'order-agent',
-  ai: llm,
-  program: orderAgent,
-  mapInput: ({ event }) => ({ order: event.data }),
-  retrySafety: 'idempotent',
-  sinks: [{
+const target = eventTarget('order-agent')
+  .program(orderAgent)
+  .ai(llm)
+  .input((input) =>
+    input
+      .project(eventPath.data())
+      .field('orderId', eventPath.data('orderId'))
+  )
+  .sink({
     id: 'results',
     write: (result, { run }) => saveResult(run.id, result),
-  }],
-});
+  })
+  .retrySafety('idempotent')
+  .build();
 
 const runtime = eventRuntime({
   sources: [source],
-  routes: [eventRoute({
-    id: 'new-order',
-    match: { types: ['commerce.order.created'] },
-    action: 'wake',
-    target,
-    requireAuthenticated: true,
-  })],
+  routes: [
+    eventRoute('new-order')
+      .types('commerce.order.created')
+      .authenticated()
+      .instanceKey(eventPath.subject())
+      .wake(target)
+      .build(),
+  ],
 });
 
 await runtime.start();
@@ -77,17 +82,82 @@ another tenant's notification.
 
 - `observe` records or forwards telemetry without calling a model.
 - `invalidate` refreshes a declared catalog or cache without calling a model.
-- `wake` starts a target with inputs produced by its typed `mapInput`.
+- `wake` starts a target with inputs produced by its typed input plan.
 - `resume` finds the continuation that owns a correlation key and restores its
   target instance.
 
 Matching an event is never enough to invoke an LLM. The route action remains
 the authorization boundary.
 
-Event data is not injected as a synthetic user message. `mapInput` selects and
-validates the fields accepted by the program signature. The immutable
+Event data is not injected as a synthetic user message. Declarative mappings
+and callback `mapInput` both select and validate the fields accepted by the
+program signature. The immutable
 `eventContext` remains available to nested programs and tool handlers for
 identity, trust, causation, cancellation, and idempotency.
+
+## Signature-Aware Input Mapping
+
+The program signature is the destination contract. `eventPath` describes
+segment-safe sources; it is not a dotted JSONPath string and `s()` remains only
+the signature builder.
+
+```ts
+const target = eventTarget('inventory-agent')
+  .program(program)
+  .ai(llm)
+  .wakeInput((input) =>
+    input
+      .project(eventPath.data())
+      .field('url', eventPath.data('uri'))
+      .field('revision', eventPath.data('revision'))
+  )
+  .resumeInput((input) =>
+    input
+      .field('url', eventPath.continuation('url'))
+      .field('revision', eventPath.data('revision'))
+  )
+  .waitFor('inventory.revision', eventPath.data('revision'), {
+    metadata: { url: eventPath.data('uri') },
+  })
+  .build();
+```
+
+For a callback-free mapping that can be reused or assembled separately from
+the target chain, build the plan explicitly and pass it to `.wakeInput()`:
+
+```ts
+const wakeInput = eventInput<{
+  url: string;
+  revision: number;
+}>()
+  .project(eventPath.data())
+  .field('url', eventPath.data('uri'));
+
+const target = eventTarget('inventory-agent')
+  .program(program)
+  .ai(llm)
+  .wakeInput(wakeInput)
+  .build();
+```
+
+`.project(path)` copies only same-named fields declared by the signature;
+unknown event fields are ignored. Explicit `.field()` mappings override the
+projection. Required fields, field types, unsafe path segments, duplicate
+destinations, and factory signature mismatches fail as non-retryable
+`event_input_invalid` deliveries before invocation starts. Callback `mapInput`
+results pass through the same signature normalization: undeclared fields are
+discarded and mapper failures are non-retryable. A common `.input()`
+may serve both actions; action-specific mappings win, and wake never falls back
+to `resumeInput` or resume to `wakeInput`.
+
+`createProgram` takes a declared signature before its factory so every created
+program can be checked against the mapping contract. Object-form targets and
+callback `mapInput` remain compatibility escape hatches, but callback mapping
+and declarative mapping cannot be combined.
+
+One route owns one target. To wake several Agents from one event, add several
+matching routes. Each route then keeps independent authorization, instance
+ordering, retry, cancellation, and run records.
 
 ## State and Instances
 
@@ -193,6 +263,11 @@ identity from the application's token mapping; MCP sessions alone are
 anonymous. `axMCPEventRoutes({ client })` provides observe/invalidate/task
 resume defaults, while resource changes require an explicit wake route.
 
+Local Streamable HTTP examples set `AX_MCP_ENDPOINT` and explicitly enable
+loopback HTTP in their transport SSRF policy; remote endpoints retain secure
+HTTPS defaults. Close the source/runtime before closing the caller-owned MCP
+client so unsubscribe and cancellation messages can still be sent.
+
 ## UCP Webhook Adapter
 
 `AxUCPWebhookEventSource` is request ingestion, not an HTTP server. Mount its
@@ -209,9 +284,27 @@ acknowledge a webhook before durable acceptance.
 ## Generated Languages
 
 AxIR owns the deterministic event state machine used by TypeScript, Python,
-Java, C++, Go, and Rust: route selection, trust gates, retry classification,
-continuation matching, and MCP event normalization. Generated hosts expose
-source, sink, clock, and store boundaries and advertise
-`axevent.single-worker`. Host timers and asynchronous supervision remain native
-to each ecosystem. Multi-worker capability is advertised only when that
-language has a persistent store passing its conformance runner.
+Java, C++, Go, and Rust: route selection, trust gates, input mapping, retry
+classification, continuation matching, and MCP event normalization. Generated
+hosts expose source, sink, clock, store, target, and runtime lifecycle
+boundaries. Their volatile inline dispatcher implements start, publish, close,
+cancellation, run inspection, continuations, state restoration, dead letters,
+sink-only redrive, and output-before-sink ordering without a hidden worker
+thread. `publish()` atomically enqueues and drains deliveries due at the
+injected clock's current time. Debounced work and delayed retries remain
+queued; the host schedules `runDue()` using `nextDueAt()`. `redrive()` makes the
+delivery due at the current clock and drains it immediately.
+
+System and manually advanced clocks provide `now()` and cancellable `sleep()`.
+Generated in-memory stores enforce the same 10,000-delivery, 64 MiB queue,
+1 MiB envelope, and five-second publication limits as TypeScript. Strict
+target/instance ordering, latest-value coalescing, retry delay, and continuation
+expiry all use the injected clock. Each host also exposes idiomatic
+segment-safe path, input-plan, target, and route builders. Generated targets
+accept the host `AxSignature` plus a typed invocation callback (and program
+adapters where the host has an object-safe program surface); mapped values are
+validated before that callback runs. Host timers and asynchronous
+supervision remain native to each ecosystem. The `axevent.single-worker`
+capability is emitted only after all generated lifecycle conformance runners
+pass; multi-worker capability is advertised only when that language has a
+persistent store passing its store conformance runner.

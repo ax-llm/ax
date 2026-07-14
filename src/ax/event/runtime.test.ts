@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AxAgentClarificationError } from '../agent/agentInternal/agentStateTypes.js';
+import { AxSignature } from '../dsp/sig.js';
 import type { AxProgrammable } from '../dsp/types.js';
 import { AxInMemoryEventStore } from './memoryStore.js';
 import { AxEventRuntime, eventRoute, eventTarget } from './runtime.js';
@@ -15,10 +16,13 @@ const ai = {} as any;
 
 function program(
   forward: (input: any, options?: any) => unknown | Promise<unknown>,
-  id = 'test-program'
+  id = 'test-program',
+  signature = 'eventId?:string -> handled:boolean'
 ): AxProgrammable<any, any> {
+  const parsed = new AxSignature(signature);
   return {
     getId: () => id,
+    getSignature: () => parsed,
     forward: (_ai: unknown, input: unknown, options?: unknown) =>
       Promise.resolve(forward(input, options)),
     streamingForward: async function* () {},
@@ -78,8 +82,14 @@ describe('AxEventRuntime', () => {
     const target = eventTarget({
       id: 'summarize',
       ai,
-      program: program(({ value }) => ({ summary: `seen:${value}` })),
-      mapInput: (value) => value.event.data,
+      program: program(
+        ({ documentId }) => ({ summary: `seen:${documentId}` }),
+        'test-program',
+        'documentId:string -> summary:string'
+      ),
+      mapInput: (value) => ({
+        documentId: String((value.event.data as { value: string }).value),
+      }),
       retrySafety: 'idempotent',
       sinks: [sink],
     });
@@ -209,7 +219,11 @@ describe('AxEventRuntime', () => {
     const target = eventTarget({
       id: 'continuable',
       ai,
-      program: program(forward),
+      program: program(
+        forward,
+        'continuable',
+        'phase:string -> phaseResult?:string'
+      ),
       mapInput: (value, context) => {
         if (value.event.type === 'job.started') {
           context.eventContext.registerContinuation({
@@ -317,8 +331,12 @@ describe('AxEventRuntime', () => {
       ai,
       createProgram: () => {
         let count = 0;
+        const signature = new AxSignature(
+          'eventId?:string -> counterValue:number'
+        );
         return {
           getId: () => 'counter-v1',
+          getSignature: () => signature,
           getState: () => ({ count }),
           setState: (state: unknown) => {
             count = (state as { count: number }).count;

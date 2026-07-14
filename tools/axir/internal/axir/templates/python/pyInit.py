@@ -33,7 +33,7 @@ from .ai import (
 from .gen import AxGen, AxMemory, ax
 from .agent import AxAgent, AxAgentClarificationError, AxBootstrapFewShot, AxCodeRuntime, AxCodeSession, AxGEPA, AxPlaybook, OptimizerEngine, OptimizerEvaluator, agent, optimize, playbook
 from .flow import AxFlow, AxProgram, flow
-from .mcp import AxEventClock, AxEventCommand, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxExecutionContext, AxMCPClient, AxMCPContinuationState, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxUCPBinding, AxUCPClient
+from .mcp import AxEventCancellationToken, AxEventClock, AxEventCommand, AxEventContinuation, AxEventDeadLetter, AxEventEnvelope, AxEventInputBuilder, AxEventInputError, AxEventInputPlan, AxEventPath, AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxEventTargetBuilder, AxExecutionContext, AxInMemoryEventStore, AxManualEventClock, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions, AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxPushEventSource, AxSystemEventClock, AxUCPBinding, AxUCPClient, event_input, event_path, event_route, event_target
 from .prompt import AxPromptTemplate, TemplateError, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, ProcessCodeSession, RuntimeCapabilities, RuntimeEnvelope
 from .runtime_quickjs import AxQuickJsCodeRuntime, AxQuickJsCodeSession
@@ -66,19 +66,37 @@ __all__ = [
     "AxExecutionContext",
     "AxEventClock",
     "AxEventCommand",
+    "AxEventContinuation",
+    "AxEventDeadLetter",
     "AxEventEnvelope",
+    "AxEventInputBuilder",
+    "AxEventInputError",
+    "AxEventInputPlan",
+    "AxEventPath",
+    "AxEventPublishReceipt",
     "AxEventRoute",
+    "AxEventRouteBuilder",
+    "AxEventRun",
     "AxEventRuntime",
     "AxEventSink",
     "AxEventSource",
     "AxEventStore",
+    "AxEventTarget",
+    "AxEventTargetBuilder",
+    "AxEventCancellationToken",
+    "AxInMemoryEventStore",
+    "AxManualEventClock",
     "AxMCPClient",
     "AxMCPContinuationState",
+    "AxMCPEventSource",
     "AxMCPOAuthOptions",
+    "AxMCPScriptedTransport",
     "AxMCPStdioTransport",
     "AxMCPStreamableHTTPTransport",
     "AxMCPTokenSet",
     "AxMCPTransport",
+    "AxPushEventSource",
+    "AxSystemEventClock",
     "AxUCPBinding",
     "AxUCPClient",
     "OptimizerEngine",
@@ -116,6 +134,10 @@ __all__ = [
     "f",
     "fn",
     "flow",
+    "event_input",
+    "event_path",
+    "event_route",
+    "event_target",
     "get_supported_ai_models",
     "optimize",
     "playbook",

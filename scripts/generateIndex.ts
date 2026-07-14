@@ -65,6 +65,8 @@ function hasValidPrefix(name: string): boolean {
       name === 'agent' ||
       name === 'flow' ||
       name === 'eventRuntime' ||
+      name === 'eventInput' ||
+      name === 'eventPath' ||
       name === 'eventRoute' ||
       name === 'eventTarget' ||
       name === 'runAxEventStoreConformance' ||

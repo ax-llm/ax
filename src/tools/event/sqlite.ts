@@ -248,16 +248,20 @@ export class AxSQLiteEventStore implements AxEventStore, AxProgramStateStore {
   async saveRun(run: Readonly<AxEventRun>): Promise<void> {
     this.assertFence(run.deliveryId, run.fencingToken);
     let stored: AxEventRun = structuredClone(run);
-    const encoded = JSON.stringify(stored);
-    if (Buffer.byteLength(encoded) > this.maxInlinePayloadBytes) {
-      if (run.output === undefined || !this.options.payloadStore) {
+    const hasPayload = run.output !== undefined || run.chunks !== undefined;
+    const payload = { output: run.output, chunks: run.chunks };
+    if (
+      hasPayload &&
+      Buffer.byteLength(JSON.stringify(payload)) > this.maxInlinePayloadBytes
+    ) {
+      if (!this.options.payloadStore) {
         throw new Error(
           `output_persistence_failed: run ${run.id} exceeded ${this.maxInlinePayloadBytes} inline bytes`
         );
       }
       const outputRef = await this.options.payloadStore.put(
         `event-run:${run.id}`,
-        { output: run.output, chunks: run.chunks }
+        payload
       );
       stored = {
         ...stored,

@@ -20,14 +20,23 @@ import (
 
 func main() {
 	key, endpoint := os.Getenv("OPENAI_API_KEY"), os.Getenv("MCP_URL")
-	if key == "" { key = os.Getenv("OPENAI_APIKEY") }
-	if key == "" || endpoint == "" { panic("Set OPENAI_API_KEY and MCP_URL.") }
+	if key == "" {
+		key = os.Getenv("OPENAI_APIKEY")
+	}
+	if key == "" || endpoint == "" {
+		panic("Set OPENAI_API_KEY and MCP_URL.")
+	}
 	transport, err := ax.NewAxMCPStreamableHTTPTransport(endpoint, nil)
-	if err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 	mcp := ax.NewAxMCPClient(transport, map[string]ax.Value{"namespace": "inventory"})
+	defer func() { _ = mcp.Close() }()
 	program := ax.NewAx("request:string -> answer:string", map[string]ax.Value{"mcp": mcp})
 	llm := ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": key, "model": "gpt-5.4-mini"})
 	output, err := program.Forward(context.Background(), llm, map[string]ax.Value{"request": "Reindex inventory."}, nil)
-	if err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 	fmt.Println(output)
 }

@@ -201,6 +201,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/AxEventClock.java":                              javaAxEventClock,
 		"dev/axllm/ax/AxEventStore.java":                              javaAxEventStore,
 		"dev/axllm/ax/AxEventRuntime.java":                            javaAxEventRuntime,
+		"dev/axllm/ax/AxMCPEventSource.java":                         javaAxMCPEventSource,
 		"dev/axllm/ax/AxExecutionContext.java":                         javaAxExecutionContext,
 		"dev/axllm/ax/AxMCPContinuationState.java":                     javaAxMCPContinuationState,
 		"dev/axllm/ax/AxUCPBinding.java":                               javaAxUCPBinding,
@@ -842,10 +843,12 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axmcp-session-headers",
 			"axmcp-ssrf-protection",
 			"axevent.single-worker",
+			"axevent-lifecycle-dispatch",
 			"axevent-routing",
 			"axevent-retry-classification",
 			"axevent-continuations",
 			"axevent-mcp-normalization",
+			"axevent-input-mapping",
 		}),
 		PublicSymbols: publicSymbols,
 		TargetIdiom:   idiom,
@@ -1628,6 +1631,8 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axevent", "event", "retry", "semantic"},
 		{"axevent", "event", "continuation", "semantic"},
 		{"axevent", "event", "mcp_normalization", "semantic"},
+		{"axevent", "event", "mapping", "semantic"},
+		{"axevent", "event", "lifecycle", "semantic"},
 	} {
 		add(entry.suite, entry.kind, entry.operation, entry.category)
 	}

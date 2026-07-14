@@ -144,12 +144,18 @@ skills. The committed package output lives under `packages/python`,
 `packages/java`, `packages/cpp`, `packages/go`, and `packages/rust`; AxIR
 remains the source of truth.
 
-Every generated package advertises `axevent.single-worker` and exposes the same
-event envelope, route, command, source, sink, clock, store, and runtime
-boundaries. AxIR owns the deterministic state machine; each host owns its timer
-and asynchronous listening loop. Persistent multi-worker capability is not
-inferred from this baseline and is advertised only for a store that passes the
-language's event-store conformance runner.
+Every generated package advertises `axevent.single-worker` and
+`axevent-lifecycle-dispatch` and exposes the same event envelope, route,
+command, source, sink, clock, store, target, and runtime boundaries. The five
+generated conformance runners prove due scheduling, capacity limits, state
+restore, continuation consumption, cancellation, run inspection, dead letters,
+and sink-only redrive. Generated path/input builders use the host signature type
+as the destination contract and validate inputs before invoking the typed target
+callback. AxIR owns the deterministic state machine; each host owns its timer
+and asynchronous listening loop.
+Persistent multi-worker capability is not inferred from this baseline and is
+advertised only for a store that passes the language's event-store conformance
+runner.
 
 Public examples remain under `src/examples/<language>/<group>/` and are
 generated from each file's `ax-example` header. Generated Python, Java, C++,

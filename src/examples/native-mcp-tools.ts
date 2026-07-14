@@ -12,23 +12,26 @@ if (!apiKey) throw new Error('Set OPENAI_API_KEY or OPENAI_APIKEY.');
 
 const server = new AxMCPEventDemoServer();
 const endpoint = await server.start();
-const client = new AxMCPClient(new AxMCPStreamableHTTPTransport(endpoint), {
-  namespace: 'inventory',
-});
+const client = new AxMCPClient(
+  new AxMCPStreamableHTTPTransport(endpoint, {
+    ssrfProtection: { allowHTTP: true, allowLoopback: true },
+  }),
+  { namespace: 'inventory' }
+);
 const llm = ai({
   name: 'openai',
   apiKey,
   config: { model: AxAIOpenAIModel.GPT54Mini, temperature: 0 },
 });
 const reindex = ax(
-  'request:string -> answer:string "Use the inventory MCP tool and report the returned task id."',
+  'taskRequest:string -> answer:string "Use the inventory MCP tool and report the returned task id."',
   { mcp: client }
 );
 
 try {
   console.log(
     await reindex.forward(llm, {
-      request: 'Start an inventory reindex for the west warehouse.',
+      taskRequest: 'Start an inventory reindex for the west warehouse.',
     })
   );
 } finally {

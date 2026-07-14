@@ -365,6 +365,7 @@ Value HttpTransport::call(Value request) {
   }
 
   std::string response;
+  Value response_headers = Value::object();
   char error_buffer[CURL_ERROR_SIZE] = {0};
 
   // Build the request body. Normal operations carry a JSON payload under "json";
@@ -413,6 +414,20 @@ Value HttpTransport::call(Value request) {
     return size * nmemb;
   });
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+  curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+    auto* out = static_cast<Value*>(userdata);
+    std::string line(ptr, size * nmemb);
+    auto colon = line.find(':');
+    if (colon != std::string::npos) {
+      auto name = line.substr(0, colon);
+      auto value = line.substr(colon + 1);
+      auto begin = value.find_first_not_of(" \t");
+      auto end = value.find_last_not_of(" \t\r\n");
+      if (begin != std::string::npos) Core::set(*out, name, value.substr(begin, end - begin + 1));
+    }
+    return size * nmemb;
+  });
+  curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response_headers);
   if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
   if (method == "POST") {
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
@@ -447,6 +462,7 @@ Value HttpTransport::call(Value request) {
   Value out = Value::object();
   Core::set(out, "status", static_cast<double>(status));
   Core::set(out, "contentType", content_type);
+  Core::set(out, "headers", response_headers);
   if (binary_response) {
     // Base64-encode the full (binary-safe) body; response may contain NULs, so
     // axir_base64_encode reads its whole .size() rather than a c_str().
@@ -505,6 +521,8 @@ Value Core::div(Value left, Value right) {
   double denom = num(right);
   return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
+
+double Core::number(Value value) { return num(value); }
 Value Core::contains(Value container, Value item) {
   if (container.is_object()) return Value(has_key(container, key_string(item)));
   if (container.is_array()) {

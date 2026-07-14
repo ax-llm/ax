@@ -30,6 +30,10 @@ public final class AxMCPClient {
   private String serverInstructions;
   private String negotiatedProtocolVersion;
   private int nextId = 1;
+  private int nextListenerId = 1;
+  private final Map<Integer,Consumer<Map<String,Object>>> notificationListeners = new LinkedHashMap<>();
+  private final Map<Integer,Consumer<String>> lifecycleListeners = new LinkedHashMap<>();
+  private boolean initialized;
 
   public AxMCPClient(AxMCPTransport transport) {
     this(transport, Map.of());
@@ -39,9 +43,11 @@ public final class AxMCPClient {
     this.transport = transport;
     this.options = options == null ? Map.of() : new LinkedHashMap<>(options);
     this.transport.setMessageHandler(this::handleInboundMessage);
+    this.transport.setLifecycleHandler(this::emitLifecycle);
   }
 
-  public void init() {
+  public synchronized void init() {
+    if (initialized) return;
     transport.connect();
     Map<String, Object> params = new LinkedHashMap<>();
     params.put("protocolVersion", options.getOrDefault("protocolVersion", AX_MCP_PROTOCOL_VERSION));
@@ -64,7 +70,11 @@ public final class AxMCPClient {
     if (result.get("instructions") != null) serverInstructions = String.valueOf(result.get("instructions"));
     notify("notifications/initialized", null);
     refresh();
+    initialized = true;
+    transport.startListening();
   }
+
+  public synchronized void close() { initialized = false; transport.close(); }
 
   public void refresh() {
     tools.clear();
@@ -92,6 +102,10 @@ public final class AxMCPClient {
   public Map<String, Object> getPrompt(String name, Map<String, Object> arguments) { return request("prompts/get", Map.of("name", name, "arguments", arguments == null ? Map.of() : arguments)); }
   public Map<String, Object> listResources(String cursor) { return request("resources/list", cursor == null ? Map.of() : Map.of("cursor", cursor)); }
   public Map<String, Object> readResource(String uri) { return request("resources/read", Map.of("uri", uri)); }
+  public Map<String,Object> subscribeResource(String uri){return request("resources/subscribe",Map.of("uri",uri));}
+  public Map<String,Object> unsubscribeResource(String uri){return request("resources/unsubscribe",Map.of("uri",uri));}
+  public Map<String,Object> getTask(String taskId){return request("tasks/get",Map.of("taskId",taskId));}
+  public Map<String,Object> cancelTask(String taskId){return request("tasks/cancel",Map.of("taskId",taskId));}
   public Map<String, Object> listResourceTemplates(String cursor) { return request("resources/templates/list", cursor == null ? Map.of() : Map.of("cursor", cursor)); }
 
   public void cancelRequest(Object requestId, String reason) {
@@ -100,6 +114,11 @@ public final class AxMCPClient {
     if (reason != null) params.put("reason", reason);
     notify("notifications/cancelled", params);
   }
+  public int addNotificationListener(Consumer<Map<String,Object>> listener){int id=nextListenerId++;notificationListeners.put(id,listener);return id;}
+  public void removeNotificationListener(int id){notificationListeners.remove(id);}
+  public int addLifecycleListener(Consumer<String> listener){int id=nextListenerId++;lifecycleListeners.put(id,listener);return id;}
+  public void removeLifecycleListener(int id){lifecycleListeners.remove(id);}
+  public void emitLifecycle(String state){for(Consumer<String> listener:List.copyOf(lifecycleListeners.values()))listener.accept(state);}
 
   public List<Tool> toFunction() {
     List<Tool> out = new ArrayList<>();
@@ -178,6 +197,7 @@ public final class AxMCPClient {
       Consumer<Map<String, Object>> consumer = (Consumer<Map<String, Object>>) raw;
       consumer.accept(message);
     }
+    for(Consumer<Map<String,Object>> listener:List.copyOf(notificationListeners.values()))listener.accept(message);
   }
 
   private Tool toolToFunction(Map<String, Object> tool) {
