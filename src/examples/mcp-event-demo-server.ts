@@ -148,7 +148,7 @@ export class AxMCPEventDemoServer {
     }
   }
 
-  async waitForUnsubscription(uri: string, timeoutMs = 15_000): Promise<void> {
+  async waitForUnsubscribe(uri: string, timeoutMs = 15_000): Promise<void> {
     const startedAt = Date.now();
     while (this.subscriptions.has(uri)) {
       if (Date.now() - startedAt >= timeoutMs) {

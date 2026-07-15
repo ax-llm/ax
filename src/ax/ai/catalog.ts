@@ -258,16 +258,19 @@ const axMatchesModelCatalogFilter = (
   return filters.has('text') && model.type === 'code';
 };
 
-const axModelCatalogPrice = (model: Readonly<AxModelInfo>): number => {
-  const hasPromptPrice = typeof model.promptTokenCostPer1M === 'number';
-  const hasCompletionPrice = typeof model.completionTokenCostPer1M === 'number';
+const axModelCatalogPrice = (
+  model: Readonly<AxModelInfo> | undefined
+): number => {
+  const hasPromptPrice = typeof model?.promptTokenCostPer1M === 'number';
+  const hasCompletionPrice =
+    typeof model?.completionTokenCostPer1M === 'number';
 
   if (!hasPromptPrice && !hasCompletionPrice) {
     return Number.POSITIVE_INFINITY;
   }
 
   return (
-    (model.promptTokenCostPer1M ?? 0) + (model.completionTokenCostPer1M ?? 0)
+    (model?.promptTokenCostPer1M ?? 0) + (model?.completionTokenCostPer1M ?? 0)
   );
 };
 
@@ -347,8 +350,7 @@ export const axGetSupportedAIModels = (
     )
     .sort((a, b) => {
       const priceDelta =
-        axModelCatalogPrice(a.models[0] ?? {}) -
-        axModelCatalogPrice(b.models[0] ?? {});
+        axModelCatalogPrice(a.models[0]) - axModelCatalogPrice(b.models[0]);
       if (priceDelta !== 0) return priceDelta;
 
       return a.displayName.localeCompare(b.displayName);

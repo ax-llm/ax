@@ -116,7 +116,7 @@ describe('AxMCPEventSource over real localhost Streamable HTTP/SSE', () => {
       server.addResource();
       await server.waitForSubscription('demo://alerts');
       server.removeResource('demo://orders');
-      await server.waitForUnsubscription('demo://orders');
+      await server.waitForUnsubscribe('demo://orders');
       const inventorySubscriptions =
         server.getSubscriptionCount('demo://inventory');
       const alertSubscriptions = server.getSubscriptionCount('demo://alerts');

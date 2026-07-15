@@ -218,21 +218,27 @@ function normalizeClarificationChoice(
     );
   }
 
-  if (!isNonEmptyString(choice.label)) {
+  const { label, value } = choice;
+
+  if (!isNonEmptyString(label)) {
     throw new Error(
       'askClarification() choice objects require a non-empty label'
     );
   }
 
-  if (choice.value !== undefined && !isNonEmptyString(choice.value)) {
-    throw new Error(
-      'askClarification() choice object values must be non-empty strings'
-    );
+  let normalizedValue: string | undefined;
+  if (value !== undefined) {
+    if (!isNonEmptyString(value)) {
+      throw new Error(
+        'askClarification() choice object values must be non-empty strings'
+      );
+    }
+    normalizedValue = value;
   }
 
   return {
-    label: choice.label,
-    ...(choice.value !== undefined ? { value: choice.value } : {}),
+    label,
+    ...(normalizedValue !== undefined ? { value: normalizedValue } : {}),
   };
 }
 

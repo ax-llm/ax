@@ -282,16 +282,17 @@ export function mapEventInput<IN>(
   continuation?: Readonly<AxEventContinuation>
 ): IN {
   validateEventInputPlan(plan, signature, 'Event input plan');
-  const projection = plan.project
-    ? resolveEventPath(plan.project, ingress, continuation)
-    : undefined;
-  if (
-    plan.project &&
-    (projection === null ||
-      typeof projection !== 'object' ||
-      Array.isArray(projection))
-  ) {
-    throw new AxEventInputError('Projected event input must be an object');
+  let projection: Record<string, unknown> | undefined;
+  if (plan.project) {
+    const resolved = resolveEventPath(plan.project, ingress, continuation);
+    if (
+      resolved === null ||
+      typeof resolved !== 'object' ||
+      Array.isArray(resolved)
+    ) {
+      throw new AxEventInputError('Projected event input must be an object');
+    }
+    projection = resolved as Record<string, unknown>;
   }
   const explicit = new Map(
     plan.fields.map((value) => [value.field, value.path])
@@ -303,7 +304,7 @@ export function mapEventInput<IN>(
       ? resolveEventPath(selector, ingress, continuation)
       : undefined;
     if (!selector && projection && Object.hasOwn(projection, field.name)) {
-      value = (projection as Record<string, unknown>)[field.name];
+      value = projection[field.name];
     }
     if (value === undefined) continue;
     Object.defineProperty(output, field.name, {

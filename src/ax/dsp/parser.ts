@@ -110,8 +110,8 @@ class SignatureParser {
 
       this.currentSection = 'inputs';
       // Use the specialized input field parser
-      const inputs = this.parseFieldList(
-        this.parseInputField.bind(this),
+      const inputs = this.parseFieldList<InputParsedField>(
+        () => this.parseInputField(),
         'input'
       );
       this.skipWhitespace();
@@ -139,8 +139,8 @@ class SignatureParser {
 
       this.currentSection = 'outputs';
       // Use the specialized output field parser
-      const outputs = this.parseFieldList(
-        this.parseOutputField.bind(this),
+      const outputs = this.parseFieldList<OutputParsedField>(
+        () => this.parseOutputField(),
         'output'
       );
 

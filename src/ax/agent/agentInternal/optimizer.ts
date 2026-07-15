@@ -162,7 +162,7 @@ export async function optimizeAgent<IN extends AxGenIn, OUT extends AxGenOut>(
     }
   );
 
-  const wrappedOptimizedProgram = result.optimizedProgram as
+  const wrappedOptimizedProgram = result.optimizedProgram as unknown as
     | AxOptimizedProgram<OUT>
     | undefined;
 
