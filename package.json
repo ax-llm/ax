@@ -13,7 +13,7 @@
     "ci:verify": "npm run build && npm test",
     "fix": "npm run fix --workspaces --if-present",
     "test": "run-s test:axir:tools test:axir test:axir:packages test:examples:generated test:format test:lint test:tests test:spelling",
-    "test:axir:tools": "vitest run scripts/axir-backlog.test.js scripts/axir-conformance-sync.test.js",
+    "test:axir:tools": "vitest run scripts/axir-backlog.test.js scripts/axir-conformance-sync.test.js scripts/ci-scope.test.js",
     "test:axir": "node scripts/test-axir.mjs",
     "test:axir:packages": "npm run axir:check-packages",
     "test:examples:generated": "node scripts/test-generated-examples.mjs",

@@ -14,8 +14,30 @@ env:
   HUGO_VERSION: '0.162.0'
 
 jobs:
+  changes:
+    name: Detect CI Scope
+    runs-on: ubuntu-latest
+    outputs:
+      axir: ${{ steps.scope.outputs.run_axir }}
+      core: ${{ steps.scope.outputs.run_core }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.x'
+      - name: Detect CI scope
+        id: scope
+        run: node scripts/ci-scope.mjs --base "$DIFF_BASE" --head HEAD --github-output "$GITHUB_OUTPUT"
+        env:
+          DIFF_BASE: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
+
   build:
     name: Build
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +92,8 @@ jobs:
 
   workspace-tests:
     name: Workspace Tests
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -86,6 +110,8 @@ jobs:
 
   generated-examples:
     name: Generated Examples
+    needs: changes
+    if: needs.changes.outputs.axir == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -143,6 +169,8 @@ jobs:
 
   axir-packages:
     name: AxIR Package Freshness
+    needs: changes
+    if: needs.changes.outputs.axir == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -196,6 +224,8 @@ jobs:
 
   axir-verify:
     name: AxIR Verify (${{ matrix.target }})
+    needs: changes
+    if: needs.changes.outputs.axir == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -269,6 +299,8 @@ jobs:
     # guard that every actor stage has a code signature + runtime loop and that these fixtures run code,
     # not a hand-fed completion.
     name: AxIR Agent Real-Engine Antidote
+    needs: changes
+    if: needs.changes.outputs.axir == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -339,6 +371,7 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     needs:
+      - changes
       - build
       - repo-checks
       - workspace-tests
@@ -350,17 +383,56 @@ jobs:
     steps:
       - name: Check all CI shards
         run: |
+          core_scope="${{ needs.changes.outputs.core }}"
+          axir_scope="${{ needs.changes.outputs.axir }}"
+          for scope in "$core_scope" "$axir_scope"; do
+            case "$scope" in
+              true|false) ;;
+              *)
+                echo "Invalid or missing CI scope output: '$scope'"
+                exit 1
+                ;;
+            esac
+          done
+
+          for result in \
+            "${{ needs.changes.result }}" \
+            "${{ needs.repo-checks.result }}" \
+            "${{ needs.website.result }}"; do
+            if [ "$result" != "success" ]; then
+              echo "Required CI shard failed or was skipped: $result"
+              exit 1
+            fi
+          done
+
+          if [ "$core_scope" = "true" ]; then
+            expected=success
+          else
+            expected=skipped
+          fi
+
           for result in \
             "${{ needs.build.result }}" \
-            "${{ needs.repo-checks.result }}" \
-            "${{ needs.workspace-tests.result }}" \
+            "${{ needs.workspace-tests.result }}"; do
+            if [ "$result" != "$expected" ]; then
+              echo "Core CI shard result $result, expected $expected"
+              exit 1
+            fi
+          done
+
+          if [ "$axir_scope" = "true" ]; then
+            expected=success
+          else
+            expected=skipped
+          fi
+
+          for result in \
             "${{ needs.generated-examples.result }}" \
             "${{ needs.axir-packages.result }}" \
-            "${{ needs.website.result }}" \
             "${{ needs.axir-verify.result }}" \
             "${{ needs.axir-agent-antidote.result }}"; do
-            if [ "$result" != "success" ]; then
-              echo "CI shard failed or was skipped: $result"
+            if [ "$result" != "$expected" ]; then
+              echo "AxIR CI shard result $result, expected $expected"
               exit 1
             fi
           done
