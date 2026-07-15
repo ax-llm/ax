@@ -23,6 +23,13 @@ type DemoTask = {
   pollInterval: number;
 };
 
+type DemoResource = {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+};
+
 export class AxMCPEventDemoServer {
   private readonly server = createServer((request, response) => {
     void this.handle(request, response);
@@ -30,6 +37,26 @@ export class AxMCPEventDemoServer {
   private readonly listeners = new Set<ServerResponse>();
   private readonly history: Array<{ id: number; message: unknown }> = [];
   private readonly tasks = new Map<string, DemoTask>();
+  private readonly resources = new Map<string, DemoResource>([
+    [
+      'demo://inventory',
+      {
+        uri: 'demo://inventory',
+        name: 'Inventory snapshot',
+        description: 'Current warehouse inventory',
+        mimeType: 'application/json',
+      },
+    ],
+    [
+      'demo://orders',
+      {
+        uri: 'demo://orders',
+        name: 'Open orders',
+        description: 'Orders waiting for fulfillment',
+        mimeType: 'application/json',
+      },
+    ],
+  ]);
   private readonly subscriptions = new Set<string>();
   private readonly subscriptionCounts = new Map<string, number>();
   private readonly subscriptionWaiters = new Map<string, Set<() => void>>();
@@ -59,6 +86,23 @@ export class AxMCPEventDemoServer {
   updateResource(uri = 'demo://inventory'): void {
     if (!this.subscriptions.has(uri)) return;
     this.notify('notifications/resources/updated', { uri });
+  }
+
+  addResource(
+    resource: DemoResource = {
+      uri: 'demo://alerts',
+      name: 'Inventory alerts',
+      description: 'Low-stock and fulfillment alerts',
+      mimeType: 'application/json',
+    }
+  ): void {
+    this.resources.set(resource.uri, { ...resource });
+    this.notify('notifications/resources/list_changed');
+  }
+
+  removeResource(uri: string): void {
+    if (!this.resources.delete(uri)) return;
+    this.notify('notifications/resources/list_changed');
   }
 
   async waitForSubscription(
@@ -99,6 +143,16 @@ export class AxMCPEventDemoServer {
         throw new Error(
           `Timed out waiting for ${count} subscriptions to ${uri}`
         );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  async waitForUnsubscription(uri: string, timeoutMs = 15_000): Promise<void> {
+    const startedAt = Date.now();
+    while (this.subscriptions.has(uri)) {
+      if (Date.now() - startedAt >= timeoutMs) {
+        throw new Error(`Timed out waiting for unsubscription from ${uri}`);
       }
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
@@ -228,6 +282,7 @@ export class AxMCPEventDemoServer {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     if (request.method === 'GET' && url.pathname === '/control/state') {
       this.writeJSON(response, {
+        resources: [...this.resources.values()],
         subscriptions: [...this.subscriptions],
         subscriptionCounts: Object.fromEntries(this.subscriptionCounts),
         listeners: this.listeners.size,
@@ -241,6 +296,21 @@ export class AxMCPEventDemoServer {
     }
     if (url.pathname === '/control/resource') {
       this.updateResource(url.searchParams.get('uri') ?? 'demo://inventory');
+      response.writeHead(202).end();
+      return;
+    }
+    if (url.pathname === '/control/catalog/add') {
+      const uri = url.searchParams.get('uri') ?? 'demo://alerts';
+      this.addResource({
+        uri,
+        name: url.searchParams.get('name') ?? 'Dynamic resource',
+        mimeType: url.searchParams.get('mimeType') ?? 'application/json',
+      });
+      response.writeHead(202).end();
+      return;
+    }
+    if (url.pathname === '/control/catalog/remove') {
+      this.removeResource(url.searchParams.get('uri') ?? 'demo://orders');
       response.writeHead(202).end();
       return;
     }
@@ -323,6 +393,8 @@ export class AxMCPEventDemoServer {
             },
           ],
         };
+      case 'prompts/list':
+        return { prompts: [] };
       case 'tools/call': {
         const task = this.createTask();
         queueMicrotask(() =>
@@ -337,16 +409,19 @@ export class AxMCPEventDemoServer {
       }
       case 'resources/list':
         return {
-          resources: [
+          resources: [...this.resources.values()],
+        };
+      case 'resources/templates/list':
+        return {
+          resourceTemplates: [
             {
-              uri: 'demo://inventory',
-              name: 'Inventory snapshot',
+              uriTemplate: 'demo://orders/{orderId}',
+              name: 'Order by ID',
+              description: 'A concrete order resource selected by ID',
               mimeType: 'application/json',
             },
           ],
         };
-      case 'resources/templates/list':
-        return { resourceTemplates: [] };
       case 'resources/read':
         return {
           contents: [

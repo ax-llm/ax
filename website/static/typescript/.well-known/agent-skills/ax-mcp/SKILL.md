@@ -1,7 +1,7 @@
 ---
 name: ax-mcp
 description: This skill helps an LLM build correct native Model Context Protocol integrations with @ax-llm/ax. Use when the user asks about AxMCPClient, MCP transports, tools, prompts, resources, subscriptions, tasks, sampling, elicitation, roots, authentication, OAuth, MCP Apps, recording/replay, or MCP integration with AxGen, AxAgent, AxFlow, chat, optimization, and AxEventRuntime.
-version: "23.0.0"
+version: "23.0.1"
 ---
 
 # Native MCP With Ax
@@ -142,24 +142,30 @@ tool loop. Do not build a second ad-hoc tool dispatcher around `ai.chat()`.
 
 ## Catalogs And Raw Operations
 
-After initialization, inspect negotiated catalogs without converting them:
+An endpoint is only the server address. The server owns tool names, prompt
+names, resource names, resource URIs, and URI templates. Discover one cloned
+snapshot before asking users to configure identifiers:
 
 ```ts
-await docs.init();
+const catalog = await docs.inspectCatalog();
 
-const tools = docs.getTools();
-const prompts = docs.getPrompts();
-const resources = docs.getResources();
-const templates = docs.getResourceTemplates();
+console.log(catalog.tools);
+console.log(catalog.prompts);
+console.log(catalog.resources);
+console.log(catalog.resourceTemplates);
 
 const prompt = await docs.getPrompt('review', { topic: 'MCP' });
 const resource = await docs.readResource('docs://guide');
 const completion = await docs.complete(reference, argument);
 ```
 
-Catalog getters contain the current negotiated snapshot. List-change
-notifications refresh the catalog revision, and native Ax model steps rebuild
-tool definitions when that revision changes.
+`inspectCatalog({ refresh: true })` forces fresh bounded pagination. Snapshot
+mutation cannot change the live client. List-change notifications refresh the
+catalog revision, and native Ax model steps rebuild tool definitions when that
+revision changes. Concrete resources can be selected immediately. URI
+templates are discoverable but never expanded automatically; applications
+construct an authorized concrete URI and may use MCP completion to suggest
+argument values.
 
 ## Tasks, Progress, And Cancellation
 
@@ -185,7 +191,11 @@ invalidate, wake, or resume.
 ```ts
 const source = new AxMCPEventSource({
   client: docs,
-  resources: ['docs://guide'],
+  resourceSubscriptions: {
+    select: (resource) =>
+      resource.mimeType === 'text/markdown' &&
+      resource.name === 'Engineering guide',
+  },
   identity: { tenantId: 'tenant-1' },
   trust: 'authenticated',
 });
@@ -214,6 +224,11 @@ const runtime = eventRuntime({
 
 Safe defaults are:
 
+- omitted resource policy -> subscribe to no resources
+- `'all'` -> explicitly subscribe to all discovered concrete resources
+- URI array -> explicitly subscribe to application-constructed concrete URIs
+- selector -> choose concrete resources by name, URI, description, MIME type,
+  annotations, or the surrounding catalog
 - catalog changes -> `invalidate`
 - progress and logging -> `observe`
 - resource updates -> no implicit wake
@@ -223,6 +238,18 @@ The signature-aware input plan is the data boundary. Raw event data remains in
 `eventContext`; only fields selected with segment-safe `eventPath` descriptors
 become program inputs. Use multiple matching routes to fan one notification out
 to multiple Agents with independent authorization and run records.
+
+Managed sources refresh and diff their selection after
+`notifications/resources/list_changed`. They keep the prior selection if a
+selector throws, retain successful wire transitions after a partial failure,
+and retry incomplete work on the next change or reconnect. The client tracks a
+separate logical owner for manual subscriptions, every source, and restored
+intent: only the first owner sends `resources/subscribe`, and only the last
+release sends `resources/unsubscribe`. Closing a source cannot break another
+owner. Closing the client terminates all ownership and transport state.
+
+For the detailed lifecycle and troubleshooting guide, read
+`docs/MCP_SUBSCRIPTIONS.md` and use the checked-in six-language MCP examples.
 
 ## Server-Initiated Requests
 

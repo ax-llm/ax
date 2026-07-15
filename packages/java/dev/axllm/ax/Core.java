@@ -17160,19 +17160,6 @@ final class Core {
     return out;
   }
 
-  static Object mcp_protocol_constants() {
-    axirCoverageMark("mcp_protocol_constants");
-    Object versions = new java.util.ArrayList<Object>();
-    Core.append(versions, "2025-11-25");
-    Core.append(versions, "2025-06-18");
-    Core.append(versions, "2025-03-26");
-    Core.append(versions, "2024-11-05");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "protocolVersion", "2025-11-25");
-    Core.set(out, "supportedProtocolVersions", versions);
-    return out;
-  }
-
   static Object event_runtime_descriptor(Object routes, Object options) {
     axirCoverageMark("event_runtime_descriptor");
     Object empty = new java.util.LinkedHashMap<String, Object>();
@@ -17190,19 +17177,16 @@ final class Core {
     return out;
   }
 
-  static Object mcp_jsonrpc_request(Object id, Object method, Object params) {
-    axirCoverageMark("mcp_jsonrpc_request");
+  static Object mcp_protocol_constants() {
+    axirCoverageMark("mcp_protocol_constants");
+    Object versions = new java.util.ArrayList<Object>();
+    Core.append(versions, "2025-11-25");
+    Core.append(versions, "2025-06-18");
+    Core.append(versions, "2025-03-26");
+    Core.append(versions, "2024-11-05");
     Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "jsonrpc", "2.0");
-    Core.set(out, "id", id);
-    Core.set(out, "method", method);
-    Object missing = Core.isNone(params);
-    if (Core.truthy(missing)) {
-      // empty
-    }
-    if (!Core.truthy(missing)) {
-      Core.set(out, "params", params);
-    }
+    Core.set(out, "protocolVersion", "2025-11-25");
+    Core.set(out, "supportedProtocolVersions", versions);
     return out;
   }
 
@@ -17252,6 +17236,22 @@ final class Core {
       }
     }
     return commands;
+  }
+
+  static Object mcp_jsonrpc_request(Object id, Object method, Object params) {
+    axirCoverageMark("mcp_jsonrpc_request");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "jsonrpc", "2.0");
+    Core.set(out, "id", id);
+    Core.set(out, "method", method);
+    Object missing = Core.isNone(params);
+    if (Core.truthy(missing)) {
+      // empty
+    }
+    if (!Core.truthy(missing)) {
+      Core.set(out, "params", params);
+    }
+    return out;
   }
 
   static Object mcp_jsonrpc_notification(Object method, Object params) {
@@ -17380,6 +17380,84 @@ final class Core {
     return current;
   }
 
+  static Object mcp_resource_subscription_selection(Object resources, Object mode, Object explicit_uris) {
+    axirCoverageMark("mcp_resource_subscription_selection");
+    Object selected = new java.util.ArrayList<Object>();
+    Object is_explicit = Core.eq(mode, "explicit");
+    if (Core.truthy(is_explicit)) {
+      for (Object uri : Core.iter(explicit_uris)) {
+        Object empty = Core.eq(uri, "");
+        Object duplicate = Core.contains(selected, uri);
+        Object skip = Core.or(empty, duplicate);
+        if (Core.truthy(skip)) {
+          // empty
+        }
+        if (!Core.truthy(skip)) {
+          Core.append(selected, uri);
+        }
+      }
+    }
+    if (!Core.truthy(is_explicit)) {
+      Object is_all = Core.eq(mode, "all");
+      Object is_selector = Core.eq(mode, "selector");
+      Object uses_resources = Core.or(is_all, is_selector);
+      if (Core.truthy(uses_resources)) {
+        for (Object resource : Core.iter(resources)) {
+          Object uri = Core.get(resource, "uri", "");
+          Object empty = Core.eq(uri, "");
+          Object duplicate = Core.contains(selected, uri);
+          Object skip = Core.or(empty, duplicate);
+          if (Core.truthy(skip)) {
+            // empty
+          }
+          if (!Core.truthy(skip)) {
+            Core.append(selected, uri);
+          }
+        }
+      }
+    }
+    return selected;
+  }
+
+  static Object mcp_resource_subscription_plan(Object desired, Object current) {
+    axirCoverageMark("mcp_resource_subscription_plan");
+    Object selected = new java.util.ArrayList<Object>();
+    for (Object uri : Core.iter(desired)) {
+      Object duplicate = Core.contains(selected, uri);
+      if (Core.truthy(duplicate)) {
+        // empty
+      }
+      if (!Core.truthy(duplicate)) {
+        Core.append(selected, uri);
+      }
+    }
+    Object additions = new java.util.ArrayList<Object>();
+    for (Object uri : Core.iter(selected)) {
+      Object owned = Core.contains(current, uri);
+      if (Core.truthy(owned)) {
+        // empty
+      }
+      if (!Core.truthy(owned)) {
+        Core.append(additions, uri);
+      }
+    }
+    Object removals = new java.util.ArrayList<Object>();
+    for (Object uri : Core.iter(current)) {
+      Object wanted = Core.contains(selected, uri);
+      if (Core.truthy(wanted)) {
+        // empty
+      }
+      if (!Core.truthy(wanted)) {
+        Core.append(removals, uri);
+      }
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "selected", selected);
+    Core.set(out, "additions", additions);
+    Core.set(out, "removals", removals);
+    return out;
+  }
+
   static Object event_map_input(Object ingress, Object plan, Object signature_fields, Object continuation) {
     axirCoverageMark("event_map_input");
     Object none = Core.none();
@@ -17439,6 +17517,95 @@ final class Core {
     return result;
   }
 
+  static Object mcp_resource_subscription_ownership(Object owners, Object owner, Object operation) {
+    axirCoverageMark("mcp_resource_subscription_ownership");
+    Object out_owners = new java.util.ArrayList<Object>();
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "wireAction", "none");
+    Core.set(out, "changed", Boolean.FALSE);
+    Object has_owner = Core.contains(owners, owner);
+    Object is_acquire = Core.eq(operation, "acquire");
+    if (Core.truthy(is_acquire)) {
+      for (Object current : Core.iter(owners)) {
+        Core.append(out_owners, current);
+      }
+      if (Core.truthy(has_owner)) {
+        // empty
+      }
+      if (!Core.truthy(has_owner)) {
+        Object before = Core.len(owners);
+        Object was_empty = Core.eq(before, 0);
+        if (Core.truthy(was_empty)) {
+          Core.set(out, "wireAction", "subscribe");
+        }
+        Core.append(out_owners, owner);
+        Core.set(out, "changed", Boolean.TRUE);
+      }
+    }
+    if (!Core.truthy(is_acquire)) {
+      for (Object current : Core.iter(owners)) {
+        Object matches = Core.eq(current, owner);
+        if (Core.truthy(matches)) {
+          // empty
+        }
+        if (!Core.truthy(matches)) {
+          Core.append(out_owners, current);
+        }
+      }
+      if (Core.truthy(has_owner)) {
+        Object remaining = Core.len(out_owners);
+        Object now_empty = Core.eq(remaining, 0);
+        if (Core.truthy(now_empty)) {
+          Core.set(out, "wireAction", "unsubscribe");
+        }
+        Core.set(out, "changed", Boolean.TRUE);
+      }
+    }
+    Core.set(out, "owners", out_owners);
+    return out;
+  }
+
+  static Object event_normalize_input(Object input, Object signature_fields) {
+    axirCoverageMark("event_normalize_input");
+    Object none = Core.none();
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object result = new java.util.LinkedHashMap<String, Object>();
+    Object error = none;
+    Object is_object = Core.typeIs(input, "object");
+    if (Core.truthy(is_object)) {
+      for (Object field : Core.iter(signature_fields)) {
+        Object name = Core.get(field, "name", "");
+        Object optional = Core.get(field, "optional", Boolean.FALSE);
+        Object value = Core.get(input, name, none);
+        Object missing = Core.isNone(value);
+        if (Core.truthy(missing)) {
+          if (Core.truthy(optional)) {
+            // empty
+          }
+          if (!Core.truthy(optional)) {
+            error = Core.stringFormat("Required signature input {} was not present", name);
+          }
+        }
+        if (!Core.truthy(missing)) {
+          Object encoded = Core.jsonStringify(value);
+          Object clone = Core.jsonParse(encoded);
+          Core.set(out, name, clone);
+        }
+      }
+    }
+    if (!Core.truthy(is_object)) {
+      error = "Mapped event input must be an object";
+    }
+    Object failed = Core.isNotNone(error);
+    Core.set(result, "ok", Boolean.TRUE);
+    Core.set(result, "value", out);
+    if (Core.truthy(failed)) {
+      Core.set(result, "ok", Boolean.FALSE);
+      Core.set(result, "error", error);
+    }
+    return result;
+  }
+
   static Object event_continuation_match(Object continuations, Object identity_scope, Object kind, Object value, Object now) {
     axirCoverageMark("event_continuation_match");
     Object result = Core.none();
@@ -17478,6 +17645,45 @@ final class Core {
     Object ready = Core.lte(available_at, now);
     Object due = Core.and(queued, ready);
     return due;
+  }
+
+  static Object event_strict_delivery_eligible(Object candidate, Object deliveries) {
+    axirCoverageMark("event_strict_delivery_eligible");
+    Object ordering = Core.get(candidate, "ordering", "strict");
+    Object strict = Core.eq(ordering, "strict");
+    Object eligible = Boolean.TRUE;
+    if (Core.truthy(strict)) {
+      Object candidate_sequence = Core.get(candidate, "sequence", 0);
+      Object candidate_target = Core.get(candidate, "targetId", "");
+      Object candidate_instance = Core.get(candidate, "instanceKey", "");
+      Object terminal = new java.util.ArrayList<Object>();
+      Core.append(terminal, "succeeded");
+      Core.append(terminal, "failed");
+      Core.append(terminal, "cancelled");
+      Core.append(terminal, "dead_lettered");
+      Core.append(terminal, "output_persistence_failed");
+      Core.append(terminal, "outcome_unknown");
+      Core.append(terminal, "waiting_event");
+      Core.append(terminal, "coalesced");
+      for (Object delivery : Core.iter(deliveries)) {
+        Object sequence = Core.get(delivery, "sequence", 0);
+        Object earlier = Core.lt(sequence, candidate_sequence);
+        Object target = Core.get(delivery, "targetId", "");
+        Object instance = Core.get(delivery, "instanceKey", "");
+        Object same_target = Core.eq(target, candidate_target);
+        Object same_instance = Core.eq(instance, candidate_instance);
+        Object same_queue = Core.and(same_target, same_instance);
+        Object status = Core.get(delivery, "status", "queued");
+        Object is_terminal = Core.contains(terminal, status);
+        Object nonterminal = Core.not(is_terminal);
+        Object predecessor = Core.and(earlier, same_queue);
+        Object blocking = Core.and(predecessor, nonterminal);
+        if (Core.truthy(blocking)) {
+          eligible = Boolean.FALSE;
+        }
+      }
+    }
+    return eligible;
   }
 
   static Object event_capacity_transition(Object pending, Object queued_bytes, Object envelope_bytes, Object max_pending, Object max_queued_bytes, Object max_envelope_bytes) {

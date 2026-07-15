@@ -6,6 +6,9 @@ AxEventRuntime is the protocol-neutral layer for autonomous work:
 
 MCP subscriptions, UCP webhooks, timers, queues, and application events all use the same envelope, trust policy, continuation, cancellation, and tracing model. Source callbacks publish events; they never call a model directly.
 
+For MCP, the endpoint catalog and managed resource policy are separate from
+the wake route. See [MCP Subscriptions]({{langRoot}}/concepts/mcp-subscriptions/).
+
 ```mermaid
 flowchart LR
   Source["Source or protocol adapter"] --> Inbox["Event inbox"]

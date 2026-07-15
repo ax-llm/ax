@@ -177,6 +177,14 @@ worker threads; their hosts own timers, listener supervision, and other
 asynchronous loops. See
 [`docs/EVENT_RUNTIME.md`](./EVENT_RUNTIME.md).
 
+MCP resource events use the same generic ingress. The endpoint initializes one
+live client catalog; `inspectCatalog()` exposes a cloned view, and a managed
+subscription policy selects only concrete resource URIs. AxIR owns deterministic
+selection diffing and subscription ownership transitions, while transports own
+wire requests and reconnect supervision. Catalog discovery, subscription, and
+model wake remain separate boundaries. See
+[`docs/MCP_SUBSCRIPTIONS.md`](./MCP_SUBSCRIPTIONS.md).
+
 ## Optimization And GEPA
 
 Programs expose optimizable components and can evaluate candidate component

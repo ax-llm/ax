@@ -40,10 +40,17 @@ need an explicit `wake` route, while `axMCPEventRoutes({ client })` supplies the
 safe defaults for catalog invalidation, progress/log observation, and terminal
 task continuation:
 
+An endpoint is only the server address. Use `client.inspectCatalog()` to
+discover its tools, prompts, concrete resources, and URI templates. The full
+selection, ownership, reconnect, identity, and troubleshooting guide is
+[MCP Catalog Discovery And Resource Subscriptions](./MCP_SUBSCRIPTIONS.md).
+
 ```ts
 const source = new AxMCPEventSource({
   client,
-  resources: ['docs://handbook'],
+  resourceSubscriptions: {
+    select: (resource) => resource.name === 'Engineering handbook',
+  },
   // Identity comes from the application's authenticated client/token mapping.
   identity: { tenantId: account.tenantId },
   trust: 'authenticated',
@@ -74,7 +81,8 @@ A required task-backed MCP tool called under an event target automatically
 registers `mcp.task:<namespace>:<taskId>` as a continuation. Progress is
 observed without waking a model; `input_required` and terminal task states
 resume the owning target. Closing the event source removes its listener and
-cancels subscriptions it added, without closing the caller-owned client.
+releases only that source's logical subscription ownership, without breaking
+manual subscriptions, other sources, or the caller-owned client.
 
 ## Native content and runtime modules
 

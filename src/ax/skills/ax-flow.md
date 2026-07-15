@@ -454,6 +454,11 @@ Task-backed MCP tools called by a Flow node register a continuation on the
 shared event context. `axMCPEventRoutes` observes progress and resumes the Flow
 on input-required or terminal task notifications.
 
+For resource-driven wake, discover the endpoint with `inspectCatalog()` and
+give `AxMCPEventSource` an explicit `resourceSubscriptions` policy. Managed
+subscriptions reconcile list changes and reconnect separately from the Flow;
+subscription alone never starts or resumes a Flow.
+
 UCP lifecycle webhooks use the same continuation boundary through
 `AxUCPWebhookEventSource`. Correlate on `ucp.checkout` or `ucp.order` only after
 the signed request has been verified and mapped to application identity.

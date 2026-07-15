@@ -271,6 +271,10 @@ Rules:
 - To wake an Agent from a resource subscription, use `AxMCPEventSource` and an
   explicit authenticated `wake` route. MCP sessions are not tenant identity;
   supply identity from the application's authenticated token mapping.
+- An endpoint does not imply a resource URI. Inspect `client.inspectCatalog()`
+  and choose an explicit `resourceSubscriptions` policy. Omission means none;
+  `'all'` selects all discovered concrete resources; selectors can use names,
+  descriptions, MIME types, URIs, and annotations. Templates are not expanded.
 - Map the event with a signature-aware `.wakeInput(...)` plan, or reuse an
   `eventInput()` plan. Callback `mapInput` is still signature-validated and
   cannot inject undeclared Agent fields. Use multiple matching routes to wake

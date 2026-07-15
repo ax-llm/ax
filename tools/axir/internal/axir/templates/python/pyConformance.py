@@ -78,7 +78,7 @@ from .runtime_quickjs import AxQuickJsCodeRuntime
 from .schema import strip_internal, to_json_schema, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
-from .mcp import AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventTarget, AxManualEventClock, AxMCPClient, AxMCPEventSource, AxMCPScriptedTransport, AxPushEventSource, event_continuation_match, event_map_input, event_normalize_mcp, event_path, event_retry_transition, event_route, event_route_commands, event_target, mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, run_mcp_conformance_fixture
+from .mcp import AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventTarget, AxManualEventClock, AxMCPClient, AxMCPEventSource, AxMCPScriptedTransport, AxPushEventSource, event_continuation_match, event_map_input, event_normalize_mcp, event_path, event_retry_transition, event_route, event_route_commands, event_target, mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, mcp_resource_subscription_ownership, mcp_resource_subscription_selection, run_mcp_conformance_fixture
 
 
 class FixtureError(AssertionError):
@@ -597,6 +597,22 @@ def _run_event(fixture):
         retry_clock.advance(500); retry_runtime.run_due()
         _assert_equal([retry_run.attempt, retry_run.status], [2, "succeeded"], "event retry dispatch")
 
+        strict_calls = []
+        def strict_invoke(value, _context):
+            strict_calls.append(value["name"])
+            if value["name"] == "first" and strict_calls.count("first") == 1:
+                raise RuntimeError("retry first")
+            return value
+        strict_clock = AxManualEventClock(1_000)
+        strict_target = AxEventTarget("strict-target", strict_invoke, retrySafety="idempotent")
+        strict_runtime = AxEventRuntime(
+            [AxEventRoute("strict-route", "wake", {"types": ["event.strict"]}, "strict-target")],
+            {"targets": [strict_target], "clock": strict_clock, "retryBackoffMs": 500})
+        strict_runtime.start(); strict_runtime.publish(envelope("strict-1", "event.strict", {"name": "first"})); strict_runtime.publish(envelope("strict-2", "event.strict", {"name": "second"}))
+        _assert_equal(strict_calls, ["first"], "event strict ordering while retry waits")
+        strict_clock.advance(500); strict_runtime.run_due()
+        _assert_equal(strict_calls, ["first", "first", "second"], "event strict retry release ordering")
+
         debounce_clock = AxManualEventClock(2_000); debounce_values = []
         debounce_target = AxEventTarget("debounce-target", lambda value, _context: debounce_values.append(value) or value)
         debounce_runtime = AxEventRuntime(
@@ -680,6 +696,12 @@ def _run_event(fixture):
         mcp_client.emit_lifecycle("reconnected"); mcp_runtime.close(); mcp_transport.emit({"jsonrpc": "2.0", "method": "notifications/resources/updated", "params": {"uri": "demo://inventory"}})
         subscribe_calls = sum(1 for request in mcp_transport.requests if request.get("method") == "resources/subscribe")
         _assert_equal([mcp_calls[0], lifecycle_calls[0], subscribe_calls], [1, 1, 2], "MCP listener composition and resubscription")
+        ownership = mcp_resource_subscription_ownership([], "source-a", "acquire")
+        ownership = mcp_resource_subscription_ownership(ownership["owners"], "source-b", "acquire")
+        ownership = mcp_resource_subscription_ownership(ownership["owners"], "source-a", "release")
+        _assert_equal(ownership, {"owners": ["source-b"], "wireAction": "none", "changed": True}, "MCP subscription ownership transition")
+        selection_resources = [{"uri": "demo://b"}, {"uri": "demo://a"}, {"uri": "demo://b"}, {"uri": ""}]
+        _assert_equal([mcp_resource_subscription_selection(selection_resources, "all", []), mcp_resource_subscription_selection([], "explicit", ["demo://x", "demo://y", "demo://x"]), mcp_resource_subscription_selection([selection_resources[1]], "selector", [])], [["demo://b", "demo://a"], ["demo://x", "demo://y"], ["demo://a"]], "MCP subscription selection modes")
 
         mapped_inputs = []
         mapped_target = (event_target("mapped-target").signature(s("url:string, revision:number -> ok:boolean"))
@@ -690,6 +712,17 @@ def _run_event(fixture):
         mapped_runtime.publish(envelope("mapped-1", "event.mapped", {"uri": "demo://one", "revision": 2}))
         mapped_runtime.publish(envelope("mapped-2", "event.mapped", {"uri": "demo://two", "revision": "bad"}))
         _assert_equal([mapped_inputs, len(mapped_runtime.list_dead_letters())], [[{"url": "demo://one", "revision": 2}], 1], "signature-aware event mapping")
+
+        callback_inputs = []
+        callback_target = AxEventTarget(
+            "callback-target", lambda value, _context: callback_inputs.append(value) or value,
+            mapInput=lambda event, _continuation: {"url": event.data["uri"], "secret": "drop-me"},
+            signature=s("url:string -> ok:boolean"))
+        callback_runtime = AxEventRuntime(
+            [AxEventRoute("callback-route", "wake", {"types": ["event.callback"]}, "callback-target")],
+            {"targets": [callback_target]})
+        callback_runtime.start(); callback_runtime.publish(envelope("callback-1", "event.callback", {"uri": "demo://callback"}))
+        _assert_equal(callback_inputs, [{"url": "demo://callback"}], "event callback signature normalization")
         return
     raise FixtureError(f"unsupported event operation {operation!r}")
 

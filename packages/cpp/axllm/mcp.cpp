@@ -82,7 +82,7 @@ static void expect_subset_local(Value actual, Value expected, const std::string&
 }
 
 AxMCPClient::AxMCPClient(std::shared_ptr<AxMCPTransport> transport, Value options)
-    : transport_(std::move(transport)), options_(std::move(options)) { transport_->set_message_handler([this](Value message){emit_notification(std::move(message));});transport_->set_lifecycle_handler([this](std::string state){emit_lifecycle(state);}); }
+    : transport_(std::move(transport)), options_(std::move(options)) { transport_->set_message_handler([this](Value message){auto method=display(Core::get(message,"method",""));if(method=="notifications/tools/list_changed"||method=="notifications/prompts/list_changed"||method=="notifications/resources/list_changed")refresh();emit_notification(std::move(message));});transport_->set_lifecycle_handler([this](std::string state){emit_lifecycle(state);}); }
 
 void AxMCPClient::init() {
   if(initialized_)return;
@@ -102,26 +102,32 @@ void AxMCPClient::init() {
   if (!supported) throw AxError("mcp", "Unsupported MCP protocol version " + negotiated_protocol_version_);
   transport_->set_protocol_version(negotiated_protocol_version_);
   server_capabilities_ = Core::get(result, "capabilities", Value::object());
+  server_info_ = Core::get(result, "serverInfo", Value::object());
   notify("notifications/initialized");
   refresh();
   initialized_=true;
   transport_->start_listening();
 }
 
-void AxMCPClient::close(){initialized_=false;transport_->close();}
+void AxMCPClient::close(){initialized_=false;subscription_owners_.clear();transport_->close();}
 
 void AxMCPClient::refresh() {
   tools_.clear();
   prompts_.clear();
   resources_.clear();
   resource_templates_.clear();
-  if (capability("tools")) tools_ = as_array_local(Core::get(list_tools(), "tools", Value::array()));
-  if (capability("prompts")) prompts_ = as_array_local(Core::get(list_prompts(), "prompts", Value::array()));
+  if (capability("tools")) tools_ = collect_catalog("tools/list","tools");
+  if (capability("prompts")) prompts_ = collect_catalog("prompts/list","prompts");
   if (capability("resources")) {
-    resources_ = as_array_local(Core::get(list_resources(), "resources", Value::array()));
-    resource_templates_ = as_array_local(Core::get(list_resource_templates(), "resourceTemplates", Value::array()));
+    resources_ = collect_catalog("resources/list","resources");
+    resource_templates_ = collect_catalog("resources/templates/list","resourceTemplates");
   }
+  ++catalog_revision_;
 }
+
+std::vector<Value> AxMCPClient::collect_catalog(const std::string& method,const std::string& field){std::vector<Value> out;std::string cursor;std::set<std::string> seen;auto max_pages=static_cast<int>(Core::number(Core::get(options_,"maxPaginationPages",1000)));for(int page=0;page<max_pages;++page){auto result=request(method,cursor_params(cursor));for(auto item:as_array_local(Core::get(result,field,Value::array())))out.push_back(item);cursor=display(Core::get(result,"nextCursor",""));if(cursor.empty())return out;if(!seen.insert(cursor).second)throw AxError("mcp","MCP "+method+" repeated pagination cursor "+cursor);}throw AxError("mcp","MCP "+method+" exceeded pagination limit");}
+
+AxMCPCatalogSnapshot AxMCPClient::inspect_catalog(bool refresh_catalog){init();if(refresh_catalog)refresh();AxMCPCatalogSnapshot out;out.namespace_name=namespace_name();out.protocol_version=negotiated_protocol_version_;out.revision=catalog_revision_;out.server_info=server_info_;out.server_capabilities=server_capabilities_;out.tools=Value(Array(tools_.begin(),tools_.end()));out.prompts=Value(Array(prompts_.begin(),prompts_.end()));out.resources=Value(Array(resources_.begin(),resources_.end()));out.resource_templates=Value(Array(resource_templates_.begin(),resource_templates_.end()));for(const auto& item:subscription_owners_)out.subscriptions.push_back(item.first);return out;}
 
 std::string AxMCPClient::protocol_version() const { return negotiated_protocol_version_; }
 Value AxMCPClient::ping() { return request("ping"); }
@@ -131,8 +137,11 @@ Value AxMCPClient::list_prompts(const std::string& cursor) { return request("pro
 Value AxMCPClient::get_prompt(const std::string& name, Value arguments) { return request("prompts/get", object({{"name", name}, {"arguments", arguments}})); }
 Value AxMCPClient::list_resources(const std::string& cursor) { return request("resources/list", cursor_params(cursor)); }
 Value AxMCPClient::read_resource(const std::string& uri) { return request("resources/read", object({{"uri", uri}})); }
-Value AxMCPClient::subscribe_resource(const std::string& uri) { return request("resources/subscribe", object({{"uri", uri}})); }
-Value AxMCPClient::unsubscribe_resource(const std::string& uri) { return request("resources/unsubscribe", object({{"uri", uri}})); }
+Value AxMCPClient::acquire_resource_subscription(const std::string& uri,const std::string& owner){if(!Core::truthy(Core::get(Core::get(server_capabilities_,"resources",Value::object()),"subscribe",false)))throw AxError("mcp","Resource subscriptions are not supported");Value current=Value::array();for(const auto& value:subscription_owners_[uri])Core::append(current,value);auto transition=Core::mcp_resource_subscription_ownership(current,owner,"acquire");Value result=display(Core::get(transition,"wireAction","none"))=="subscribe"?request("resources/subscribe",object({{"uri",uri}})):Value::object();std::set<std::string> owners;for(const auto& value:Core::iter(Core::get(transition,"owners",Value::array())))owners.insert(display(value));subscription_owners_[uri]=std::move(owners);return result;}
+Value AxMCPClient::release_resource_subscription(const std::string& uri,const std::string& owner){if(!Core::truthy(Core::get(Core::get(server_capabilities_,"resources",Value::object()),"subscribe",false)))throw AxError("mcp","Resource subscriptions are not supported");Value current=Value::array();auto found=subscription_owners_.find(uri);if(found!=subscription_owners_.end())for(const auto& value:found->second)Core::append(current,value);auto transition=Core::mcp_resource_subscription_ownership(current,owner,"release");Value result=display(Core::get(transition,"wireAction","none"))=="unsubscribe"?request("resources/unsubscribe",object({{"uri",uri}})):Value::object();std::set<std::string> owners;for(const auto& value:Core::iter(Core::get(transition,"owners",Value::array())))owners.insert(display(value));if(owners.empty())subscription_owners_.erase(uri);else subscription_owners_[uri]=std::move(owners);return result;}
+void AxMCPClient::restore_resource_subscriptions(){for(const auto& item:subscription_owners_)request("resources/subscribe",object({{"uri",item.first}}));}
+Value AxMCPClient::subscribe_resource(const std::string& uri) { return acquire_resource_subscription(uri,"manual"); }
+Value AxMCPClient::unsubscribe_resource(const std::string& uri) { return release_resource_subscription(uri,"manual"); }
 Value AxMCPClient::get_task(const std::string& task_id) { return request("tasks/get", object({{"taskId", task_id}})); }
 Value AxMCPClient::cancel_task(const std::string& task_id) { return request("tasks/cancel", object({{"taskId", task_id}})); }
 Value AxMCPClient::list_resource_templates(const std::string& cursor) { return request("resources/templates/list", cursor_params(cursor)); }
@@ -190,7 +199,7 @@ Value AxMCPClient::resource_templates() const { return Value(Array(resource_temp
 
 std::string AxMCPClient::namespace_name() const {
   std::string configured = display(Core::get(options_, "namespace", ""));
-  return configured.empty() ? "mcp" : configured;
+  if(!configured.empty())return configured;auto server=display(Core::get(server_info_,"name",""));return server.empty()?"mcp":server;
 }
 
 static const std::vector<std::string>& ax_ucp_operations() {

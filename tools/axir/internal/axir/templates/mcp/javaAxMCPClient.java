@@ -5,8 +5,10 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -25,6 +27,8 @@ public final class AxMCPClient {
   private final List<Map<String, Object>> prompts = new ArrayList<>();
   private final List<Map<String, Object>> resources = new ArrayList<>();
   private final List<Map<String, Object>> resourceTemplates = new ArrayList<>();
+  private final Map<String,Set<String>> subscriptionOwners = new LinkedHashMap<>();
+  private long catalogRevision;
   private Map<String, Object> serverCapabilities = new LinkedHashMap<>();
   private Map<String, Object> serverInfo = new LinkedHashMap<>();
   private String serverInstructions;
@@ -74,20 +78,30 @@ public final class AxMCPClient {
     transport.startListening();
   }
 
-  public synchronized void close() { initialized = false; transport.close(); }
+  public synchronized void close() { initialized = false;subscriptionOwners.clear();transport.close(); }
 
   public void refresh() {
     tools.clear();
     prompts.clear();
     resources.clear();
     resourceTemplates.clear();
-    if (capability("tools")) for (Object item : Core.asList(listTools(null).get("tools"))) tools.add(Core.asMap(item));
-    if (capability("prompts")) for (Object item : Core.asList(listPrompts(null).get("prompts"))) prompts.add(Core.asMap(item));
+    if (capability("tools")) tools.addAll(collectCatalog("tools/list","tools"));
+    if (capability("prompts")) prompts.addAll(collectCatalog("prompts/list","prompts"));
     if (capability("resources")) {
-      for (Object item : Core.asList(listResources(null).get("resources"))) resources.add(Core.asMap(item));
-      for (Object item : Core.asList(listResourceTemplates(null).get("resourceTemplates"))) resourceTemplates.add(Core.asMap(item));
+      resources.addAll(collectCatalog("resources/list","resources"));
+      resourceTemplates.addAll(collectCatalog("resources/templates/list","resourceTemplates"));
     }
+    catalogRevision++;
   }
+
+  private List<Map<String,Object>> collectCatalog(String method,String field){List<Map<String,Object>> out=new ArrayList<>();String cursor=null;Set<String> seen=new LinkedHashSet<>();int max=((Number)options.getOrDefault("maxPaginationPages",1000)).intValue();for(int page=0;page<max;page++){Map<String,Object> result=request(method,cursor==null?Map.of():Map.of("cursor",cursor));for(Object item:Core.asList(result.get(field)))out.add(cloneMap(Core.asMap(item)));Object next=result.get("nextCursor");if(next==null||String.valueOf(next).isBlank())return out;cursor=String.valueOf(next);if(!seen.add(cursor))throw new AxMCPError("MCP "+method+" repeated pagination cursor "+cursor);}throw new AxMCPError("MCP "+method+" exceeded "+max+" pagination pages");}
+
+  public record CatalogSnapshot(String namespace,String protocolVersion,long revision,Map<String,Object> serverInfo,Map<String,Object> serverCapabilities,List<Map<String,Object>> tools,List<Map<String,Object>> prompts,List<Map<String,Object>> resources,List<Map<String,Object>> resourceTemplates,List<String> subscriptions){}
+  public synchronized CatalogSnapshot inspectCatalog(boolean refresh){init();if(refresh)refresh();List<String> subscriptions=new ArrayList<>(subscriptionOwners.keySet());subscriptions.sort(String::compareTo);return new CatalogSnapshot(namespace(),negotiatedProtocolVersion,catalogRevision,cloneMap(serverInfo),cloneMap(serverCapabilities),cloneList(tools),cloneList(prompts),cloneList(resources),cloneList(resourceTemplates),List.copyOf(subscriptions));}
+  public CatalogSnapshot inspectCatalog(){return inspectCatalog(false);}
+  private static List<Map<String,Object>> cloneList(List<Map<String,Object>> values){List<Map<String,Object>> out=new ArrayList<>();for(Map<String,Object> value:values)out.add(cloneMap(value));return List.copyOf(out);}
+  private static Map<String,Object> cloneMap(Map<String,Object> value){Map<String,Object> out=new LinkedHashMap<>();for(Map.Entry<String,Object> entry:value.entrySet())out.put(entry.getKey(),cloneValue(entry.getValue()));return out;}
+  private static Object cloneValue(Object value){if(value instanceof Map<?,?> map){Map<String,Object> out=new LinkedHashMap<>();for(Map.Entry<?,?> entry:map.entrySet())out.put(String.valueOf(entry.getKey()),cloneValue(entry.getValue()));return out;}if(value instanceof List<?> list){List<Object> out=new ArrayList<>();for(Object item:list)out.add(cloneValue(item));return out;}return value;}
 
   public String getProtocolVersion() { return negotiatedProtocolVersion; }
   public Map<String, Object> getServerCapabilities() { return serverCapabilities; }
@@ -102,8 +116,12 @@ public final class AxMCPClient {
   public Map<String, Object> getPrompt(String name, Map<String, Object> arguments) { return request("prompts/get", Map.of("name", name, "arguments", arguments == null ? Map.of() : arguments)); }
   public Map<String, Object> listResources(String cursor) { return request("resources/list", cursor == null ? Map.of() : Map.of("cursor", cursor)); }
   public Map<String, Object> readResource(String uri) { return request("resources/read", Map.of("uri", uri)); }
-  public Map<String,Object> subscribeResource(String uri){return request("resources/subscribe",Map.of("uri",uri));}
-  public Map<String,Object> unsubscribeResource(String uri){return request("resources/unsubscribe",Map.of("uri",uri));}
+  private void assertResourceSubscriptions(){Map<String,Object> resourceCapability=Core.asMap(serverCapabilities.get("resources"));if(!Boolean.TRUE.equals(resourceCapability.get("subscribe")))throw new AxMCPError("Resource subscriptions are not supported");}
+  public synchronized Map<String,Object> acquireResourceSubscription(String uri,String owner){assertResourceSubscriptions();List<String> current=new ArrayList<>(subscriptionOwners.getOrDefault(uri,Set.of()));current.sort(String::compareTo);Map<String,Object> transition=Core.asMap(Core.mcp_resource_subscription_ownership(current,owner,"acquire"));Map<String,Object> result="subscribe".equals(transition.get("wireAction"))?request("resources/subscribe",Map.of("uri",uri)):Map.of();subscriptionOwners.put(uri,new LinkedHashSet<>(Core.asList(transition.get("owners")).stream().map(String::valueOf).toList()));return result;}
+  public synchronized Map<String,Object> releaseResourceSubscription(String uri,String owner){assertResourceSubscriptions();List<String> current=new ArrayList<>(subscriptionOwners.getOrDefault(uri,Set.of()));current.sort(String::compareTo);Map<String,Object> transition=Core.asMap(Core.mcp_resource_subscription_ownership(current,owner,"release"));Map<String,Object> result="unsubscribe".equals(transition.get("wireAction"))?request("resources/unsubscribe",Map.of("uri",uri)):Map.of();Set<String> remaining=new LinkedHashSet<>(Core.asList(transition.get("owners")).stream().map(String::valueOf).toList());if(remaining.isEmpty())subscriptionOwners.remove(uri);else subscriptionOwners.put(uri,remaining);return result;}
+  public synchronized void restoreResourceSubscriptions(){List<String> uris=new ArrayList<>(subscriptionOwners.keySet());uris.sort(String::compareTo);for(String uri:uris)request("resources/subscribe",Map.of("uri",uri));}
+  public Map<String,Object> subscribeResource(String uri){return acquireResourceSubscription(uri,"manual");}
+  public Map<String,Object> unsubscribeResource(String uri){return releaseResourceSubscription(uri,"manual");}
   public Map<String,Object> getTask(String taskId){return request("tasks/get",Map.of("taskId",taskId));}
   public Map<String,Object> cancelTask(String taskId){return request("tasks/cancel",Map.of("taskId",taskId));}
   public Map<String, Object> listResourceTemplates(String cursor) { return request("resources/templates/list", cursor == null ? Map.of() : Map.of("cursor", cursor)); }
@@ -118,7 +136,7 @@ public final class AxMCPClient {
   public void removeNotificationListener(int id){notificationListeners.remove(id);}
   public int addLifecycleListener(Consumer<String> listener){int id=nextListenerId++;lifecycleListeners.put(id,listener);return id;}
   public void removeLifecycleListener(int id){lifecycleListeners.remove(id);}
-  public void emitLifecycle(String state){for(Consumer<String> listener:List.copyOf(lifecycleListeners.values()))listener.accept(state);}
+  public void emitLifecycle(String state){if(state.equals("reconnected"))restoreResourceSubscriptions();for(Consumer<String> listener:List.copyOf(lifecycleListeners.values()))listener.accept(state);}
 
   public List<Tool> toFunction() {
     List<Tool> out = new ArrayList<>();
@@ -191,6 +209,8 @@ public final class AxMCPClient {
       transport.sendResponse(response);
       return;
     }
+    Object method=message.get("method");
+    if("notifications/tools/list_changed".equals(method)||"notifications/prompts/list_changed".equals(method)||"notifications/resources/list_changed".equals(method))refresh();
     Object callback = options.get("onNotification");
     if (callback instanceof Consumer<?> raw) {
       @SuppressWarnings("unchecked")

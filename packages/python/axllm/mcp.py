@@ -66,6 +66,8 @@ def _core_add(left, right): return left + right
 def _core_len(value): return len(value or [])
 def _core_contains(container, item): return False if container is None else item in container
 def _core_none(): return None
+def _core_json_stringify(value): return json.dumps(value, separators=(",", ":"), sort_keys=True)
+def _core_json_parse(value): return json.loads(value)
 
 
 def _core_string_format(template, *args):
@@ -118,19 +120,6 @@ def mcp_execution_context_descriptor(namespaces: list[Any], inheritance: Any) ->
     return out
 
 
-def mcp_protocol_constants() -> Any:
-    _core_coverage_mark("mcp_protocol_constants")
-    versions = []
-    versions.append("2025-11-25")
-    versions.append("2025-06-18")
-    versions.append("2025-03-26")
-    versions.append("2024-11-05")
-    out = {}
-    out["protocolVersion"] = "2025-11-25"
-    out["supportedProtocolVersions"] = versions
-    return out
-
-
 def event_runtime_descriptor(routes: list[Any], options: Any) -> Any:
     _core_coverage_mark("event_runtime_descriptor")
     empty = {}
@@ -149,17 +138,16 @@ def event_runtime_descriptor(routes: list[Any], options: Any) -> Any:
     return out
 
 
-def mcp_jsonrpc_request(id: str, method: str, params: Any) -> Any:
-    _core_coverage_mark("mcp_jsonrpc_request")
+def mcp_protocol_constants() -> Any:
+    _core_coverage_mark("mcp_protocol_constants")
+    versions = []
+    versions.append("2025-11-25")
+    versions.append("2025-06-18")
+    versions.append("2025-03-26")
+    versions.append("2024-11-05")
     out = {}
-    out["jsonrpc"] = "2.0"
-    out["id"] = id
-    out["method"] = method
-    missing = _core_is_none(params)
-    if missing:
-        pass
-    else:
-        out["params"] = params
+    out["protocolVersion"] = "2025-11-25"
+    out["supportedProtocolVersions"] = versions
     return out
 
 
@@ -210,6 +198,20 @@ def event_route_commands(event: Any, routes: list[Any], identity_scope: str, tru
         else:
             pass
     return commands
+
+
+def mcp_jsonrpc_request(id: str, method: str, params: Any) -> Any:
+    _core_coverage_mark("mcp_jsonrpc_request")
+    out = {}
+    out["jsonrpc"] = "2.0"
+    out["id"] = id
+    out["method"] = method
+    missing = _core_is_none(params)
+    if missing:
+        pass
+    else:
+        out["params"] = params
+    return out
 
 
 def mcp_jsonrpc_notification(method: str, params: Any) -> Any:
@@ -338,6 +340,68 @@ def event_resolve_path(ingress: Any, path: Any, continuation: Any) -> Any:
     return current
 
 
+def mcp_resource_subscription_selection(resources: list[Any], mode: str, explicit_uris: list[Any]) -> list[Any]:
+    _core_coverage_mark("mcp_resource_subscription_selection")
+    selected = []
+    is_explicit = _core_eq(mode, "explicit")
+    if is_explicit:
+        for uri in explicit_uris:
+            empty = _core_eq(uri, "")
+            duplicate = _core_contains(selected, uri)
+            skip = _core_or(empty, duplicate)
+            if skip:
+                pass
+            else:
+                selected.append(uri)
+    else:
+        is_all = _core_eq(mode, "all")
+        is_selector = _core_eq(mode, "selector")
+        uses_resources = _core_or(is_all, is_selector)
+        if uses_resources:
+            for resource in resources:
+                uri = _core_get(resource, "uri", "")
+                empty = _core_eq(uri, "")
+                duplicate = _core_contains(selected, uri)
+                skip = _core_or(empty, duplicate)
+                if skip:
+                    pass
+                else:
+                    selected.append(uri)
+        else:
+            pass
+    return selected
+
+
+def mcp_resource_subscription_plan(desired: list[Any], current: list[Any]) -> Any:
+    _core_coverage_mark("mcp_resource_subscription_plan")
+    selected = []
+    for uri in desired:
+        duplicate = _core_contains(selected, uri)
+        if duplicate:
+            pass
+        else:
+            selected.append(uri)
+    additions = []
+    for uri in selected:
+        owned = _core_contains(current, uri)
+        if owned:
+            pass
+        else:
+            additions.append(uri)
+    removals = []
+    for uri in current:
+        wanted = _core_contains(selected, uri)
+        if wanted:
+            pass
+        else:
+            removals.append(uri)
+    out = {}
+    out["selected"] = selected
+    out["additions"] = additions
+    out["removals"] = removals
+    return out
+
+
 def event_map_input(ingress: Any, plan: Any, signature_fields: list[Any], continuation: Any) -> Any:
     _core_coverage_mark("event_map_input")
     none = _core_none()
@@ -393,6 +457,84 @@ def event_map_input(ingress: Any, plan: Any, signature_fields: list[Any], contin
     return result
 
 
+def mcp_resource_subscription_ownership(owners: list[Any], owner: str, operation: str) -> Any:
+    _core_coverage_mark("mcp_resource_subscription_ownership")
+    out_owners = []
+    out = {}
+    out["wireAction"] = "none"
+    out["changed"] = False
+    has_owner = _core_contains(owners, owner)
+    is_acquire = _core_eq(operation, "acquire")
+    if is_acquire:
+        for current in owners:
+            out_owners.append(current)
+        if has_owner:
+            pass
+        else:
+            before = _core_len(owners)
+            was_empty = _core_eq(before, 0)
+            if was_empty:
+                out["wireAction"] = "subscribe"
+            else:
+                pass
+            out_owners.append(owner)
+            out["changed"] = True
+    else:
+        for current in owners:
+            matches = _core_eq(current, owner)
+            if matches:
+                pass
+            else:
+                out_owners.append(current)
+        if has_owner:
+            remaining = _core_len(out_owners)
+            now_empty = _core_eq(remaining, 0)
+            if now_empty:
+                out["wireAction"] = "unsubscribe"
+            else:
+                pass
+            out["changed"] = True
+        else:
+            pass
+    out["owners"] = out_owners
+    return out
+
+
+def event_normalize_input(input: Any, signature_fields: list[Any]) -> Any:
+    _core_coverage_mark("event_normalize_input")
+    none = _core_none()
+    out = {}
+    result = {}
+    error = none
+    is_object = _core_type_is(input, "object")
+    if is_object:
+        for field in signature_fields:
+            name = _core_get(field, "name", "")
+            optional = _core_get(field, "optional", False)
+            value = _core_get(input, name, none)
+            missing = _core_is_none(value)
+            if missing:
+                if optional:
+                    pass
+                else:
+                    error = _core_string_format("Required signature input {} was not present", name)
+            else:
+                encoded = _core_json_stringify(value)
+                clone = _core_json_parse(encoded)
+                out[name] = clone
+    else:
+        error = "Mapped event input must be an object"
+    failed = _core_is_not_none(error)
+    result["ok"] = True
+    result["value"] = out
+    if failed:
+        result["ok"] = False
+        result["error"] = error
+    else:
+        pass
+    return result
+
+
 def event_continuation_match(continuations: list[Any], identity_scope: str, kind: str, value: str, now: float) -> Any:
     _core_coverage_mark("event_continuation_match")
     result = _core_none()
@@ -429,6 +571,46 @@ def event_delivery_due(status: str, available_at: float, now: float) -> bool:
     ready = _core_lte(available_at, now)
     due = _core_and(queued, ready)
     return due
+
+
+def event_strict_delivery_eligible(candidate: Any, deliveries: list[Any]) -> bool:
+    _core_coverage_mark("event_strict_delivery_eligible")
+    ordering = _core_get(candidate, "ordering", "strict")
+    strict = _core_eq(ordering, "strict")
+    eligible = True
+    if strict:
+        candidate_sequence = _core_get(candidate, "sequence", 0)
+        candidate_target = _core_get(candidate, "targetId", "")
+        candidate_instance = _core_get(candidate, "instanceKey", "")
+        terminal = []
+        terminal.append("succeeded")
+        terminal.append("failed")
+        terminal.append("cancelled")
+        terminal.append("dead_lettered")
+        terminal.append("output_persistence_failed")
+        terminal.append("outcome_unknown")
+        terminal.append("waiting_event")
+        terminal.append("coalesced")
+        for delivery in deliveries:
+            sequence = _core_get(delivery, "sequence", 0)
+            earlier = _core_lt(sequence, candidate_sequence)
+            target = _core_get(delivery, "targetId", "")
+            instance = _core_get(delivery, "instanceKey", "")
+            same_target = _core_eq(target, candidate_target)
+            same_instance = _core_eq(instance, candidate_instance)
+            same_queue = _core_and(same_target, same_instance)
+            status = _core_get(delivery, "status", "queued")
+            is_terminal = _core_contains(terminal, status)
+            nonterminal = _core_not(is_terminal)
+            predecessor = _core_and(earlier, same_queue)
+            blocking = _core_and(predecessor, nonterminal)
+            if blocking:
+                eligible = False
+            else:
+                pass
+    else:
+        pass
+    return eligible
 
 
 def event_capacity_transition(pending: int, queued_bytes: int, envelope_bytes: int, max_pending: int, max_queued_bytes: int, max_envelope_bytes: int) -> Any:
@@ -781,8 +963,13 @@ def _event_map_target_input(target, event, continuation, action, identity_scope,
         if not result.get("ok"): raise AxEventInputError(str(result.get("error") or "Event input mapping failed"))
         mapped = result["value"]
     if target.signature is not None:
-        if not isinstance(mapped, dict): raise AxEventInputError("Mapped event input must be an object")
-        for field in target.signature.get_input_fields():
+        signature_fields = target.signature.get_input_fields()
+        descriptors = [{"name": field.name, "optional": field.is_optional} for field in signature_fields]
+        normalized = event_normalize_input(mapped, descriptors)
+        if not normalized.get("ok"):
+            raise AxEventInputError(str(normalized.get("error") or "Event input normalization failed"))
+        mapped = normalized["value"]
+        for field in signature_fields:
             if field.name not in mapped:
                 if not field.is_optional: raise AxEventInputError(f"Required signature input {field.name} was not present")
                 continue
@@ -1057,7 +1244,8 @@ class AxEventRuntime:
         processed = 0
         while True:
             due = [(key, value) for key, value in self.store.deliveries.items()
-                   if value["status"] == "queued" and value.get("availableAt", 0) <= self.clock.now()]
+                   if value["status"] == "queued" and value.get("availableAt", 0) <= self.clock.now()
+                   and self._strict_delivery_eligible(value)]
             if not due: return processed
             due.sort(key=lambda item: (item[1].get("availableAt", 0), item[1].get("sequence", 0)))
             _, delivery = due[0]
@@ -1065,6 +1253,18 @@ class AxEventRuntime:
             self._dispatch(delivery["event"], delivery["command"],
                            delivery.get("identityScope", "anonymous"), delivery.get("trust", "untrusted"))
             processed += 1
+
+    def _strict_delivery_eligible(self, candidate):
+        routes = {route.id: route for route in self.routes}
+        def descriptor(delivery):
+            command = delivery["command"]
+            route = routes.get(command.routeId)
+            return {"sequence": delivery.get("sequence", 0),
+                    "targetId": command.targetId or "", "instanceKey": command.instanceKey,
+                    "status": delivery.get("status", "queued"),
+                    "ordering": route.ordering if route is not None else "strict"}
+        return bool(event_strict_delivery_eligible(
+            descriptor(candidate), [descriptor(value) for value in self.store.deliveries.values()]))
 
     def _dispatch(self, event, command, identity_scope, trust="untrusted"):
         delivery_id = f"{command.routeId}:{event.id}"
@@ -1288,6 +1488,8 @@ class AxMCPClient:
         self.prompts: list[dict[str, Any]] = []
         self.resources: list[dict[str, Any]] = []
         self.resource_templates: list[dict[str, Any]] = []
+        self.catalog_revision = 0
+        self._subscription_owners: dict[str, set[str]] = {}
         self._next_id = 1
         self._notification_listeners: list[Callable[[dict[str, Any]], None]] = []
         self._lifecycle_listeners: list[Callable[[str], None]] = []
@@ -1328,17 +1530,46 @@ class AxMCPClient:
         self.transport.start_listening()
 
     def close(self) -> None:
+        self._subscription_owners.clear()
+        self._initialized = False
         self.transport.close()
 
     def refresh(self) -> None:
-        self.tools = self.list_tools().get("tools", []) if self._capability("tools") else []
-        self.prompts = self.list_prompts().get("prompts", []) if self._capability("prompts") else []
+        self.tools = self._collect_catalog("tools/list", "tools") if self._capability("tools") else []
+        self.prompts = self._collect_catalog("prompts/list", "prompts") if self._capability("prompts") else []
         if self._capability("resources"):
-            self.resources = self.list_resources().get("resources", [])
-            self.resource_templates = self.list_resource_templates().get("resourceTemplates", [])
+            self.resources = self._collect_catalog("resources/list", "resources")
+            self.resource_templates = self._collect_catalog("resources/templates/list", "resourceTemplates")
         else:
             self.resources = []
             self.resource_templates = []
+        self.catalog_revision += 1
+
+    def _collect_catalog(self, method: str, field: str) -> list[dict[str, Any]]:
+        values: list[dict[str, Any]] = []
+        cursor = None
+        seen: set[str] = set()
+        max_pages = int(self.options.get("maxPaginationPages", 1000))
+        for _page in range(max_pages):
+            result = self._request(method, {"cursor": cursor} if cursor else {})
+            values.extend(json.loads(json.dumps(result.get(field) or [])))
+            cursor = result.get("nextCursor")
+            if not cursor: return values
+            if cursor in seen: raise AxMCPError(f"MCP {method} repeated pagination cursor {cursor}")
+            seen.add(cursor)
+        raise AxMCPError(f"MCP {method} exceeded {max_pages} pagination pages")
+
+    def inspect_catalog(self, *, refresh: bool = False) -> dict[str, Any]:
+        self.init()
+        if refresh: self.refresh()
+        return json.loads(json.dumps({
+            "namespace": self.namespace(), "protocolVersion": self.negotiated_protocol_version,
+            "revision": self.catalog_revision, "serverInfo": self.server_info,
+            "serverCapabilities": self.server_capabilities, "tools": self.tools,
+            "prompts": self.prompts, "resources": self.resources,
+            "resourceTemplates": self.resource_templates,
+            "subscriptions": sorted(self._subscription_owners),
+        }))
 
     def ping(self) -> dict[str, Any]:
         return self._request("ping", {})
@@ -1363,10 +1594,38 @@ class AxMCPClient:
         return self._request("resources/read", {"uri": uri})
 
     def subscribe_resource(self, uri: str) -> dict[str, Any]:
-        return self._request("resources/subscribe", {"uri": uri})
+        return self.acquire_resource_subscription(uri, "manual")
 
     def unsubscribe_resource(self, uri: str) -> dict[str, Any]:
-        return self._request("resources/unsubscribe", {"uri": uri})
+        return self.release_resource_subscription(uri, "manual")
+
+    def acquire_resource_subscription(self, uri: str, owner: str) -> dict[str, Any]:
+        self._assert_resource_subscriptions()
+        transition = mcp_resource_subscription_ownership(
+            sorted(self._subscription_owners.get(uri, set())), owner, "acquire"
+        )
+        result = self._request("resources/subscribe", {"uri": uri}) if transition["wireAction"] == "subscribe" else {}
+        self._subscription_owners[uri] = set(transition["owners"])
+        return result
+
+    def release_resource_subscription(self, uri: str, owner: str) -> dict[str, Any]:
+        self._assert_resource_subscriptions()
+        transition = mcp_resource_subscription_ownership(
+            sorted(self._subscription_owners.get(uri, set())), owner, "release"
+        )
+        result = self._request("resources/unsubscribe", {"uri": uri}) if transition["wireAction"] == "unsubscribe" else {}
+        if transition["owners"]: self._subscription_owners[uri] = set(transition["owners"])
+        else: self._subscription_owners.pop(uri, None)
+        return result
+
+    def restore_resource_subscriptions(self) -> None:
+        for uri in sorted(self._subscription_owners):
+            self._request("resources/subscribe", {"uri": uri})
+
+    def _assert_resource_subscriptions(self) -> None:
+        resources = self.server_capabilities.get("resources")
+        if not isinstance(resources, dict) or not resources.get("subscribe"):
+            raise AxMCPError("Resource subscriptions are not supported")
 
     def get_task(self, task_id: str) -> dict[str, Any]:
         return self._request("tasks/get", {"taskId": task_id})
@@ -1433,6 +1692,8 @@ class AxMCPClient:
         return remove
 
     def emit_lifecycle(self, state: str) -> None:
+        if state == "reconnected":
+            self.restore_resource_subscriptions()
         for listener in list(self._lifecycle_listeners):
             listener(state)
 
@@ -1470,6 +1731,8 @@ class AxMCPClient:
                 "result": {"roots": self.options.get("roots") or []},
             })
             return
+        if method in {"notifications/tools/list_changed", "notifications/prompts/list_changed", "notifications/resources/list_changed"}:
+            self.refresh()
         callback = self.options.get("onNotification")
         if callable(callback):
             callback(message)
@@ -1513,22 +1776,28 @@ class AxMCPEventSource(AxEventSource):
     """Composable MCP notification adapter for AxEventRuntime."""
     def __init__(self, client: AxMCPClient, namespace: str | None = None, *,
                  identity_scope: str = "anonymous", trust: str = "untrusted",
-                 subscriptions: list[str] | None = None):
+                 resource_subscriptions: Any = "none", subscriptions: list[str] | None = None):
+        if subscriptions is not None and resource_subscriptions != "none":
+            raise ValueError("Specify either resource_subscriptions or subscriptions, not both")
         self.client = client; self.namespace = namespace or client.namespace()
         self.identity_scope = identity_scope; self.trust = trust
-        self.subscriptions = list(subscriptions or []); self._publish = None; self._remove = None; self._remove_lifecycle = None
+        self.resource_subscriptions = subscriptions if subscriptions is not None else resource_subscriptions
+        self.subscriptions: list[str] = []; self.owner = f"event-source:{uuid.uuid4()}"
+        self.errors: list[Exception] = []; self._publish = None; self._remove = None; self._remove_lifecycle = None
 
     def start(self, publish):
         self.client.init()
         self._publish = publish
         self._remove = self.client.add_notification_listener(self._on_notification)
         self._remove_lifecycle = self.client.add_lifecycle_listener(
-            lambda state: self.reconnect() if state == "reconnected" else None)
-        for uri in self.subscriptions: self.client.subscribe_resource(uri)
+            lambda state: self._reconcile() if state == "reconnected" else None)
+        self._reconcile()
         return self
 
     def _on_notification(self, message):
         if not self._publish or "method" not in message: return
+        if message.get("method") == "notifications/resources/list_changed":
+            self._reconcile()
         normalized = event_normalize_mcp(self.namespace, str(message["method"]), message.get("params") or {})
         raw_correlation = normalized.get("correlation")
         correlation = [raw_correlation] if isinstance(raw_correlation, dict) else list(raw_correlation or [])
@@ -1542,12 +1811,45 @@ class AxMCPEventSource(AxEventSource):
             identity_scope=self.identity_scope, trust=self.trust)
 
     def reconnect(self):
-        for uri in self.subscriptions: self.client.subscribe_resource(uri)
+        self.client.restore_resource_subscriptions()
+        self._reconcile()
+
+    def _selected_uris(self, catalog):
+        policy = self.resource_subscriptions
+        resources = list(catalog.get("resources") or [])
+        mode = "none"; explicit = []; candidates = []
+        if policy == "all": mode = "all"; candidates = resources
+        elif isinstance(policy, (list, tuple)): mode = "explicit"; explicit = [str(uri) for uri in policy]
+        elif policy not in (None, "none"):
+            selector = policy.get("select") if isinstance(policy, dict) else policy
+            if not callable(selector): raise ValueError("Invalid MCP resource subscription policy")
+            mode = "selector"; candidates = [resource for resource in resources if selector(resource, catalog)]
+        return sorted(mcp_resource_subscription_selection(candidates, mode, explicit))
+
+    def _reconcile(self):
+        catalog = self.client.inspect_catalog()
+        policy = self.resource_subscriptions
+        if policy not in (None, "none"):
+            capability = catalog.get("serverCapabilities", {}).get("resources")
+            if not isinstance(capability, dict) or not capability.get("subscribe"):
+                raise AxMCPError(f"MCP server {catalog['namespace']} does not advertise resource subscriptions")
+        try: desired = self._selected_uris(catalog)
+        except Exception as error:
+            self.errors.append(error); return
+        raw = mcp_resource_subscription_plan(desired, self.subscriptions)
+        plan = dict(raw or {})
+        for uri in plan.get("removals") or []:
+            try: self.client.release_resource_subscription(str(uri), self.owner); self.subscriptions.remove(str(uri))
+            except Exception as error: self.errors.append(error)
+        for uri in plan.get("additions") or []:
+            try: self.client.acquire_resource_subscription(str(uri), self.owner); self.subscriptions.append(str(uri)); self.subscriptions.sort()
+            except Exception as error: self.errors.append(error)
 
     def close(self):
         for uri in self.subscriptions:
-            try: self.client.unsubscribe_resource(uri)
+            try: self.client.release_resource_subscription(uri, self.owner)
             except Exception: pass
+        self.subscriptions = []
         if self._remove: self._remove()
         if self._remove_lifecycle: self._remove_lifecycle()
         self._remove = None; self._remove_lifecycle = None; self._publish = None

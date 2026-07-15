@@ -73,6 +73,19 @@ export interface AxMCPFunctionOverride {
   };
 }
 
+export interface AxMCPCatalogSnapshot {
+  namespace: string;
+  protocolVersion?: string;
+  revision: number;
+  serverInfo?: AxMCPImplementationInfo;
+  serverCapabilities: AxMCPServerCapabilities;
+  tools: readonly AxMCPTool[];
+  prompts: readonly AxMCPPrompt[];
+  resources: readonly AxMCPResource[];
+  resourceTemplates: readonly AxMCPResourceTemplate[];
+  subscriptions: readonly string[];
+}
+
 export type AxMCPClientEvent =
   | {
       type: 'catalog_changed';
@@ -89,6 +102,7 @@ export type AxMCPClientEvent =
       params: Readonly<AxMCPProgressNotificationParams>;
     }
   | { type: 'task_status'; task: Readonly<AxMCPTask> }
+  | { type: 'lifecycle'; state: 'reconnected' }
   | { type: 'notification'; notification: Readonly<AxMCPJSONRPCNotification> };
 
 export interface AxMCPClientListeningOptions {
@@ -172,6 +186,7 @@ type CapabilityValue =
 
 const JSON_RPC_METHOD_NOT_FOUND = -32601;
 const JSON_RPC_INTERNAL_ERROR = -32603;
+const MANUAL_RESOURCE_SUBSCRIPTION_OWNER = 'manual';
 
 export class AxMCPClient {
   private functions: AxFunction[] = [];
@@ -199,7 +214,8 @@ export class AxMCPClient {
     start: () => void;
   }> = [];
   private readonly tasks = new Map<string, AxMCPTask>();
-  private readonly resourceSubscriptions = new Set<string>();
+  private readonly resourceSubscriptionOwners = new Map<string, Set<string>>();
+  private resourceSubscriptionTransition = Promise.resolve();
   private readonly taskStatusListeners = new Set<
     (task: Readonly<AxMCPTask>) => void | Promise<void>
   >();
@@ -236,6 +252,9 @@ export class AxMCPClient {
       });
     this.transport.setMessageHandler?.((message) => {
       return this.handleInboundMessage(message);
+    });
+    this.transport.setLifecycleHandler?.((state) => {
+      return this.handleTransportLifecycle(state);
     });
   }
 
@@ -427,11 +446,31 @@ export class AxMCPClient {
     return this.catalogRevision;
   }
 
+  async inspectCatalog(
+    options: Readonly<{ refresh?: boolean }> = {}
+  ): Promise<AxMCPCatalogSnapshot> {
+    await this.init();
+    if (options.refresh) await this.refresh();
+    return structuredClone({
+      namespace: this.getNamespace(),
+      protocolVersion: this.negotiatedProtocolVersion,
+      revision: this.catalogRevision,
+      serverInfo: this.serverInfo,
+      serverCapabilities: this.serverCapabilities,
+      tools: this.tools,
+      prompts: this.prompts,
+      resources: this.resources,
+      resourceTemplates: this.resourceTemplates,
+      subscriptions: this.getResourceSubscriptions(),
+    });
+  }
+
   async close(): Promise<void> {
     try {
       await this.transport.terminateSession?.();
     } finally {
       await this.transport.close?.();
+      this.resourceSubscriptionOwners.clear();
       this.initialized = false;
       this.negotiatedProtocolVersion = undefined;
     }
@@ -968,6 +1007,10 @@ export class AxMCPClient {
           await options.onError?.(error);
           try {
             await this.recoverSession();
+            await this.emitEvent({
+              type: 'lifecycle',
+              state: 'reconnected',
+            });
           } catch (recoveryError) {
             await options.onError?.(recoveryError);
           }
@@ -1099,32 +1142,68 @@ export class AxMCPClient {
   }
 
   async subscribeResource(uri: string): Promise<void> {
-    if (
-      !this.hasResourcesCapability() ||
-      !this.hasSubCapability(this.serverCapabilities.resources, 'subscribe')
-    ) {
-      throw new Error('Resource subscriptions are not supported');
-    }
-    if (this.resourceSubscriptions.has(uri)) return;
-
-    await this.sendRequest<{ uri: string }>('resources/subscribe', { uri });
-    this.resourceSubscriptions.add(uri);
+    await this.acquireResourceSubscription(
+      uri,
+      MANUAL_RESOURCE_SUBSCRIPTION_OWNER
+    );
   }
 
   async unsubscribeResource(uri: string): Promise<void> {
-    if (
-      !this.hasResourcesCapability() ||
-      !this.hasSubCapability(this.serverCapabilities.resources, 'subscribe')
-    ) {
-      throw new Error('Resource subscriptions are not supported');
-    }
+    await this.releaseResourceSubscription(
+      uri,
+      MANUAL_RESOURCE_SUBSCRIPTION_OWNER
+    );
+  }
 
-    await this.sendRequest<{ uri: string }>('resources/unsubscribe', { uri });
-    this.resourceSubscriptions.delete(uri);
+  /** Acquires one logical owner for a resource subscription. */
+  async acquireResourceSubscription(uri: string, owner: string): Promise<void> {
+    this.assertResourceSubscriptionCapability();
+    if (!uri) throw new Error('Resource subscription URI cannot be empty');
+    if (!owner) throw new Error('Resource subscription owner cannot be empty');
+    await this.withResourceSubscriptionTransition(async () => {
+      const owners = this.resourceSubscriptionOwners.get(uri);
+      if (owners?.has(owner)) return;
+      if (!owners || owners.size === 0) {
+        await this.sendRequest<{ uri: string }>('resources/subscribe', { uri });
+      }
+      const nextOwners = owners ?? new Set<string>();
+      nextOwners.add(owner);
+      this.resourceSubscriptionOwners.set(uri, nextOwners);
+    });
+  }
+
+  /** Releases one logical owner without disturbing other subscribers. */
+  async releaseResourceSubscription(uri: string, owner: string): Promise<void> {
+    this.assertResourceSubscriptionCapability();
+    await this.withResourceSubscriptionTransition(async () => {
+      const owners = this.resourceSubscriptionOwners.get(uri);
+      if (!owners?.has(owner)) return;
+      if (owners.size === 1) {
+        await this.sendRequest<{ uri: string }>('resources/unsubscribe', {
+          uri,
+        });
+        this.resourceSubscriptionOwners.delete(uri);
+        return;
+      }
+      owners.delete(owner);
+    });
   }
 
   getResourceSubscriptions(): readonly string[] {
-    return [...this.resourceSubscriptions].sort();
+    return [...this.resourceSubscriptionOwners.keys()].sort();
+  }
+
+  private async restoreResourceSubscriptions(): Promise<void> {
+    await this.withResourceSubscriptionTransition(async () => {
+      for (const uri of this.getResourceSubscriptions()) {
+        await this.sendRequest<{ uri: string }>('resources/subscribe', { uri });
+      }
+    });
+  }
+
+  private async handleTransportLifecycle(state: 'reconnected'): Promise<void> {
+    if (state === 'reconnected') await this.restoreResourceSubscriptions();
+    await this.emitEvent({ type: 'lifecycle', state });
   }
 
   async complete(
@@ -1581,12 +1660,13 @@ export class AxMCPClient {
   private async recoverSession(): Promise<void> {
     if (this.sessionRecoveryPromise) return this.sessionRecoveryPromise;
     this.sessionRecoveryPromise = (async () => {
-      const subscriptions = [...this.resourceSubscriptions];
-      this.resourceSubscriptions.clear();
+      const subscriptions = this.getResourceSubscriptions();
       this.initialized = false;
       await this.initialize();
       this.initialized = true;
-      for (const uri of subscriptions) await this.subscribeResource(uri);
+      for (const uri of subscriptions) {
+        await this.sendRequest<{ uri: string }>('resources/subscribe', { uri });
+      }
     })();
     try {
       await this.sessionRecoveryPromise;
@@ -1616,5 +1696,30 @@ export class AxMCPClient {
     }
 
     await this.transport.sendNotification(notification);
+  }
+
+  private assertResourceSubscriptionCapability(): void {
+    if (
+      !this.hasResourcesCapability() ||
+      !this.hasSubCapability(this.serverCapabilities.resources, 'subscribe')
+    ) {
+      throw new Error('Resource subscriptions are not supported');
+    }
+  }
+
+  private async withResourceSubscriptionTransition<T>(
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const previous = this.resourceSubscriptionTransition;
+    let release!: () => void;
+    this.resourceSubscriptionTransition = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
   }
 }

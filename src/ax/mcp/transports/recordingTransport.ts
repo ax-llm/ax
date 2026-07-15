@@ -1,4 +1,10 @@
-import type { AxMCPRequestOptions, AxMCPTransport } from '../transport.js';
+import type {
+  AxMCPListeningHandle,
+  AxMCPListeningOptions,
+  AxMCPRequestOptions,
+  AxMCPTransport,
+  AxMCPTransportLifecycleState,
+} from '../transport.js';
 import type {
   AxMCPJSONRPCMessage,
   AxMCPJSONRPCNotification,
@@ -27,6 +33,9 @@ export class AxMCPRecordingTransport implements AxMCPTransport {
   private handler?: (
     message: Readonly<AxMCPJSONRPCMessage>
   ) => void | Promise<void>;
+  private lifecycleHandler?: (
+    state: AxMCPTransportLifecycleState
+  ) => void | Promise<void>;
 
   constructor(private readonly inner: AxMCPTransport) {
     inner.setMessageHandler?.(async (message) => {
@@ -36,6 +45,7 @@ export class AxMCPRecordingTransport implements AxMCPTransport {
       });
       await this.handler?.(message);
     });
+    inner.setLifecycleHandler?.((state) => this.lifecycleHandler?.(state));
   }
 
   getRecording(): readonly AxMCPTransportRecordingEntry[] {
@@ -97,6 +107,12 @@ export class AxMCPRecordingTransport implements AxMCPTransport {
     this.handler = handler;
   }
 
+  setLifecycleHandler(
+    handler: (state: AxMCPTransportLifecycleState) => void | Promise<void>
+  ): void {
+    this.lifecycleHandler = handler;
+  }
+
   setProtocolVersion(protocolVersion: string): void {
     this.inner.setProtocolVersion?.(protocolVersion);
   }
@@ -107,6 +123,23 @@ export class AxMCPRecordingTransport implements AxMCPTransport {
 
   async connect(): Promise<void> {
     await this.inner.connect?.();
+  }
+
+  startListening(
+    options?: Readonly<AxMCPListeningOptions>
+  ): AxMCPListeningHandle | Promise<AxMCPListeningHandle> {
+    if (this.inner.startListening) return this.inner.startListening(options);
+    const controller = new AbortController();
+    const signal = options?.signal
+      ? AbortSignal.any([options.signal, controller.signal])
+      : controller.signal;
+    return {
+      done: new Promise<void>((resolve) => {
+        if (signal.aborted) return resolve();
+        signal.addEventListener('abort', () => resolve(), { once: true });
+      }),
+      close: () => controller.abort('MCP recording listener closed'),
+    };
   }
 
   async terminateSession(): Promise<void> {

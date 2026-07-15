@@ -263,6 +263,14 @@ identity from the application's token mapping; MCP sessions alone are
 anonymous. `axMCPEventRoutes({ client })` provides observe/invalidate/task
 resume defaults, while resource changes require an explicit wake route.
 
+Users do not need to know resource URIs before connecting. Call
+`client.inspectCatalog()` or give the source an explicit
+`resourceSubscriptions` policy (`'none'`, `'all'`, concrete URI array, or a
+metadata selector). Managed sources reconcile catalog additions/removals and
+share URI ownership safely with manual subscriptions. URI templates are
+discoverable but never expanded automatically. See
+[MCP Catalog Discovery And Resource Subscriptions](./MCP_SUBSCRIPTIONS.md).
+
 Local Streamable HTTP examples set `AX_MCP_ENDPOINT` and explicitly enable
 loopback HTTP in their transport SSRF policy; remote endpoints retain secure
 HTTPS defaults. Close the source/runtime before closing the caller-owned MCP

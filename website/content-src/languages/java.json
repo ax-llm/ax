@@ -123,6 +123,7 @@
         "sourcePath": "src/examples/java/mcp/NativeMCPToolsExample.java",
         "code": [
           "AxMCPClient mcp = new AxMCPClient(new AxMCPStreamableHTTPTransport(endpoint), Map.of(\"namespace\", \"inventory\"));",
+          "      AxMCPClient.CatalogSnapshot catalog = mcp.inspectCatalog();",
           "AxGen program = new AxGen(Ax.s(\"request:string -> answer:string\"), Map.of(\"mcp\", mcp));",
           "      mcp.close();"
         ]
@@ -130,7 +131,7 @@
       "resourceWake": {
         "sourcePath": "src/examples/java/mcp/ResourceWakeAgentExample.java",
         "code": [
-          "AxMCPEventSource source=new AxMCPEventSource(client,\"inventory\",\"tenant:demo\",\"authenticated\",List.of(\"demo://inventory\"));",
+          "AxMCPEventSource source=new AxMCPEventSource(client,\"inventory\",\"tenant:demo\",\"authenticated\",AxMCPEventSource.all());",
           "runtime.start();",
           "if(!completed.await(60,TimeUnit.SECONDS))throw new IllegalStateException(\"Timed out waiting for an MCP resource notification\");"
         ]

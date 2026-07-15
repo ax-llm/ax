@@ -142,6 +142,7 @@
         "sourcePath": "src/examples/python/mcp/native-mcp-tools.py",
         "code": [
           "mcp = AxMCPClient(AxMCPStreamableHTTPTransport(endpoint), {\"namespace\": \"inventory\"})",
+          "    catalog = mcp.inspect_catalog()",
           "    {\"mcp\": mcp},",
           "    mcp.close()"
         ]
@@ -151,6 +152,7 @@
         "code": [
           "transport = AxMCPStreamableHTTPTransport(",
           "source = AxMCPEventSource(",
+          "    resource_subscriptions=\"all\",",
           "runtime.start()",
           "if not completed.wait(60):"
         ]

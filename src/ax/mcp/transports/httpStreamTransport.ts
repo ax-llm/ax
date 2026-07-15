@@ -42,6 +42,7 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   private messageHandler?: (
     message: Readonly<AxMCPJSONRPCMessage>
   ) => void | Promise<void>;
+  private lifecycleHandler?: (state: 'reconnected') => void | Promise<void>;
   private customHeaders: Record<string, string>;
   private oauthHelper: OAuthHelper;
   private listeningAbort?: AbortController;
@@ -147,6 +148,12 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
     handler: (message: Readonly<AxMCPJSONRPCMessage>) => void | Promise<void>
   ): void {
     this.messageHandler = handler;
+  }
+
+  setLifecycleHandler(
+    handler: (state: 'reconnected') => void | Promise<void>
+  ): void {
+    this.lifecycleHandler = handler;
   }
 
   async connect(): Promise<void> {
@@ -519,8 +526,11 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   private async consumeListeningStream(signal: AbortSignal): Promise<void> {
     let lastEventId: string | undefined;
     let retryMs = 1000;
+    let connected = false;
     for (;;) {
       const response = await this.openGETStream(lastEventId, signal);
+      if (connected) await this.lifecycleHandler?.('reconnected');
+      connected = true;
       await this.consumeSSE(response, async (event) => {
         if (event.id) lastEventId = event.id;
         if (event.retry !== undefined) retryMs = event.retry;

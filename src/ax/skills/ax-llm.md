@@ -282,11 +282,15 @@ const transport = new AxMCPStreamableHTTPTransport('https://remote.example/mcp',
 - Use `mcpInheritance: 'all' | 'none' | string[]` to restrict child programs.
 - Tool calls retain raw MCP content, metadata, errors, tasks, and protocol provenance in memory.
 - AxAgent exposes native modules as `mcp.<namespace>` and `ucp.<namespace>`.
+- `inspectCatalog()` discovers tool/prompt names, concrete resources, and URI
+  templates from only an endpoint. Resource event sources default to no
+  subscriptions and require an explicit all/URI/selector policy.
 - `toFunction()` remains a compatibility adapter only; native Ax execution never uses it.
 - Live optimization is rejected by default. Use recording/replay or explicitly opt into live MCP evaluation.
 
 ```typescript
-const tools = mcpClient.getTools();
+const catalog = await mcpClient.inspectCatalog();
+const tools = catalog.tools;
 const prompts = await mcpClient.listPrompts();
 const resource = await mcpClient.readResource('docs://guide');
 const tasks = await mcpClient.listTasks();

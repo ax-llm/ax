@@ -11,7 +11,8 @@
 use axllm::runtime::quickjs::QuickJsCodeRuntime;
 use axllm::{
     agent_with_options, AxEventRoute, AxEventRuntime, AxEventTarget, AxMCPClient, AxMCPEventSource,
-    AxMCPStreamableHTTPTransport, AxResult, OpenAICompatibleClient,
+    AxMCPResourceSubscriptionPolicy, AxMCPStreamableHTTPTransport, AxResult,
+    OpenAICompatibleClient,
 };
 use serde_json::{json, Value};
 use std::{
@@ -70,13 +71,13 @@ fn main() -> AxResult<()> {
     runtime.register_target(target);
     runtime.start()?;
     let runtime = Arc::new(Mutex::new(runtime));
-    let mut source = AxMCPEventSource::new(
+    let mut source = AxMCPEventSource::with_policy(
         client.clone(),
         runtime.clone(),
         "inventory",
         "tenant:demo",
         "authenticated",
-        vec!["demo://inventory".into()],
+        AxMCPResourceSubscriptionPolicy::All,
     );
     source.start()?;
     let deadline = Instant::now() + Duration::from_secs(60);

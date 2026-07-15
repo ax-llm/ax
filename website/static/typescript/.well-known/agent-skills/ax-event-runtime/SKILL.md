@@ -96,11 +96,17 @@ Use `ax-mcp` for client construction, transports, authentication, catalogs,
 subscriptions, tasks, and MCP-specific security policy. This skill owns the
 generic inbox, routing, continuation, store, and sink behavior.
 
-Use `AxMCPEventSource({ client, resources, identity, trust })`. Identity must
-come from the application's authenticated client or token mapping; a bare MCP
-session is anonymous. Add `...axMCPEventRoutes({ client })` for catalog
-invalidation, progress/log observation, and task resume. Resource notifications
-never get an implicit wake route.
+Use `client.inspectCatalog()` to discover server-owned tools, prompts, concrete
+resources, and URI templates from only the endpoint. Then use
+`AxMCPEventSource({ client, resourceSubscriptions, identity, trust })` with an
+explicit none/all/URI/selector policy. Omitted policy subscribes to no
+resources. Templates are never expanded automatically. Managed sources diff
+catalog changes, restore current logical ownership on reconnect, and release
+only their own subscriptions on close. Identity must come from the
+application's authenticated client or token mapping; a bare MCP session is
+anonymous. Add `...axMCPEventRoutes({ client })` for catalog invalidation,
+progress/log observation, and task resume. Resource notifications never get an
+implicit wake route. See `docs/MCP_SUBSCRIPTIONS.md`.
 
 ## UCP Adapter
 

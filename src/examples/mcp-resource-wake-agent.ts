@@ -38,7 +38,7 @@ const inventoryAgent = agent(
 );
 const source = new AxMCPEventSource({
   client,
-  resources: ['demo://inventory'],
+  resourceSubscriptions: 'all',
   identity: { tenantId: 'demo' },
   trust: 'authenticated',
 });
@@ -46,6 +46,12 @@ let completeWake!: () => void;
 const wakeCompleted = new Promise<void>((resolve) => {
   completeWake = resolve;
 });
+const catalog = await client.inspectCatalog();
+const inventoryResource = catalog.resources.find(
+  ({ name }) => name === 'Inventory snapshot'
+);
+if (!inventoryResource)
+  throw new Error('Inventory resource was not discovered.');
 const target = eventTarget('inventory-agent')
   .program(inventoryAgent)
   .ai(llm)
@@ -53,7 +59,7 @@ const target = eventTarget('inventory-agent')
   .forwardOptions({
     mcp: client,
     mcpContext: [
-      { client: 'inventory', resource: { uri: 'demo://inventory' } },
+      { client: 'inventory', resource: { uri: inventoryResource.uri } },
     ],
   })
   .retrySafety('idempotent')

@@ -19,6 +19,10 @@ public final class GeneratedMcpEventSmoke {
       if ("notifications/progress".equals(message.get("method"))) progress.incrementAndGet();
     });
     client.init();
+    AxMCPClient.CatalogSnapshot catalog = client.inspectCatalog();
+    if (catalog.resources().size() != 2 || catalog.resourceTemplates().size() != 1) {
+      throw new IllegalStateException("MCP catalog discovery failed: " + catalog);
+    }
     String taskId = String.valueOf(object(client.callTool("start_reindex", Map.of("scope", "all")).get("task")).get("taskId"));
 
     AxEventRuntime.Target resourceTarget = new AxEventRuntime.Target("resource-target", (input, context) -> {
@@ -41,7 +45,7 @@ public final class GeneratedMcpEventSmoke {
         new AxEventRoute("task-resume", "resume", Map.of("types", List.of("mcp.task.status")), "task-target", false, "strict", 0)))
       .registerTarget(resourceTarget)
       .registerTarget(taskTarget)
-      .addSource(new AxMCPEventSource(client, "inventory", "tenant:smoke", "authenticated", List.of("demo://inventory")));
+      .addSource(new AxMCPEventSource(client, "inventory", "tenant:smoke", "authenticated", AxMCPEventSource.all()));
     runtime.start();
     runtime.publish(new AxEventEnvelope("task-start", "app://smoke", "app.task.started",
         Map.of("taskId", taskId, "taskKey", "inventory:" + taskId)), "tenant:smoke", "authenticated");

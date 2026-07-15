@@ -901,6 +901,7 @@ import {
   AxMCPEventSource,
   type AxMCPEventSourceIdentity,
   type AxMCPEventSourceOptions,
+  type AxMCPResourceSubscriptionPolicy,
   axMCPEventRoutes,
 } from './event/mcpSource.js';
 import {
@@ -1063,6 +1064,7 @@ import {
   axMCPChat,
 } from './mcp/chat.js';
 import {
+  type AxMCPCatalogSnapshot,
   AxMCPClient,
   type AxMCPClientEvent,
   type AxMCPClientListeningOptions,
@@ -1109,6 +1111,7 @@ import type {
   AxMCPListeningOptions,
   AxMCPRequestOptions,
   AxMCPTransport,
+  AxMCPTransportLifecycleState,
 } from './mcp/transport.js';
 import {
   AxMCPStreamableHTTPTransport,
@@ -2074,6 +2077,7 @@ export type { AxMCPBaseAnnotated };
 export type { AxMCPBatchRequest };
 export type { AxMCPBatchResponse };
 export type { AxMCPBlobResourceContents };
+export type { AxMCPCatalogSnapshot };
 export type { AxMCPChatOptions };
 export type { AxMCPChatResult };
 export type { AxMCPClientCapabilities };
@@ -2142,6 +2146,7 @@ export type { AxMCPResolvedContext };
 export type { AxMCPResource };
 export type { AxMCPResourceLink };
 export type { AxMCPResourceReadResult };
+export type { AxMCPResourceSubscriptionPolicy };
 export type { AxMCPResourceTemplate };
 export type { AxMCPResourceTemplatesListResult };
 export type { AxMCPResourcesListResult };
@@ -2169,6 +2174,7 @@ export type { AxMCPToolCallParams };
 export type { AxMCPToolCallResult };
 export type { AxMCPToolsListResult };
 export type { AxMCPTransport };
+export type { AxMCPTransportLifecycleState };
 export type { AxMCPTransportRecordingEntry };
 export type { AxMCPVerifiedJWT };
 export type { AxMCPWebSocketLike };

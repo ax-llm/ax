@@ -87,8 +87,11 @@ Core-owned behavior is deterministic and language-agnostic:
   action logs, trace events, and actor-visible policy vocabulary
 - AxFlow planning, control flow, cache behavior, state merge, trace/usage/chat
   aggregation, and return projection
-- event route commands, retry safety, continuation correlation, and protocol
-  adapter normalization
+- event route commands, strict same-instance eligibility, signature input
+  normalization, retry safety, continuation correlation, and protocol adapter
+  normalization
+- MCP catalog snapshots, concrete-resource subscription selection and diffing,
+  and logical URI ownership transitions
 - optimizer request/evaluator/artifact shape and generated `AxGEPA` algorithm
   state
 
@@ -149,9 +152,13 @@ Every generated package advertises `axevent.single-worker` and
 command, source, sink, clock, store, target, and runtime boundaries. The five
 generated conformance runners prove due scheduling, capacity limits, state
 restore, continuation consumption, cancellation, run inspection, dead letters,
-and sink-only redrive. Generated path/input builders use the host signature type
-as the destination contract and validate inputs before invoking the typed target
-callback. AxIR owns the deterministic state machine; each host owns its timer
+sink-only redrive, strict ordering across delayed retries, and callback/default
+signature normalization. Generated path/input builders use the host signature
+type as the destination contract and validate inputs before invoking the typed
+target callback. Generated MCP clients expose deep-cloned catalog snapshots and
+managed none/all/URI/selector subscription policies; real HTTP/SSE smoke tests
+cover catalog changes, reconciliation, reconnect, and automatic event dispatch.
+AxIR owns the deterministic state machines; each host owns its timer, transport,
 and asynchronous listening loop.
 Persistent multi-worker capability is not inferred from this baseline and is
 advertised only for a store that passes the language's event-store conformance

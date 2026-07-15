@@ -18146,19 +18146,6 @@ Value Core::mcp_execution_context_descriptor(Value namespaces, Value inheritance
   return out;
 }
 
-Value Core::mcp_protocol_constants() {
-  axir_coverage_mark("mcp_protocol_constants");
-  Value versions = Value::array();
-  Core::append(versions, Value("2025-11-25"));
-  Core::append(versions, Value("2025-06-18"));
-  Core::append(versions, Value("2025-03-26"));
-  Core::append(versions, Value("2024-11-05"));
-  Value out = Value::object();
-  Core::set(out, Value("protocolVersion"), Value("2025-11-25"));
-  Core::set(out, Value("supportedProtocolVersions"), versions);
-  return out;
-}
-
 Value Core::event_runtime_descriptor(Value routes, Value options) {
   axir_coverage_mark("event_runtime_descriptor");
   Value empty = Value::object();
@@ -18176,19 +18163,16 @@ Value Core::event_runtime_descriptor(Value routes, Value options) {
   return out;
 }
 
-Value Core::mcp_jsonrpc_request(Value id, Value method, Value params) {
-  axir_coverage_mark("mcp_jsonrpc_request");
+Value Core::mcp_protocol_constants() {
+  axir_coverage_mark("mcp_protocol_constants");
+  Value versions = Value::array();
+  Core::append(versions, Value("2025-11-25"));
+  Core::append(versions, Value("2025-06-18"));
+  Core::append(versions, Value("2025-03-26"));
+  Core::append(versions, Value("2024-11-05"));
   Value out = Value::object();
-  Core::set(out, Value("jsonrpc"), Value("2.0"));
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("method"), method);
-  Value missing = Core::is_none(params);
-  if (Core::truthy(missing)) {
-    // empty
-  }
-  if (!Core::truthy(missing)) {
-    Core::set(out, Value("params"), params);
-  }
+  Core::set(out, Value("protocolVersion"), Value("2025-11-25"));
+  Core::set(out, Value("supportedProtocolVersions"), versions);
   return out;
 }
 
@@ -18238,6 +18222,22 @@ Value Core::event_route_commands(Value event, Value routes, Value identity_scope
     }
   }
   return commands;
+}
+
+Value Core::mcp_jsonrpc_request(Value id, Value method, Value params) {
+  axir_coverage_mark("mcp_jsonrpc_request");
+  Value out = Value::object();
+  Core::set(out, Value("jsonrpc"), Value("2.0"));
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("method"), method);
+  Value missing = Core::is_none(params);
+  if (Core::truthy(missing)) {
+    // empty
+  }
+  if (!Core::truthy(missing)) {
+    Core::set(out, Value("params"), params);
+  }
+  return out;
 }
 
 Value Core::mcp_jsonrpc_notification(Value method, Value params) {
@@ -18366,6 +18366,84 @@ Value Core::event_resolve_path(Value ingress, Value path, Value continuation) {
   return current;
 }
 
+Value Core::mcp_resource_subscription_selection(Value resources, Value mode, Value explicit_uris) {
+  axir_coverage_mark("mcp_resource_subscription_selection");
+  Value selected = Value::array();
+  Value is_explicit = Core::eq(mode, Value("explicit"));
+  if (Core::truthy(is_explicit)) {
+    for (auto uri : Core::iter(explicit_uris)) {
+      Value empty = Core::eq(uri, Value(""));
+      Value duplicate = Core::contains(selected, uri);
+      Value skip = Core::or_(empty, duplicate);
+      if (Core::truthy(skip)) {
+        // empty
+      }
+      if (!Core::truthy(skip)) {
+        Core::append(selected, uri);
+      }
+    }
+  }
+  if (!Core::truthy(is_explicit)) {
+    Value is_all = Core::eq(mode, Value("all"));
+    Value is_selector = Core::eq(mode, Value("selector"));
+    Value uses_resources = Core::or_(is_all, is_selector);
+    if (Core::truthy(uses_resources)) {
+      for (auto resource : Core::iter(resources)) {
+        Value uri = Core::get(resource, Value("uri"), Value(""));
+        Value empty = Core::eq(uri, Value(""));
+        Value duplicate = Core::contains(selected, uri);
+        Value skip = Core::or_(empty, duplicate);
+        if (Core::truthy(skip)) {
+          // empty
+        }
+        if (!Core::truthy(skip)) {
+          Core::append(selected, uri);
+        }
+      }
+    }
+  }
+  return selected;
+}
+
+Value Core::mcp_resource_subscription_plan(Value desired, Value current) {
+  axir_coverage_mark("mcp_resource_subscription_plan");
+  Value selected = Value::array();
+  for (auto uri : Core::iter(desired)) {
+    Value duplicate = Core::contains(selected, uri);
+    if (Core::truthy(duplicate)) {
+      // empty
+    }
+    if (!Core::truthy(duplicate)) {
+      Core::append(selected, uri);
+    }
+  }
+  Value additions = Value::array();
+  for (auto uri : Core::iter(selected)) {
+    Value owned = Core::contains(current, uri);
+    if (Core::truthy(owned)) {
+      // empty
+    }
+    if (!Core::truthy(owned)) {
+      Core::append(additions, uri);
+    }
+  }
+  Value removals = Value::array();
+  for (auto uri : Core::iter(current)) {
+    Value wanted = Core::contains(selected, uri);
+    if (Core::truthy(wanted)) {
+      // empty
+    }
+    if (!Core::truthy(wanted)) {
+      Core::append(removals, uri);
+    }
+  }
+  Value out = Value::object();
+  Core::set(out, Value("selected"), selected);
+  Core::set(out, Value("additions"), additions);
+  Core::set(out, Value("removals"), removals);
+  return out;
+}
+
 Value Core::event_map_input(Value ingress, Value plan, Value signature_fields, Value continuation) {
   axir_coverage_mark("event_map_input");
   Value none = Core::none();
@@ -18425,6 +18503,95 @@ Value Core::event_map_input(Value ingress, Value plan, Value signature_fields, V
   return result;
 }
 
+Value Core::mcp_resource_subscription_ownership(Value owners, Value owner, Value operation) {
+  axir_coverage_mark("mcp_resource_subscription_ownership");
+  Value out_owners = Value::array();
+  Value out = Value::object();
+  Core::set(out, Value("wireAction"), Value("none"));
+  Core::set(out, Value("changed"), Value(false));
+  Value has_owner = Core::contains(owners, owner);
+  Value is_acquire = Core::eq(operation, Value("acquire"));
+  if (Core::truthy(is_acquire)) {
+    for (auto current : Core::iter(owners)) {
+      Core::append(out_owners, current);
+    }
+    if (Core::truthy(has_owner)) {
+      // empty
+    }
+    if (!Core::truthy(has_owner)) {
+      Value before = Core::len(owners);
+      Value was_empty = Core::eq(before, Value(0));
+      if (Core::truthy(was_empty)) {
+        Core::set(out, Value("wireAction"), Value("subscribe"));
+      }
+      Core::append(out_owners, owner);
+      Core::set(out, Value("changed"), Value(true));
+    }
+  }
+  if (!Core::truthy(is_acquire)) {
+    for (auto current : Core::iter(owners)) {
+      Value matches = Core::eq(current, owner);
+      if (Core::truthy(matches)) {
+        // empty
+      }
+      if (!Core::truthy(matches)) {
+        Core::append(out_owners, current);
+      }
+    }
+    if (Core::truthy(has_owner)) {
+      Value remaining = Core::len(out_owners);
+      Value now_empty = Core::eq(remaining, Value(0));
+      if (Core::truthy(now_empty)) {
+        Core::set(out, Value("wireAction"), Value("unsubscribe"));
+      }
+      Core::set(out, Value("changed"), Value(true));
+    }
+  }
+  Core::set(out, Value("owners"), out_owners);
+  return out;
+}
+
+Value Core::event_normalize_input(Value input, Value signature_fields) {
+  axir_coverage_mark("event_normalize_input");
+  Value none = Core::none();
+  Value out = Value::object();
+  Value result = Value::object();
+  Value error = none;
+  Value is_object = Core::type_is(input, Value("object"));
+  if (Core::truthy(is_object)) {
+    for (auto field : Core::iter(signature_fields)) {
+      Value name = Core::get(field, Value("name"), Value(""));
+      Value optional = Core::get(field, Value("optional"), Value(false));
+      Value value = Core::get(input, name, none);
+      Value missing = Core::is_none(value);
+      if (Core::truthy(missing)) {
+        if (Core::truthy(optional)) {
+          // empty
+        }
+        if (!Core::truthy(optional)) {
+          error = Core::string_format(Value("Required signature input {} was not present"), name);
+        }
+      }
+      if (!Core::truthy(missing)) {
+        Value encoded = Core::json_stringify(value);
+        Value clone = Core::json_parse(encoded);
+        Core::set(out, name, clone);
+      }
+    }
+  }
+  if (!Core::truthy(is_object)) {
+    error = Value("Mapped event input must be an object");
+  }
+  Value failed = Core::is_not_none(error);
+  Core::set(result, Value("ok"), Value(true));
+  Core::set(result, Value("value"), out);
+  if (Core::truthy(failed)) {
+    Core::set(result, Value("ok"), Value(false));
+    Core::set(result, Value("error"), error);
+  }
+  return result;
+}
+
 Value Core::event_continuation_match(Value continuations, Value identity_scope, Value kind, Value value, Value now) {
   axir_coverage_mark("event_continuation_match");
   Value result = Core::none();
@@ -18464,6 +18631,45 @@ Value Core::event_delivery_due(Value status, Value available_at, Value now) {
   Value ready = Core::lte(available_at, now);
   Value due = Core::and_(queued, ready);
   return due;
+}
+
+Value Core::event_strict_delivery_eligible(Value candidate, Value deliveries) {
+  axir_coverage_mark("event_strict_delivery_eligible");
+  Value ordering = Core::get(candidate, Value("ordering"), Value("strict"));
+  Value strict = Core::eq(ordering, Value("strict"));
+  Value eligible = Value(true);
+  if (Core::truthy(strict)) {
+    Value candidate_sequence = Core::get(candidate, Value("sequence"), Value(0));
+    Value candidate_target = Core::get(candidate, Value("targetId"), Value(""));
+    Value candidate_instance = Core::get(candidate, Value("instanceKey"), Value(""));
+    Value terminal = Value::array();
+    Core::append(terminal, Value("succeeded"));
+    Core::append(terminal, Value("failed"));
+    Core::append(terminal, Value("cancelled"));
+    Core::append(terminal, Value("dead_lettered"));
+    Core::append(terminal, Value("output_persistence_failed"));
+    Core::append(terminal, Value("outcome_unknown"));
+    Core::append(terminal, Value("waiting_event"));
+    Core::append(terminal, Value("coalesced"));
+    for (auto delivery : Core::iter(deliveries)) {
+      Value sequence = Core::get(delivery, Value("sequence"), Value(0));
+      Value earlier = Core::lt(sequence, candidate_sequence);
+      Value target = Core::get(delivery, Value("targetId"), Value(""));
+      Value instance = Core::get(delivery, Value("instanceKey"), Value(""));
+      Value same_target = Core::eq(target, candidate_target);
+      Value same_instance = Core::eq(instance, candidate_instance);
+      Value same_queue = Core::and_(same_target, same_instance);
+      Value status = Core::get(delivery, Value("status"), Value("queued"));
+      Value is_terminal = Core::contains(terminal, status);
+      Value nonterminal = Core::not_(is_terminal);
+      Value predecessor = Core::and_(earlier, same_queue);
+      Value blocking = Core::and_(predecessor, nonterminal);
+      if (Core::truthy(blocking)) {
+        eligible = Value(false);
+      }
+    }
+  }
+  return eligible;
 }
 
 Value Core::event_capacity_transition(Value pending, Value queued_bytes, Value envelope_bytes, Value max_pending, Value max_queued_bytes, Value max_envelope_bytes) {

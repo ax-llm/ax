@@ -322,6 +322,50 @@ module @ax.event version "0.1" {
     }
   }
 
+  op ax.event.semantic @event_normalize_input {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axevent"
+    type signature = "(input:json, signature_fields:list<json>) -> json"
+    body @entry(%input: json, %signature_fields: list<json>) {
+      %none = core.call intrinsic.none()
+      %out = core.map
+      %result = core.map
+      %error = core.let %none
+      %is_object = core.type_is %input type "object"
+      core.if %is_object {
+        core.for %field in %signature_fields {
+          %name = core.get %field["name"] default ""
+          %optional = core.get %field["optional"] default false
+          %value = core.get %input[%name] default %none
+          %missing = core.call intrinsic.is_none(%value)
+          core.if %missing {
+            core.if %optional {
+            } else {
+              %error = core.call intrinsic.string.format("Required signature input {} was not present", %name)
+            }
+          } else {
+            %encoded = core.call intrinsic.json.stringify(%value)
+            %clone = core.call intrinsic.json.parse(%encoded)
+            core.set %out[%name] = %clone
+          }
+        }
+      } else {
+        %error = core.let "Mapped event input must be an object"
+      }
+      %failed = core.call intrinsic.is_not_none(%error)
+      core.set %result["ok"] = true
+      core.set %result["value"] = %out
+      core.if %failed {
+        core.set %result["ok"] = false
+        core.set %result["error"] = %error
+      }
+      core.return %result
+    }
+  }
+
   op ax.event.semantic @event_continuation_match {
     attr body_source = "core"
     attr core_kind = "func"
@@ -372,6 +416,52 @@ module @ax.event version "0.1" {
       %ready = core.call intrinsic.lte(%available_at, %now)
       %due = core.call intrinsic.and(%queued, %ready)
       core.return %due
+    }
+  }
+
+  op ax.event.semantic @event_strict_delivery_eligible {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axevent"
+    type signature = "(candidate:json, deliveries:list<json>) -> bool"
+    body @entry(%candidate: json, %deliveries: list<json>) {
+      %ordering = core.get %candidate["ordering"] default "strict"
+      %strict = core.call intrinsic.eq(%ordering, "strict")
+      %eligible = core.let true
+      core.if %strict {
+        %candidate_sequence = core.get %candidate["sequence"] default 0
+        %candidate_target = core.get %candidate["targetId"] default ""
+        %candidate_instance = core.get %candidate["instanceKey"] default ""
+        %terminal = core.list
+        core.append %terminal, "succeeded"
+        core.append %terminal, "failed"
+        core.append %terminal, "cancelled"
+        core.append %terminal, "dead_lettered"
+        core.append %terminal, "output_persistence_failed"
+        core.append %terminal, "outcome_unknown"
+        core.append %terminal, "waiting_event"
+        core.append %terminal, "coalesced"
+        core.for %delivery in %deliveries {
+          %sequence = core.get %delivery["sequence"] default 0
+          %earlier = core.call intrinsic.lt(%sequence, %candidate_sequence)
+          %target = core.get %delivery["targetId"] default ""
+          %instance = core.get %delivery["instanceKey"] default ""
+          %same_target = core.call intrinsic.eq(%target, %candidate_target)
+          %same_instance = core.call intrinsic.eq(%instance, %candidate_instance)
+          %same_queue = core.call intrinsic.and(%same_target, %same_instance)
+          %status = core.get %delivery["status"] default "queued"
+          %is_terminal = core.call intrinsic.contains(%terminal, %status)
+          %nonterminal = core.call intrinsic.not(%is_terminal)
+          %predecessor = core.call intrinsic.and(%earlier, %same_queue)
+          %blocking = core.call intrinsic.and(%predecessor, %nonterminal)
+          core.if %blocking {
+            %eligible = core.let false
+          }
+        }
+      }
+      core.return %eligible
     }
   }
 

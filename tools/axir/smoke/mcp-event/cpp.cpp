@@ -29,6 +29,10 @@ int main() {
     if (display(Core::get(message, "method", "")) == "notifications/progress") mark(progress);
   });
   client->init();
+  auto catalog = client->inspect_catalog();
+  if (Core::iter(catalog.resources).size() != 2 || Core::iter(catalog.resource_templates).size() != 1) {
+    throw std::runtime_error("MCP catalog discovery failed");
+  }
   auto task_result = client->call_tool("start_reindex", object({{"scope", "all"}}));
   auto task_id = display(Core::get(Core::get(task_result, "task", Value::object()), "taskId", ""));
 
@@ -53,7 +57,7 @@ int main() {
   };
   AxEventRuntime runtime(routes);
   runtime.register_target(std::move(resource_target)).register_target(std::move(task_target));
-  runtime.add_source(std::make_shared<AxMCPEventSource>(client, "inventory", "tenant:smoke", "authenticated", std::vector<std::string>{"demo://inventory"}));
+  runtime.add_source(std::make_shared<AxMCPEventSource>(client, "inventory", "tenant:smoke", "authenticated", AxMCPResourceSubscriptionPolicy::all()));
   runtime.start();
   AxEventEnvelope started;
   started.id = "task-start";

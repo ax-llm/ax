@@ -20,6 +20,11 @@ public final class NativeMCPToolsExample {
     AxGen program = new AxGen(Ax.s("request:string -> answer:string"), Map.of("mcp", mcp));
     OpenAICompatibleClient llm = new OpenAICompatibleClient(Map.of("api_key", key, "model", "gpt-5.4-mini"));
     try {
+      AxMCPClient.CatalogSnapshot catalog = mcp.inspectCatalog();
+      System.out.println(Json.stringify(Map.of(
+          "tools", catalog.tools().stream().map(tool -> tool.get("name")).toList(),
+          "resources", catalog.resources(),
+          "resourceTemplates", catalog.resourceTemplates())));
       System.out.println(Json.stringify(program.forward(llm, Map.of("request", "Reindex inventory."))));
     } finally {
       mcp.close();

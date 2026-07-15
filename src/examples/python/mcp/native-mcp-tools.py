@@ -24,6 +24,15 @@ program = ax(
     {"mcp": mcp},
 )
 try:
+    catalog = mcp.inspect_catalog()
+    print({
+        "tools": [tool["name"] for tool in catalog["tools"]],
+        "resources": [
+            {"name": resource["name"], "uri": resource["uri"]}
+            for resource in catalog["resources"]
+        ],
+        "resourceTemplates": catalog["resourceTemplates"],
+    })
     print(program.forward(llm, {"request": "Reindex inventory."}))
 finally:
     mcp.close()

@@ -23,6 +23,10 @@ The client negotiates capabilities once and Ax maps native tool definitions at e
 
 `AxMCPEventSource` converts protocol notifications into normal event ingress. A notification is durable before acknowledgement when the configured store supports it. Nothing wakes a model until an explicit authenticated route selects `wake`.
 
+The endpoint is only the address. `inspectCatalog()` discovers server-owned
+resource names and URIs, while an explicit none/all/URI/selector policy decides
+what the source maintains. See [MCP Subscriptions]({{langRoot}}/concepts/mcp-subscriptions/) for catalog selection, URI templates, ownership, reconnect, and troubleshooting.
+
 {{mcpResourceWakeExample}}
 
 MCP sessions do not establish application tenant identity. Supply identity from the OAuth-token or account mapping. Unmapped notifications remain anonymous and cannot match routes requiring authentication.
@@ -47,4 +51,4 @@ Transport listeners are supervised and nonblocking. Reconnect restores logical s
 - Do not blindly replay an uncertain post-side-effect failure.
 - Use recording/replay or a sandbox for optimization and evaluation.
 
-See [Event Runtime]({{langRoot}}/concepts/event-runtime/), [Tools]({{langRoot}}/concepts/tools/), [ax() generation]({{langRoot}}/subsystems/ax/), and [agent() agents]({{langRoot}}/subsystems/agent/).
+See [MCP Subscriptions]({{langRoot}}/concepts/mcp-subscriptions/), [Event Runtime]({{langRoot}}/concepts/event-runtime/), [Tools]({{langRoot}}/concepts/tools/), [ax() generation]({{langRoot}}/subsystems/ax/), and [agent() agents]({{langRoot}}/subsystems/agent/).

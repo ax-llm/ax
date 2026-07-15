@@ -40,7 +40,7 @@ func main() {
 		panic(err)
 	}
 	client := ax.NewAxMCPClient(transport, map[string]ax.Value{"namespace": "inventory"})
-	source := ax.NewAxMCPEventSource(client, "inventory", "tenant:demo", "authenticated", []string{"demo://inventory"})
+	source := ax.NewAxMCPEventSourceWithPolicy(client, "inventory", "tenant:demo", "authenticated", ax.AxMCPSubscribeAll())
 	agent := ax.NewAgent("uri:string -> summary:string", map[string]ax.Value{"runtime": ax.Object("language", "JavaScript")})
 	llm := ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": key, "model": "gpt-5.4-mini"})
 	done := make(chan struct{}, 1)

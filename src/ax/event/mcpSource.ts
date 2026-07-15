@@ -1,4 +1,9 @@
-import type { AxMCPClient, AxMCPClientEvent } from '../mcp/client.js';
+import type {
+  AxMCPCatalogSnapshot,
+  AxMCPClient,
+  AxMCPClientEvent,
+} from '../mcp/client.js';
+import type { AxMCPResource } from '../mcp/types.js';
 import { eventRoute } from './runtime.js';
 import type {
   AxEventIdentity,
@@ -17,9 +22,22 @@ export interface AxMCPEventSourceIdentity {
   trust?: AxEventTrust;
 }
 
+export type AxMCPResourceSubscriptionPolicy =
+  | 'none'
+  | 'all'
+  | readonly string[]
+  | {
+      select: (
+        resource: Readonly<AxMCPResource>,
+        catalog: Readonly<AxMCPCatalogSnapshot>
+      ) => boolean;
+    };
+
 export interface AxMCPEventSourceOptions {
   id?: string;
   client: AxMCPClient;
+  resourceSubscriptions?: AxMCPResourceSubscriptionPolicy;
+  /** @deprecated Use resourceSubscriptions with an explicit URI array. */
   resources?: readonly string[];
   identity?: Readonly<AxEventIdentity>;
   trust?: AxEventTrust;
@@ -37,10 +55,21 @@ export interface AxMCPEventSourceOptions {
 export class AxMCPEventSource implements AxEventSource {
   readonly id: string;
   readonly requiresDurable: boolean;
+  private readonly subscriptionOwner: string;
+  private readonly selectedSubscriptions = new Set<string>();
 
   constructor(private readonly options: Readonly<AxMCPEventSourceOptions>) {
+    if (
+      options.resourceSubscriptions !== undefined &&
+      options.resources !== undefined
+    ) {
+      throw new Error(
+        'Specify either resourceSubscriptions or the deprecated resources alias, not both'
+      );
+    }
     this.id = options.id ?? `mcp:${options.client.getNamespace()}`;
     this.requiresDurable = options.requiresDurable ?? true;
+    this.subscriptionOwner = axEventId(`mcp-source-${this.id}`);
   }
 
   async start(
@@ -50,20 +79,26 @@ export class AxMCPEventSource implements AxEventSource {
     const unsubscribeEvents = this.options.client.subscribeEvents((event) => {
       pending = pending
         .then(async () => {
+          if (
+            (event.type === 'catalog_changed' &&
+              event.catalog === 'resources') ||
+            (event.type === 'lifecycle' && event.state === 'reconnected')
+          ) {
+            try {
+              await this.reconcileSubscriptions(context);
+            } catch (error) {
+              context.reportError(error);
+            }
+          }
           const ingress = await this.toIngress(event);
           await context.publish(ingress, context.signal);
         })
         .catch((error) => context.reportError(error));
       return pending;
     });
-    const previouslySubscribed = new Set(
-      this.options.client.getResourceSubscriptions()
-    );
     try {
       await this.options.client.init();
-      for (const uri of this.options.resources ?? []) {
-        await this.options.client.subscribeResource(uri);
-      }
+      await this.reconcileSubscriptions(context);
       const listening = await this.options.client.startListening({
         signal: context.signal,
         retryDelayMs: this.options.reconnectDelayMs,
@@ -75,18 +110,96 @@ export class AxMCPEventSource implements AxEventSource {
           await listening.close();
           await pending;
           if (this.options.unsubscribeOnClose !== false) {
-            for (const uri of this.options.resources ?? []) {
-              if (!previouslySubscribed.has(uri)) {
-                await this.options.client.unsubscribeResource(uri);
-              }
-            }
+            await this.releaseSubscriptions(context);
           }
         },
       };
     } catch (error) {
       unsubscribeEvents();
+      await this.releaseSubscriptions(context);
       throw error;
     }
+  }
+
+  private getSubscriptionPolicy(): AxMCPResourceSubscriptionPolicy {
+    return (
+      this.options.resourceSubscriptions ?? this.options.resources ?? 'none'
+    );
+  }
+
+  private async reconcileSubscriptions(
+    context: Readonly<AxEventSourceContext>
+  ): Promise<void> {
+    const policy = this.getSubscriptionPolicy();
+    const catalog = await this.options.client.inspectCatalog();
+    if (policy !== 'none' && !supportsResourceSubscriptions(catalog)) {
+      throw new Error(
+        `MCP server ${catalog.namespace} does not advertise resource subscriptions`
+      );
+    }
+
+    let desired: readonly string[];
+    try {
+      desired = selectResourceSubscriptions(policy, catalog);
+    } catch (error) {
+      context.reportError(error);
+      return;
+    }
+
+    const desiredSet = new Set(desired);
+    const errors: unknown[] = [];
+    for (const uri of [...this.selectedSubscriptions]
+      .filter((uri) => !desiredSet.has(uri))
+      .sort()) {
+      try {
+        await this.options.client.releaseResourceSubscription(
+          uri,
+          this.subscriptionOwner
+        );
+        this.selectedSubscriptions.delete(uri);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    for (const uri of [...desiredSet]
+      .filter((uri) => !this.selectedSubscriptions.has(uri))
+      .sort()) {
+      try {
+        await this.options.client.acquireResourceSubscription(
+          uri,
+          this.subscriptionOwner
+        );
+        this.selectedSubscriptions.add(uri);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length > 0) {
+      context.reportError(
+        new AggregateError(
+          errors,
+          `Failed to reconcile ${errors.length} MCP resource subscription transition(s)`
+        )
+      );
+    }
+  }
+
+  private async releaseSubscriptions(
+    context: Readonly<AxEventSourceContext>
+  ): Promise<void> {
+    const errors: unknown[] = [];
+    for (const uri of [...this.selectedSubscriptions].sort()) {
+      try {
+        await this.options.client.releaseResourceSubscription(
+          uri,
+          this.subscriptionOwner
+        );
+        this.selectedSubscriptions.delete(uri);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    for (const error of errors) context.reportError(error);
   }
 
   private async toIngress(
@@ -224,6 +337,13 @@ function normalizeMCPEvent(
         correlation: [{ kind: 'mcp.task', value: taskKey }],
       };
     }
+    case 'lifecycle':
+      return {
+        type: 'mcp.lifecycle',
+        subject: event.state,
+        partitionKey: `${namespace}:lifecycle`,
+        data: toEventValue({ namespace, state: event.state }),
+      };
     case 'notification':
       return {
         type: 'mcp.notification',
@@ -236,6 +356,36 @@ function normalizeMCPEvent(
         }),
       };
   }
+}
+
+export function selectResourceSubscriptions(
+  policy: AxMCPResourceSubscriptionPolicy,
+  catalog: Readonly<AxMCPCatalogSnapshot>
+): readonly string[] {
+  const selected =
+    policy === 'none'
+      ? []
+      : policy === 'all'
+        ? catalog.resources.map((resource) => resource.uri)
+        : isExplicitResourceList(policy)
+          ? policy
+          : catalog.resources
+              .filter((resource) => policy.select(resource, catalog))
+              .map((resource) => resource.uri);
+  return [...new Set(selected)].sort();
+}
+
+function supportsResourceSubscriptions(
+  catalog: Readonly<AxMCPCatalogSnapshot>
+): boolean {
+  const capability = catalog.serverCapabilities.resources;
+  return Boolean(capability?.subscribe);
+}
+
+function isExplicitResourceList(
+  policy: AxMCPResourceSubscriptionPolicy
+): policy is readonly string[] {
+  return Array.isArray(policy);
 }
 
 function toEventValue(value: unknown): AxEventValue {

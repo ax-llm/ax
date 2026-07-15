@@ -35060,23 +35060,6 @@ func mcp_execution_context_descriptor(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func mcp_protocol_constants(args ...Value) (Value, error) {
-	axirCoverageMark("mcp_protocol_constants")
-	var v_out Value
-	var v_versions Value
-	_ = v_out
-	_ = v_versions
-	v_versions = MutableArray()
-	v_versions = coreAppend(v_versions, "2025-11-25")
-	v_versions = coreAppend(v_versions, "2025-06-18")
-	v_versions = coreAppend(v_versions, "2025-03-26")
-	v_versions = coreAppend(v_versions, "2024-11-05")
-	v_out = Object()
-	if err := coreSet(v_out, "protocolVersion", "2025-11-25"); err != nil { return nil, err }
-	if err := coreSet(v_out, "supportedProtocolVersions", v_versions); err != nil { return nil, err }
-	return v_out, nil
-}
-
 func event_runtime_descriptor(args ...Value) (Value, error) {
 	axirCoverageMark("event_runtime_descriptor")
 	var v_routes Value
@@ -35110,31 +35093,20 @@ func event_runtime_descriptor(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func mcp_jsonrpc_request(args ...Value) (Value, error) {
-	axirCoverageMark("mcp_jsonrpc_request")
-	var v_id Value
-	var v_method Value
-	var v_params Value
-	var v_missing Value
+func mcp_protocol_constants(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_protocol_constants")
 	var v_out Value
-	if len(args) > 0 { v_id = args[0] }
-	_ = v_id
-	if len(args) > 1 { v_method = args[1] }
-	_ = v_method
-	if len(args) > 2 { v_params = args[2] }
-	_ = v_params
-	_ = v_missing
+	var v_versions Value
 	_ = v_out
+	_ = v_versions
+	v_versions = MutableArray()
+	v_versions = coreAppend(v_versions, "2025-11-25")
+	v_versions = coreAppend(v_versions, "2025-06-18")
+	v_versions = coreAppend(v_versions, "2025-03-26")
+	v_versions = coreAppend(v_versions, "2024-11-05")
 	v_out = Object()
-	if err := coreSet(v_out, "jsonrpc", "2.0"); err != nil { return nil, err }
-	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_out, "method", v_method); err != nil { return nil, err }
-	v_missing = _core_is_none(v_params)
-	if coreTruthy(v_missing) {
-	// empty
-	} else {
-		if err := coreSet(v_out, "params", v_params); err != nil { return nil, err }
-	}
+	if err := coreSet(v_out, "protocolVersion", "2025-11-25"); err != nil { return nil, err }
+	if err := coreSet(v_out, "supportedProtocolVersions", v_versions); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -35262,6 +35234,34 @@ func event_route_commands(args ...Value) (Value, error) {
 		}
 	}
 	return v_commands, nil
+}
+
+func mcp_jsonrpc_request(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_jsonrpc_request")
+	var v_id Value
+	var v_method Value
+	var v_params Value
+	var v_missing Value
+	var v_out Value
+	if len(args) > 0 { v_id = args[0] }
+	_ = v_id
+	if len(args) > 1 { v_method = args[1] }
+	_ = v_method
+	if len(args) > 2 { v_params = args[2] }
+	_ = v_params
+	_ = v_missing
+	_ = v_out
+	v_out = Object()
+	if err := coreSet(v_out, "jsonrpc", "2.0"); err != nil { return nil, err }
+	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "method", v_method); err != nil { return nil, err }
+	v_missing = _core_is_none(v_params)
+	if coreTruthy(v_missing) {
+	// empty
+	} else {
+		if err := coreSet(v_out, "params", v_params); err != nil { return nil, err }
+	}
+	return v_out, nil
 }
 
 func mcp_jsonrpc_notification(args ...Value) (Value, error) {
@@ -35515,6 +35515,131 @@ func event_resolve_path(args ...Value) (Value, error) {
 	return v_current, nil
 }
 
+func mcp_resource_subscription_selection(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_resource_subscription_selection")
+	var v_resources Value
+	var v_mode Value
+	var v_explicit_uris Value
+	var v_duplicate Value
+	var v_empty Value
+	var v_is_all Value
+	var v_is_explicit Value
+	var v_is_selector Value
+	var v_resource Value
+	var v_selected Value
+	var v_skip Value
+	var v_uri Value
+	var v_uses_resources Value
+	if len(args) > 0 { v_resources = args[0] }
+	_ = v_resources
+	if len(args) > 1 { v_mode = args[1] }
+	_ = v_mode
+	if len(args) > 2 { v_explicit_uris = args[2] }
+	_ = v_explicit_uris
+	_ = v_duplicate
+	_ = v_empty
+	_ = v_is_all
+	_ = v_is_explicit
+	_ = v_is_selector
+	_ = v_resource
+	_ = v_selected
+	_ = v_skip
+	_ = v_uri
+	_ = v_uses_resources
+	v_selected = MutableArray()
+	v_is_explicit = _core_eq(v_mode, "explicit")
+	if coreTruthy(v_is_explicit) {
+		for _, v_uri = range coreIter(v_explicit_uris) {
+			v_empty = _core_eq(v_uri, "")
+			v_duplicate = _core_contains(v_selected, v_uri)
+			v_skip = _core_or(v_empty, v_duplicate)
+			if coreTruthy(v_skip) {
+			// empty
+			} else {
+				v_selected = coreAppend(v_selected, v_uri)
+			}
+		}
+	} else {
+		v_is_all = _core_eq(v_mode, "all")
+		v_is_selector = _core_eq(v_mode, "selector")
+		v_uses_resources = _core_or(v_is_all, v_is_selector)
+		if coreTruthy(v_uses_resources) {
+			for _, v_resource = range coreIter(v_resources) {
+				v_uri = coreGet(v_resource, "uri", "")
+				v_empty = _core_eq(v_uri, "")
+				v_duplicate = _core_contains(v_selected, v_uri)
+				v_skip = _core_or(v_empty, v_duplicate)
+				if coreTruthy(v_skip) {
+				// empty
+				} else {
+					v_selected = coreAppend(v_selected, v_uri)
+				}
+			}
+		} else {
+		// empty
+		}
+	}
+	return v_selected, nil
+}
+
+func mcp_resource_subscription_plan(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_resource_subscription_plan")
+	var v_desired Value
+	var v_current Value
+	var v_additions Value
+	var v_duplicate Value
+	var v_out Value
+	var v_owned Value
+	var v_removals Value
+	var v_selected Value
+	var v_uri Value
+	var v_wanted Value
+	if len(args) > 0 { v_desired = args[0] }
+	_ = v_desired
+	if len(args) > 1 { v_current = args[1] }
+	_ = v_current
+	_ = v_additions
+	_ = v_duplicate
+	_ = v_out
+	_ = v_owned
+	_ = v_removals
+	_ = v_selected
+	_ = v_uri
+	_ = v_wanted
+	v_selected = MutableArray()
+	for _, v_uri = range coreIter(v_desired) {
+		v_duplicate = _core_contains(v_selected, v_uri)
+		if coreTruthy(v_duplicate) {
+		// empty
+		} else {
+			v_selected = coreAppend(v_selected, v_uri)
+		}
+	}
+	v_additions = MutableArray()
+	for _, v_uri = range coreIter(v_selected) {
+		v_owned = _core_contains(v_current, v_uri)
+		if coreTruthy(v_owned) {
+		// empty
+		} else {
+			v_additions = coreAppend(v_additions, v_uri)
+		}
+	}
+	v_removals = MutableArray()
+	for _, v_uri = range coreIter(v_current) {
+		v_wanted = _core_contains(v_selected, v_uri)
+		if coreTruthy(v_wanted) {
+		// empty
+		} else {
+			v_removals = coreAppend(v_removals, v_uri)
+		}
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "selected", v_selected); err != nil { return nil, err }
+	if err := coreSet(v_out, "additions", v_additions); err != nil { return nil, err }
+	if err := coreSet(v_out, "removals", v_removals); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func event_map_input(args ...Value) (Value, error) {
 	axirCoverageMark("event_map_input")
 	var v_ingress Value
@@ -35633,6 +35758,158 @@ func event_map_input(args ...Value) (Value, error) {
 	return v_result, nil
 }
 
+func mcp_resource_subscription_ownership(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_resource_subscription_ownership")
+	var v_owners Value
+	var v_owner Value
+	var v_operation Value
+	var v_before Value
+	var v_current Value
+	var v_has_owner Value
+	var v_is_acquire Value
+	var v_matches Value
+	var v_now_empty Value
+	var v_out Value
+	var v_out_owners Value
+	var v_remaining Value
+	var v_was_empty Value
+	if len(args) > 0 { v_owners = args[0] }
+	_ = v_owners
+	if len(args) > 1 { v_owner = args[1] }
+	_ = v_owner
+	if len(args) > 2 { v_operation = args[2] }
+	_ = v_operation
+	_ = v_before
+	_ = v_current
+	_ = v_has_owner
+	_ = v_is_acquire
+	_ = v_matches
+	_ = v_now_empty
+	_ = v_out
+	_ = v_out_owners
+	_ = v_remaining
+	_ = v_was_empty
+	v_out_owners = MutableArray()
+	v_out = Object()
+	if err := coreSet(v_out, "wireAction", "none"); err != nil { return nil, err }
+	if err := coreSet(v_out, "changed", false); err != nil { return nil, err }
+	v_has_owner = _core_contains(v_owners, v_owner)
+	v_is_acquire = _core_eq(v_operation, "acquire")
+	if coreTruthy(v_is_acquire) {
+		for _, v_current = range coreIter(v_owners) {
+			v_out_owners = coreAppend(v_out_owners, v_current)
+		}
+		if coreTruthy(v_has_owner) {
+		// empty
+		} else {
+			v_before = _core_len(v_owners)
+			v_was_empty = _core_eq(v_before, 0)
+			if coreTruthy(v_was_empty) {
+				if err := coreSet(v_out, "wireAction", "subscribe"); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_out_owners = coreAppend(v_out_owners, v_owner)
+			if err := coreSet(v_out, "changed", true); err != nil { return nil, err }
+		}
+	} else {
+		for _, v_current = range coreIter(v_owners) {
+			v_matches = _core_eq(v_current, v_owner)
+			if coreTruthy(v_matches) {
+			// empty
+			} else {
+				v_out_owners = coreAppend(v_out_owners, v_current)
+			}
+		}
+		if coreTruthy(v_has_owner) {
+			v_remaining = _core_len(v_out_owners)
+			v_now_empty = _core_eq(v_remaining, 0)
+			if coreTruthy(v_now_empty) {
+				if err := coreSet(v_out, "wireAction", "unsubscribe"); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			if err := coreSet(v_out, "changed", true); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	if err := coreSet(v_out, "owners", v_out_owners); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func event_normalize_input(args ...Value) (Value, error) {
+	axirCoverageMark("event_normalize_input")
+	var v_input Value
+	var v_signature_fields Value
+	var v_clone Value
+	var v_encoded Value
+	var v_error Value
+	var v_failed Value
+	var v_field Value
+	var v_is_object Value
+	var v_missing Value
+	var v_name Value
+	var v_none Value
+	var v_optional Value
+	var v_out Value
+	var v_result Value
+	var v_value Value
+	if len(args) > 0 { v_input = args[0] }
+	_ = v_input
+	if len(args) > 1 { v_signature_fields = args[1] }
+	_ = v_signature_fields
+	_ = v_clone
+	_ = v_encoded
+	_ = v_error
+	_ = v_failed
+	_ = v_field
+	_ = v_is_object
+	_ = v_missing
+	_ = v_name
+	_ = v_none
+	_ = v_optional
+	_ = v_out
+	_ = v_result
+	_ = v_value
+	v_none = _core_none()
+	v_out = Object()
+	v_result = Object()
+	v_error = v_none
+	v_is_object = coreTypeIs(v_input, "object")
+	if coreTruthy(v_is_object) {
+		for _, v_field = range coreIter(v_signature_fields) {
+			v_name = coreGet(v_field, "name", "")
+			v_optional = coreGet(v_field, "optional", false)
+			v_value = coreGet(v_input, v_name, v_none)
+			v_missing = _core_is_none(v_value)
+			if coreTruthy(v_missing) {
+				if coreTruthy(v_optional) {
+				// empty
+				} else {
+					v_error = _core_string_format("Required signature input {} was not present", v_name)
+				}
+			} else {
+				v_encoded = _core_json_stringify(v_value)
+				{ v, err := _core_json_parse(v_encoded); if err != nil { return nil, err }; v_clone = v }
+				if err := coreSet(v_out, v_name, v_clone); err != nil { return nil, err }
+			}
+		}
+	} else {
+		v_error = "Mapped event input must be an object"
+	}
+	v_failed = _core_is_not_none(v_error)
+	if err := coreSet(v_result, "ok", true); err != nil { return nil, err }
+	if err := coreSet(v_result, "value", v_out); err != nil { return nil, err }
+	if coreTruthy(v_failed) {
+		if err := coreSet(v_result, "ok", false); err != nil { return nil, err }
+		if err := coreSet(v_result, "error", v_error); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_result, nil
+}
+
 func event_continuation_match(args ...Value) (Value, error) {
 	axirCoverageMark("event_continuation_match")
 	var v_continuations Value
@@ -35737,6 +36014,95 @@ func event_delivery_due(args ...Value) (Value, error) {
 	v_ready = _core_lte(v_available_at, v_now)
 	v_due = _core_and(v_queued, v_ready)
 	return v_due, nil
+}
+
+func event_strict_delivery_eligible(args ...Value) (Value, error) {
+	axirCoverageMark("event_strict_delivery_eligible")
+	var v_candidate Value
+	var v_deliveries Value
+	var v_blocking Value
+	var v_candidate_instance Value
+	var v_candidate_sequence Value
+	var v_candidate_target Value
+	var v_delivery Value
+	var v_earlier Value
+	var v_eligible Value
+	var v_instance Value
+	var v_is_terminal Value
+	var v_nonterminal Value
+	var v_ordering Value
+	var v_predecessor Value
+	var v_same_instance Value
+	var v_same_queue Value
+	var v_same_target Value
+	var v_sequence Value
+	var v_status Value
+	var v_strict Value
+	var v_target Value
+	var v_terminal Value
+	if len(args) > 0 { v_candidate = args[0] }
+	_ = v_candidate
+	if len(args) > 1 { v_deliveries = args[1] }
+	_ = v_deliveries
+	_ = v_blocking
+	_ = v_candidate_instance
+	_ = v_candidate_sequence
+	_ = v_candidate_target
+	_ = v_delivery
+	_ = v_earlier
+	_ = v_eligible
+	_ = v_instance
+	_ = v_is_terminal
+	_ = v_nonterminal
+	_ = v_ordering
+	_ = v_predecessor
+	_ = v_same_instance
+	_ = v_same_queue
+	_ = v_same_target
+	_ = v_sequence
+	_ = v_status
+	_ = v_strict
+	_ = v_target
+	_ = v_terminal
+	v_ordering = coreGet(v_candidate, "ordering", "strict")
+	v_strict = _core_eq(v_ordering, "strict")
+	v_eligible = true
+	if coreTruthy(v_strict) {
+		v_candidate_sequence = coreGet(v_candidate, "sequence", 0)
+		v_candidate_target = coreGet(v_candidate, "targetId", "")
+		v_candidate_instance = coreGet(v_candidate, "instanceKey", "")
+		v_terminal = MutableArray()
+		v_terminal = coreAppend(v_terminal, "succeeded")
+		v_terminal = coreAppend(v_terminal, "failed")
+		v_terminal = coreAppend(v_terminal, "cancelled")
+		v_terminal = coreAppend(v_terminal, "dead_lettered")
+		v_terminal = coreAppend(v_terminal, "output_persistence_failed")
+		v_terminal = coreAppend(v_terminal, "outcome_unknown")
+		v_terminal = coreAppend(v_terminal, "waiting_event")
+		v_terminal = coreAppend(v_terminal, "coalesced")
+		for _, v_delivery = range coreIter(v_deliveries) {
+			v_sequence = coreGet(v_delivery, "sequence", 0)
+			v_earlier = _core_lt(v_sequence, v_candidate_sequence)
+			v_target = coreGet(v_delivery, "targetId", "")
+			v_instance = coreGet(v_delivery, "instanceKey", "")
+			v_same_target = _core_eq(v_target, v_candidate_target)
+			v_same_instance = _core_eq(v_instance, v_candidate_instance)
+			v_same_queue = _core_and(v_same_target, v_same_instance)
+			v_status = coreGet(v_delivery, "status", "queued")
+			v_is_terminal = _core_contains(v_terminal, v_status)
+			v_nonterminal = _core_not(v_is_terminal)
+			v_predecessor = _core_and(v_earlier, v_same_queue)
+			v_blocking = _core_and(v_predecessor, v_nonterminal)
+			if coreTruthy(v_blocking) {
+				v_eligible = false
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	return v_eligible, nil
 }
 
 func event_capacity_transition(args ...Value) (Value, error) {
@@ -40824,6 +41190,7 @@ func runConformanceEvent(fixture map[string]Value) {
 
 		makeEvent:=func(id,eventType string,data Value,correlation []map[string]string)AxEventEnvelope{return AxEventEnvelope{SpecVersion:"1.0",ID:id,Source:"test://axevent",Type:eventType,Data:data,Correlation:correlation}}
 		retryCalls:=0;retryClock:=NewAxManualEventClock(1_000);retryRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"retry-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.retry"}},TargetID:"retry-target",Ordering:"strict"}},map[string]Value{"clock":retryClock,"retryBackoffMs":int64(500)});retryRuntime.RegisterTarget(AxEventTarget{ID:"retry-target",RetrySafety:"idempotent",Invoke:func(_ Value,_ map[string]Value)(Value,error){retryCalls++;if retryCalls==1{return nil,fmt.Errorf("retry once")};return map[string]Value{"attempt":retryCalls},nil}});_ = retryRuntime.Start();_,_ = retryRuntime.Publish(makeEvent("retry-1","event.retry",map[string]Value{},nil),"anonymous","untrusted");retryRun:=retryRuntime.GetRun("run:retry-route:retry-1:1");assertEqual([]Value{retryRun.Attempt,retryRun.Status,*retryRuntime.NextDueAt()},[]Value{1,"queued",int64(1_500)},"event delayed retry");retryClock.Advance(500);retryRuntime.RunDue();assertEqual([]Value{retryRun.Attempt,retryRun.Status},[]Value{2,"succeeded"},"event retry dispatch")
+		strictCalls:=[]string{};strictClock:=NewAxManualEventClock(1_000);strictRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"strict-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.strict"}},TargetID:"strict-target",Ordering:"strict"}},map[string]Value{"clock":strictClock,"retryBackoffMs":int64(500)});strictRuntime.RegisterTarget(AxEventTarget{ID:"strict-target",RetrySafety:"idempotent",Invoke:func(value Value,_ map[string]Value)(Value,error){name:=display(coreGet(value,"name",""));strictCalls=append(strictCalls,name);if name=="first"&&len(strictCalls)==1{return nil,fmt.Errorf("retry first")};return value,nil}});_=strictRuntime.Start();_,_=strictRuntime.Publish(makeEvent("strict-1","event.strict",map[string]Value{"name":"first"},nil),"anonymous","untrusted");_,_=strictRuntime.Publish(makeEvent("strict-2","event.strict",map[string]Value{"name":"second"},nil),"anonymous","untrusted");assertEqual(strictCalls,[]string{"first"},"event strict ordering while retry waits");strictClock.Advance(500);strictRuntime.RunDue();assertEqual(strictCalls,[]string{"first","first","second"},"event strict retry release ordering")
 		debounceClock:=NewAxManualEventClock(2_000);debounceValues:=[]Value{};debounceRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"debounce-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.debounce"}},TargetID:"debounce-target",Ordering:"strict",DebounceMs:250}},map[string]Value{"clock":debounceClock});debounceRuntime.RegisterTarget(AxEventTarget{ID:"debounce-target",Invoke:func(value Value,_ map[string]Value)(Value,error){debounceValues=append(debounceValues,value);return value,nil}});_ = debounceRuntime.Start();_,_=debounceRuntime.Publish(makeEvent("debounce-1","event.debounce",map[string]Value{"revision":1},nil),"anonymous","untrusted");_,_=debounceRuntime.Publish(makeEvent("debounce-2","event.debounce",map[string]Value{"revision":2},nil),"anonymous","untrusted");assertEqual([]Value{debounceValues,*debounceRuntime.NextDueAt()},[]Value{[]Value{},int64(2_250)},"event debounce scheduling");debounceClock.Advance(250);debounceRuntime.RunDue();assertEqual(debounceValues,[]Value{map[string]Value{"revision":2}},"event latest-value coalescing")
 		capacityRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"capacity-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.capacity"}},TargetID:"debounce-target",Ordering:"strict"}},map[string]Value{"maxEnvelopeBytes":int64(16)});capacityRuntime.RegisterTarget(AxEventTarget{ID:"debounce-target",Invoke:func(value Value,_ map[string]Value)(Value,error){return value,nil}});_=capacityRuntime.Start();_,capacityErr:=capacityRuntime.Publish(makeEvent("capacity-1","event.capacity",map[string]Value{"payload":"too-large"},nil),"anonymous","untrusted");if capacityErr==nil{panic(AxError{Category:"fixture",Message:"event envelope backpressure was not enforced"})}
 
@@ -40836,7 +41203,10 @@ func runConformanceEvent(fixture map[string]Value) {
 		continuationCalls:=0;continuationRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"continuation-wake",Action:"wake",Match:map[string]Value{"types":[]Value{"event.continuation.start"}},TargetID:"continuation-target",Ordering:"strict"},{ID:"continuation-resume",Action:"resume",Match:map[string]Value{"types":[]Value{"event.continuation.done"}},Ordering:"strict"}},nil);continuationRuntime.RegisterTarget(AxEventTarget{ID:"continuation-target",WaitFor:[]map[string]Value{{"kind":"job","value":"job"}},Invoke:func(value Value,_ map[string]Value)(Value,error){continuationCalls++;return value,nil}});_ = continuationRuntime.Start();_,_ = continuationRuntime.Publish(makeEvent("continuation-1","event.continuation.start",map[string]Value{"job":"job-1"},nil),"tenant:test","authenticated");_,_ = continuationRuntime.Publish(makeEvent("continuation-2","event.continuation.done",map[string]Value{"job":"job-1"},[]map[string]string{{"kind":"job","value":"job-1"}}),"tenant:test","authenticated");assertEqual(continuationCalls,2,"event continuation resume")
 
 		mcpTransport:=NewAxMCPScriptedTransport([]Value{map[string]Value{"method":"initialize","result":map[string]Value{"protocolVersion":"2025-11-25","capabilities":map[string]Value{"resources":map[string]Value{"subscribe":true}}}}});mcpClient:=NewAxMCPClient(mcpTransport,map[string]Value{"namespace":"inventory"});lifecycleCalls:=0;mcpClient.AddLifecycleListener(func(string){lifecycleCalls++});mcpCalls:=0;mcpSource:=NewAxMCPEventSource(mcpClient,"inventory","tenant:test","authenticated",[]string{"demo://inventory"});mcpRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"mcp-wake",Action:"wake",Match:map[string]Value{"types":[]Value{"mcp.resource.updated"}},TargetID:"mcp-target",RequireAuthenticated:true,Ordering:"strict"}},nil);mcpRuntime.RegisterTarget(AxEventTarget{ID:"mcp-target",Invoke:func(value Value,_ map[string]Value)(Value,error){mcpCalls++;return value,nil}});mcpRuntime.AddSource(mcpSource);_ = mcpRuntime.Start();mcpTransport.Emit(map[string]Value{"jsonrpc":"2.0","method":"notifications/resources/updated","params":map[string]Value{"uri":"demo://inventory"}});mcpClient.EmitLifecycle("reconnected");_ = mcpRuntime.Close();mcpTransport.Emit(map[string]Value{"jsonrpc":"2.0","method":"notifications/resources/updated","params":map[string]Value{"uri":"demo://inventory"}});subscribeCalls:=0;for _,request:=range mcpTransport.Requests{if request["method"]=="resources/subscribe"{subscribeCalls++}};assertEqual([]Value{mcpCalls,lifecycleCalls,subscribeCalls},[]Value{1,1,2},"MCP listener composition and resubscription")
+		ownership:=asMap(mustCore(mcp_resource_subscription_ownership([]string{},"source-a","acquire")));ownership=asMap(mustCore(mcp_resource_subscription_ownership(ownership["owners"],"source-b","acquire")));ownership=asMap(mustCore(mcp_resource_subscription_ownership(ownership["owners"],"source-a","release")));assertEqual(ownership,map[string]Value{"owners":[]Value{"source-b"},"wireAction":"none","changed":true},"MCP subscription ownership transition")
+		selectionResources:=[]Value{map[string]Value{"uri":"demo://b"},map[string]Value{"uri":"demo://a"},map[string]Value{"uri":"demo://b"},map[string]Value{"uri":""}};assertEqual([]Value{mustCore(mcp_resource_subscription_selection(selectionResources,"all",[]string{})),mustCore(mcp_resource_subscription_selection([]Value{},"explicit",[]string{"demo://x","demo://y","demo://x"})),mustCore(mcp_resource_subscription_selection([]Value{selectionResources[1]},"selector",[]string{}))},[]Value{[]Value{"demo://b","demo://a"},[]Value{"demo://x","demo://y"},[]Value{"demo://a"}},"MCP subscription selection modes")
 		mappedInputs:=[]Value{};mappedTarget,err:=EventTarget("mapped-target").Signature(NewSignature("url:string, revision:number -> ok:boolean")).Invoke(func(value Value,_ map[string]Value)(Value,error){mappedInputs=append(mappedInputs,value);return value,nil}).WakeInput(func(input *AxEventInputBuilder){input.Field("url",EventData("uri")).Field("revision",EventData("revision"))}).Build();if err!=nil{panic(err)};mappedRoute,err:=EventRoute("mapped-route").Types("event.mapped").InstanceKey(EventData("uri")).Wake(mappedTarget).Build();if err!=nil{panic(err)};mappedRuntime,_:=NewAxEventRuntime([]AxEventRoute{mappedRoute},nil);mappedRuntime.RegisterTarget(mappedTarget);_ = mappedRuntime.Start();_,_ = mappedRuntime.Publish(makeEvent("mapped-1","event.mapped",map[string]Value{"uri":"demo://one","revision":2},nil),"anonymous","untrusted");_,_ = mappedRuntime.Publish(makeEvent("mapped-2","event.mapped",map[string]Value{"uri":"demo://two","revision":"bad"},nil),"anonymous","untrusted");assertEqual([]Value{mappedInputs,len(mappedRuntime.ListDeadLetters())},[]Value{[]Value{map[string]Value{"url":"demo://one","revision":2}},1},"signature-aware event mapping")
+		callbackInputs:=[]Value{};callbackSignature:=NewSignature("url:string -> ok:boolean");callbackRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"callback-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.callback"}},TargetID:"callback-target",Ordering:"strict"}},nil);callbackRuntime.RegisterTarget(AxEventTarget{ID:"callback-target",Signature:&callbackSignature,MapInput:func(event AxEventEnvelope,_ *AxEventContinuation)(Value,error){return map[string]Value{"url":coreGet(event.Data,"uri",""),"secret":"drop-me"},nil},Invoke:func(value Value,_ map[string]Value)(Value,error){callbackInputs=append(callbackInputs,value);return value,nil}});_=callbackRuntime.Start();_,_=callbackRuntime.Publish(makeEvent("callback-1","event.callback",map[string]Value{"uri":"demo://callback"},nil),"anonymous","untrusted");assertEqual(callbackInputs,[]Value{map[string]Value{"url":"demo://callback"}},"event callback signature normalization")
 	default: panic(AxError{Category:"fixture",Message:"unsupported event operation "+operation})
 	}
 }

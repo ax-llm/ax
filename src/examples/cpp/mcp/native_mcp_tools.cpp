@@ -23,6 +23,10 @@ int main() {
   auto program = axllm::ax("request:string -> answer:string");
   context.attach(program);
   axllm::OpenAICompatibleClient llm(axllm::object({{"api_key", key}, {"model", "gpt-5.4-mini"}}));
+  auto catalog = mcp->inspect_catalog();
+  std::cout << "MCP catalog: " << axllm::Core::iter(catalog.tools).size() << " tools, "
+            << axllm::Core::iter(catalog.resources).size() << " resources, "
+            << axllm::Core::iter(catalog.resource_templates).size() << " templates\n";
   std::cout << axllm::stringify(program.forward(llm, axllm::object({{"request", "Reindex inventory."}}))) << "\n";
   mcp->close();
 }

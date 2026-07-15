@@ -29,6 +29,13 @@ fn main() -> AxResult<()> {
         json!({"namespace":"inventory"}),
     )));
     let context = AxExecutionContext::new(vec![mcp.clone()], vec![])?;
+    let catalog = mcp.lock().unwrap().inspect_catalog(false)?;
+    println!(
+        "MCP catalog: {} tools, {} resources, {} templates",
+        catalog.tools.len(),
+        catalog.resources.len(),
+        catalog.resource_templates.len()
+    );
     let mut program = ax("request:string -> answer:string")?.with_execution_context(context)?;
     let mut llm = OpenAICompatibleClient::new(key, "gpt-5.4-mini");
     println!(

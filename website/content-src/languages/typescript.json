@@ -474,6 +474,7 @@
         "sourcePath": "src/examples/typescript/mcp/native-mcp-tools.ts",
         "code": [
           "const mcp = new AxMCPClient(",
+          "  const catalog = await mcp.inspectCatalog();",
           "const program = ax(",
           "await program.forward(llm, { taskRequest: 'Reindex inventory.' })"
         ]
@@ -481,6 +482,8 @@
       "resourceWake": {
         "sourcePath": "src/examples/typescript/mcp/resource-wake-agent.ts",
         "code": [
+          "    new AxMCPEventSource({",
+          "      resourceSubscriptions: 'all',",
           "const target = eventTarget('inventory-agent')",
           "  .program(program)",
           "  .ai(llm)",

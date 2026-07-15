@@ -1,6 +1,6 @@
 use axllm::{
     AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventTarget, AxMCPClient, AxMCPEventSource,
-    AxMCPStreamableHTTPTransport, AxResult,
+    AxMCPResourceSubscriptionPolicy, AxMCPStreamableHTTPTransport, AxResult,
 };
 use serde_json::{json, Map, Value};
 use std::env;
@@ -41,6 +41,10 @@ fn main() -> AxResult<()> {
             }
         });
     client.lock().unwrap().init()?;
+    let catalog = client.lock().unwrap().inspect_catalog(false)?;
+    if catalog.resources.len() != 2 || catalog.resource_templates.len() != 1 {
+        panic!("MCP catalog discovery failed");
+    }
     let task = client
         .lock()
         .unwrap()
@@ -120,13 +124,13 @@ fn main() -> AxResult<()> {
     runtime_value.register_target(task_target);
     runtime_value.start()?;
     let runtime = Arc::new(Mutex::new(runtime_value));
-    let mut source = AxMCPEventSource::new(
+    let mut source = AxMCPEventSource::with_policy(
         client.clone(),
         runtime.clone(),
         "inventory",
         "tenant:smoke",
         "authenticated",
-        vec!["demo://inventory".into()],
+        AxMCPResourceSubscriptionPolicy::All,
     );
     source.start()?;
     runtime.lock().unwrap().publish(

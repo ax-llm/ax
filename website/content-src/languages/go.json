@@ -116,6 +116,7 @@
         "sourcePath": "src/examples/go/mcp/native_mcp_tools.go",
         "code": [
           "mcp := ax.NewAxMCPClient(transport, map[string]ax.Value{\"namespace\": \"inventory\"})",
+          "catalog, err := mcp.InspectCatalog(false)",
           "defer func() { _ = mcp.Close() }()",
           "program := ax.NewAx(\"request:string -> answer:string\", map[string]ax.Value{\"mcp\": mcp})"
         ]
@@ -123,7 +124,7 @@
       "resourceWake": {
         "sourcePath": "src/examples/go/mcp/resource_wake_agent.go",
         "code": [
-          "source := ax.NewAxMCPEventSource(client, \"inventory\", \"tenant:demo\", \"authenticated\", []string{\"demo://inventory\"})",
+          "source := ax.NewAxMCPEventSourceWithPolicy(client, \"inventory\", \"tenant:demo\", \"authenticated\", ax.AxMCPSubscribeAll())",
           "runtime.AddSource(source)",
           "if err := runtime.Start(); err != nil {",
           "case <-time.After(60 * time.Second):"

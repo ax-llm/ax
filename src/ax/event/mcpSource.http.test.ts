@@ -52,13 +52,13 @@ afterEach(async () => {
 });
 
 describe('AxMCPEventSource over real localhost Streamable HTTP/SSE', () => {
-  it('wakes an AxAgent, reconnects, restores its subscription, and unsubscribes on close', async () => {
+  it('discovers resources, reconciles catalog changes, wakes an AxAgent, and restores subscriptions', async () => {
     const server = new AxMCPEventDemoServer();
     servers.push(server);
     const client = localClient(await server.start());
     const source = new AxMCPEventSource({
       client,
-      resources: ['demo://inventory'],
+      resourceSubscriptions: 'all',
       identity: { tenantId: 'tenant-a' },
       trust: 'authenticated',
       reconnectDelayMs: 10,
@@ -100,10 +100,38 @@ describe('AxMCPEventSource over real localhost Streamable HTTP/SSE', () => {
 
     try {
       await runtime.start();
+      const catalog = await client.inspectCatalog();
+      expect(catalog.resources.map(({ uri }) => uri).sort()).toEqual([
+        'demo://inventory',
+        'demo://orders',
+      ]);
+      expect(
+        catalog.resourceTemplates.map(({ uriTemplate }) => uriTemplate)
+      ).toEqual(['demo://orders/{orderId}']);
       await server.waitForListeningConnection();
-      await server.waitForSubscriptionCount(1);
+      await Promise.all([
+        server.waitForSubscription('demo://inventory'),
+        server.waitForSubscription('demo://orders'),
+      ]);
+      server.addResource();
+      await server.waitForSubscription('demo://alerts');
+      server.removeResource('demo://orders');
+      await server.waitForUnsubscription('demo://orders');
+      const inventorySubscriptions =
+        server.getSubscriptionCount('demo://inventory');
+      const alertSubscriptions = server.getSubscriptionCount('demo://alerts');
       server.dropListeningConnections();
       await server.waitForListeningConnection();
+      await Promise.all([
+        server.waitForSubscriptionCount(
+          inventorySubscriptions + 1,
+          'demo://inventory'
+        ),
+        server.waitForSubscriptionCount(
+          alertSubscriptions + 1,
+          'demo://alerts'
+        ),
+      ]);
       server.updateResource();
       await waitForDemoSignal(wake, 'real SSE Agent wake');
       expect(outputs).toEqual([{ summary: 'inventory updated' }]);
@@ -112,7 +140,7 @@ describe('AxMCPEventSource over real localhost Streamable HTTP/SSE', () => {
       await client.close();
     }
     expect(server.isSubscribed()).toBe(false);
-  });
+  }, 20_000);
 
   it('observes task progress and resumes an owned AxFlow continuation on terminal status', async () => {
     const server = new AxMCPEventDemoServer();

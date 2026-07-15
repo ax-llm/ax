@@ -507,6 +507,11 @@ const result = await gen.forward(llm, { question }, {
 
 The model receives native tool definitions. Structured, image, audio, resource-link, embedded-resource, metadata, task, and error results are preserved until the provider adapter maps supported content. Streaming keeps MCP progress/task events separate from Ax output. Never call `toFunction()` for native integration.
 
+Use `client.inspectCatalog()` when an endpoint is the only configuration. It
+discovers server-owned tool/prompt names, concrete resource URIs, and URI
+templates. Event sources require an explicit none/all/URI/selector resource
+subscription policy and never create a wake route implicitly.
+
 Under an event target, a required task-backed MCP tool registers the owning
 `namespace:taskId` continuation automatically. Use `AxMCPEventSource` plus
 `axMCPEventRoutes` to observe progress and resume the target on

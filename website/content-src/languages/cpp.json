@@ -124,6 +124,7 @@
         "sourcePath": "src/examples/cpp/mcp/native_mcp_tools.cpp",
         "code": [
           "auto mcp = std::make_shared<axllm::AxMCPClient>(transport, axllm::object({{\"namespace\", \"inventory\"}}));",
+          "  auto catalog = mcp->inspect_catalog();",
           "axllm::AxExecutionContext context({mcp});",
           "context.attach(program);",
           "  mcp->close();"
@@ -132,7 +133,7 @@
       "resourceWake": {
         "sourcePath": "src/examples/cpp/mcp/resource_wake_agent.cpp",
         "code": [
-          "auto source=std::make_shared<axllm::AxMCPEventSource>(client,\"inventory\",\"tenant:demo\",\"authenticated\",std::vector<std::string>{\"demo://inventory\"});",
+          "auto source=std::make_shared<axllm::AxMCPEventSource>(client,\"inventory\",\"tenant:demo\",\"authenticated\",axllm::AxMCPResourceSubscriptionPolicy::all());",
           "runtime.register_target(std::move(target)).add_source(source).start();",
           "if(!changed.wait_for(lock,std::chrono::seconds(60),[&]{return complete;}))throw std::runtime_error(\"Timed out waiting for an MCP resource notification\");"
         ]

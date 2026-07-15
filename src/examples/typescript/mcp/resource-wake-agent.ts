@@ -67,7 +67,7 @@ const runtime = eventRuntime({
   sources: [
     new AxMCPEventSource({
       client: mcp,
-      resources: ['demo://inventory'],
+      resourceSubscriptions: 'all',
       identity: { tenantId: 'demo' },
       trust: 'authenticated',
     }),

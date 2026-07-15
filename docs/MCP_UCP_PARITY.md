@@ -12,9 +12,10 @@ The target is MCP `2025-11-25`, the current official extensions, and UCP
 Evidence packs apply to every row in their area in addition to the row-specific
 source/test cell:
 
-- MCP and Ax integration: `docs/MCP_UCP.md`; `ax-ai`, `ax-gen`, `ax-agent`,
-  `ax-flow`, and `ax-agent-optimize` skills; native tools, resource-wake, and
-  task-resume public examples.
+- MCP and Ax integration: `docs/MCP_UCP.md`, `docs/MCP_SUBSCRIPTIONS.md`;
+  `ax-ai`, `ax-gen`, `ax-agent`, `ax-flow`, `ax-mcp`, and
+  `ax-agent-optimize` skills; native tools, resource-wake, and task-resume
+  public examples.
 - Event runtime: `docs/EVENT_RUNTIME.md`; `ax-event-runtime` skill; generic
   wake/state/sink examples plus MCP and UCP wake/resume examples.
 - UCP: the UCP section of `docs/MCP_UCP.md`; `ax-event-runtime`, `ax-agent`, and
@@ -49,10 +50,13 @@ source/test cell:
 | Content | Provider-specific multimodal tool-result mapping | Implemented | native Anthropic, Gemini, and OpenAI Responses mappings plus adapter-local OpenAI Chat degradation |
 | Prompts | list/get, pagination, arguments, change notification | Implemented | client discovery and notification tests |
 | Resources | list/read/templates/subscriptions/updates | Implemented | client APIs, runtime modules, and tests |
+| Resources | Catalog snapshot discovery and refresh | Implemented | `AxMCPClient.inspectCatalog()`, bounded list pagination, deep-clone isolation tests, and all six native MCP examples |
+| Resources | Managed explicit/all/selector subscriptions | Implemented | `AxMCPEventSource.resourceSubscriptions`, template exclusion, dynamic catalog-diff tests, and `docs/MCP_SUBSCRIPTIONS.md` |
+| Resources | Shared-client logical subscription ownership | Implemented | first-owner/last-owner Core transition, manual/event-source/continuation owner tests, close ordering, and five generated lifecycle runners |
 | Events | Composable notifications without replacing application callbacks | Implemented | `AxMCPClient.subscribeEvents` and `event/mcpSource.test.ts` |
 | Events | Explicit resource notification to Agent wake | Implemented | `AxMCPEventSource`, authenticated route test, and `mcp-resource-wake-agent.ts` |
 | Events | Task progress observe and terminal continuation resume | Implemented | automatic task correlation, default MCP routes, and `mcp-task-resume-flow.ts` |
-| Events | Listening reconnect and logical resubscription | Implemented | nonblocking listening handle and listener-failure recovery test |
+| Events | Listening reconnect and logical resubscription | Implemented | nonblocking listening handle, exact-once reconnect restoration tests, and real localhost HTTP/SSE six-language smoke |
 | Event durability | Volatile single-worker inbox | Implemented | `AxInMemoryEventStore` capability contract and deterministic tests |
 | Event durability | Persistent cooperating-process store | Implemented | Node-only `AxSQLiteEventStore`, WAL transactions, leases, fencing, retention, and conformance test |
 | Event durability | Multi-worker capability negotiation | Implemented | runtime startup rejects stores without the `axevent-store-v1` conformance marker |
@@ -107,8 +111,8 @@ source/test cell:
 | Languages | Python, Java, C++, Go, Rust native raw MCP bindings | Implemented | generator templates, committed packages, and five-target conformance fixture |
 | Languages | Full shared execution context and UCP parity | Implemented | AxIR declares `AxExecutionContext`, continuation state, `AxUCPBinding`, profile/outcome semantics, and `AxUCPClient`; generated Python/Java/C++/Go/Rust packages compile and pass `execution-context-ucp.json` |
 | Languages | Signature-aware event input mapping | Implemented | `event_map_input` and path descriptors in `ir/axcore/event.axir`, `axevent/mapping.json`, TypeScript fluent mapping tests, generated idiomatic path/input/target/route builders, and five generated lifecycle runners proving pre-invocation type rejection |
-| Languages | Event runtime lifecycle baseline | Implemented | Python, Java, C++, Go, and Rust advertise `axevent.single-worker` and `axevent-lifecycle-dispatch`; `axevent/lifecycle.json` proves host-driven due scheduling, deterministic clocks, debounce/coalescing, retry delay, continuation expiry, cancellation, dead letters, redrive, state restoration, backpressure limits, and output-before-sink ordering in all five runners. |
-| Languages | MCP event source wake/resume baseline | Implemented | `npm run test:mcp-events:generated` drives every generated `AxMCPEventSource` through real localhost Streamable HTTP/SSE resource wake, task progress and terminal resume, reconnect, and logical resubscription. |
+| Languages | Event runtime lifecycle baseline | Implemented | All five generated lifecycle runners prove automatic dispatch, strict delayed-retry ordering, signature-normalized input, continuations, cancellation, backpressure, output-before-sink ordering, and redrive; `npm run test:axir` passes release verification. |
+| Languages | MCP event source wake/resume and subscription discovery | Implemented | Five generated lifecycle runners prove explicit/all/selector planning and ownership; the real localhost HTTP/SSE matrix for Python, Java, C++, Go, and Rust proves discovery, dynamic list changes, reconnect/resubscribe, Agent wake, task progress, Flow resume, and close cleanup. |
 
 ## Completion gates
 

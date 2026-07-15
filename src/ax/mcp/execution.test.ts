@@ -368,6 +368,10 @@ describe('native MCP execution', () => {
 
     expect(restored.calls).toContain('tasks/get');
     expect(restored.calls).toContain('resources/subscribe');
+    await restored.client.unsubscribeResource('file:///watched');
+    expect(restored.client.getResourceSubscriptions()).toEqual([
+      'file:///watched',
+    ]);
     const other = new AxMCPClient(
       {
         send: async (request) => ({

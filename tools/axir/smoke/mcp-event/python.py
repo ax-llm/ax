@@ -26,6 +26,9 @@ transport = AxMCPStreamableHTTPTransport(
     },
 )
 client = AxMCPClient(transport, {"namespace": "inventory"})
+catalog = client.inspect_catalog()
+if len(catalog["resources"]) != 2 or len(catalog["resourceTemplates"]) != 1:
+    raise RuntimeError(f"MCP catalog discovery failed: {catalog}")
 
 condition = threading.Condition()
 state = {"resource": 0, "task": 0, "progress": 0}
@@ -64,7 +67,7 @@ source = AxMCPEventSource(
     "inventory",
     identity_scope="tenant:smoke",
     trust="authenticated",
-    subscriptions=["demo://inventory"],
+    resource_subscriptions="all",
 )
 runtime = AxEventRuntime(
     [

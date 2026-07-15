@@ -15,8 +15,13 @@ export type {
   AxMCPDefaultEventRoutesOptions,
   AxMCPEventSourceIdentity,
   AxMCPEventSourceOptions,
+  AxMCPResourceSubscriptionPolicy,
 } from './mcpSource.js';
-export { AxMCPEventSource, axMCPEventRoutes } from './mcpSource.js';
+export {
+  AxMCPEventSource,
+  axMCPEventRoutes,
+  selectResourceSubscriptions,
+} from './mcpSource.js';
 export type { AxInMemoryEventStoreOptions } from './memoryStore.js';
 export {
   AxInMemoryEventStore,

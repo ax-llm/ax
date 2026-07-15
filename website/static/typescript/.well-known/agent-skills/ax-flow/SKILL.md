@@ -1,7 +1,7 @@
 ---
 name: ax-flow
 description: This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.
-version: "23.0.0"
+version: "23.0.1"
 ---
 
 # AxFlow Codegen Rules (@ax-llm/ax)
@@ -453,6 +453,11 @@ cancellation semantics.
 Task-backed MCP tools called by a Flow node register a continuation on the
 shared event context. `axMCPEventRoutes` observes progress and resumes the Flow
 on input-required or terminal task notifications.
+
+For resource-driven wake, discover the endpoint with `inspectCatalog()` and
+give `AxMCPEventSource` an explicit `resourceSubscriptions` policy. Managed
+subscriptions reconcile list changes and reconnect separately from the Flow;
+subscription alone never starts or resumes a Flow.
 
 UCP lifecycle webhooks use the same continuation boundary through
 `AxUCPWebhookEventSource`. Correlate on `ucp.checkout` or `ucp.order` only after

@@ -119,13 +119,30 @@ async function runSmoke(
   try {
     await Promise.all([
       waitForOutput(child, () => stdout.includes('AX_MCP_SMOKE_READY')),
-      server.waitForSubscription(),
+      server.waitForSubscription('demo://inventory'),
+      server.waitForSubscription('demo://orders'),
       server.waitForListeningConnection(),
     ]);
-    const priorSubscriptions = server.getSubscriptionCount();
+    server.addResource();
+    await server.waitForSubscription('demo://alerts');
+    server.removeResource('demo://orders');
+    await server.waitForUnsubscription('demo://orders');
+    const priorInventorySubscriptions =
+      server.getSubscriptionCount('demo://inventory');
+    const priorAlertSubscriptions =
+      server.getSubscriptionCount('demo://alerts');
     server.dropListeningConnections();
     await server.waitForListeningConnection();
-    await server.waitForSubscriptionCount(priorSubscriptions + 1);
+    await Promise.all([
+      server.waitForSubscriptionCount(
+        priorInventorySubscriptions + 1,
+        'demo://inventory'
+      ),
+      server.waitForSubscriptionCount(
+        priorAlertSubscriptions + 1,
+        'demo://alerts'
+      ),
+    ]);
     server.updateResource();
     const taskId = await server.waitForTask();
     server.completeTask(taskId);

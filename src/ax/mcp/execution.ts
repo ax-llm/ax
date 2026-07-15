@@ -47,6 +47,8 @@ export type AxMCPResolvedContext =
       result: AxMCPResourceReadResult;
     };
 
+let mcpExecutionContextSequence = 0;
+
 export async function axResolveMCPExecutionContext(
   options: Readonly<{
     mcp?: AxMCPClient | readonly AxMCPClient[];
@@ -93,6 +95,8 @@ export async function axResolveMCPExecutionContext(
 export class AxMCPExecutionContext {
   private readonly clientsByNamespace = new Map<string, AxMCPClient>();
   private readonly ucpClientsByNamespace = new Map<string, AxUCPClient>();
+  private readonly continuationSubscriptionOwner =
+    `continuation:${++mcpExecutionContextSequence}`;
 
   constructor(
     clients: AxMCPClient | readonly AxMCPClient[],
@@ -265,7 +269,10 @@ export class AxMCPExecutionContext {
       }
       for (const uri of saved.subscriptions) {
         try {
-          await client.subscribeResource(uri);
+          await client.acquireResourceSubscription(
+            uri,
+            this.continuationSubscriptionOwner
+          );
         } catch (error) {
           throw new Error(
             `Failed to restore MCP subscription ${saved.namespace}:${uri}`,

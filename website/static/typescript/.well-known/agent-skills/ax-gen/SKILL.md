@@ -1,7 +1,7 @@
 ---
 name: ax-gen
 description: This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.
-version: "23.0.0"
+version: "23.0.1"
 ---
 
 # AxGen Codegen Rules (@ax-llm/ax)
@@ -506,6 +506,11 @@ const result = await gen.forward(llm, { question }, {
 ```
 
 The model receives native tool definitions. Structured, image, audio, resource-link, embedded-resource, metadata, task, and error results are preserved until the provider adapter maps supported content. Streaming keeps MCP progress/task events separate from Ax output. Never call `toFunction()` for native integration.
+
+Use `client.inspectCatalog()` when an endpoint is the only configuration. It
+discovers server-owned tool/prompt names, concrete resource URIs, and URI
+templates. Event sources require an explicit none/all/URI/selector resource
+subscription policy and never create a wake route implicitly.
 
 Under an event target, a required task-backed MCP tool registers the owning
 `namespace:taskId` continuation automatically. Use `AxMCPEventSource` plus

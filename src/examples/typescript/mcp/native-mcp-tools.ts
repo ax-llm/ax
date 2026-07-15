@@ -39,6 +39,14 @@ const program = ax(
 );
 
 try {
+  const catalog = await mcp.inspectCatalog();
+  console.log({
+    tools: catalog.tools.map(({ name }) => name),
+    resources: catalog.resources.map(({ name, uri }) => ({ name, uri })),
+    resourceTemplates: catalog.resourceTemplates.map(
+      ({ name, uriTemplate }) => ({ name, uriTemplate })
+    ),
+  });
   console.log(
     await program.forward(llm, { taskRequest: 'Reindex inventory.' })
   );

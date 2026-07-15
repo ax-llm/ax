@@ -19,6 +19,8 @@ export interface AxMCPListeningOptions {
   signal?: AbortSignal;
 }
 
+export type AxMCPTransportLifecycleState = 'reconnected';
+
 export interface AxMCPTransport {
   /** Indicates whether optimizer/evaluation use can cause live side effects. */
   readonly evaluationMode?: 'live' | 'record' | 'replay' | 'sandbox';
@@ -60,6 +62,11 @@ export interface AxMCPTransport {
    */
   setMessageHandler?(
     handler: (message: Readonly<AxMCPJSONRPCMessage>) => void | Promise<void>
+  ): void;
+
+  /** Registers transport lifecycle events that require client-level recovery. */
+  setLifecycleHandler?(
+    handler: (state: AxMCPTransportLifecycleState) => void | Promise<void>
   ): void;
 
   /**

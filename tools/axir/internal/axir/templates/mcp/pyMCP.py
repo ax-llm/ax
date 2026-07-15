@@ -67,6 +67,8 @@ def _core_add(left, right): return left + right
 def _core_len(value): return len(value or [])
 def _core_contains(container, item): return False if container is None else item in container
 def _core_none(): return None
+def _core_json_stringify(value): return json.dumps(value, separators=(",", ":"), sort_keys=True)
+def _core_json_parse(value): return json.loads(value)
 
 
 def _core_string_format(template, *args):
@@ -345,8 +347,13 @@ def _event_map_target_input(target, event, continuation, action, identity_scope,
         if not result.get("ok"): raise AxEventInputError(str(result.get("error") or "Event input mapping failed"))
         mapped = result["value"]
     if target.signature is not None:
-        if not isinstance(mapped, dict): raise AxEventInputError("Mapped event input must be an object")
-        for field in target.signature.get_input_fields():
+        signature_fields = target.signature.get_input_fields()
+        descriptors = [{"name": field.name, "optional": field.is_optional} for field in signature_fields]
+        normalized = event_normalize_input(mapped, descriptors)
+        if not normalized.get("ok"):
+            raise AxEventInputError(str(normalized.get("error") or "Event input normalization failed"))
+        mapped = normalized["value"]
+        for field in signature_fields:
             if field.name not in mapped:
                 if not field.is_optional: raise AxEventInputError(f"Required signature input {field.name} was not present")
                 continue
@@ -621,7 +628,8 @@ class AxEventRuntime:
         processed = 0
         while True:
             due = [(key, value) for key, value in self.store.deliveries.items()
-                   if value["status"] == "queued" and value.get("availableAt", 0) <= self.clock.now()]
+                   if value["status"] == "queued" and value.get("availableAt", 0) <= self.clock.now()
+                   and self._strict_delivery_eligible(value)]
             if not due: return processed
             due.sort(key=lambda item: (item[1].get("availableAt", 0), item[1].get("sequence", 0)))
             _, delivery = due[0]
@@ -629,6 +637,18 @@ class AxEventRuntime:
             self._dispatch(delivery["event"], delivery["command"],
                            delivery.get("identityScope", "anonymous"), delivery.get("trust", "untrusted"))
             processed += 1
+
+    def _strict_delivery_eligible(self, candidate):
+        routes = {route.id: route for route in self.routes}
+        def descriptor(delivery):
+            command = delivery["command"]
+            route = routes.get(command.routeId)
+            return {"sequence": delivery.get("sequence", 0),
+                    "targetId": command.targetId or "", "instanceKey": command.instanceKey,
+                    "status": delivery.get("status", "queued"),
+                    "ordering": route.ordering if route is not None else "strict"}
+        return bool(event_strict_delivery_eligible(
+            descriptor(candidate), [descriptor(value) for value in self.store.deliveries.values()]))
 
     def _dispatch(self, event, command, identity_scope, trust="untrusted"):
         delivery_id = f"{command.routeId}:{event.id}"
@@ -852,6 +872,8 @@ class AxMCPClient:
         self.prompts: list[dict[str, Any]] = []
         self.resources: list[dict[str, Any]] = []
         self.resource_templates: list[dict[str, Any]] = []
+        self.catalog_revision = 0
+        self._subscription_owners: dict[str, set[str]] = {}
         self._next_id = 1
         self._notification_listeners: list[Callable[[dict[str, Any]], None]] = []
         self._lifecycle_listeners: list[Callable[[str], None]] = []
@@ -892,17 +914,46 @@ class AxMCPClient:
         self.transport.start_listening()
 
     def close(self) -> None:
+        self._subscription_owners.clear()
+        self._initialized = False
         self.transport.close()
 
     def refresh(self) -> None:
-        self.tools = self.list_tools().get("tools", []) if self._capability("tools") else []
-        self.prompts = self.list_prompts().get("prompts", []) if self._capability("prompts") else []
+        self.tools = self._collect_catalog("tools/list", "tools") if self._capability("tools") else []
+        self.prompts = self._collect_catalog("prompts/list", "prompts") if self._capability("prompts") else []
         if self._capability("resources"):
-            self.resources = self.list_resources().get("resources", [])
-            self.resource_templates = self.list_resource_templates().get("resourceTemplates", [])
+            self.resources = self._collect_catalog("resources/list", "resources")
+            self.resource_templates = self._collect_catalog("resources/templates/list", "resourceTemplates")
         else:
             self.resources = []
             self.resource_templates = []
+        self.catalog_revision += 1
+
+    def _collect_catalog(self, method: str, field: str) -> list[dict[str, Any]]:
+        values: list[dict[str, Any]] = []
+        cursor = None
+        seen: set[str] = set()
+        max_pages = int(self.options.get("maxPaginationPages", 1000))
+        for _page in range(max_pages):
+            result = self._request(method, {"cursor": cursor} if cursor else {})
+            values.extend(json.loads(json.dumps(result.get(field) or [])))
+            cursor = result.get("nextCursor")
+            if not cursor: return values
+            if cursor in seen: raise AxMCPError(f"MCP {method} repeated pagination cursor {cursor}")
+            seen.add(cursor)
+        raise AxMCPError(f"MCP {method} exceeded {max_pages} pagination pages")
+
+    def inspect_catalog(self, *, refresh: bool = False) -> dict[str, Any]:
+        self.init()
+        if refresh: self.refresh()
+        return json.loads(json.dumps({
+            "namespace": self.namespace(), "protocolVersion": self.negotiated_protocol_version,
+            "revision": self.catalog_revision, "serverInfo": self.server_info,
+            "serverCapabilities": self.server_capabilities, "tools": self.tools,
+            "prompts": self.prompts, "resources": self.resources,
+            "resourceTemplates": self.resource_templates,
+            "subscriptions": sorted(self._subscription_owners),
+        }))
 
     def ping(self) -> dict[str, Any]:
         return self._request("ping", {})
@@ -927,10 +978,38 @@ class AxMCPClient:
         return self._request("resources/read", {"uri": uri})
 
     def subscribe_resource(self, uri: str) -> dict[str, Any]:
-        return self._request("resources/subscribe", {"uri": uri})
+        return self.acquire_resource_subscription(uri, "manual")
 
     def unsubscribe_resource(self, uri: str) -> dict[str, Any]:
-        return self._request("resources/unsubscribe", {"uri": uri})
+        return self.release_resource_subscription(uri, "manual")
+
+    def acquire_resource_subscription(self, uri: str, owner: str) -> dict[str, Any]:
+        self._assert_resource_subscriptions()
+        transition = mcp_resource_subscription_ownership(
+            sorted(self._subscription_owners.get(uri, set())), owner, "acquire"
+        )
+        result = self._request("resources/subscribe", {"uri": uri}) if transition["wireAction"] == "subscribe" else {}
+        self._subscription_owners[uri] = set(transition["owners"])
+        return result
+
+    def release_resource_subscription(self, uri: str, owner: str) -> dict[str, Any]:
+        self._assert_resource_subscriptions()
+        transition = mcp_resource_subscription_ownership(
+            sorted(self._subscription_owners.get(uri, set())), owner, "release"
+        )
+        result = self._request("resources/unsubscribe", {"uri": uri}) if transition["wireAction"] == "unsubscribe" else {}
+        if transition["owners"]: self._subscription_owners[uri] = set(transition["owners"])
+        else: self._subscription_owners.pop(uri, None)
+        return result
+
+    def restore_resource_subscriptions(self) -> None:
+        for uri in sorted(self._subscription_owners):
+            self._request("resources/subscribe", {"uri": uri})
+
+    def _assert_resource_subscriptions(self) -> None:
+        resources = self.server_capabilities.get("resources")
+        if not isinstance(resources, dict) or not resources.get("subscribe"):
+            raise AxMCPError("Resource subscriptions are not supported")
 
     def get_task(self, task_id: str) -> dict[str, Any]:
         return self._request("tasks/get", {"taskId": task_id})
@@ -997,6 +1076,8 @@ class AxMCPClient:
         return remove
 
     def emit_lifecycle(self, state: str) -> None:
+        if state == "reconnected":
+            self.restore_resource_subscriptions()
         for listener in list(self._lifecycle_listeners):
             listener(state)
 
@@ -1034,6 +1115,8 @@ class AxMCPClient:
                 "result": {"roots": self.options.get("roots") or []},
             })
             return
+        if method in {"notifications/tools/list_changed", "notifications/prompts/list_changed", "notifications/resources/list_changed"}:
+            self.refresh()
         callback = self.options.get("onNotification")
         if callable(callback):
             callback(message)
@@ -1077,22 +1160,28 @@ class AxMCPEventSource(AxEventSource):
     """Composable MCP notification adapter for AxEventRuntime."""
     def __init__(self, client: AxMCPClient, namespace: str | None = None, *,
                  identity_scope: str = "anonymous", trust: str = "untrusted",
-                 subscriptions: list[str] | None = None):
+                 resource_subscriptions: Any = "none", subscriptions: list[str] | None = None):
+        if subscriptions is not None and resource_subscriptions != "none":
+            raise ValueError("Specify either resource_subscriptions or subscriptions, not both")
         self.client = client; self.namespace = namespace or client.namespace()
         self.identity_scope = identity_scope; self.trust = trust
-        self.subscriptions = list(subscriptions or []); self._publish = None; self._remove = None; self._remove_lifecycle = None
+        self.resource_subscriptions = subscriptions if subscriptions is not None else resource_subscriptions
+        self.subscriptions: list[str] = []; self.owner = f"event-source:{uuid.uuid4()}"
+        self.errors: list[Exception] = []; self._publish = None; self._remove = None; self._remove_lifecycle = None
 
     def start(self, publish):
         self.client.init()
         self._publish = publish
         self._remove = self.client.add_notification_listener(self._on_notification)
         self._remove_lifecycle = self.client.add_lifecycle_listener(
-            lambda state: self.reconnect() if state == "reconnected" else None)
-        for uri in self.subscriptions: self.client.subscribe_resource(uri)
+            lambda state: self._reconcile() if state == "reconnected" else None)
+        self._reconcile()
         return self
 
     def _on_notification(self, message):
         if not self._publish or "method" not in message: return
+        if message.get("method") == "notifications/resources/list_changed":
+            self._reconcile()
         normalized = event_normalize_mcp(self.namespace, str(message["method"]), message.get("params") or {})
         raw_correlation = normalized.get("correlation")
         correlation = [raw_correlation] if isinstance(raw_correlation, dict) else list(raw_correlation or [])
@@ -1106,12 +1195,45 @@ class AxMCPEventSource(AxEventSource):
             identity_scope=self.identity_scope, trust=self.trust)
 
     def reconnect(self):
-        for uri in self.subscriptions: self.client.subscribe_resource(uri)
+        self.client.restore_resource_subscriptions()
+        self._reconcile()
+
+    def _selected_uris(self, catalog):
+        policy = self.resource_subscriptions
+        resources = list(catalog.get("resources") or [])
+        mode = "none"; explicit = []; candidates = []
+        if policy == "all": mode = "all"; candidates = resources
+        elif isinstance(policy, (list, tuple)): mode = "explicit"; explicit = [str(uri) for uri in policy]
+        elif policy not in (None, "none"):
+            selector = policy.get("select") if isinstance(policy, dict) else policy
+            if not callable(selector): raise ValueError("Invalid MCP resource subscription policy")
+            mode = "selector"; candidates = [resource for resource in resources if selector(resource, catalog)]
+        return sorted(mcp_resource_subscription_selection(candidates, mode, explicit))
+
+    def _reconcile(self):
+        catalog = self.client.inspect_catalog()
+        policy = self.resource_subscriptions
+        if policy not in (None, "none"):
+            capability = catalog.get("serverCapabilities", {}).get("resources")
+            if not isinstance(capability, dict) or not capability.get("subscribe"):
+                raise AxMCPError(f"MCP server {catalog['namespace']} does not advertise resource subscriptions")
+        try: desired = self._selected_uris(catalog)
+        except Exception as error:
+            self.errors.append(error); return
+        raw = mcp_resource_subscription_plan(desired, self.subscriptions)
+        plan = dict(raw or {})
+        for uri in plan.get("removals") or []:
+            try: self.client.release_resource_subscription(str(uri), self.owner); self.subscriptions.remove(str(uri))
+            except Exception as error: self.errors.append(error)
+        for uri in plan.get("additions") or []:
+            try: self.client.acquire_resource_subscription(str(uri), self.owner); self.subscriptions.append(str(uri)); self.subscriptions.sort()
+            except Exception as error: self.errors.append(error)
 
     def close(self):
         for uri in self.subscriptions:
-            try: self.client.unsubscribe_resource(uri)
+            try: self.client.release_resource_subscription(uri, self.owner)
             except Exception: pass
+        self.subscriptions = []
         if self._remove: self._remove()
         if self._remove_lifecycle: self._remove_lifecycle()
         self._remove = None; self._remove_lifecycle = None; self._publish = None

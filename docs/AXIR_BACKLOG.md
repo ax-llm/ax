@@ -152,17 +152,17 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Status: done
   - Source commit: `9c0520371669a553eed605351fdd5417a734da1f`
   - TS paths: `src/ax/event`
-  - Impact: Generated Python, Java, C++, Go, and Rust currently expose only event normalization and route-command planning. They do not yet run sources, invoke targets, persist outputs, manage continuations, dispatch sinks, cancel runs, expose dead letters, or redrive deliveries, so the axevent.single-worker capability is not yet truthful.
+  - Impact: Generated Python, Java, C++, Go, and Rust now enforce strict same-instance retry ordering and normalize callback/default event input through the destination signature, including cloning accepted values, stripping undeclared fields, and rejecting invalid values before invocation.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-07-14
-  - Completed by: `816e0089acba4dbb46db72dd7029caf710495fd7`
-  - Verification: `npm run test:axir; lifecycle.json passes Python, Java, C++, Go, and Rust`
+  - Completed by: `working-tree`
+  - Verification: `npm run test:axir; five generated axevent lifecycle runners; npm run axir:check-packages`
 - `axir-2026-07-12-port-mcp-event-listening-and-axeventruntime-adapter-semantics` [axmcp] Port MCP event listening and AxEventRuntime adapter semantics
   - Status: done
   - Source commit: `47856347b35aed15f2ec0f7884c235f0868c3f88`
   - TS paths: `src/ax/mcp/client.ts`
-  - Impact: Generated Python, Java, C++, Go, and Rust do not yet expose composable MCP notification listeners, subscription restoration, or an AxMCPEventSource that publishes identity-scoped notifications into a functioning event runtime. Their wake/resume examples manually inspect commands and call program.forward().
+  - Impact: Generated Python, Java, C++, Go, and Rust now expose catalog snapshots, explicit/all/selector subscription policies, logical ownership, dynamic catalog reconciliation, reconnect restoration, and real Streamable HTTP/SSE wake/resume behavior.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-07-14
-  - Completed by: `816e0089acba4dbb46db72dd7029caf710495fd7`
-  - Verification: `npm run test:mcp-events:generated; real localhost Streamable HTTP/SSE wake, task resume, reconnect, and resubscribe pass Python, Java, C++, Go, and Rust`
+  - Completed by: `working-tree`
+  - Verification: `npm run test:axir; node --import=tsx scripts/test-generated-mcp-events.ts --languages=python,java,cpp,go,rust; npm run axir:check-packages`

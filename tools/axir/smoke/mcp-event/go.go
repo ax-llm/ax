@@ -37,6 +37,13 @@ func main() {
 	if err := client.Init(); err != nil {
 		panic(err)
 	}
+	catalog, err := client.InspectCatalog(false)
+	if err != nil {
+		panic(err)
+	}
+	if len(catalog.Resources) != 2 || len(catalog.ResourceTemplates) != 1 {
+		panic(fmt.Sprintf("MCP catalog discovery failed: %#v", catalog))
+	}
 	result, err := client.CallTool("start_reindex", map[string]ax.Value{"scope": "all"})
 	if err != nil {
 		panic(err)
@@ -68,7 +75,7 @@ func main() {
 	}
 	runtime.RegisterTarget(resourceTarget)
 	runtime.RegisterTarget(taskTarget)
-	source := ax.NewAxMCPEventSource(client, "inventory", "tenant:smoke", "authenticated", []string{"demo://inventory"})
+	source := ax.NewAxMCPEventSourceWithPolicy(client, "inventory", "tenant:smoke", "authenticated", ax.AxMCPSubscribeAll())
 	runtime.AddSource(source)
 	if err := runtime.Start(); err != nil {
 		panic(err)

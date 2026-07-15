@@ -117,6 +117,12 @@
           "description": "Connect MCP servers as Ax tools for generation, agents, prompts, resources, and runtime workflows."
         },
         {
+          "slug": "concepts/mcp-subscriptions",
+          "title": "MCP Subscriptions",
+          "template": "concept-mcp-subscriptions",
+          "description": "Discover an MCP endpoint catalog, select resources, maintain subscriptions, and wake or resume Ax programs safely."
+        },
+        {
           "slug": "concepts/event-runtime",
           "title": "Event Runtime",
           "template": "concept-event-runtime",

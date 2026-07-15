@@ -39,20 +39,25 @@ func TestCoreFuncRegistryFromAxCore(t *testing.T) {
 
 	names := CoreFuncNames(specs)
 	for sym, want := range map[string]string{
-		"parse_signature":              "parse_signature",
-		"agent_factory":                "_agent_factory",
-		"forward":                      "_forward_impl",
-		"strip_internal_fields":        "strip_internal",
-		"normalize_token_usage":        "normalize_token_usage",
-		"anthropic_build_chat_request": "_anthropic_build_chat_request",
-		"mcp_protocol_constants":       "mcp_protocol_constants",
-		"event_runtime_descriptor":     "event_runtime_descriptor",
-		"event_retry_transition":       "event_retry_transition",
-		"event_resolve_path":           "event_resolve_path",
-		"event_map_input":              "event_map_input",
-		"event_delivery_due":           "event_delivery_due",
-		"event_capacity_transition":    "event_capacity_transition",
-		"event_debounce_transition":    "event_debounce_transition",
+		"parse_signature":                     "parse_signature",
+		"agent_factory":                       "_agent_factory",
+		"forward":                             "_forward_impl",
+		"strip_internal_fields":               "strip_internal",
+		"normalize_token_usage":               "normalize_token_usage",
+		"anthropic_build_chat_request":        "_anthropic_build_chat_request",
+		"mcp_protocol_constants":              "mcp_protocol_constants",
+		"event_runtime_descriptor":            "event_runtime_descriptor",
+		"event_retry_transition":              "event_retry_transition",
+		"event_resolve_path":                  "event_resolve_path",
+		"event_map_input":                     "event_map_input",
+		"event_normalize_input":               "event_normalize_input",
+		"event_delivery_due":                  "event_delivery_due",
+		"event_strict_delivery_eligible":      "event_strict_delivery_eligible",
+		"event_capacity_transition":           "event_capacity_transition",
+		"event_debounce_transition":           "event_debounce_transition",
+		"mcp_resource_subscription_selection": "mcp_resource_subscription_selection",
+		"mcp_resource_subscription_plan":      "mcp_resource_subscription_plan",
+		"mcp_resource_subscription_ownership": "mcp_resource_subscription_ownership",
 	} {
 		if got := names[sym]; got != want {
 			t.Fatalf("registry name for @%s = %q, want %q", sym, got, want)
@@ -63,8 +68,8 @@ func TestCoreFuncRegistryFromAxCore(t *testing.T) {
 	for _, spec := range specs {
 		byModule[spec.Module]++
 	}
-	if byModule["mcp"] != 17 {
-		t.Fatalf("expected the 17 MCP/UCP/event core functions in the registry, got %d", byModule["mcp"])
+	if byModule["mcp"] != 22 {
+		t.Fatalf("expected the 22 MCP/UCP/event core functions in the registry, got %d", byModule["mcp"])
 	}
 	if byModule[""] != 0 {
 		t.Fatal("registry contains specs without emit_module")

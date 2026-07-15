@@ -1057,6 +1057,63 @@ describe('AxMCPClient', () => {
       );
     });
 
+    it('returns isolated catalog snapshots and refreshes only when requested', async () => {
+      resourcesTransport.sendResponses['resources/list'] = {
+        jsonrpc: '2.0',
+        id: 'resources-list-id',
+        result: {
+          resources: [{ uri: 'demo://a', name: 'a' }],
+        },
+      };
+      resourcesTransport.sendResponses['resources/templates/list'] = {
+        jsonrpc: '2.0',
+        id: 'templates-list-id',
+        result: {
+          resourceTemplates: [
+            { uriTemplate: 'demo://items/{id}', name: 'item' },
+          ],
+        },
+      };
+      const originalSend = resourcesTransport.send.bind(resourcesTransport);
+      resourcesTransport.send = vi.fn((request) => originalSend(request));
+
+      const first = await resourcesEnabledClient.inspectCatalog();
+      expect(first).toMatchObject({
+        namespace: 'mcp',
+        protocolVersion: '2025-11-25',
+        revision: 1,
+        resources: [{ uri: 'demo://a', name: 'a' }],
+        resourceTemplates: [{ uriTemplate: 'demo://items/{id}', name: 'item' }],
+        subscriptions: [],
+      });
+      (first.resources[0] as AxMCPResource).name = 'mutated';
+      const cached = await resourcesEnabledClient.inspectCatalog();
+      expect(cached.resources[0]?.name).toBe('a');
+      expect(
+        vi
+          .mocked(resourcesTransport.send)
+          .mock.calls.filter(([request]) => request.method === 'resources/list')
+      ).toHaveLength(1);
+
+      resourcesTransport.sendResponses['resources/list'] = {
+        jsonrpc: '2.0',
+        id: 'resources-list-id',
+        result: { resources: [{ uri: 'demo://b', name: 'b' }] },
+      };
+      const refreshed = await resourcesEnabledClient.inspectCatalog({
+        refresh: true,
+      });
+      expect(refreshed.revision).toBe(2);
+      expect(refreshed.resources.map((resource) => resource.uri)).toEqual([
+        'demo://b',
+      ]);
+
+      await resourcesEnabledClient.subscribeResource('demo://b');
+      expect(
+        (await resourcesEnabledClient.inspectCatalog()).subscriptions
+      ).toEqual(['demo://b']);
+    });
+
     it('should list resources when capability is enabled', async () => {
       const resources: AxMCPResource[] = [
         {
